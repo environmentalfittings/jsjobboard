@@ -1,0 +1,44 @@
+@import 'tailwindcss';
+
+@theme {
+  --color-qt-bg: #0f1117;
+  --color-qt-panel: #1a1d27;
+  --color-qt-panel2: #22263a;
+  --color-qt-border: #2e3350;
+  --color-qt-green: #22c55e;
+  --color-qt-yellow: #eab308;
+  --color-qt-red: #ef4444;
+  --color-qt-text: #e2e8f0;
+  --color-qt-muted: #7a849e;
+  --color-qt-accent: #4a7eff;
+}
+
+html {
+  color-scheme: dark;
+}
+
+body {
+  margin: 0;
+  min-height: 100vh;
+  background: var(--color-qt-bg);
+  color: var(--color-qt-text);
+  font-family: system-ui, 'Segoe UI', Roboto, sans-serif;
+}
+
+#root {
+  min-height: 100vh;
+}
+
+@keyframes qt-pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.65;
+  }
+}
+
+.qt-late-pulse {
+  animation: qt-pulse 1.2s ease-in-out infinite;
+}

@@ -1,0 +1,110 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Plug Valve ITP | J~S Machine &amp; Valve</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css" crossorigin="anonymous" />
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    :root {
+      --bg: #0f1117; --panel: #1a1d27; --panel2: #22263a; --border: #2e3350;
+      --blue: #4a7eff; --blue-dim: #1e3a6e; --green: #22c55e; --red: #ef4444;
+      --amber: #f59e0b; --text: #e2e8f0; --text-dim: #7a849e; --radius: 8px;
+    }
+    * { box-sizing: border-box; }
+    html, body { margin: 0; min-height: 100%; font-family: Inter, system-ui, sans-serif; background: var(--bg); color: var(--text); }
+    .card { background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius); padding: 1.25rem; }
+    .section-title { border-left: 3px solid var(--blue); padding-left: 0.75rem; margin: 0 0 1rem; font-size: 1.1rem; font-weight: 700; }
+    .pass { color: var(--green); font-weight: 700; }
+    .fail { color: var(--red); font-weight: 700; }
+    .pending { color: var(--amber); font-weight: 600; }
+    input, select, textarea { background: var(--panel2); border: 1px solid var(--border); border-radius: 6px; color: var(--text); padding: 0.45rem 0.6rem; font-size: 0.875rem; }
+    input:disabled, select:disabled, textarea:disabled { opacity: 0.65; cursor: not-allowed; }
+    .btn { display: inline-flex; align-items: center; gap: 0.35rem; padding: 0.5rem 1rem; border-radius: var(--radius); font-weight: 600; font-size: 0.875rem; cursor: pointer; border: none; font-family: inherit; }
+    .btn-primary { background: var(--blue); color: #fff; }
+    .btn-secondary { background: var(--panel2); color: var(--text); border: 1px solid var(--border); }
+    .btn-danger { background: #7f1d1d; color: #fecaca; }
+    table.itp-table { width: 100%; border-collapse: collapse; font-size: 0.8rem; }
+    table.itp-table th, table.itp-table td { border: 1px solid var(--border); padding: 0.4rem 0.5rem; text-align: left; }
+    table.itp-table th { background: var(--panel2); color: var(--text-dim); font-weight: 600; }
+    .keypad-btn { min-width: 3rem; min-height: 3rem; font-size: 1.25rem; font-weight: 700; border-radius: var(--radius); background: var(--panel2); border: 1px solid var(--border); color: var(--text); cursor: pointer; }
+    .admin-section { margin-bottom: 1rem; }
+    .admin-section summary { cursor: pointer; font-weight: 700; padding: 0.5rem 0; color: var(--blue); }
+    .locked-banner { background: rgba(34, 197, 94, 0.15); border: 1px solid var(--green); color: var(--green); padding: 0.75rem 1rem; border-radius: var(--radius); font-weight: 800; text-align: center; margin-bottom: 1rem; }
+    .footer-save { font-size: 0.75rem; color: var(--text-dim); margin-top: 1rem; }
+    [x-cloak] { display: none !important; }
+    .accordion-head { align-items: center; gap: 0.75rem; padding: 0.75rem 0; background: transparent; border: none; color: var(--text); font-size: 1rem; font-weight: 700; cursor: pointer; text-align: left; width: 100%; border-bottom: 1px solid var(--border); }
+    .accordion-head:hover { color: var(--blue); }
+    .sec-badge { font-size: 0.7rem; padding: 0.15rem 0.5rem; border-radius: 999px; font-weight: 700; margin-left: auto; }
+    .badge-complete { background: rgba(34, 197, 94, 0.2); color: var(--green); }
+    .badge-progress { background: rgba(245, 158, 11, 0.2); color: var(--amber); }
+    .badge-empty { background: var(--panel2); color: var(--text-dim); }
+    .qa-row-fail { background: rgba(239, 68, 68, 0.12); }
+    .na-box { opacity: 0.55; pointer-events: none; }
+    @media print {
+      body * { visibility: hidden; }
+      #print-area, #print-area * { visibility: visible; }
+      #print-area { position: absolute; left: 0; top: 0; width: 100%; background: #fff !important; color: #000 !important; }
+      #print-area .card { background: #fff !important; border-color: #ccc !important; color: #000 !important; }
+      #print-area input, #print-area select, #print-area textarea { border: 1px solid #999 !important; background: #fff !important; color: #000 !important; }
+      .print-header { display: block !important; }
+    }
+    .print-header { display: none; }
+  </style>
+</head>
+<body>
+  <div id="app-root" x-data="plugValveItpApp" x-init="init()">
+    <header class="print:hidden flex items-center justify-between px-4 py-3 border-b" style="border-color: var(--border); background: var(--panel);" x-show="user" x-cloak>
+      <div class="font-bold text-lg" style="color: var(--blue);">Plug Valve ITP</div>
+      <div class="flex items-center gap-3">
+        <span class="text-sm" style="color: var(--text-dim);" x-text="user ? (user.initials || user.username || '') : ''"></span>
+        <button type="button" class="btn btn-secondary text-sm" @click="logout()">Logout</button>
+      </div>
+    </header>
+
+    <main class="max-w-lg mx-auto p-6" x-show="!user" x-cloak>
+      <h1 class="text-2xl font-bold mb-2">Plug Valve ITP</h1>
+      <p class="text-sm mb-6" style="color: var(--text-dim);">J~S Machine &amp; Valve — Non-Lubricated Plug Valve</p>
+      <template x-if="loginMode === 'tech'">
+        <div class="card">
+          <p class="text-sm mb-3" style="color: var(--text-dim);">Enter your tech code</p>
+          <div class="text-center text-2xl font-mono tracking-widest mb-4 min-h-[2rem]" x-text="techCodeDisplay"></div>
+          <p class="text-red-400 text-sm mb-2" x-show="loginError" x-text="loginError"></p>
+          <div class="grid grid-cols-3 gap-2 max-w-xs mx-auto">
+            <template x-for="d in ['1','2','3','4','5','6','7','8','9']" :key="d">
+              <button type="button" class="keypad-btn" @click="appendDigit(d)" x-text="d"></button>
+            </template>
+            <button type="button" class="keypad-btn" @click="appendDigit('0')">0</button>
+            <button type="button" class="keypad-btn" @click="backspace()"><i class="fas fa-delete-left"></i></button>
+            <button type="button" class="keypad-btn col-span-1 bg-blue-600 text-white border-blue-500" @click="tryTechLogin()">Enter</button>
+          </div>
+          <p class="text-center mt-4">
+            <button type="button" class="text-sm underline" style="color: var(--text-dim);" @click="loginMode = 'admin'">Admin Login</button>
+          </p>
+        </div>
+      </template>
+      <template x-if="loginMode === 'admin'">
+        <div class="card space-y-3">
+          <button type="button" class="text-sm mb-2" style="color: var(--blue);" @click="loginMode = 'tech'">← Tech login</button>
+          <label class="block text-sm">Username<input type="text" class="w-full mt-1" x-model="adminUser" autocomplete="username" /></label>
+          <label class="block text-sm">Password<input type="password" class="w-full mt-1" x-model="adminPass" autocomplete="current-password" /></label>
+          <p class="text-red-400 text-sm" x-show="loginError" x-text="loginError"></p>
+          <button type="button" class="btn btn-primary w-full" @click="tryAdminLogin()">Sign in</button>
+        </div>
+      </template>
+    </main>
+
+    <div x-show="user" x-cloak class="pb-16">
+      <!--PLUG_BODY-->
+    </div>
+  </div>
+
+  <!--PLUG_SCRIPT-->
+
+  <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.14.3/dist/cdn.min.js"></script>
+</body>
+</html>

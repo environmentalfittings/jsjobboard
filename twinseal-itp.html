@@ -1,0 +1,1333 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Twinseal ITP | J~S Machine &amp; Valve</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css" crossorigin="anonymous" />
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    :root {
+      --bg: #0f1117;
+      --panel: #1a1d27;
+      --panel2: #22263a;
+      --border: #2e3350;
+      --blue: #4a7eff;
+      --blue-dim: #1e3a6e;
+      --green: #22c55e;
+      --red: #ef4444;
+      --amber: #f59e0b;
+      --text: #e2e8f0;
+      --text-dim: #7a849e;
+      --radius: 8px;
+    }
+    * { box-sizing: border-box; }
+    html, body {
+      margin: 0;
+      min-height: 100%;
+      font-family: Inter, system-ui, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+    }
+    .card {
+      background: var(--panel);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 1.25rem;
+    }
+    .section-title {
+      border-left: 3px solid var(--blue);
+      padding-left: 0.75rem;
+      margin: 0 0 1rem;
+      font-size: 1.1rem;
+      font-weight: 700;
+    }
+    .pass { color: var(--green); font-weight: 700; }
+    .fail { color: var(--red); font-weight: 700; }
+    .pending { color: var(--amber); font-weight: 600; }
+    input, select, textarea {
+      background: var(--panel2);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      color: var(--text);
+      padding: 0.45rem 0.6rem;
+      font-size: 0.875rem;
+    }
+    input:disabled, select:disabled, textarea:disabled {
+      opacity: 0.65;
+      cursor: not-allowed;
+    }
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.35rem;
+      padding: 0.5rem 1rem;
+      border-radius: var(--radius);
+      font-weight: 600;
+      font-size: 0.875rem;
+      cursor: pointer;
+      border: none;
+      font-family: inherit;
+    }
+    .btn-primary { background: var(--blue); color: #fff; }
+    .btn-secondary { background: var(--panel2); color: var(--text); border: 1px solid var(--border); }
+    .btn-danger { background: #7f1d1d; color: #fecaca; }
+    table.itp-table { width: 100%; border-collapse: collapse; font-size: 0.8rem; }
+    table.itp-table th, table.itp-table td {
+      border: 1px solid var(--border);
+      padding: 0.4rem 0.5rem;
+      text-align: left;
+    }
+    table.itp-table th { background: var(--panel2); color: var(--text-dim); font-weight: 600; }
+    .keypad-btn {
+      min-width: 3rem;
+      min-height: 3rem;
+      font-size: 1.25rem;
+      font-weight: 700;
+      border-radius: var(--radius);
+      background: var(--panel2);
+      border: 1px solid var(--border);
+      color: var(--text);
+      cursor: pointer;
+    }
+    .keypad-btn:active { transform: scale(0.97); }
+    .calc-yellow { background: rgba(245, 158, 11, 0.12) !important; border-color: rgba(245, 158, 11, 0.35) !important; }
+    .admin-section { margin-bottom: 1rem; }
+    .admin-section summary {
+      cursor: pointer;
+      font-weight: 700;
+      padding: 0.5rem 0;
+      color: var(--blue);
+    }
+    .locked-banner {
+      background: rgba(34, 197, 94, 0.15);
+      border: 1px solid var(--green);
+      color: var(--green);
+      padding: 0.75rem 1rem;
+      border-radius: var(--radius);
+      font-weight: 800;
+      text-align: center;
+      margin-bottom: 1rem;
+    }
+    .footer-save { font-size: 0.75rem; color: var(--text-dim); margin-top: 1rem; }
+    [x-cloak] { display: none !important; }
+    @media print {
+      body * { visibility: hidden; }
+      #print-area, #print-area * { visibility: visible; }
+      #print-area { position: absolute; left: 0; top: 0; width: 100%; background: #fff !important; color: #000 !important; }
+      #print-area .card { background: #fff !important; border-color: #ccc !important; color: #000 !important; }
+      #print-area input, #print-area select, #print-area textarea {
+        border: 1px solid #999 !important; background: #fff !important; color: #000 !important;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div id="app-root" x-data="twinsealItpApp" x-init="init()">
+    <!-- Top bar (not login) -->
+    <header
+      class="flex items-center justify-between px-4 py-3 border-b"
+      style="border-color: var(--border); background: var(--panel);"
+      x-show="user"
+      x-cloak
+    >
+      <div class="font-bold text-lg" style="color: var(--blue);">Twinseal ITP</div>
+      <div class="flex items-center gap-3">
+        <span class="text-sm" style="color: var(--text-dim);" x-text="user ? (user.initials || user.username || '') : ''"></span>
+        <button type="button" class="btn btn-secondary text-sm" @click="logout()">Logout</button>
+      </div>
+    </header>
+
+    <!-- LOGIN -->
+    <main class="max-w-lg mx-auto p-6" x-show="!user" x-cloak>
+      <h1 class="text-2xl font-bold mb-2" style="color: var(--text);">Twinseal ITP</h1>
+      <p class="text-sm mb-6" style="color: var(--text-dim);">J~S Machine &amp; Valve — Inspection Test Plan</p>
+
+      <template x-if="loginMode === 'tech'">
+        <div class="card">
+          <p class="text-sm mb-3" style="color: var(--text-dim);">Enter your tech code</p>
+          <div class="text-center text-2xl font-mono tracking-widest mb-4 min-h-[2rem]" x-text="techCodeDisplay"></div>
+          <p class="text-red-400 text-sm mb-2" x-show="loginError" x-text="loginError"></p>
+          <div class="grid grid-cols-3 gap-2 max-w-xs mx-auto">
+            <template x-for="d in ['1','2','3','4','5','6','7','8','9']" :key="d">
+              <button type="button" class="keypad-btn" @click="appendDigit(d)" x-text="d"></button>
+            </template>
+            <button type="button" class="keypad-btn col-span-1" @click="appendDigit('0')">0</button>
+            <button type="button" class="keypad-btn col-span-1" @click="backspace()"><i class="fas fa-delete-left"></i></button>
+            <button type="button" class="keypad-btn col-span-1 bg-blue-600 text-white border-blue-500" @click="tryTechLogin()">Enter</button>
+          </div>
+          <p class="text-center mt-4">
+            <button type="button" class="text-sm underline" style="color: var(--text-dim);" @click="loginMode = 'admin'">Admin Login</button>
+          </p>
+        </div>
+      </template>
+
+      <template x-if="loginMode === 'admin'">
+        <div class="card space-y-3">
+          <button type="button" class="text-sm mb-2" style="color: var(--blue);" @click="loginMode = 'tech'">← Tech login</button>
+          <label class="block text-sm">Username
+            <input type="text" class="w-full mt-1" x-model="adminUser" autocomplete="username" />
+          </label>
+          <label class="block text-sm">Password
+            <input type="password" class="w-full mt-1" x-model="adminPass" autocomplete="current-password" />
+          </label>
+          <p class="text-red-400 text-sm" x-show="loginError" x-text="loginError"></p>
+          <button type="button" class="btn btn-primary w-full" @click="tryAdminLogin()">Sign in</button>
+        </div>
+      </template>
+    </main>
+
+    <!-- LOGGED IN -->
+    <div x-show="user" x-cloak class="pb-16">
+      <!-- Dashboard -->
+      <div class="p-4 max-w-6xl mx-auto" x-show="screen === 'dashboard'">
+        <div class="flex flex-wrap items-center justify-between gap-3 mb-4">
+          <h2 class="text-xl font-bold">ITP Dashboard</h2>
+          <div class="flex flex-wrap gap-2">
+            <button type="button" class="btn btn-secondary" x-show="user && user.type === 'admin'" @click="screen = 'admin'">Admin</button>
+            <button type="button" class="btn btn-primary" @click="newItp()"><i class="fas fa-plus"></i> New ITP</button>
+          </div>
+        </div>
+        <input
+          type="search"
+          class="w-full max-w-md mb-4 p-2 rounded"
+          style="background: var(--panel2); border: 1px solid var(--border);"
+          placeholder="Filter by work order, valve ID, customer…"
+          x-model="dashFilter"
+        />
+        <div class="grid gap-3 md:grid-cols-2 lg:grid-cols-3">
+          <template x-for="rec in filteredRecords()" :key="rec.id">
+            <div class="card">
+              <div class="font-mono text-sm" style="color: var(--text-dim);" x-text="rec.jobInfo?.workOrder || '—'"></div>
+              <div class="font-bold" x-text="rec.valveInfo?.valveId || 'No valve ID'"></div>
+              <div class="text-sm" x-text="rec.jobInfo?.customer || '—'"></div>
+              <div class="text-xs mt-2" style="color: var(--text-dim);" x-text="rec.jobInfo?.date || ''"></div>
+              <span
+                class="inline-block mt-2 px-2 py-0.5 rounded text-xs font-bold"
+                :class="rec.locked ? 'bg-green-900 text-green-300' : 'bg-amber-900 text-amber-200'"
+                x-text="rec.locked ? 'Complete' : 'In Progress'"
+              ></span>
+              <div class="flex gap-2 mt-3">
+                <button type="button" class="btn btn-primary text-sm flex-1" @click="openItp(rec.id)">Open</button>
+                <button
+                  type="button"
+                  class="btn btn-danger text-sm"
+                  x-show="user && user.type === 'admin'"
+                  @click="deleteItp(rec.id)"
+                >Delete</button>
+              </div>
+            </div>
+          </template>
+        </div>
+        <p class="text-sm mt-6" style="color: var(--text-dim);" x-show="filteredRecords().length === 0">No ITPs yet. Click New ITP.</p>
+      </div>
+
+      <!-- Admin -->
+      <div class="p-4 max-w-5xl mx-auto" x-show="screen === 'admin' && user && user.type === 'admin'">
+        <button type="button" class="btn btn-secondary mb-4" @click="screen = 'dashboard'">← Dashboard</button>
+        <h2 class="text-xl font-bold mb-4">Admin</h2>
+
+        <details class="card admin-section" open>
+          <summary>Tech Management</summary>
+          <table class="itp-table mt-2">
+            <thead><tr><th>Code</th><th>Initials</th><th>Name</th><th></th></tr></thead>
+            <tbody>
+              <template x-for="(t, i) in techList" :key="i">
+                <tr>
+                  <td><input type="text" x-model="t.code" @input="debouncedSaveAdmin()" /></td>
+                  <td><input type="text" x-model="t.initials" @input="debouncedSaveAdmin()" /></td>
+                  <td><input type="text" x-model="t.name" @input="debouncedSaveAdmin()" /></td>
+                  <td><button type="button" class="btn btn-danger text-xs" @click="techList.splice(i,1); saveAdminData()">Del</button></td>
+                </tr>
+              </template>
+            </tbody>
+          </table>
+          <button type="button" class="btn btn-secondary mt-2" @click="techList.push({code:'',initials:'',name:''}); saveAdminData()">Add Tech</button>
+        </details>
+
+        <details class="card admin-section">
+          <summary>Body / Lid / Packing Tolerances</summary>
+          <p class="text-xs mb-2" style="color: var(--text-dim);">Dimension | Min | Max | Notes — contenteditable cells</p>
+          <template x-for="sec in ['body','lid','packing']" :key="sec">
+            <div class="mb-4">
+              <h4 class="font-bold capitalize mb-2" x-text="sec"></h4>
+              <table class="itp-table">
+                <thead><tr><th>Label</th><th>Min</th><th>Max</th><th>Notes</th></tr></thead>
+                <tbody>
+                  <template x-for="(row, ri) in tolerances[sec]" :key="ri">
+                    <tr>
+                      <td contenteditable="true" @blur="row.label = $event.target.textContent; saveTolerances()" x-text="row.label"></td>
+                      <td contenteditable="true" @blur="row.min = $event.target.textContent; saveTolerances()" x-text="row.min"></td>
+                      <td contenteditable="true" @blur="row.max = $event.target.textContent; saveTolerances()" x-text="row.max"></td>
+                      <td contenteditable="true" @blur="row.notes = $event.target.textContent; saveTolerances()" x-text="row.notes"></td>
+                    </tr>
+                  </template>
+                </tbody>
+              </table>
+            </div>
+          </template>
+          <button type="button" class="btn btn-primary mt-2" @click="saveTolerances()">Save Tolerances</button>
+        </details>
+
+        <details class="card admin-section">
+          <summary>OEM Bolt Torque Library</summary>
+          <table class="itp-table">
+            <thead>
+              <tr>
+                <th>Figure / Model</th><th>Stud Size</th><th>30%</th><th>70%</th><th>100%</th><th>Notes</th><th></th>
+              </tr>
+            </thead>
+            <tbody>
+              <template x-for="(row, i) in oemTorques" :key="i">
+                <tr>
+                  <td><input type="text" x-model="row.figure" @input="debouncedSaveAdmin()" /></td>
+                  <td><input type="text" x-model="row.studSize" @input="debouncedSaveAdmin()" /></td>
+                  <td><input type="text" x-model="row.p30" @input="debouncedSaveAdmin()" /></td>
+                  <td><input type="text" x-model="row.p70" @input="debouncedSaveAdmin()" /></td>
+                  <td><input type="text" x-model="row.p100" @input="debouncedSaveAdmin()" /></td>
+                  <td><input type="text" x-model="row.notes" @input="debouncedSaveAdmin()" /></td>
+                  <td><button type="button" class="btn btn-danger text-xs" @click="oemTorques.splice(i,1); saveAdminData()">×</button></td>
+                </tr>
+              </template>
+            </tbody>
+          </table>
+          <button type="button" class="btn btn-secondary mt-2" @click="oemTorques.push({figure:'',studSize:'',p30:'',p70:'',p100:'',notes:''}); saveAdminData()">Add Row</button>
+        </details>
+
+        <details class="card admin-section">
+          <summary>Admin Password Change</summary>
+          <div class="space-y-2 max-w-sm">
+            <label class="block text-sm">New password (admin)<input type="password" class="w-full mt-1" x-model="pwAdminNew" /></label>
+            <label class="block text-sm">New password (supervisor)<input type="password" class="w-full mt-1" x-model="pwSupNew" /></label>
+            <button type="button" class="btn btn-primary" @click="savePasswords()">Save passwords</button>
+          </div>
+        </details>
+
+        <div class="card flex flex-wrap gap-2">
+          <button type="button" class="btn btn-secondary" @click="exportAdminJson()">Export JSON</button>
+          <label class="btn btn-secondary cursor-pointer">
+            Import JSON
+            <input type="file" accept="application/json" class="hidden" @change="importAdminJson($event)" />
+          </label>
+        </div>
+      </div>
+
+      <!-- ITP Form -->
+      <div id="print-area" class="p-4 max-w-6xl mx-auto" x-show="screen === 'itp' && currentRecord">
+        <div class="print-header text-center font-bold mb-4 pb-2 border-b border-black">J~S Machine &amp; Valve — Twinseal ITP</div>
+        <button type="button" class="btn btn-secondary mb-4 print:hidden" @click="closeItp()">← Dashboard</button>
+
+        <div class="locked-banner print:hidden" x-show="currentRecord && currentRecord.locked">COMPLETED — Read only</div>
+
+        <!-- Header card -->
+        <div class="card mb-4">
+          <div class="flex flex-wrap justify-between gap-2 mb-3 print:hidden">
+            <button type="button" class="btn btn-secondary text-sm" @click="confirmNewItp()">New ITP</button>
+            <button type="button" class="btn btn-primary text-sm" @click="window.print()"><i class="fas fa-print"></i> Print / PDF</button>
+          </div>
+          <div class="grid md:grid-cols-2 gap-4">
+            <div>
+              <h3 class="font-bold mb-2 text-sm uppercase" style="color: var(--text-dim);">Job info</h3>
+              <label class="block text-sm mb-2">Work Order #<input type="text" class="w-full" x-model="currentRecord.jobInfo.workOrder" @input="debouncedSaveItp()" :disabled="currentRecord.locked" /></label>
+              <label class="block text-sm mb-2">Customer<input type="text" class="w-full" x-model="currentRecord.jobInfo.customer" @input="debouncedSaveItp()" :disabled="currentRecord.locked" /></label>
+              <label class="block text-sm mb-2">Date<input type="date" class="w-full" x-model="currentRecord.jobInfo.date" @input="debouncedSaveItp()" :disabled="currentRecord.locked" /></label>
+              <p class="text-sm" style="color: var(--text-dim);">Tech: <span class="text-white font-mono" x-text="currentRecord.jobInfo.tech"></span></p>
+            </div>
+            <div>
+              <h3 class="font-bold mb-2 text-sm uppercase" style="color: var(--text-dim);">Valve ID <i class="fas fa-lock text-xs"></i> admin</h3>
+              <label class="block text-sm mb-2 flex items-center gap-2">
+                Valve ID / Tag #
+                <input type="text" class="flex-1" x-model="currentRecord.valveInfo.valveId" @input="debouncedSaveItp()" :disabled="currentRecord.locked || !isAdmin()" @click="!isAdmin() && adminTip($event)" />
+              </label>
+              <label class="block text-sm mb-2">Valve Model<input type="text" class="w-full" x-model="currentRecord.valveInfo.model" @input="debouncedSaveItp()" :disabled="currentRecord.locked || !isAdmin()" @click="!isAdmin() && adminTip($event)" /></label>
+              <label class="block text-sm mb-2">NPS<input type="number" step="any" class="w-full" x-model="currentRecord.valveInfo.nps" @input="debouncedSaveItp()" :disabled="currentRecord.locked || !isAdmin()" /></label>
+              <label class="block text-sm mb-2">Pressure Class
+                <select class="w-full" x-model="currentRecord.valveInfo.pressureClass" @change="debouncedSaveItp()" :disabled="currentRecord.locked || !isAdmin()">
+                  <template x-for="c in ['150','300','600','900','1500','2500']" :key="c">
+                    <option :value="c" x-text="c"></option>
+                  </template>
+                </select>
+              </label>
+              <label class="block text-sm mb-2">Figure # / OEM Ref<input type="text" class="w-full" x-model="currentRecord.valveInfo.figureNum" @input="debouncedSaveItp(); syncTorqueFromOem()" :disabled="currentRecord.locked || !isAdmin()" /></label>
+            </div>
+          </div>
+        </div>
+
+        <!-- Section 1 Body -->
+        <div class="card mb-4">
+          <h3 class="section-title" title="Body flange / face dimensions — see traveler J~S">Body Dimensions <span class="text-xs font-normal" style="color: var(--text-dim);">(ref: J~S Traveler)</span></h3>
+          <table class="itp-table">
+            <thead>
+              <tr>
+                <th title="Dimension name">Dimension</th>
+                <th>Nominal</th><th>Min</th><th>Max</th>
+                <th title="As measured">Measured</th><th>Result</th><th>Tech</th>
+              </tr>
+            </thead>
+            <tbody>
+              <template x-for="row in currentRecord.sections.body.measurements" :key="row.key">
+                <tr>
+                  <td x-text="row.label"></td>
+                  <td><input type="text" class="w-full" x-model="row.nominal" @input="debouncedSaveItp()" :disabled="currentRecord.locked" /></td>
+                  <td x-text="fmt3(tolMin('body', row.label))"></td>
+                  <td x-text="fmt3(tolMax('body', row.label))"></td>
+                  <td><input type="number" step="0.001" class="w-full" x-model="row.measured" @input="updateMeasureResult(row, 'body', row.label); debouncedSaveItp()" :disabled="currentRecord.locked" /></td>
+                  <td :class="resultClass(row.result)" x-text="row.result"></td>
+                  <td><input type="text" class="w-full" x-model="row.tech" @input="debouncedSaveItp()" :disabled="currentRecord.locked" /></td>
+                </tr>
+              </template>
+            </tbody>
+          </table>
+          <label class="block text-sm mt-2">Notes<textarea class="w-full mt-1" rows="2" x-model="currentRecord.sections.body.notes" @input="debouncedSaveItp()" :disabled="currentRecord.locked"></textarea></label>
+        </div>
+
+        <!-- Section 2 Lid -->
+        <div class="card mb-4">
+          <h3 class="section-title">Lid Dimensions</h3>
+          <table class="itp-table">
+            <thead><tr><th>Dimension</th><th>Nominal</th><th>Min</th><th>Max</th><th>Measured</th><th>Result</th><th>Tech</th></tr></thead>
+            <tbody>
+              <template x-for="row in currentRecord.sections.lid.measurements" :key="row.key">
+                <tr>
+                  <td x-text="row.label"></td>
+                  <td><input type="text" class="w-full" x-model="row.nominal" @input="debouncedSaveItp()" :disabled="currentRecord.locked" /></td>
+                  <td x-text="fmt3(tolMin('lid', row.label))"></td>
+                  <td x-text="fmt3(tolMax('lid', row.label))"></td>
+                  <td><input type="number" step="0.001" class="w-full" x-model="row.measured" @input="updateMeasureResult(row, 'lid', row.label); debouncedSaveItp()" :disabled="currentRecord.locked" /></td>
+                  <td :class="resultClass(row.result)" x-text="row.result"></td>
+                  <td><input type="text" class="w-full" x-model="row.tech" @input="debouncedSaveItp()" :disabled="currentRecord.locked" /></td>
+                </tr>
+              </template>
+            </tbody>
+          </table>
+          <label class="block text-sm mt-2">Notes<textarea class="w-full mt-1" rows="2" x-model="currentRecord.sections.lid.notes" @input="debouncedSaveItp()" :disabled="currentRecord.locked"></textarea></label>
+        </div>
+
+        <!-- Section 3 Packing -->
+        <div class="card mb-4">
+          <h3 class="section-title">Packing Area Dimensions</h3>
+          <table class="itp-table">
+            <thead><tr><th>Dimension</th><th>Nominal</th><th>Min</th><th>Max</th><th>Measured</th><th>Result</th><th>Tech</th></tr></thead>
+            <tbody>
+              <template x-for="row in currentRecord.sections.packing.measurements" :key="row.key">
+                <tr>
+                  <td x-text="row.label"></td>
+                  <td><input type="text" class="w-full" x-model="row.nominal" @input="debouncedSaveItp()" :disabled="currentRecord.locked" /></td>
+                  <td x-text="fmt3(tolMin('packing', row.label))"></td>
+                  <td x-text="fmt3(tolMax('packing', row.label))"></td>
+                  <td><input type="number" step="0.001" class="w-full" x-model="row.measured" @input="updateMeasureResult(row, 'packing', row.label); debouncedSaveItp()" :disabled="currentRecord.locked" /></td>
+                  <td :class="resultClass(row.result)" x-text="row.result"></td>
+                  <td><input type="text" class="w-full" x-model="row.tech" @input="debouncedSaveItp()" :disabled="currentRecord.locked" /></td>
+                </tr>
+              </template>
+            </tbody>
+          </table>
+          <div class="mt-3 p-2 rounded" style="background: var(--panel2); border: 1px solid var(--border);">
+            <strong>Trunnion Finish (Ra μin)</strong> — Target Ra 32–63 μin
+            <div class="flex flex-wrap gap-2 items-center mt-2">
+              <input type="number" step="0.1" placeholder="Measured" x-model="currentRecord.sections.packing.trunnionFinish.measured" @input="updateTrunnion(); debouncedSaveItp()" :disabled="currentRecord.locked" />
+              <span :class="resultClass(currentRecord.sections.packing.trunnionFinish.result)" x-text="currentRecord.sections.packing.trunnionFinish.result"></span>
+            </div>
+          </div>
+          <label class="block text-sm mt-2">Notes<textarea class="w-full mt-1" rows="2" x-model="currentRecord.sections.packing.notes" @input="debouncedSaveItp()" :disabled="currentRecord.locked"></textarea></label>
+        </div>
+
+        <!-- Section 4 DTR -->
+        <div class="card mb-4">
+          <h3 class="section-title">DTR Drilling</h3>
+          <label class="block text-sm mb-2">DTR Drill Size Used<input type="text" class="w-full" x-model="currentRecord.sections.dtr.drillSize" @input="debouncedSaveItp()" :disabled="currentRecord.locked" /></label>
+          <label class="block text-sm mb-2">Drilling Location / Pattern<input type="text" class="w-full" x-model="currentRecord.sections.dtr.location" @input="debouncedSaveItp()" :disabled="currentRecord.locked" /></label>
+          <label class="flex items-center gap-2 text-sm mb-2">
+            <input type="checkbox" x-model="currentRecord.sections.dtr.verified" @change="onDtrVerified(); debouncedSaveItp()" :disabled="currentRecord.locked" />
+            DTR drilling verified per drawing
+          </label>
+          <p class="text-xs" style="color: var(--text-dim);" x-show="currentRecord.sections.dtr.verifiedBy" x-text="'By ' + currentRecord.sections.dtr.verifiedBy + ' on ' + currentRecord.sections.dtr.verifiedDate"></p>
+          <label class="block text-sm mt-2">Notes<textarea class="w-full mt-1" rows="2" x-model="currentRecord.sections.dtr.notes" @input="debouncedSaveItp()" :disabled="currentRecord.locked"></textarea></label>
+        </div>
+
+        <!-- Section 5 Gasket -->
+        <div class="card mb-4">
+          <h3 class="section-title">Gasket Area Surface Finish</h3>
+          <table class="itp-table">
+            <thead><tr><th>Location</th><th>Target</th><th>Measured</th><th>Result</th><th>Tech</th></tr></thead>
+            <tbody>
+              <template x-for="row in currentRecord.sections.gasket.measurements" :key="row.key">
+                <tr>
+                  <td x-text="row.label"></td>
+                  <td x-text="row.target"></td>
+                  <td><input type="number" step="0.1" class="w-full" x-model="row.measured" @input="updateGasketRow(row); debouncedSaveItp()" :disabled="currentRecord.locked" /></td>
+                  <td :class="resultClass(row.result)" x-text="row.result"></td>
+                  <td><input type="text" class="w-full" x-model="row.tech" @input="debouncedSaveItp()" :disabled="currentRecord.locked" /></td>
+                </tr>
+              </template>
+            </tbody>
+          </table>
+          <label class="block text-sm mt-2">Gasket Type
+            <select class="w-full mt-1" x-model="currentRecord.sections.gasket.gasketType" @change="debouncedSaveItp()" :disabled="currentRecord.locked">
+              <option>Spiral Wound</option>
+              <option>Spiral Wound w/ Inner Ring</option>
+              <option>Spiral Wound w/ Outer Ring</option>
+              <option>Kammprofile</option>
+              <option>Corrugated w/ Graphite</option>
+            </select>
+          </label>
+          <label class="block text-sm mt-2">Gasket Material / Part #<input type="text" class="w-full" x-model="currentRecord.sections.gasket.gasketMaterial" @input="debouncedSaveItp()" :disabled="currentRecord.locked" /></label>
+          <label class="block text-sm mt-2">Notes<textarea class="w-full mt-1" rows="2" x-model="currentRecord.sections.gasket.notes" @input="debouncedSaveItp()" :disabled="currentRecord.locked"></textarea></label>
+        </div>
+
+        <!-- Section 6 Bolt Torque -->
+        <div class="card mb-4">
+          <h3 class="section-title">Bolt Torque <span class="text-xs font-normal" style="color: var(--text-dim);">(ref: J~S SOP 5010 / OEM)</span></h3>
+          <div class="mb-3 flex flex-wrap gap-3 items-center">
+            <span class="text-sm font-semibold">Torque Source:</span>
+            <label class="flex items-center gap-2 text-sm">
+              <input type="radio" value="oem" x-model="currentRecord.sections.boltTorque.source" @change="applyBoltTargets(); debouncedSaveItp()" :disabled="currentRecord.locked" />
+              OEM (from Figure #)
+            </label>
+            <label class="flex items-center gap-2 text-sm">
+              <input type="radio" value="generic" x-model="currentRecord.sections.boltTorque.source" @change="applyGenericTorqueTargets(); debouncedSaveItp()" :disabled="currentRecord.locked" />
+              Generic (J~S SOP 5010)
+            </label>
+          </div>
+          <p class="text-sm mb-2 pass" x-show="currentRecord.sections.boltTorque.source === 'oem' && findOemMatch()">
+            <i class="fas fa-check-circle"></i> OEM values found for <span x-text="currentRecord.valveInfo.figureNum"></span>
+          </p>
+          <div class="grid md:grid-cols-3 gap-3 mb-3" x-show="currentRecord.sections.boltTorque.source === 'generic'">
+              <label class="text-sm">Bolt Material
+                <select class="w-full mt-1" x-model="currentRecord.sections.boltTorque.boltMaterial" @change="applyGenericTorqueTargets(); debouncedSaveItp()" :disabled="currentRecord.locked">
+                  <option>B7</option><option>B7M</option><option>M303</option>
+                </select>
+              </label>
+              <label class="text-sm" x-show="currentRecord.sections.boltTorque.boltMaterial !== 'M303'">Manufacturer
+                <select class="w-full mt-1" x-model="currentRecord.sections.boltTorque.manufacturer" @change="applyGenericTorqueTargets(); debouncedSaveItp()" :disabled="currentRecord.locked">
+                  <option>Pacific</option><option>Universal</option><option>Velan</option>
+                </select>
+              </label>
+              <label class="text-sm">Stud Size
+                <select class="w-full mt-1" x-model="currentRecord.sections.boltTorque.studSize" @change="applyGenericTorqueTargets(); debouncedSaveItp()" :disabled="currentRecord.locked">
+                  <option value="">— Select —</option>
+                  <template x-for="sz in studSizesForGeneric()" :key="sz"><option :value="sz" x-text="sz"></option></template>
+                </select>
+              </label>
+            </div>
+          <table class="itp-table mb-3">
+            <thead><tr><th>Pass</th><th>Torque Step</th><th>Target (ft-lb)</th><th>Actual</th><th>Result</th><th>Tech</th></tr></thead>
+            <tbody>
+              <template x-for="row in currentRecord.sections.boltTorque.passes" :key="row.step">
+                <tr>
+                  <td>
+                    <i class="fas fa-check pass" x-show="row.pass === 'PASS'"></i>
+                    <i class="fas fa-times fail" x-show="row.pass === 'FAIL'"></i>
+                  </td>
+                  <td x-text="row.step"></td>
+                  <td><input type="number" class="w-full opacity-90" x-model="row.target" readonly tabindex="-1" /></td>
+                  <td><input type="number" class="w-full" x-model="row.actual" @input="updateBoltPassRow(row); debouncedSaveItp()" :disabled="currentRecord.locked" /></td>
+                  <td :class="resultClass(row.pass)" x-text="row.pass"></td>
+                  <td><input type="text" class="w-full" x-model="row.tech" @input="debouncedSaveItp()" :disabled="currentRecord.locked" /></td>
+                </tr>
+              </template>
+            </tbody>
+          </table>
+          <p class="text-xs mb-2" style="color: var(--text-dim);" x-show="currentRecord.sections.boltTorque.source==='oem'">Targets from OEM library; enter Actual to record.</p>
+          <div class="grid md:grid-cols-3 gap-3">
+            <label class="text-sm">Number of Studs<input type="number" class="w-full mt-1" x-model="currentRecord.sections.boltTorque.numStuds" @input="debouncedSaveItp()" :disabled="currentRecord.locked" /></label>
+            <label class="text-sm">Anti-Seize Applied
+              <select class="w-full mt-1" x-model="currentRecord.sections.boltTorque.antiSeize" @change="debouncedSaveItp()" :disabled="currentRecord.locked"><option value="">—</option><option>Yes</option><option>No</option></select>
+            </label>
+            <label class="text-sm">Stud Condition
+              <select class="w-full mt-1" x-model="currentRecord.sections.boltTorque.studCondition" @change="debouncedSaveItp()" :disabled="currentRecord.locked">
+                <option value="">—</option><option>New</option><option>Reused-Acceptable</option><option>Replaced</option>
+              </select>
+            </label>
+          </div>
+          <label class="block text-sm mt-2">Notes<textarea class="w-full mt-1" rows="2" x-model="currentRecord.sections.boltTorque.notes" @input="debouncedSaveItp()" :disabled="currentRecord.locked"></textarea></label>
+        </div>
+
+        <!-- Section 7 Packing Torque -->
+        <div class="card mb-4">
+          <h3 class="section-title">Packing Stud Torque</h3>
+          <div class="grid md:grid-cols-2 lg:grid-cols-3 gap-3 mb-3">
+            <label class="text-sm calc-yellow p-2 rounded">ID packing box (in)<input type="number" step="0.001" class="w-full mt-1 calc-yellow" x-model="currentRecord.sections.packingTorque.id" @input="recalcPackingCalc(); debouncedSaveItp()" :disabled="currentRecord.locked" /></label>
+            <label class="text-sm calc-yellow p-2 rounded">OD packing box (in)<input type="number" step="0.001" class="w-full mt-1 calc-yellow" x-model="currentRecord.sections.packingTorque.od" @input="recalcPackingCalc(); debouncedSaveItp()" :disabled="currentRecord.locked" /></label>
+            <label class="text-sm calc-yellow p-2 rounded"># gland studs<input type="number" class="w-full mt-1 calc-yellow" x-model="currentRecord.sections.packingTorque.numStuds" @input="recalcPackingCalc(); debouncedSaveItp()" :disabled="currentRecord.locked" /></label>
+            <label class="text-sm calc-yellow p-2 rounded">Stud size
+              <select class="w-full mt-1 calc-yellow" x-model="currentRecord.sections.packingTorque.studSize" @change="recalcPackingCalc(); debouncedSaveItp()" :disabled="currentRecord.locked">
+                <template x-for="s in ['1/4','5/16','3/8','7/16','1/2','9/16','5/8','3/4','7/8','1','1-1/8','1-1/4','1-3/8','1-1/2']" :key="s"><option :value="s" x-text="s"></option></template>
+              </select>
+            </label>
+            <label class="text-sm calc-yellow p-2 rounded">Packing cross-section (in)<input type="number" step="0.001" class="w-full mt-1 calc-yellow" x-model="currentRecord.sections.packingTorque.crossSection" @input="debouncedSaveItp()" :disabled="currentRecord.locked" /></label>
+          </div>
+          <div class="p-3 rounded mb-3" style="background: var(--panel2); border: 1px solid var(--border);">
+            <div>Packing Area (in²): <strong x-text="currentRecord.sections.packingTorque._packingArea || '—'"></strong></div>
+            <div>Pass 1 (Pre-stress) ft-lb: <strong x-text="currentRecord.sections.packingTorque._preTorque || '—'"></strong></div>
+            <div>Pass 2 (Final Load) ft-lb: <strong x-text="currentRecord.sections.packingTorque._finalTorque || '—'"></strong></div>
+          </div>
+          <div class="grid md:grid-cols-2 gap-3">
+            <label class="text-sm">Pass 1 Actual (ft-lb)<input type="number" class="w-full mt-1" x-model="currentRecord.sections.packingTorque.pass1Actual" @input="updatePackingPass('pass1Actual','pass1Result'); debouncedSaveItp()" :disabled="currentRecord.locked" /></label>
+            <span class="self-end" :class="resultClass(currentRecord.sections.packingTorque.pass1Result)" x-text="currentRecord.sections.packingTorque.pass1Result"></span>
+            <label class="text-sm">Pass 2 Actual (ft-lb)<input type="number" class="w-full mt-1" x-model="currentRecord.sections.packingTorque.pass2Actual" @input="updatePackingPass('pass2Actual','pass2Result'); debouncedSaveItp()" :disabled="currentRecord.locked" /></label>
+            <span class="self-end" :class="resultClass(currentRecord.sections.packingTorque.pass2Result)" x-text="currentRecord.sections.packingTorque.pass2Result"></span>
+          </div>
+          <label class="block text-sm mt-2">Notes<textarea class="w-full mt-1" rows="2" x-model="currentRecord.sections.packingTorque.notes" @input="debouncedSaveItp()" :disabled="currentRecord.locked"></textarea></label>
+        </div>
+
+        <!-- Section 8 Sign-off -->
+        <div class="card mb-4">
+          <h3 class="section-title">Inspection Sign-Off</h3>
+          <div class="p-3 rounded mb-3" style="background: var(--panel2); border: 1px solid var(--border);">
+            <p class="text-sm">Measurements entered: <strong x-text="measurementSummary().entered"></strong> / <strong x-text="measurementSummary().total"></strong></p>
+            <p class="text-lg font-bold mt-2" :class="signoffBadgeClass()" x-text="signoffBadgeText()"></p>
+          </div>
+          <table class="itp-table">
+            <thead><tr><th>Stage</th><th>Required By</th><th>Initials</th><th>Date</th><th>Status</th></tr></thead>
+            <tbody>
+              <template x-for="row in currentRecord.sections.signoff.stages" :key="row.stage">
+                <tr>
+                  <td x-text="row.stage"></td>
+                  <td x-text="row.requiredBy"></td>
+                  <td><input type="text" class="w-full" x-model="row.initials" @input="signoffRowUpdate(row); debouncedSaveItp()" :disabled="currentRecord.locked" /></td>
+                  <td><input type="date" class="w-full" x-model="row.date" @input="signoffRowUpdate(row); debouncedSaveItp()" :disabled="currentRecord.locked" /></td>
+                  <td :class="row.status === 'Complete' ? 'pass' : ''" x-text="row.status"></td>
+                </tr>
+              </template>
+            </tbody>
+          </table>
+          <button type="button" class="btn btn-primary mt-4 print:hidden" @click="submitItpLock()" :disabled="currentRecord.locked">Submit ITP (lock)</button>
+        </div>
+      </div>
+    </div>
+
+    <p class="footer-save text-center" x-show="user && lastSavedText" x-text="lastSavedText" x-cloak></p>
+  </div>
+
+  <script>
+const TORQUE_TABLES = {"B7":{"Pacific":{"1":{"p30":161,"p70":375,"p100":535},"2":{"p30":1497,"p70":3493,"p100":4990},"1/4":{"p30":4,"p70":10,"p100":14},"5/16":{"p30":6,"p70":15,"p100":21},"3/8":{"p30":9,"p70":21,"p100":30},"7/16":{"p30":14,"p70":32,"p100":45},"1/2":{"p30":20,"p70":46,"p100":65},"9/16":{"p30":29,"p70":67,"p100":95},"5/8":{"p30":41,"p70":95,"p100":135},"3/4":{"p30":69,"p70":161,"p100":230},"7/8":{"p30":108,"p70":252,"p100":360},"1-1/8":{"p30":245,"p70":571,"p100":815},"1-1/4":{"p30":338,"p70":788,"p100":1125},"1-3/8":{"p30":458,"p70":1068,"p100":1525},"1-1/2":{"p30":570,"p70":1330,"p100":1900},"1-5/8":{"p30":762,"p70":1778,"p100":2540},"1-3/4":{"p30":972,"p70":2268,"p100":3240},"1-7/8":{"p30":1223,"p70":2853,"p100":4075}},"Universal":{"1":{"p30":191,"p70":445,"p100":636},"2":{"p30":1745,"p70":4072,"p100":5817},"3/8":{"p30":6,"p70":14,"p100":20},"7/16":{"p30":9,"p70":21,"p100":30},"1/2":{"p30":23,"p70":53,"p100":75},"9/16":{"p30":24,"p70":56,"p100":80},"5/8":{"p30":44,"p70":104,"p100":148},"3/4":{"p30":79,"p70":184,"p100":263},"7/8":{"p30":127,"p70":297,"p100":424},"1-1/8":{"p30":280,"p70":653,"p100":933},"1-1/4":{"p30":394,"p70":919,"p100":1313},"1-3/8":{"p30":534,"p70":1246,"p100":1780},"1-1/2":{"p30":705,"p70":1645,"p100":2350},"1-5/8":{"p30":911,"p70":2126,"p100":3037},"1-3/4":{"p30":1147,"p70":2675,"p100":3822},"1-7/8":{"p30":1424,"p70":3322,"p100":4745}},"Velan":{"1":{"p30":120,"p70":280,"p100":400},"2":{"p30":1140,"p70":2660,"p100":3800},"3/8":{"p30":6,"p70":14,"p100":20},"7/16":{"p30":9,"p70":21,"p100":30},"1/2":{"p30":15,"p70":35,"p100":50},"9/16":{"p30":21,"p70":49,"p100":70},"5/8":{"p30":30,"p70":70,"p100":100},"3/4":{"p30":51,"p70":119,"p100":170},"7/8":{"p30":81,"p70":189,"p100":270},"1-1/8":{"p30":180,"p70":420,"p100":600},"1-1/4":{"p30":255,"p70":595,"p100":850},"1-3/8":{"p30":360,"p70":840,"p100":1200},"1-1/2":{"p30":450,"p70":1050,"p100":1500},"1-5/8":{"p30":600,"p70":1400,"p100":2000},"1-3/4":{"p30":750,"p70":1750,"p100":2500},"1-7/8":{"p30":930,"p70":2170,"p100":3100}}},"B7M":{"Universal":{"1":{"p30":161,"p70":375,"p100":535},"2":{"p30":1497,"p70":3493,"p100":4990},"1/4":{"p30":null,"p70":null,"p100":14},"5/16":{"p30":null,"p70":null,"p100":21},"3/8":{"p30":9,"p70":21,"p100":30},"7/16":{"p30":14,"p70":32,"p100":45},"1/2":{"p30":20,"p70":46,"p100":65},"9/16":{"p30":29,"p70":67,"p100":95},"5/8":{"p30":41,"p70":95,"p100":135},"3/4":{"p30":69,"p70":161,"p100":230},"7/8":{"p30":108,"p70":252,"p100":360},"1-1/8":{"p30":245,"p70":571,"p100":815},"1-1/4":{"p30":338,"p70":788,"p100":1125},"1-3/8":{"p30":458,"p70":1068,"p100":1525},"1-1/2":{"p30":570,"p70":1330,"p100":1900},"1-5/8":{"p30":762,"p70":1778,"p100":2540},"1-3/4":{"p30":972,"p70":2268,"p100":3240},"1-7/8":{"p30":1223,"p70":2853,"p100":4075}},"Velan":{"1":{"p30":105,"p70":245,"p100":350},"2":{"p30":900,"p70":2100,"p100":3000},"3/8":{"p30":5,"p70":11,"p100":15},"7/16":{"p30":8,"p70":18,"p100":25},"1/2":{"p30":12,"p70":28,"p100":40},"9/16":{"p30":17,"p70":39,"p100":55},"5/8":{"p30":23,"p70":53,"p100":75},"3/4":{"p30":41,"p70":95,"p100":135},"7/8":{"p30":60,"p70":140,"p100":200},"1-1/8":{"p30":150,"p70":350,"p100":500},"1-1/4":{"p30":203,"p70":473,"p100":675},"1-3/8":{"p30":270,"p70":630,"p100":900},"1-1/2":{"p30":360,"p70":840,"p100":1200},"1-5/8":{"p30":480,"p70":1120,"p100":1600},"1-3/4":{"p30":600,"p70":1400,"p100":2000},"1-7/8":{"p30":750,"p70":1750,"p100":2500}},"Pacific":{"1":{"p30":161,"p70":375,"p100":535},"2":{"p30":1497,"p70":3493,"p100":4990},"1/4":{"p30":4,"p70":10,"p100":14},"5/16":{"p30":6,"p70":15,"p100":21},"3/8":{"p30":9,"p70":21,"p100":30},"7/16":{"p30":14,"p70":32,"p100":45},"1/2":{"p30":20,"p70":46,"p100":65},"9/16":{"p30":29,"p70":67,"p100":95},"5/8":{"p30":41,"p70":95,"p100":135},"3/4":{"p30":69,"p70":161,"p100":230},"7/8":{"p30":108,"p70":252,"p100":360},"1-1/8":{"p30":245,"p70":571,"p100":815},"1-1/4":{"p30":338,"p70":788,"p100":1125},"1-3/8":{"p30":458,"p70":1068,"p100":1525},"1-1/2":{"p30":570,"p70":1330,"p100":1900},"1-5/8":{"p30":762,"p70":1778,"p100":2540},"1-3/4":{"p30":972,"p70":2268,"p100":3240},"1-7/8":{"p30":1223,"p70":2853,"p100":4075}}},"M303":{"Gate":{"1":{"p30":182,"p70":424,"p100":606},"2":{"p30":1584,"p70":3695,"p100":5279},"5/8":{"p30":46,"p70":107,"p100":153},"3/4":{"p30":76,"p70":178,"p100":254},"7/8":{"p30":122,"p70":284,"p100":406},"1-1/8":{"p30":264,"p70":616,"p100":880},"1-1/4":{"p30":368,"p70":858,"p100":1226},"1-3/8":{"p30":495,"p70":1156,"p100":1651},"1-1/2":{"p30":650,"p70":1516,"p100":2165},"1-5/8":{"p30":833,"p70":1943,"p100":2776},"1-3/4":{"p30":1048,"p70":2444,"p100":3492},"1-7/8":{"p30":1296,"p70":3024,"p100":4320},"2-1/8":{"p30":1905,"p70":4444,"p100":6349},"2-1/4":{"p30":2268,"p70":5292,"p100":7560}}}};
+document.addEventListener('alpine:init', () => {
+  Alpine.data('twinsealItpApp', twinsealItpAppFactory);
+});
+function twinsealItpAppFactory() {
+  const LS = {
+    techList: 'itp_tech_list',
+    adminPw: 'itp_admin_passwords',
+    tolerances: 'itp_tolerances',
+    oem: 'itp_oem_torques',
+    records: 'itp_records',
+    session: 'itp_session_user',
+  }
+  const STUD_DIAMETERS = {
+    '1/4': 0.25,
+    '5/16': 0.3125,
+    '3/8': 0.375,
+    '7/16': 0.4375,
+    '1/2': 0.5,
+    '9/16': 0.5625,
+    '5/8': 0.625,
+    '3/4': 0.75,
+    '7/8': 0.875,
+    '1': 1.0,
+    '1-1/8': 1.125,
+    '1-1/4': 1.25,
+    '1-3/8': 1.375,
+    '1-1/2': 1.5,
+  }
+  const PACK_PRE = 3600
+  const PACK_FINAL = 11575
+  const STUD_SIZES_PACK = Object.keys(STUD_DIAMETERS)
+
+  function uuid() {
+    return crypto.randomUUID ? crypto.randomUUID() : String(Date.now()) + Math.random().toString(16).slice(2)
+  }
+  function todayIso() {
+    return new Date().toISOString().slice(0, 10)
+  }
+  function defaultTolerances() {
+    return {
+      body: [
+        { label: 'Thickness A', min: '0.000', max: '0.000', notes: '' },
+        { label: 'Thickness B', min: '0.000', max: '0.000', notes: '' },
+        { label: 'Dimension C', min: '0.000', max: '0.000', notes: '' },
+      ],
+      lid: [
+        { label: 'Lid A (Top)', min: '0.000', max: '0.000', notes: '' },
+        { label: 'Lid B (Top)', min: '0.000', max: '0.000', notes: '' },
+        { label: 'Lid C (Top)', min: '0.000', max: '0.000', notes: '' },
+        { label: 'Lid A (Bottom)', min: '0.000', max: '0.000', notes: '' },
+        { label: 'Lid B (Bottom)', min: '0.000', max: '0.000', notes: '' },
+        { label: 'Lid C (Bottom)', min: '0.000', max: '0.000', notes: '' },
+        { label: 'O-Ring Groove Width', min: '0.000', max: '0.000', notes: '' },
+      ],
+      packing: [
+        { label: 'Packing Dim A', min: '0.000', max: '0.000', notes: '' },
+        { label: 'Packing Dim B', min: '0.000', max: '0.000', notes: '' },
+        { label: 'Packing Dim C', min: '0.000', max: '0.000', notes: '' },
+        { label: 'Packing Dim D', min: '0.000', max: '0.000', notes: '' },
+        { label: 'Drive Pen Hole Dia.', min: '0.000', max: '0.000', notes: '' },
+      ],
+    }
+  }
+  function measRow(key, label) {
+    return { key, label, nominal: '', min: '', max: '', measured: '', result: '', tech: '' }
+  }
+  function emptyBoltPasses() {
+    return [
+      { step: 'Pass 1 — 30%', target: '', actual: '', pass: '', tech: '', notes: '' },
+      { step: 'Pass 2 — 70%', target: '', actual: '', pass: '', tech: '', notes: '' },
+      { step: 'Pass 3 — 100%', target: '', actual: '', pass: '', tech: '', notes: '' },
+      { step: 'Post-Test Re-check — 100%', target: '', actual: '', pass: '', tech: '', notes: '' },
+    ]
+  }
+  function emptySignoffStages() {
+    return [
+      { stage: 'Disassembly Inspection', requiredBy: 'Tech', initials: '', date: '', status: '' },
+      { stage: 'Dimensional Check', requiredBy: 'Tech', initials: '', date: '', status: '' },
+      { stage: 'Bolt Torque Complete', requiredBy: 'Tech', initials: '', date: '', status: '' },
+      { stage: 'Final Assembly', requiredBy: 'Tech', initials: '', date: '', status: '' },
+      { stage: 'QC Review', requiredBy: 'Supervisor/Admin', initials: '', date: '', status: '' },
+    ]
+  }
+  function newRecord(techInitials) {
+    return {
+      id: uuid(),
+      created: new Date().toISOString(),
+      locked: false,
+      jobInfo: { workOrder: '', customer: '', date: todayIso(), tech: techInitials || '' },
+      valveInfo: { valveId: '', model: '', nps: '', pressureClass: '150', figureNum: '' },
+      sections: {
+        body: {
+          measurements: [
+            measRow('b1', 'Thickness A'),
+            measRow('b2', 'Thickness B'),
+            measRow('b3', 'Dimension C'),
+          ],
+          notes: '',
+        },
+        lid: {
+          measurements: [
+            measRow('l1', 'Lid A — Top'),
+            measRow('l2', 'Lid B — Top'),
+            measRow('l3', 'Lid C — Top'),
+            measRow('l4', 'Lid A — Bottom'),
+            measRow('l5', 'Lid B — Bottom'),
+            measRow('l6', 'Lid C — Bottom'),
+            measRow('l7', 'O-Ring Groove Width'),
+          ],
+          notes: '',
+        },
+        packing: {
+          measurements: [
+            measRow('p1', 'Packing Dim A'),
+            measRow('p2', 'Packing Dim B'),
+            measRow('p3', 'Packing Dim C'),
+            measRow('p4', 'Packing Dim D'),
+            measRow('p5', 'Drive Pen Hole Dia.'),
+          ],
+          trunnionFinish: { measured: '', result: '' },
+          notes: '',
+        },
+        dtr: { drillSize: '', location: '', verified: false, verifiedDate: '', verifiedBy: '', notes: '' },
+        gasket: {
+          measurements: [
+            { key: 'g1', label: 'Body Gasket Face', target: '125', measured: '', result: '', tech: '' },
+            { key: 'g2', label: 'Bonnet Gasket Face', target: '125', measured: '', result: '', tech: '' },
+          ],
+          gasketType: 'Spiral Wound',
+          gasketMaterial: '',
+          notes: '',
+        },
+        boltTorque: {
+          source: 'generic',
+          boltMaterial: 'B7',
+          manufacturer: 'Pacific',
+          studSize: '',
+          numStuds: '',
+          antiSeize: '',
+          studCondition: '',
+          passes: emptyBoltPasses(),
+          notes: '',
+        },
+        packingTorque: {
+          id: '',
+          od: '',
+          numStuds: '',
+          studSize: '1/2',
+          crossSection: '',
+          pass1Actual: '',
+          pass1Result: '',
+          pass2Actual: '',
+          pass2Result: '',
+          tech1: '',
+          tech2: '',
+          notes: '',
+        },
+        signoff: { stages: emptySignoffStages() },
+      },
+    }
+  }
+
+  return {
+    screen: 'dashboard',
+    user: null,
+    loginMode: 'tech',
+    techDigits: [],
+    loginError: '',
+    adminUser: '',
+    adminPass: '',
+    records: [],
+    currentId: null,
+    dashFilter: '',
+    techList: [],
+    tolerances: defaultTolerances(),
+    oemTorques: [],
+    pwAdminNew: '',
+    pwSupNew: '',
+    lastSavedText: '',
+    saveTimer: null,
+    adminTimer: null,
+
+    get techCodeDisplay() {
+      return this.techDigits.join('')
+    },
+    get currentRecord() {
+      return this.records.find((r) => r.id === this.currentId) || null
+    },
+
+    init() {
+      this.loadSession()
+      this.initAdminDefaults()
+      this.loadTechList()
+      this.loadTolerances()
+      this.loadOem()
+      this.loadRecords()
+      if (this.user) this.screen = 'dashboard'
+    },
+    loadSession() {
+      try {
+        const s = localStorage.getItem(LS.session)
+        if (s) this.user = JSON.parse(s)
+      } catch (e) {}
+    },
+    saveSession() {
+      if (this.user) localStorage.setItem(LS.session, JSON.stringify(this.user))
+      else localStorage.removeItem(LS.session)
+    },
+    initAdminDefaults() {
+      if (!localStorage.getItem(LS.adminPw)) {
+        localStorage.setItem(LS.adminPw, JSON.stringify({ admin: 'js2024', supervisor: 'js2024' }))
+      }
+    },
+    loadTechList() {
+      try {
+        const t = localStorage.getItem(LS.techList)
+        if (t) this.techList = JSON.parse(t)
+        else {
+          this.techList = [
+            { code: '1001', initials: 'M.D.', name: 'Tech 1' },
+            { code: '1002', initials: 'J.S.', name: 'Tech 2' },
+          ]
+          localStorage.setItem(LS.techList, JSON.stringify(this.techList))
+        }
+      } catch (e) {
+        this.techList = []
+      }
+    },
+    loadTolerances() {
+      try {
+        const t = localStorage.getItem(LS.tolerances)
+        if (t) this.tolerances = JSON.parse(t)
+        else {
+          this.tolerances = defaultTolerances()
+          localStorage.setItem(LS.tolerances, JSON.stringify(this.tolerances))
+        }
+      } catch (e) {
+        this.tolerances = defaultTolerances()
+      }
+    },
+    loadOem() {
+      try {
+        const o = localStorage.getItem(LS.oem)
+        this.oemTorques = o ? JSON.parse(o) : []
+      } catch (e) {
+        this.oemTorques = []
+      }
+    },
+    loadRecords() {
+      try {
+        const r = localStorage.getItem(LS.records)
+        this.records = r ? JSON.parse(r) : []
+      } catch (e) {
+        this.records = []
+      }
+    },
+    persistRecords() {
+      localStorage.setItem(LS.records, JSON.stringify(this.records))
+      this.touchSaved()
+    },
+    touchSaved() {
+      const t = new Date().toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })
+      this.lastSavedText = 'Last saved: ' + t
+    },
+    logout() {
+      this.user = null
+      this.saveSession()
+      this.screen = 'dashboard'
+      this.currentId = null
+      this.loginMode = 'tech'
+      this.techDigits = []
+    },
+    appendDigit(d) {
+      if (this.techDigits.length < 6) this.techDigits.push(d)
+      this.loginError = ''
+    },
+    backspace() {
+      this.techDigits.pop()
+      this.loginError = ''
+    },
+    tryTechLogin() {
+      const code = this.techDigits.join('')
+      const t = this.techList.find((x) => x.code === code)
+      if (!t) {
+        this.loginError = 'Code not recognized'
+        return
+      }
+      this.user = { type: 'tech', code: t.code, initials: t.initials, name: t.name }
+      this.saveSession()
+      this.techDigits = []
+      this.screen = 'dashboard'
+      this.loginError = ''
+    },
+    tryAdminLogin() {
+      const u = (this.adminUser || '').trim().toLowerCase()
+      if (u !== 'admin' && u !== 'supervisor') {
+        this.loginError = 'Invalid username'
+        return
+      }
+      let pws = {}
+      try {
+        pws = JSON.parse(localStorage.getItem(LS.adminPw) || '{}')
+      } catch (e) {}
+      const pw = pws[u] || 'js2024'
+      if (this.adminPass !== pw) {
+        this.loginError = 'Invalid password'
+        return
+      }
+      this.user = { type: 'admin', username: u, initials: u === 'admin' ? 'ADM' : 'SUP' }
+      this.saveSession()
+      this.adminUser = ''
+      this.adminPass = ''
+      this.screen = 'dashboard'
+      this.loginError = ''
+    },
+    isAdmin() {
+      return this.user && this.user.type === 'admin'
+    },
+    adminTip(e) {
+      e.preventDefault()
+      alert('Admin access required.')
+    },
+    filteredRecords() {
+      const q = (this.dashFilter || '').trim().toLowerCase()
+      if (!q) return this.records
+      return this.records.filter((r) => {
+        const wo = (r.jobInfo?.workOrder || '').toLowerCase()
+        const vid = (r.valveInfo?.valveId || '').toLowerCase()
+        const c = (r.jobInfo?.customer || '').toLowerCase()
+        return wo.includes(q) || vid.includes(q) || c.includes(q)
+      })
+    },
+    newItp() {
+      if (!this.user) return
+      const initials = this.user.initials || ''
+      const rec = newRecord(initials)
+      this.records.unshift(rec)
+      this.persistRecords()
+      this.openItp(rec.id)
+    },
+    confirmNewItp() {
+      if (!confirm('Start a new ITP? Unsaved changes on this form are still in the list until you save.')) return
+      this.newItp()
+    },
+    openItp(id) {
+      this.currentId = id
+      this.screen = 'itp'
+      this.$nextTick(() => {
+        this.syncTorqueFromOem()
+        this.applyBoltTargets()
+        this.recalcPackingCalc()
+      })
+    },
+    closeItp() {
+      this.currentId = null
+      this.screen = 'dashboard'
+    },
+    deleteItp(id) {
+      if (!confirm('Delete this ITP permanently?')) return
+      this.records = this.records.filter((r) => r.id !== id)
+      this.persistRecords()
+      if (this.currentId === id) this.closeItp()
+    },
+    saveAdminData() {
+      localStorage.setItem(LS.techList, JSON.stringify(this.techList))
+      localStorage.setItem(LS.oem, JSON.stringify(this.oemTorques))
+      this.touchSaved()
+    },
+    debouncedSaveAdmin() {
+      clearTimeout(this.adminTimer)
+      this.adminTimer = setTimeout(() => this.saveAdminData(), 400)
+    },
+    saveTolerances() {
+      localStorage.setItem(LS.tolerances, JSON.stringify(this.tolerances))
+      this.touchSaved()
+    },
+    savePasswords() {
+      let pws = {}
+      try {
+        pws = JSON.parse(localStorage.getItem(LS.adminPw) || '{}')
+      } catch (e) {}
+      if (this.pwAdminNew) pws.admin = this.pwAdminNew
+      if (this.pwSupNew) pws.supervisor = this.pwSupNew
+      localStorage.setItem(LS.adminPw, JSON.stringify(pws))
+      this.pwAdminNew = ''
+      this.pwSupNew = ''
+      alert('Passwords updated.')
+    },
+    exportAdminJson() {
+      const blob = new Blob(
+        [
+          JSON.stringify(
+            {
+              techList: this.techList,
+              tolerances: this.tolerances,
+              oemTorques: this.oemTorques,
+              passwords: JSON.parse(localStorage.getItem(LS.adminPw) || '{}'),
+            },
+            null,
+            2,
+          ),
+        ],
+        { type: 'application/json' },
+      )
+      const a = document.createElement('a')
+      a.href = URL.createObjectURL(blob)
+      a.download = 'twinseal-itp-admin-backup.json'
+      a.click()
+      URL.revokeObjectURL(a.href)
+    },
+    importAdminJson(ev) {
+      const f = ev.target.files && ev.target.files[0]
+      if (!f) return
+      const r = new FileReader()
+      r.onload = () => {
+        try {
+          const d = JSON.parse(r.result)
+          if (d.techList) {
+            this.techList = d.techList
+            localStorage.setItem(LS.techList, JSON.stringify(this.techList))
+          }
+          if (d.tolerances) {
+            this.tolerances = d.tolerances
+            localStorage.setItem(LS.tolerances, JSON.stringify(this.tolerances))
+          }
+          if (d.oemTorques) {
+            this.oemTorques = d.oemTorques
+            localStorage.setItem(LS.oem, JSON.stringify(this.oemTorques))
+          }
+          if (d.passwords) localStorage.setItem(LS.adminPw, JSON.stringify(d.passwords))
+          alert('Import complete.')
+        } catch (e) {
+          alert('Invalid JSON')
+        }
+        ev.target.value = ''
+      }
+      r.readAsText(f)
+    },
+    debouncedSaveItp() {
+      if (!this.currentRecord) return
+      clearTimeout(this.saveTimer)
+      this.saveTimer = setTimeout(() => this.persistRecords(), 500)
+    },
+    tolMin(sec, label) {
+      const rows = this.tolerances[sec] || []
+      const row = rows.find((x) => x.label === label)
+      return row ? row.min : ''
+    },
+    tolMax(sec, label) {
+      const rows = this.tolerances[sec] || []
+      const row = rows.find((x) => x.label === label)
+      return row ? row.max : ''
+    },
+    fmt3(v) {
+      if (v === '' || v == null) return '—'
+      const n = parseFloat(String(v).replace(/,/g, ''))
+      if (!Number.isFinite(n)) return String(v)
+      return n.toFixed(3)
+    },
+    resultClass(r) {
+      if (r === 'PASS') return 'pass'
+      if (r === 'FAIL') return 'fail'
+      if (r === '—' || r === '') return ''
+      return 'pending'
+    },
+    updateMeasureResult(row, sec, label) {
+      const initials = this.user && this.user.initials ? this.user.initials : ''
+      if (row.measured !== '' && row.measured != null) row.tech = initials
+      const min = parseFloat(String(this.tolMin(sec, label)).replace(/,/g, ''))
+      const max = parseFloat(String(this.tolMax(sec, label)).replace(/,/g, ''))
+      const m = parseFloat(String(row.measured).replace(/,/g, ''))
+      if (row.measured === '' || row.measured == null || String(row.measured).trim() === '') {
+        row.result = ''
+        return
+      }
+      if (!Number.isFinite(m)) {
+        row.result = ''
+        return
+      }
+      if (min === 0 && max === 0) {
+        row.result = '—'
+        return
+      }
+      if (!Number.isFinite(min) || !Number.isFinite(max)) {
+        row.result = ''
+        return
+      }
+      row.result = m >= min && m <= max ? 'PASS' : 'FAIL'
+    },
+    updateTrunnion() {
+      const r = this.currentRecord
+      if (!r) return
+      const v = parseFloat(r.sections.packing.trunnionFinish.measured)
+      if (!Number.isFinite(v)) {
+        r.sections.packing.trunnionFinish.result = ''
+        return
+      }
+      r.sections.packing.trunnionFinish.result = v >= 32 && v <= 63 ? 'PASS' : 'FAIL'
+    },
+    updateGasketRow(row) {
+      const initials = this.user && this.user.initials ? this.user.initials : ''
+      if (row.measured !== '' && row.measured != null) row.tech = initials
+      const t = parseFloat(row.target)
+      const m = parseFloat(row.measured)
+      if (!Number.isFinite(m)) {
+        row.result = ''
+        return
+      }
+      row.result = m <= t ? 'PASS' : 'FAIL'
+    },
+    onDtrVerified() {
+      const r = this.currentRecord
+      if (!r) return
+      if (r.sections.dtr.verified) {
+        r.sections.dtr.verifiedDate = todayIso()
+        r.sections.dtr.verifiedBy = (this.user && this.user.initials) || ''
+      } else {
+        r.sections.dtr.verifiedDate = ''
+        r.sections.dtr.verifiedBy = ''
+      }
+    },
+    findOemMatch() {
+      const r = this.currentRecord
+      if (!r) return null
+      const fig = (r.valveInfo.figureNum || '').trim().toLowerCase()
+      if (!fig) return null
+      return this.oemTorques.find((x) => (x.figure || '').trim().toLowerCase() === fig) || null
+    },
+    syncTorqueFromOem() {
+      const r = this.currentRecord
+      if (!r) return
+      const m = this.findOemMatch()
+      if (m) r.sections.boltTorque.source = 'oem'
+      this.applyBoltTargets()
+    },
+    studSizesForGeneric() {
+      const bt = this.currentRecord && this.currentRecord.sections.boltTorque
+      if (!bt) return []
+      const mat = bt.boltMaterial
+      const man = bt.manufacturer
+      if (mat === 'M303') {
+        const g = TORQUE_TABLES.M303 && TORQUE_TABLES.M303.Gate
+        return g ? Object.keys(g) : []
+      }
+      const branch = TORQUE_TABLES[mat] && TORQUE_TABLES[mat][man]
+      return branch ? Object.keys(branch) : []
+    },
+    lookupGenericTorque() {
+      const bt = this.currentRecord && this.currentRecord.sections.boltTorque
+      if (!bt || !bt.studSize) return { p30: null, p70: null, p100: null }
+      if (bt.boltMaterial === 'M303') {
+        const row = TORQUE_TABLES.M303.Gate[bt.studSize]
+        return row || { p30: null, p70: null, p100: null }
+      }
+      const manu = TORQUE_TABLES[bt.boltMaterial] && TORQUE_TABLES[bt.boltMaterial][bt.manufacturer]
+      return (manu && manu[bt.studSize]) || { p30: null, p70: null, p100: null }
+    },
+    applyGenericTorqueTargets() {
+      const r = this.currentRecord
+      if (!r || r.sections.boltTorque.source !== 'generic') return
+      this.applyBoltTargets()
+    },
+    applyBoltTargets() {
+      const r = this.currentRecord
+      if (!r) return
+      const bt = r.sections.boltTorque
+      const passes = bt.passes
+      const setRow = (i, p30, p70, p100) => {
+        const targets = [p30, p70, p100, p100]
+        const t = targets[i]
+        if (t != null && t !== '') passes[i].target = Math.round(Number(t))
+        else passes[i].target = ''
+      }
+      if (bt.source === 'oem') {
+        const m = this.findOemMatch()
+        if (m) {
+          const p30 = m.p30 !== '' && m.p30 != null ? Number(m.p30) : null
+          const p70 = m.p70 !== '' && m.p70 != null ? Number(m.p70) : null
+          const p100 = m.p100 !== '' && m.p100 != null ? Number(m.p100) : null
+          setRow(0, p30, p70, p100)
+          setRow(1, p30, p70, p100)
+          setRow(2, p30, p70, p100)
+          setRow(3, p30, p70, p100)
+        }
+        return
+      }
+      const L = this.lookupGenericTorque()
+      setRow(0, L.p30, L.p70, L.p100)
+      setRow(1, L.p30, L.p70, L.p100)
+      setRow(2, L.p30, L.p70, L.p100)
+      setRow(3, L.p30, L.p70, L.p100)
+    },
+    updateBoltPassRow(row) {
+      const initials = this.user && this.user.initials ? this.user.initials : ''
+      if (row.actual !== '' && row.actual != null) row.tech = initials
+      const tgt = parseFloat(row.target)
+      const act = parseFloat(row.actual)
+      if (!Number.isFinite(act) || !Number.isFinite(tgt)) {
+        row.pass = ''
+        return
+      }
+      row.pass = act >= tgt ? 'PASS' : 'FAIL'
+    },
+    recalcPackingCalc() {
+      const r = this.currentRecord
+      if (!r) return
+      const pt = r.sections.packingTorque
+      const id = parseFloat(pt.id)
+      const od = parseFloat(pt.od)
+      const n = parseInt(pt.numStuds, 10)
+      const k = STUD_DIAMETERS[pt.studSize] || 0
+      const cs = parseFloat(pt.crossSection)
+      if (!Number.isFinite(id) || !Number.isFinite(od) || !Number.isFinite(n) || n <= 0 || !k) {
+        pt._packingArea = ''
+        pt._preTorque = ''
+        pt._finalTorque = ''
+        return
+      }
+      const packingArea = (Math.PI / 4) * (od * od - id * id)
+      const K = 0.2
+      const preLoad = PACK_PRE * packingArea
+      const finalLoad = PACK_FINAL * packingArea
+      const prePer = preLoad / n
+      const finalPer = finalLoad / n
+      const preTorque = (K * k * prePer) / 12
+      const finalTorque = (K * k * finalPer) / 12
+      pt._packingArea = packingArea.toFixed(4)
+      pt._preTorque = Math.round(preTorque)
+      pt._finalTorque = Math.round(finalTorque)
+    },
+    updatePackingPass(actualKey, resultKey) {
+      const r = this.currentRecord
+      if (!r) return
+      const pt = r.sections.packingTorque
+      this.recalcPackingCalc()
+      const tgt =
+        actualKey === 'pass1Actual'
+          ? parseFloat(pt._preTorque)
+          : actualKey === 'pass2Actual'
+            ? parseFloat(pt._finalTorque)
+            : NaN
+      const act = parseFloat(pt[actualKey])
+      const initials = this.user && this.user.initials ? this.user.initials : ''
+      if (pt[actualKey] !== '' && pt[actualKey] != null) {
+        if (actualKey === 'pass1Actual') pt.tech1 = initials
+        if (actualKey === 'pass2Actual') pt.tech2 = initials
+      }
+      if (!Number.isFinite(act) || !Number.isFinite(tgt)) {
+        pt[resultKey] = ''
+        return
+      }
+      pt[resultKey] = act >= tgt ? 'PASS' : 'FAIL'
+    },
+    signoffRowUpdate(row) {
+      if ((row.initials || '').trim() && (row.date || '').trim()) row.status = 'Complete'
+      else row.status = ''
+    },
+    measurementSummary() {
+      const r = this.currentRecord
+      if (!r) return { entered: 0, total: 0, hasFail: false, allPass: false }
+      let total = 0
+      let entered = 0
+      let hasFail = false
+      const countRows = (rows, sec) => {
+        rows.forEach((row) => {
+          total++
+          if (row.result === 'PASS' || row.result === 'FAIL' || row.result === '—') {
+            entered++
+            if (row.result === 'FAIL') hasFail = true
+          }
+        })
+      }
+      countRows(r.sections.body.measurements, 'body')
+      countRows(r.sections.lid.measurements, 'lid')
+      countRows(r.sections.packing.measurements, 'packing')
+      const tr = r.sections.packing.trunnionFinish.result
+      if (tr) {
+        total++
+        entered++
+        if (tr === 'FAIL') hasFail = true
+      }
+      r.sections.gasket.measurements.forEach((row) => {
+        total++
+        if (row.result) {
+          entered++
+          if (row.result === 'FAIL') hasFail = true
+        }
+      })
+      const allPass = entered === total && total > 0 && !hasFail
+      return { entered, total, hasFail, allPass }
+    },
+    signoffBadgeClass() {
+      const s = this.measurementSummary()
+      if (s.entered === 0) return 'pending'
+      if (s.hasFail) return 'fail'
+      if (s.allPass) return 'pass'
+      return 'pending'
+    },
+    signoffBadgeText() {
+      const s = this.measurementSummary()
+      if (s.entered === 0) return 'IN PROGRESS'
+      if (s.hasFail) return 'CONTAINS FAILURES'
+      if (s.allPass && s.entered === s.total) return 'ALL PASS'
+      return 'IN PROGRESS'
+    },
+    submitItpLock() {
+      const r = this.currentRecord
+      if (!r || r.locked) return
+      if (
+        !confirm(
+          'Save and lock this ITP? It will be marked as complete and cannot be edited without admin access.',
+        )
+      )
+        return
+      r.locked = true
+      this.persistRecords()
+    },
+  }
+}
+
+</script>
+
+
+  <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.14.3/dist/cdn.min.js"></script>
+</body>
+</html>

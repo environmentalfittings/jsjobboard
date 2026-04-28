@@ -1,0 +1,522 @@
+      <div class="p-4 max-w-6xl mx-auto" x-show="screen === 'dashboard'">
+        <div class="flex flex-wrap items-center justify-between gap-3 mb-4">
+          <h2 class="text-xl font-bold">ITP Dashboard</h2>
+          <div class="flex flex-wrap gap-2">
+            <button type="button" class="btn btn-secondary" x-show="user && user.type === 'admin'" @click="screen = 'admin'">Admin</button>
+            <button type="button" class="btn btn-primary" @click="newItp()"><i class="fas fa-plus"></i> New ITP</button>
+          </div>
+        </div>
+        <input type="search" class="w-full max-w-md mb-4 p-2 rounded" style="background: var(--panel2); border: 1px solid var(--border);" placeholder="Filter by work order, valve ID, customer…" x-model="dashFilter" />
+        <div class="grid gap-3 md:grid-cols-2 lg:grid-cols-3">
+          <template x-for="rec in filteredRecords()" :key="rec.id">
+            <div class="card">
+              <div class="font-mono text-sm" style="color: var(--text-dim);" x-text="rec.jobInfo?.workOrder || '—'"></div>
+              <div class="font-bold" x-text="rec.valveInfo?.valveId || 'No valve ID'"></div>
+              <div class="text-sm" x-text="rec.jobInfo?.customer || '—'"></div>
+              <div class="text-xs mt-2" style="color: var(--text-dim);" x-text="rec.jobInfo?.date || ''"></div>
+              <span class="inline-block mt-2 px-2 py-0.5 rounded text-xs font-bold" :class="rec.locked ? 'bg-green-900 text-green-300' : 'bg-amber-900 text-amber-200'" x-text="rec.locked ? 'Locked' : 'In Progress'"></span>
+              <div class="flex gap-2 mt-3">
+                <button type="button" class="btn btn-primary text-sm flex-1" @click="openItp(rec.id)">Open</button>
+                <button type="button" class="btn btn-danger text-sm" x-show="user && user.type === 'admin'" @click="deleteItp(rec.id)">Delete</button>
+              </div>
+            </div>
+          </template>
+        </div>
+        <p class="text-sm mt-6" style="color: var(--text-dim);" x-show="filteredRecords().length === 0">No ITPs yet.</p>
+      </div>
+
+      <div class="p-4 max-w-5xl mx-auto" x-show="screen === 'admin' && user && user.type === 'admin'">
+        <button type="button" class="btn btn-secondary mb-4" @click="screen = 'dashboard'">← Dashboard</button>
+        <h2 class="text-xl font-bold mb-4">Admin</h2>
+        <details class="card admin-section" open>
+          <summary>Tech Management</summary>
+          <table class="itp-table mt-2">
+            <thead><tr><th>Code</th><th>Initials</th><th>Name</th><th></th></tr></thead>
+            <tbody>
+              <template x-for="(t, i) in techList" :key="i">
+                <tr>
+                  <td><input type="text" x-model="t.code" @input="debouncedSaveAdmin()" /></td>
+                  <td><input type="text" x-model="t.initials" @input="debouncedSaveAdmin()" /></td>
+                  <td><input type="text" x-model="t.name" @input="debouncedSaveAdmin()" /></td>
+                  <td><button type="button" class="btn btn-danger text-xs" @click="techList.splice(i,1); saveTechList()">Del</button></td>
+                </tr>
+              </template>
+            </tbody>
+          </table>
+          <button type="button" class="btn btn-secondary mt-2" @click="techList.push({code:'',initials:'',name:''}); saveTechList()">Add Tech</button>
+        </details>
+        <details class="card admin-section" open>
+          <summary>Dimensional Tolerances</summary>
+          <template x-for="sec in ['body','plug']" :key="sec">
+            <div class="mb-4">
+              <h4 class="font-bold mb-2 capitalize" x-text="sec === 'body' ? 'Body / Flange' : 'Plug'"></h4>
+              <table class="itp-table">
+                <thead><tr><th>Label</th><th>Min</th><th>Max</th><th>Notes</th></tr></thead>
+                <tbody>
+                  <template x-for="(row, ri) in tolerances[sec]" :key="ri">
+                    <tr>
+                      <td contenteditable="true" @blur="row.label = $event.target.textContent; saveTolerances()" x-text="row.label"></td>
+                      <td contenteditable="true" @blur="row.min = $event.target.textContent; saveTolerances()" x-text="row.min"></td>
+                      <td contenteditable="true" @blur="row.max = $event.target.textContent; saveTolerances()" x-text="row.max"></td>
+                      <td contenteditable="true" @blur="row.notes = $event.target.textContent; saveTolerances()" x-text="row.notes"></td>
+                    </tr>
+                  </template>
+                </tbody>
+              </table>
+            </div>
+          </template>
+          <button type="button" class="btn btn-primary mt-2" @click="saveTolerances()">Save Tolerances</button>
+        </details>
+        <details class="card admin-section">
+          <summary>Admin Password Change</summary>
+          <div class="space-y-2 max-w-sm">
+            <label class="block text-sm">New password (admin)<input type="password" class="w-full mt-1" x-model="pwAdminNew" /></label>
+            <label class="block text-sm">New password (supervisor)<input type="password" class="w-full mt-1" x-model="pwSupNew" /></label>
+            <button type="button" class="btn btn-primary" @click="savePasswords()">Save passwords</button>
+          </div>
+        </details>
+        <details class="card admin-section">
+          <summary>Export / Import All Data</summary>
+          <div class="flex flex-wrap gap-2 mt-2">
+            <button type="button" class="btn btn-secondary" @click="exportAllData()">Export JSON</button>
+            <label class="btn btn-secondary cursor-pointer">
+              Import JSON<input type="file" accept="application/json" class="hidden" @change="importAllData($event)" />
+            </label>
+          </div>
+        </details>
+      </div>
+
+      <div id="print-area" class="p-4 max-w-6xl mx-auto" x-show="screen === 'itp' && currentRecord">
+        <div class="print-header text-center font-bold mb-4 pb-2 border-b border-black">J~S Machine &amp; Valve — Plug Valve ITP (Non-Lubricated)</div>
+        <button type="button" class="btn btn-secondary mb-4 print:hidden" @click="closeItp()">← Dashboard</button>
+        <div class="locked-banner print:hidden" x-show="currentRecord && currentRecord.locked">COMPLETED — Read only</div>
+        <div class="print:hidden mb-3 flex flex-wrap gap-2" x-show="currentRecord && currentRecord.locked && user && user.type === 'admin'">
+          <button type="button" class="btn btn-secondary" @click="openUnlock()"><i class="fas fa-unlock"></i> Unlock ITP</button>
+        </div>
+        <div x-show="unlockModal" class="fixed inset-0 z-50 flex items-center justify-center p-4" style="background: rgba(0,0,0,0.6);">
+          <div class="card max-w-sm w-full">
+            <h3 class="font-bold mb-2">Admin password</h3>
+            <input type="password" class="w-full mb-2" x-model="unlockPass" placeholder="Re-enter admin or supervisor password" />
+            <p class="text-red-400 text-sm" x-show="unlockError" x-text="unlockError"></p>
+            <div class="flex gap-2 mt-3">
+              <button type="button" class="btn btn-primary" @click="confirmUnlock()">Unlock</button>
+              <button type="button" class="btn btn-secondary" @click="unlockModal = false">Cancel</button>
+            </div>
+          </div>
+        </div>
+
+        <div class="card mb-4">
+          <div class="flex flex-wrap justify-between gap-2 mb-3 print:hidden">
+            <button type="button" class="btn btn-secondary text-sm" @click="confirmNewItp()">New ITP</button>
+            <button type="button" class="btn btn-primary text-sm" @click="window.print()"><i class="fas fa-print"></i> Print / PDF</button>
+          </div>
+          <div class="grid md:grid-cols-2 gap-4">
+            <div>
+              <h3 class="font-bold mb-2 text-sm uppercase" style="color: var(--text-dim);">Job info</h3>
+              <label class="block text-sm mb-2">Work Order #<input type="text" class="w-full" x-model="currentRecord.jobInfo.workOrder" @input="debouncedSaveItp()" :disabled="currentRecord.locked" /></label>
+              <label class="block text-sm mb-2">Customer<input type="text" class="w-full" x-model="currentRecord.jobInfo.customer" @input="debouncedSaveItp()" :disabled="currentRecord.locked" /></label>
+              <label class="block text-sm mb-2">Date<input type="date" class="w-full" x-model="currentRecord.jobInfo.date" @input="debouncedSaveItp()" :disabled="currentRecord.locked" /></label>
+              <p class="text-sm mb-2" style="color: var(--text-dim);">Tech: <span class="font-mono" style="color: var(--text);" x-text="currentRecord.jobInfo.tech"></span></p>
+              <label class="block text-sm mb-2">Customer Tag / ID<input type="text" class="w-full" x-model="currentRecord.jobInfo.customerId" @input="debouncedSaveItp()" :disabled="currentRecord.locked" /></label>
+              <label class="block text-sm mb-2">Location<input type="text" class="w-full" x-model="currentRecord.jobInfo.location" @input="debouncedSaveItp()" :disabled="currentRecord.locked" /></label>
+              <label class="block text-sm mb-2">Due Date<input type="date" class="w-full" x-model="currentRecord.jobInfo.dueDate" @input="debouncedSaveItp()" :disabled="currentRecord.locked" /></label>
+              <label class="block text-sm mb-2">Salesman<input type="text" class="w-full" x-model="currentRecord.jobInfo.salesman" @input="debouncedSaveItp()" :disabled="currentRecord.locked" /></label>
+              <label class="block text-sm mb-2">Notes<textarea class="w-full mt-1" rows="2" x-model="currentRecord.jobInfo.notes" @input="debouncedSaveItp()" :disabled="currentRecord.locked"></textarea></label>
+            </div>
+            <div>
+              <h3 class="font-bold mb-2 text-sm uppercase" style="color: var(--text-dim);">Valve ID <i class="fas fa-lock text-xs"></i> admin</h3>
+              <label class="block text-sm mb-2">Valve ID / Tag #<input type="text" class="w-full" x-model="currentRecord.valveInfo.valveId" @input="debouncedSaveItp()" :disabled="currentRecord.locked || !isAdmin()" @click="!isAdmin() && adminTip($event)" /></label>
+              <p class="text-sm mb-2 p-2 rounded" style="background: var(--panel2); border: 1px solid var(--border);">Valve Type: <strong>Non-Lubricated Plug Valve</strong></p>
+              <label class="block text-sm mb-2">Manufacturer<input type="text" class="w-full" x-model="currentRecord.valveInfo.manufacturer" @input="debouncedSaveItp()" :disabled="currentRecord.locked || !isAdmin()" /></label>
+              <label class="block text-sm mb-2">Manufacturer S/N<input type="text" class="w-full" x-model="currentRecord.valveInfo.mfgSN" @input="debouncedSaveItp()" :disabled="currentRecord.locked || !isAdmin()" /></label>
+              <label class="block text-sm mb-2">Size<input type="text" class="w-full" x-model="currentRecord.valveInfo.size" @input="debouncedSaveItp()" :disabled="currentRecord.locked || !isAdmin()" placeholder='e.g. 14"' /></label>
+              <label class="block text-sm mb-2">Pressure Class<input type="text" class="w-full" x-model="currentRecord.valveInfo.pressure" @input="debouncedSaveItp()" :disabled="currentRecord.locked || !isAdmin()" placeholder='e.g. 300#' /></label>
+              <label class="block text-sm mb-2">Figure Number<input type="text" class="w-full" x-model="currentRecord.valveInfo.figureNum" @input="debouncedSaveItp()" :disabled="currentRecord.locked || !isAdmin()" /></label>
+              <label class="block text-sm mb-2">Drawing Number<input type="text" class="w-full" x-model="currentRecord.valveInfo.drawingNum" @input="debouncedSaveItp()" :disabled="currentRecord.locked || !isAdmin()" /></label>
+              <label class="block text-sm mb-2">Operator Type
+                <select class="w-full" x-model="currentRecord.valveInfo.operatorType" @change="debouncedSaveItp()" :disabled="currentRecord.locked || !isAdmin()">
+                  <option>Manual</option><option>Air Act.</option><option>Gear Op.</option><option>Hydraulic</option>
+                </select>
+              </label>
+              <label class="block text-sm mb-2">Valve Condition
+                <select class="w-full" x-model="currentRecord.valveInfo.condition" @change="debouncedSaveItp()" :disabled="currentRecord.locked || !isAdmin()">
+                  <option>Repairable</option><option>Replace</option><option>New</option>
+                </select>
+              </label>
+              <label class="block text-sm mb-2">End Connection
+                <select class="w-full" x-model="currentRecord.valveInfo.endConnection" @change="debouncedSaveItp()" :disabled="currentRecord.locked || !isAdmin()">
+                  <option>RF</option><option>RTJ</option><option>FF</option><option>BW</option>
+                </select>
+              </label>
+              <label class="block text-sm mb-2">PO Number<input type="text" class="w-full" x-model="currentRecord.valveInfo.poNumber" @input="debouncedSaveItp()" :disabled="currentRecord.locked || !isAdmin()" /></label>
+            </div>
+          </div>
+        </div>
+
+        <!-- Sections 1–11 accordion -->
+        <div class="card mb-2">
+          <button type="button" class="accordion-head flex" @click="acc.s1 = !acc.s1">
+            <span>1 — Material Identification</span>
+            <span class="sec-badge" :class="badgeClass(sectionBadgeMaterial())" x-text="sectionBadgeMaterial()"></span>
+            <i class="fas fa-chevron-down" :class="acc.s1 && 'rotate-180'" style="transition: transform .2s;"></i>
+          </button>
+          <div class="pt-3 pb-2" x-show="acc.s1">
+            <div class="grid sm:grid-cols-2 gap-3">
+              <template x-for="pair in [['body','Body Material'],['seat','Seat Material'],['diaphragm','Diaphragm Material'],['topCap','Top Cap Material'],['thrustCollar','Thrust Collar Material'],['metalDiaphragm','Metal Diaphragm Material'],['plug','Plug Material'],['adjuster','Adjuster Material']]" :key="pair[0] + ''">
+                <label class="block text-sm"><span x-text="pair[1]"></span><input type="text" class="w-full mt-1" x-model="currentRecord.sections.materialId[pair[0]]" @input="debouncedSaveItp()" :disabled="currentRecord.locked" /></label>
+              </template>
+            </div>
+            <div class="grid sm:grid-cols-2 gap-3 mt-3">
+              <label class="block text-sm">PMI Required?
+                <select class="w-full mt-1" x-model="currentRecord.sections.materialId.pmiRequired" @change="debouncedSaveItp()" :disabled="currentRecord.locked"><option value="">—</option><option value="yes">Yes</option><option value="no">No</option></select>
+              </label>
+              <label class="block text-sm" :class="currentRecord.sections.materialId.pmiRequired === 'yes' && currentRecord.sections.materialId.pmiAttached === 'no' ? 'p-2 rounded' : ''" :style="currentRecord.sections.materialId.pmiRequired === 'yes' && currentRecord.sections.materialId.pmiAttached === 'no' ? 'background: rgba(245,158,11,0.15); border: 1px solid var(--amber);' : ''">PMI Attached?
+                <select class="w-full mt-1" x-model="currentRecord.sections.materialId.pmiAttached" @change="debouncedSaveItp()" :disabled="currentRecord.locked"><option value="">—</option><option value="yes">Yes</option><option value="no">No</option></select>
+              </label>
+            </div>
+            <div class="grid sm:grid-cols-2 gap-3 mt-3">
+              <label class="block text-sm">Kit Type<input type="text" class="w-full mt-1" x-model="currentRecord.sections.materialId.kitType" @input="debouncedSaveItp()" :disabled="currentRecord.locked" /></label>
+              <label class="block text-sm">Plug Type<input type="text" class="w-full mt-1" x-model="currentRecord.sections.materialId.plugType" @input="debouncedSaveItp()" :disabled="currentRecord.locked" /></label>
+            </div>
+            <div class="grid sm:grid-cols-3 gap-3 mt-3">
+              <label class="block text-sm">Stud Type<input type="text" class="w-full mt-1" x-model="currentRecord.sections.materialId.studType" @input="debouncedSaveItp()" :disabled="currentRecord.locked" /></label>
+              <label class="block text-sm">Stud Size<input type="text" class="w-full mt-1" x-model="currentRecord.sections.materialId.studSize" @input="debouncedSaveItp()" :disabled="currentRecord.locked" /></label>
+              <label class="block text-sm">Stud Qty<input type="number" class="w-full mt-1" x-model="currentRecord.sections.materialId.studQty" @input="debouncedSaveItp()" :disabled="currentRecord.locked" /></label>
+            </div>
+            <div class="flex flex-wrap gap-3 mt-3">
+              <label class="text-sm">Initials<input type="text" class="w-24 ml-1" x-model="currentRecord.sections.materialId.tech" @input="debouncedSaveItp()" :disabled="currentRecord.locked" /></label>
+              <label class="text-sm">Date<input type="date" class="ml-1" x-model="currentRecord.sections.materialId.date" @input="debouncedSaveItp()" :disabled="currentRecord.locked" /></label>
+            </div>
+          </div>
+        </div>
+
+        <div class="card mb-2">
+          <button type="button" class="accordion-head flex" @click="acc.s2 = !acc.s2">
+            <span>2 — Critical Dimensions</span>
+            <span class="sec-badge" :class="badgeClass(sectionBadgeCritical())" x-text="sectionBadgeCritical()"></span>
+            <i class="fas fa-chevron-down" :class="acc.s2 && 'rotate-180'" style="transition: transform .2s;"></i>
+          </button>
+          <div class="pt-3 pb-2" x-show="acc.s2">
+            <p class="text-xs mb-2" style="color: var(--text-dim);">A = Flange thickness (drive side), B = Flange thickness (opposite side), C = Face-to-face length — ref: B16.10 / J~S Traveler</p>
+            <table class="itp-table">
+              <thead>
+                <tr>
+                  <th title="Measured dimension per traveler">Dimension</th>
+                  <th title="Minimum from admin tolerances">Min (in)</th>
+                  <th title="Maximum from admin tolerances">Max (in)</th>
+                  <th title="Measured value, 3 decimal places">Measured (in)</th>
+                  <th>Result</th>
+                  <th title="Technician initials">Tech</th>
+                </tr>
+              </thead>
+              <tbody>
+                <template x-for="row in currentRecord.sections.criticalDims.measurements" :key="row.key">
+                  <tr>
+                    <td x-text="row.label"></td>
+                    <td x-text="fmt3(tolMin('body', row.label))"></td>
+                    <td x-text="fmt3(tolMax('body', row.label))"></td>
+                    <td><input type="number" step="0.001" class="w-full" x-model="row.measured" @input="updateMeasureResult(row, 'body', row.label)" :disabled="currentRecord.locked" /></td>
+                    <td :class="resultClass(row.result)" x-text="row.result"></td>
+                    <td><input type="text" class="w-full" x-model="row.tech" @input="debouncedSaveItp()" :disabled="currentRecord.locked" /></td>
+                  </tr>
+                </template>
+              </tbody>
+            </table>
+            <div class="mt-3 flex flex-wrap items-center gap-3">
+              <span class="text-sm font-semibold">Dimensions Acceptable?</span>
+              <button type="button" class="btn text-sm" :class="currentRecord.sections.criticalDims.acceptable === 'yes' ? 'btn-primary' : 'btn-secondary'" @click="setAcceptableManual('yes')" :disabled="currentRecord.locked">Yes</button>
+              <button type="button" class="btn text-sm" :class="currentRecord.sections.criticalDims.acceptable === 'no' ? 'btn-primary' : 'btn-secondary'" @click="setAcceptableManual('no')" :disabled="currentRecord.locked">No</button>
+              <button type="button" class="btn btn-secondary text-xs" @click="currentRecord.sections.criticalDims.acceptableManual = false; syncAcceptableFromCritical(); debouncedSaveItp()" :disabled="currentRecord.locked">Sync from measurements</button>
+            </div>
+            <div class="flex flex-wrap gap-3 mt-2">
+              <label class="text-sm">Initials<input type="text" class="w-24 ml-1" x-model="currentRecord.sections.criticalDims.tech" @input="debouncedSaveItp()" :disabled="currentRecord.locked" /></label>
+              <label class="text-sm">Date<input type="date" class="ml-1" x-model="currentRecord.sections.criticalDims.date" @input="debouncedSaveItp()" :disabled="currentRecord.locked" /></label>
+            </div>
+            <label class="block text-sm mt-2">Notes<textarea class="w-full mt-1" rows="2" x-model="currentRecord.sections.criticalDims.notes" @input="debouncedSaveItp()" :disabled="currentRecord.locked"></textarea></label>
+          </div>
+        </div>
+
+        <!-- Continued in next part due to length: sections 3-11 -->
+        <div class="card mb-2">
+          <button type="button" class="accordion-head flex" @click="acc.s3 = !acc.s3">
+            <span>3 — Assembly Area</span>
+            <span class="sec-badge" :class="badgeClass(sectionBadgeAssembly())" x-text="sectionBadgeAssembly()"></span>
+            <i class="fas fa-chevron-down" :class="acc.s3 && 'rotate-180'" style="transition: transform .2s;"></i>
+          </button>
+          <div class="pt-3 pb-2" x-show="acc.s3">
+            <p class="text-sm font-bold mb-2">Part status</p>
+            <div class="grid md:grid-cols-3 gap-3">
+              <template x-for="(part, pi) in currentRecord.sections.assembly.parts" :key="pi">
+                <div class="p-3 rounded" style="border: 1px solid var(--border); background: var(--panel2);">
+                  <div class="font-bold mb-2" x-text="part.name"></div>
+                  <label class="block text-xs mb-1">Repaired?<select class="w-full" x-model="part.repaired" @change="debouncedSaveItp()" :disabled="currentRecord.locked"><option value="">—</option><option value="yes">Yes</option><option value="no">No</option></select></label>
+                  <label class="block text-xs mb-1">Replaced?<select class="w-full" x-model="part.replaced" @change="debouncedSaveItp()" :disabled="currentRecord.locked"><option value="">—</option><option value="yes">Yes</option><option value="no">No</option></select></label>
+                  <label class="block text-xs">Repair desc.<input type="text" class="w-full mt-1" x-model="part.repairDesc" @input="debouncedSaveItp()" :disabled="currentRecord.locked" /></label>
+                </div>
+              </template>
+            </div>
+            <p class="text-sm font-bold mt-4 mb-2">Plug dimensions <span class="text-xs font-normal" style="color: var(--text-dim);">A = plug diameter at top, B = plug seating length</span></p>
+            <table class="itp-table">
+              <thead><tr><th>Dimension</th><th>Min</th><th>Max</th><th>Measured</th><th>Result</th><th>Tech</th></tr></thead>
+              <tbody>
+                <template x-for="row in currentRecord.sections.assembly.plugDims.measurements" :key="row.key">
+                  <tr>
+                    <td x-text="row.label"></td>
+                    <td x-text="fmt3(tolMin('plug', row.label))"></td>
+                    <td x-text="fmt3(tolMax('plug', row.label))"></td>
+                    <td><input type="number" step="0.001" class="w-full" x-model="row.measured" @input="updatePlugMeasure(row, row.label)" :disabled="currentRecord.locked" /></td>
+                    <td :class="resultClass(row.result)" x-text="row.result"></td>
+                    <td><input type="text" class="w-full" x-model="row.tech" @input="debouncedSaveItp()" :disabled="currentRecord.locked" /></td>
+                  </tr>
+                </template>
+              </tbody>
+            </table>
+            <div class="card mt-3" style="background: var(--panel2);">
+              <p class="font-bold mb-2">Fastener torques (ft-lb)</p>
+              <div class="grid sm:grid-cols-2 gap-3">
+                <label class="text-sm">Top cap target<input type="number" step="1" class="w-full mt-1" x-model="currentRecord.sections.assembly.torques.topCapTarget" @input="debouncedSaveItp()" :disabled="currentRecord.locked" /></label>
+                <label class="text-sm">Top cap actual<input type="number" step="1" class="w-full mt-1" x-model="currentRecord.sections.assembly.torques.topCapActual" @input="debouncedSaveItp()" :disabled="currentRecord.locked" /></label>
+                <span class="text-sm" :class="resultClass(torquePass(currentRecord.sections.assembly.torques.topCapTarget, currentRecord.sections.assembly.torques.topCapActual))" x-text="torquePass(currentRecord.sections.assembly.torques.topCapTarget, currentRecord.sections.assembly.torques.topCapActual) || '—'"></span>
+                <label class="text-sm">Loctite on top cap?<select class="w-full mt-1" x-model="currentRecord.sections.assembly.torques.loctiteApplied" @change="debouncedSaveItp()" :disabled="currentRecord.locked"><option value="">—</option><option value="yes">Yes</option><option value="no">No</option></select></label>
+                <label class="text-sm">Adjuster target<input type="number" step="1" class="w-full mt-1" x-model="currentRecord.sections.assembly.torques.adjTarget" @input="debouncedSaveItp()" :disabled="currentRecord.locked" /></label>
+                <label class="text-sm">Adjuster actual<input type="number" step="1" class="w-full mt-1" x-model="currentRecord.sections.assembly.torques.adjActual" @input="debouncedSaveItp()" :disabled="currentRecord.locked" /></label>
+                <span class="text-sm" :class="resultClass(torquePass(currentRecord.sections.assembly.torques.adjTarget, currentRecord.sections.assembly.torques.adjActual))" x-text="torquePass(currentRecord.sections.assembly.torques.adjTarget, currentRecord.sections.assembly.torques.adjActual) || '—'"></span>
+              </div>
+            </div>
+            <div class="card mt-3" style="background: var(--panel2);">
+              <p class="font-bold mb-2">Oven bake</p>
+              <label class="text-sm">Was valve put in oven?<select class="w-full mt-1 max-w-xs" x-model="currentRecord.sections.assembly.oven.used" @change="debouncedSaveItp()" :disabled="currentRecord.locked"><option value="">—</option><option value="yes">Yes</option><option value="no">No</option></select></label>
+              <div class="grid sm:grid-cols-2 gap-3 mt-2" x-show="currentRecord.sections.assembly.oven.used === 'yes'">
+                <label class="text-sm">Temp °F<input type="number" class="w-full mt-1" x-model="currentRecord.sections.assembly.oven.temp" @input="debouncedSaveItp()" :disabled="currentRecord.locked" /></label>
+                <label class="text-sm">Duration<input type="text" class="w-full mt-1" x-model="currentRecord.sections.assembly.oven.duration" @input="debouncedSaveItp()" :disabled="currentRecord.locked" placeholder="e.g. 6 hrs" /></label>
+              </div>
+            </div>
+            <div class="flex flex-wrap gap-3 mt-3">
+              <label class="text-sm">Initials<input type="text" class="w-24 ml-1" x-model="currentRecord.sections.assembly.tech" @input="debouncedSaveItp()" :disabled="currentRecord.locked" /></label>
+              <label class="text-sm">Date<input type="date" class="ml-1" x-model="currentRecord.sections.assembly.date" @input="debouncedSaveItp()" :disabled="currentRecord.locked" /></label>
+            </div>
+          </div>
+        </div>
+
+        <div class="card mb-2" :class="currentRecord.valveInfo.operatorType !== 'Air Act.' ? 'opacity-80' : ''">
+          <button type="button" class="accordion-head flex" @click="acc.s4 = !acc.s4">
+            <span>4 — Air Actuator Break-Away Torque</span>
+            <span class="sec-badge" :class="badgeClass(sectionBadgeAir())" x-text="sectionBadgeAir()"></span>
+            <i class="fas fa-chevron-down" :class="acc.s4 && 'rotate-180'" style="transition: transform .2s;"></i>
+          </button>
+          <div class="pt-3 pb-2" x-show="acc.s4">
+            <template x-if="currentRecord.valveInfo.operatorType !== 'Air Act.'">
+              <p class="text-sm p-4 rounded" style="background: var(--panel2); color: var(--text-dim);">N/A — Manual Operator (or non-air operator selected in header).</p>
+            </template>
+            <template x-if="currentRecord.valveInfo.operatorType === 'Air Act.'">
+              <div>
+                <table class="itp-table">
+                  <thead><tr><th>Test #</th><th>Pressure (PSI)</th><th>Result</th><th>Notes</th><th></th></tr></thead>
+                  <tbody>
+                    <template x-for="(ar, ai) in currentRecord.sections.airActuator.rows" :key="ai">
+                      <tr>
+                        <td x-text="ai + 1"></td>
+                        <td><input type="number" class="w-full" x-model="ar.pressure" @input="debouncedSaveItp()" :disabled="currentRecord.locked" /></td>
+                        <td>
+                          <button type="button" class="btn text-xs px-2 py-1" :class="ar.result === 'pass' ? 'btn-primary' : 'btn-secondary'" @click="ar.result = 'pass'; debouncedSaveItp()" :disabled="currentRecord.locked">Pass</button>
+                          <button type="button" class="btn text-xs px-2 py-1 ml-1" style="background: #7f1d1d; color: #fecaca;" :class="ar.result === 'fail' ? 'ring-2 ring-white' : ''" @click="ar.result = 'fail'; debouncedSaveItp()" :disabled="currentRecord.locked">Fail</button>
+                        </td>
+                        <td><input type="text" class="w-full" x-model="ar.notes" @input="debouncedSaveItp()" :disabled="currentRecord.locked" /></td>
+                        <td><button type="button" class="btn btn-secondary text-xs" @click="removeAirRow(ai)" :disabled="currentRecord.locked">×</button></td>
+                      </tr>
+                    </template>
+                  </tbody>
+                </table>
+                <button type="button" class="btn btn-secondary mt-2" @click="addAirRow()" :disabled="currentRecord.locked">Add Row</button>
+                <p class="mt-3 font-bold">Final Actuator Verdict: <span :class="airActuatorVerdict() === 'ALL PASS' ? 'pass' : (airActuatorVerdict() === 'CONTAINS FAILURES' ? 'fail' : 'pending')" x-text="airActuatorVerdict()"></span></p>
+                <div class="flex flex-wrap gap-3 mt-2">
+                  <label class="text-sm">Initials<input type="text" class="w-24 ml-1" x-model="currentRecord.sections.airActuator.tech" @input="debouncedSaveItp()" :disabled="currentRecord.locked" /></label>
+                  <label class="text-sm">Date<input type="date" class="ml-1" x-model="currentRecord.sections.airActuator.date" @input="debouncedSaveItp()" :disabled="currentRecord.locked" /></label>
+                </div>
+              </div>
+            </template>
+          </div>
+        </div>
+
+        <!-- 5 Gasket -->
+        <div class="card mb-2">
+          <button type="button" class="accordion-head flex" @click="acc.s5 = !acc.s5"><span>5 — Gasket Area &amp; Surface Finish</span><span class="sec-badge badge-progress">—</span><i class="fas fa-chevron-down" :class="acc.s5 && 'rotate-180'" style="transition: transform .2s;"></i></button>
+          <div class="pt-3 pb-2" x-show="acc.s5">
+            <table class="itp-table">
+              <thead><tr><th>Surface</th><th>Target (Ra μin)</th><th>Measured</th><th>Result</th><th>Tech</th></tr></thead>
+              <tbody>
+                <template x-for="row in currentRecord.sections.gasket.measurements" :key="row.key">
+                  <tr>
+                    <td x-text="row.label"></td>
+                    <td x-text="row.target"></td>
+                    <td><input type="text" class="w-full" x-model="row.measured" @input="updateGasketRow(row)" :disabled="currentRecord.locked" /></td>
+                    <td :class="resultClass(row.result)" x-text="row.result"></td>
+                    <td><input type="text" class="w-full" x-model="row.tech" @input="debouncedSaveItp()" :disabled="currentRecord.locked" /></td>
+                  </tr>
+                </template>
+              </tbody>
+            </table>
+            <label class="block text-sm mt-2">Notes<textarea class="w-full mt-1" rows="2" x-model="currentRecord.sections.gasket.notes" @input="debouncedSaveItp()" :disabled="currentRecord.locked"></textarea></label>
+          </div>
+        </div>
+
+        <!-- 6–11 compact -->
+        <div class="card mb-2">
+          <button type="button" class="accordion-head flex" @click="acc.s6 = !acc.s6"><span>6 — Parts Ordered</span><span class="sec-badge badge-empty">—</span><i class="fas fa-chevron-down" :class="acc.s6 && 'rotate-180'" style="transition: transform .2s;"></i></button>
+          <div class="pt-3" x-show="acc.s6">
+            <textarea class="w-full" rows="3" x-model="currentRecord.sections.partsOrdered.notes" @input="debouncedSaveItp()" :disabled="currentRecord.locked"></textarea>
+            <div class="flex gap-3 mt-2">
+              <label class="text-sm">Tech<input type="text" class="w-24 ml-1" x-model="currentRecord.sections.partsOrdered.tech" @input="debouncedSaveItp()" :disabled="currentRecord.locked" /></label>
+              <label class="text-sm">Date<input type="date" class="ml-1" x-model="currentRecord.sections.partsOrdered.date" @input="debouncedSaveItp()" :disabled="currentRecord.locked" /></label>
+            </div>
+          </div>
+        </div>
+
+        <div class="card mb-2">
+          <button type="button" class="accordion-head flex" @click="acc.s7 = !acc.s7"><span>7 — Testing</span><span class="sec-badge badge-progress">—</span><i class="fas fa-chevron-down" :class="acc.s7 && 'rotate-180'" style="transition: transform .2s;"></i></button>
+          <div class="pt-3 space-y-4" x-show="acc.s7">
+            <div class="flex flex-wrap gap-3 items-end">
+              <label class="text-sm">Test Medium<select class="w-full mt-1" x-model="currentRecord.sections.testing.medium" @change="debouncedSaveItp()" :disabled="currentRecord.locked"><option>Helium</option><option>Nitrogen</option><option>Water</option><option>Air</option></select></label>
+              <label class="text-sm">4-Hour required?<select class="w-full mt-1" x-model="currentRecord.sections.testing.fourHour" @change="debouncedSaveItp()" :disabled="currentRecord.locked"><option value="">—</option><option value="yes">Yes</option><option value="no">No</option></select></label>
+            </div>
+            <div class="space-y-2 text-sm">
+              <label class="flex gap-2 items-center"><input type="checkbox" x-model="currentRecord.sections.testing.cycled5x" @change="debouncedSaveItp()" :disabled="currentRecord.locked" /> Cycled min. 5× prior to test</label>
+              <label class="flex gap-2 items-center"><input type="checkbox" x-model="currentRecord.sections.testing.midStroke" @change="debouncedSaveItp()" :disabled="currentRecord.locked" /> Mid-stroke during test</label>
+              <label class="flex gap-2 items-center"><input type="checkbox" x-model="currentRecord.sections.testing.draftsEliminated" @change="debouncedSaveItp()" :disabled="currentRecord.locked" /> Drafts eliminated</label>
+              <label class="flex gap-2 items-center" x-show="currentRecord.sections.testing.medium === 'Helium'"><input type="checkbox" x-model="currentRecord.sections.testing.heliumCalibrated" @change="debouncedSaveItp()" :disabled="currentRecord.locked" /> Helium tester calibrated</label>
+            </div>
+            <div class="grid md:grid-cols-3 gap-3">
+              <template x-for="pair in [['lowTest','Low Pressure'],['highTest','High Pressure'],['shellTest','Shell']]" :key="pair[0]">
+                <div class="p-3 rounded" style="border:1px solid var(--border);">
+                  <p class="font-bold text-sm mb-2" x-text="pair[1]"></p>
+                  <label class="block text-xs">Gauge ID<input type="text" class="w-full mt-1" x-model="currentRecord.sections.testing[pair[0]].gauge" @input="debouncedSaveItp()" :disabled="currentRecord.locked" /></label>
+                  <label class="block text-xs mt-1">Test time<input type="text" class="w-full mt-1" x-model="currentRecord.sections.testing[pair[0]].time" @input="debouncedSaveItp()" :disabled="currentRecord.locked" /></label>
+                  <label class="block text-xs mt-1">Pressure (PSI)<input type="number" class="w-full mt-1" x-model="currentRecord.sections.testing[pair[0]].pressure" @input="debouncedSaveItp()" :disabled="currentRecord.locked" /></label>
+                  <div class="mt-2">
+                    <button type="button" class="btn text-xs" :class="currentRecord.sections.testing[pair[0]].result === 'pass' ? 'btn-primary' : 'btn-secondary'" @click="currentRecord.sections.testing[pair[0]].result = 'pass'; debouncedSaveItp()" :disabled="currentRecord.locked">Pass</button>
+                    <button type="button" class="btn text-xs ml-1" style="background:#7f1d1d;color:#fecaca" @click="currentRecord.sections.testing[pair[0]].result = 'fail'; debouncedSaveItp()" :disabled="currentRecord.locked">Fail</button>
+                  </div>
+                  <label class="block text-xs mt-1" x-show="currentRecord.sections.testing[pair[0]].result === 'fail'">Reason<input type="text" class="w-full mt-1" x-model="currentRecord.sections.testing[pair[0]].reason" @input="debouncedSaveItp()" :disabled="currentRecord.locked" /></label>
+                </div>
+              </template>
+            </div>
+            <div class="card" style="background:var(--panel2);" x-show="currentRecord.sections.testing.medium === 'Helium'">
+              <p class="font-bold mb-2">Helium test</p>
+              <div class="grid sm:grid-cols-2 gap-2">
+                <label class="text-xs">Gauge ID<input type="text" class="w-full mt-1" x-model="currentRecord.sections.testing.heliumTest.gauge" @input="debouncedSaveItp()" :disabled="currentRecord.locked" /></label>
+                <label class="text-xs">Pressure PSI<input type="number" class="w-full mt-1" x-model="currentRecord.sections.testing.heliumTest.pressure" @input="debouncedSaveItp()" :disabled="currentRecord.locked" /></label>
+                <label class="text-xs">Time<input type="text" class="w-full mt-1" x-model="currentRecord.sections.testing.heliumTest.time" @input="debouncedSaveItp()" :disabled="currentRecord.locked" /></label>
+              </div>
+              <p class="text-xs mt-2 font-semibold">Leak readings</p>
+              <div class="grid grid-cols-2 gap-2">
+                <label class="text-xs">Ambient<input type="text" class="w-full mt-1" x-model="currentRecord.sections.testing.heliumTest.ambient" @input="debouncedSaveItp()" :disabled="currentRecord.locked" /></label>
+                <label class="text-xs">Stem<input type="text" class="w-full mt-1" x-model="currentRecord.sections.testing.heliumTest.stem" @input="debouncedSaveItp()" :disabled="currentRecord.locked" /></label>
+                <label class="text-xs">Bonnet<input type="text" class="w-full mt-1" x-model="currentRecord.sections.testing.heliumTest.bonnet" @input="debouncedSaveItp()" :disabled="currentRecord.locked" /></label>
+                <label class="text-xs">Body<input type="text" class="w-full mt-1" x-model="currentRecord.sections.testing.heliumTest.body" @input="debouncedSaveItp()" :disabled="currentRecord.locked" /></label>
+              </div>
+              <div class="mt-2">
+                <span class="text-sm mr-2">Overall:</span>
+                <button type="button" class="btn text-xs" :class="currentRecord.sections.testing.heliumTest.result === 'pass' ? 'btn-primary' : 'btn-secondary'" @click="currentRecord.sections.testing.heliumTest.result = 'pass'; debouncedSaveItp()" :disabled="currentRecord.locked">Pass</button>
+                <button type="button" class="btn text-xs ml-1" style="background:#7f1d1d;color:#fecaca" @click="currentRecord.sections.testing.heliumTest.result = 'fail'; debouncedSaveItp()" :disabled="currentRecord.locked">Fail</button>
+              </div>
+              <label class="block text-xs mt-1" x-show="currentRecord.sections.testing.heliumTest.result === 'fail'">Reason<input type="text" class="w-full mt-1" x-model="currentRecord.sections.testing.heliumTest.reason" @input="debouncedSaveItp()" :disabled="currentRecord.locked" /></label>
+            </div>
+            <div class="flex flex-wrap gap-3">
+              <label class="text-sm">Final torque value<input type="number" class="w-full mt-1" x-model="currentRecord.sections.testing.finalTorque.value" @input="debouncedSaveItp()" :disabled="currentRecord.locked" /></label>
+              <label class="text-sm">Type<select class="w-full mt-1" x-model="currentRecord.sections.testing.finalTorque.type" @change="debouncedSaveItp()" :disabled="currentRecord.locked"><option>ft-lb</option><option>in-lb</option><option>N·m</option></select></label>
+              <label class="text-sm">Re-torqued after test?<select class="w-full mt-1" x-model="currentRecord.sections.testing.finalTorque.retorqued" @change="debouncedSaveItp()" :disabled="currentRecord.locked"><option value="">—</option><option value="yes">Yes</option><option value="no">No</option></select></label>
+            </div>
+            <div class="flex flex-wrap gap-3 text-sm">
+              <span>Pre-test:</span>
+              <label>Initials<input type="text" class="w-20 ml-1" x-model="currentRecord.sections.testing.techPre" @input="debouncedSaveItp()" :disabled="currentRecord.locked" /></label>
+              <label>Date<input type="date" class="ml-1" x-model="currentRecord.sections.testing.datePre" @input="debouncedSaveItp()" :disabled="currentRecord.locked" /></label>
+            </div>
+            <div class="flex flex-wrap gap-3 text-sm">
+              <span>Post-test:</span>
+              <label>Initials<input type="text" class="w-20 ml-1" x-model="currentRecord.sections.testing.techPost" @input="debouncedSaveItp()" :disabled="currentRecord.locked" /></label>
+              <label>Date<input type="date" class="ml-1" x-model="currentRecord.sections.testing.datePost" @input="debouncedSaveItp()" :disabled="currentRecord.locked" /></label>
+            </div>
+          </div>
+        </div>
+
+        <div class="card mb-2">
+          <button type="button" class="accordion-head flex" @click="acc.s8 = !acc.s8"><span>8 — Quality Assurance</span><span class="sec-badge" :class="qaOverall() === 'ALL CLEAR' ? 'badge-complete' : (qaOverall() === 'ISSUES NOTED' ? 'badge-progress' : 'badge-progress')" :style="qaOverall() === 'ISSUES NOTED' ? 'background: rgba(239,68,68,0.25); color: var(--red);' : ''" x-text="qaOverall()"></span><i class="fas fa-chevron-down" :class="acc.s8 && 'rotate-180'" style="transition: transform .2s;"></i></button>
+          <div class="pt-3" x-show="acc.s8">
+            <table class="itp-table">
+              <thead><tr><th>Question</th><th>Answer</th><th>Notes</th></tr></thead>
+              <tbody>
+                <template x-for="item in currentRecord.sections.qaChecklist.items" :key="item.id">
+                  <tr :class="qaRowFail(item) ? 'qa-row-fail' : ''">
+                    <td class="text-xs" x-text="item.question"></td>
+                    <td>
+                      <select class="w-full text-xs" x-model="item.answer" @change="debouncedSaveItp()" :disabled="currentRecord.locked">
+                        <option value="">—</option><option value="yes">Yes</option><option value="no">No</option><option value="na">N/A</option>
+                      </select>
+                    </td>
+                    <td>
+                      <input type="text" class="w-full text-xs" x-model="item.notes" @input="debouncedSaveItp()" :disabled="currentRecord.locked" />
+                      <template x-if="item.id === 10 && item.answer === 'yes'">
+                        <label class="block text-xs mt-1">Torque value<input type="text" class="w-full" x-model="item.torqueAfter" @input="debouncedSaveItp()" :disabled="currentRecord.locked" /></label>
+                      </template>
+                    </td>
+                  </tr>
+                </template>
+              </tbody>
+            </table>
+            <div class="flex flex-wrap gap-3 mt-3">
+              <label class="text-sm">Tech<input type="text" class="w-24 ml-1" x-model="currentRecord.sections.qaChecklist.tech" @input="debouncedSaveItp()" :disabled="currentRecord.locked" /></label>
+              <label class="text-sm">Date<input type="date" class="ml-1" x-model="currentRecord.sections.qaChecklist.date" @input="debouncedSaveItp()" :disabled="currentRecord.locked" /></label>
+            </div>
+          </div>
+        </div>
+
+        <div class="card mb-2">
+          <button type="button" class="accordion-head flex" @click="acc.s9 = !acc.s9"><span>9 — Shipping</span><span class="sec-badge badge-empty">—</span><i class="fas fa-chevron-down" :class="acc.s9 && 'rotate-180'" style="transition: transform .2s;"></i></button>
+          <div class="pt-3" x-show="acc.s9">
+            <textarea class="w-full" rows="2" x-model="currentRecord.sections.shipping.notes" @input="debouncedSaveItp()" :disabled="currentRecord.locked"></textarea>
+            <div class="flex gap-3 mt-2">
+              <label class="text-sm">Tech<input type="text" class="w-24 ml-1" x-model="currentRecord.sections.shipping.tech" @input="debouncedSaveItp()" :disabled="currentRecord.locked" /></label>
+              <label class="text-sm">Date<input type="date" class="ml-1" x-model="currentRecord.sections.shipping.date" @input="debouncedSaveItp()" :disabled="currentRecord.locked" /></label>
+            </div>
+          </div>
+        </div>
+
+        <div class="card mb-2">
+          <button type="button" class="accordion-head flex" @click="acc.s10 = !acc.s10"><span>10 — Final Inspection</span><span class="sec-badge badge-empty">—</span><i class="fas fa-chevron-down" :class="acc.s10 && 'rotate-180'" style="transition: transform .2s;"></i></button>
+          <div class="pt-3" x-show="acc.s10">
+            <textarea class="w-full" rows="3" x-model="currentRecord.sections.finalInspection.notes" @input="debouncedSaveItp()" :disabled="currentRecord.locked"></textarea>
+            <div class="flex gap-3 mt-2">
+              <label class="text-sm">Tech<input type="text" class="w-24 ml-1" x-model="currentRecord.sections.finalInspection.tech" @input="debouncedSaveItp()" :disabled="currentRecord.locked" /></label>
+              <label class="text-sm">Date<input type="date" class="ml-1" x-model="currentRecord.sections.finalInspection.date" @input="debouncedSaveItp()" :disabled="currentRecord.locked" /></label>
+            </div>
+          </div>
+        </div>
+
+        <div class="card mb-4">
+          <button type="button" class="accordion-head flex" @click="acc.s11 = !acc.s11"><span>11 — Sign-Off &amp; Approval</span><span class="sec-badge" :class="badgeClass(overallSignoffBadge() === 'ALL PASS' ? 'Complete' : (overallSignoffBadge() === 'CONTAINS FAILURES' ? 'In Progress' : 'In Progress'))" x-text="overallSignoffBadge()"></span><i class="fas fa-chevron-down" :class="acc.s11 && 'rotate-180'" style="transition: transform .2s;"></i></button>
+          <div class="pt-3" x-show="acc.s11">
+            <div class="card mb-3" style="background: var(--panel2);">
+              <p class="text-sm">Measurements: <span x-text="summaryCounts().measEntered"></span> / <span x-text="summaryCounts().measTotal"></span></p>
+              <p class="text-sm">QA items answered: <span x-text="summaryCounts().qaAns"></span> / <span x-text="summaryCounts().qaTot"></span></p>
+              <p class="font-bold mt-2" :class="overallSignoffBadge() === 'ALL PASS' ? 'pass' : (overallSignoffBadge() === 'CONTAINS FAILURES' ? 'fail' : 'pending')" x-text="overallSignoffBadge()"></p>
+            </div>
+            <table class="itp-table">
+              <thead><tr><th>Stage</th><th>Required</th><th>Initials</th><th>Date</th><th>Status</th></tr></thead>
+              <tbody>
+                <template x-for="st in currentRecord.sections.signoff.stages" :key="st.stage">
+                  <tr>
+                    <td x-text="st.stage"></td>
+                    <td x-text="st.requiredBy"></td>
+                    <td><input type="text" class="w-full" x-model="st.initials" @input="signoffUpdate(st)" :disabled="currentRecord.locked" /></td>
+                    <td><input type="date" class="w-full" x-model="st.date" @input="signoffUpdate(st)" :disabled="currentRecord.locked" /></td>
+                    <td :class="st.status === 'Complete' ? 'pass' : 'pending'" x-text="st.status || '—'"></td>
+                  </tr>
+                </template>
+              </tbody>
+            </table>
+            <button type="button" class="btn btn-primary mt-4 print:hidden" @click="submitItpLock()" :disabled="currentRecord.locked">Submit ITP (lock)</button>
+          </div>
+        </div>
+      </div>
+
+      <p class="footer-save text-center" x-show="user && lastSavedText" x-text="lastSavedText" x-cloak></p>

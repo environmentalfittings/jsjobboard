@@ -1,0 +1,599 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>ASME B16.5 / B16.10 — Admin reference</title>
+  <style>
+    :root {
+      --bg: #0f172a;
+      --surface: #1e293b;
+      --border: #334155;
+      --text: #e2e8f0;
+      --muted: #94a3b8;
+      --accent: #3b82f6;
+      --amber: #f59e0b;
+      --amber-bg: rgba(245, 158, 11, 0.18);
+      --danger: #f87171;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      line-height: 1.45;
+      font-size: 14px;
+    }
+    .top-bar {
+      position: sticky;
+      top: 0;
+      z-index: 20;
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 12px;
+      padding: 14px 20px;
+      background: var(--surface);
+      border-bottom: 1px solid var(--border);
+    }
+    .top-bar h1 {
+      margin: 0;
+      font-size: 1.1rem;
+      font-weight: 700;
+      letter-spacing: 0.02em;
+      flex: 1;
+      min-width: 200px;
+    }
+    .top-bar .hint {
+      width: 100%;
+      font-size: 12px;
+      color: var(--muted);
+      margin: 0;
+    }
+    .actions {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+    }
+    button, .file-btn {
+      font: inherit;
+      cursor: pointer;
+      border-radius: 8px;
+      padding: 8px 14px;
+      border: 1px solid var(--border);
+      background: #334155;
+      color: var(--text);
+      font-weight: 600;
+      font-size: 13px;
+    }
+    button:hover:not(:disabled) {
+      background: #475569;
+      border-color: #64748b;
+    }
+    button:disabled {
+      opacity: 0.45;
+      cursor: not-allowed;
+    }
+    button.primary {
+      background: var(--accent);
+      border-color: #2563eb;
+      color: #fff;
+    }
+    button.primary:hover:not(:disabled) {
+      background: #2563eb;
+    }
+    .file-btn {
+      display: inline-block;
+      position: relative;
+      overflow: hidden;
+    }
+    .file-btn input {
+      position: absolute;
+      inset: 0;
+      opacity: 0;
+      cursor: pointer;
+    }
+    main {
+      padding: 20px;
+      max-width: 1400px;
+      margin: 0 auto;
+    }
+    section {
+      margin-bottom: 36px;
+    }
+    section h2 {
+      margin: 0 0 8px;
+      font-size: 1rem;
+      font-weight: 700;
+      color: #f8fafc;
+    }
+    section .sub {
+      margin: 0 0 14px;
+      font-size: 12px;
+      color: var(--muted);
+      max-width: 80ch;
+    }
+    .table-wrap {
+      overflow-x: auto;
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      background: var(--surface);
+    }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 13px;
+    }
+    th, td {
+      border: 1px solid var(--border);
+      padding: 6px 10px;
+      text-align: center;
+      min-width: 52px;
+    }
+    th {
+      background: #0f172a;
+      color: #cbd5e1;
+      font-weight: 700;
+      position: sticky;
+      top: 0;
+      z-index: 1;
+    }
+    th.corner, td.row-label {
+      text-align: left;
+      font-weight: 600;
+      background: #0f172a;
+      color: #e2e8f0;
+      white-space: nowrap;
+    }
+    td.row-label {
+      position: sticky;
+      left: 0;
+      z-index: 2;
+      box-shadow: 1px 0 0 var(--border);
+    }
+    thead th.corner {
+      z-index: 3;
+      left: 0;
+      position: sticky;
+    }
+    .dim-input {
+      width: 100%;
+      min-width: 48px;
+      margin: 0;
+      padding: 4px 6px;
+      border: 1px solid transparent;
+      border-radius: 4px;
+      background: transparent;
+      color: var(--text);
+      font: inherit;
+      text-align: center;
+    }
+    .dim-input:focus {
+      outline: none;
+      border-color: var(--accent);
+      background: rgba(59, 130, 246, 0.12);
+    }
+    .dim-input-left {
+      text-align: left;
+    }
+    td.tol-range {
+      text-align: left;
+    }
+    td.dirty {
+      background: var(--amber-bg);
+      box-shadow: inset 0 0 0 1px var(--amber);
+    }
+    td.dirty .dim-input {
+      background: transparent;
+    }
+    .status {
+      margin-top: 10px;
+      font-size: 12px;
+      color: var(--muted);
+    }
+    .status.error { color: var(--danger); }
+    .status.ok { color: #4ade80; }
+  </style>
+</head>
+<body>
+  <header class="top-bar">
+    <h1>ASME B16.5 / B16.10 — Dimensional reference (admin)</h1>
+    <div class="actions">
+      <button type="button" class="primary" id="btn-save">Save</button>
+      <button type="button" id="btn-export">Export JSON</button>
+      <label class="file-btn">Import JSON<input type="file" id="file-import" accept=".json,application/json" /></label>
+    </div>
+    <p class="hint">All dimensions in inches. No pass/fail — reference only. Edited cells show amber until saved to browser storage. Tab or Enter commits the active cell.</p>
+  </header>
+  <main>
+    <div id="app"></div>
+    <p class="status" id="status" aria-live="polite"></p>
+  </main>
+
+  <script>
+(function () {
+  'use strict';
+
+  var STORAGE_KEY = 'asme-reference-data';
+  var EXPORT_NAME = 'asme-reference-data.json';
+
+  var NPS = ['½', '¾', '1', '1¼', '1½', '2', '2½', '3', '3½', '4', '5', '6', '8', '10', '12', '14', '16', '18', '20', '22', '24'];
+  var CLASSES_FTF = ['150', '300', '600', '900', '1500', '2500'];
+  var CLASSES_PT = ['150', '300', '400', '600', '900', '1500', '2500'];
+
+  function tempsList() {
+    var arr = [];
+    var t;
+    for (t = -20; t < 1000; t += 50) arr.push(t);
+    if (arr[arr.length - 1] !== 1000) arr.push(1000);
+    return arr;
+  }
+
+  function emptyGrid() {
+    var g = {};
+    NPS.forEach(function (nps) {
+      g[nps] = {};
+      CLASSES_FTF.forEach(function (c) {
+        g[nps][c] = '';
+      });
+    });
+    return g;
+  }
+
+  function emptyPtGrid() {
+    var g = {};
+    tempsList().forEach(function (temp) {
+      var key = String(temp);
+      g[key] = {};
+      CLASSES_PT.forEach(function (c) {
+        g[key][c] = '';
+      });
+    });
+    return g;
+  }
+
+  function defaultState() {
+    return {
+      version: 1,
+      b16_10_tolerances: [
+        { npsRange: '½–12', tolerance: '±1/16"' },
+        { npsRange: '14–24', tolerance: '±1/8"' },
+        { npsRange: '26+', tolerance: '±3/16"' }
+      ],
+      b16_10_ftf_gate: emptyGrid(),
+      b16_10_ftf_globe: emptyGrid(),
+      b16_10_ftf_swing_check: emptyGrid(),
+      b16_10_ftf_lift_check: emptyGrid(),
+      api6d_ball_ftf: emptyGrid(),
+      b16_5_wn_thickness: emptyGrid(),
+      b16_5_pt_group11: emptyPtGrid()
+    };
+  }
+
+  function deepClone(o) {
+    return JSON.parse(JSON.stringify(o));
+  }
+
+  var state = defaultState();
+  var lastSaved = deepClone(state);
+  var dirtyPaths = {};
+
+  function setStatus(msg, cls) {
+    var el = document.getElementById('status');
+    el.textContent = msg || '';
+    el.className = 'status' + (cls ? ' ' + cls : '');
+  }
+
+  function pathKey(parts) {
+    return parts.join('\0');
+  }
+
+  function markDirty(path, isDirty) {
+    var k = pathKey(path);
+    if (isDirty) dirtyPaths[k] = true;
+    else delete dirtyPaths[k];
+  }
+
+  function isPathDirty(path) {
+    return !!dirtyPaths[pathKey(path)];
+  }
+
+  function loadFromStorage() {
+    try {
+      var raw = localStorage.getItem(STORAGE_KEY);
+      if (!raw) return false;
+      var parsed = JSON.parse(raw);
+      if (!parsed || typeof parsed !== 'object') return false;
+      state = defaultState();
+      mergeState(parsed);
+      lastSaved = deepClone(state);
+      dirtyPaths = {};
+      return true;
+    } catch (e) {
+      return false;
+    }
+  }
+
+  function mergeState(incoming) {
+    if (incoming.version !== undefined) state.version = incoming.version;
+    if (Array.isArray(incoming.b16_10_tolerances) && incoming.b16_10_tolerances.length) {
+      var defTol = defaultState().b16_10_tolerances;
+      state.b16_10_tolerances = incoming.b16_10_tolerances.map(function (row, i) {
+        return {
+          npsRange: row.npsRange != null ? String(row.npsRange) : defTol[i] ? defTol[i].npsRange : '',
+          tolerance: row.tolerance != null ? String(row.tolerance) : ''
+        };
+      });
+      while (state.b16_10_tolerances.length < defTol.length) {
+        state.b16_10_tolerances.push(deepClone(defTol[state.b16_10_tolerances.length]));
+      }
+    }
+    ['b16_10_ftf_gate', 'b16_10_ftf_globe', 'b16_10_ftf_swing_check', 'b16_10_ftf_lift_check', 'api6d_ball_ftf', 'b16_5_wn_thickness'].forEach(function (key) {
+      if (!incoming[key] || typeof incoming[key] !== 'object') return;
+      NPS.forEach(function (nps) {
+        if (!state[key][nps]) state[key][nps] = {};
+        CLASSES_FTF.forEach(function (c) {
+          if (incoming[key][nps] && incoming[key][nps][c] !== undefined) {
+            state[key][nps][c] = String(incoming[key][nps][c]);
+          }
+        });
+      });
+    });
+    if (incoming.b16_5_pt_group11 && typeof incoming.b16_5_pt_group11 === 'object') {
+      tempsList().forEach(function (temp) {
+        var tk = String(temp);
+        if (!state.b16_5_pt_group11[tk]) state.b16_5_pt_group11[tk] = {};
+        CLASSES_PT.forEach(function (c) {
+          if (incoming.b16_5_pt_group11[tk] && incoming.b16_5_pt_group11[tk][c] !== undefined) {
+            state.b16_5_pt_group11[tk][c] = String(incoming.b16_5_pt_group11[tk][c]);
+          }
+        });
+      });
+    }
+  }
+
+  function saveStorage() {
+    try {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+      lastSaved = deepClone(state);
+      dirtyPaths = {};
+      document.querySelectorAll('td.dirty').forEach(function (td) { td.classList.remove('dirty'); });
+      setStatus('Saved to localStorage (' + STORAGE_KEY + ').', 'ok');
+    } catch (e) {
+      setStatus('Save failed: ' + (e.message || String(e)), 'error');
+    }
+  }
+
+  function exportJson() {
+    var blob = new Blob([JSON.stringify(state, null, 2)], { type: 'application/json' });
+    var a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = EXPORT_NAME;
+    a.click();
+    URL.revokeObjectURL(a.href);
+    setStatus('Exported ' + EXPORT_NAME + '.', 'ok');
+  }
+
+  function bindInput(td, path, getSet) {
+    var input = td.querySelector('.dim-input');
+    function updateDirty() {
+      var v = input.value;
+      getSet.set(v);
+      var same = valueEqualsSaved(path);
+      if (!same) {
+        td.classList.add('dirty');
+        markDirty(path, true);
+      } else {
+        td.classList.remove('dirty');
+        markDirty(path, false);
+      }
+    }
+    input.addEventListener('input', updateDirty);
+    input.addEventListener('blur', updateDirty);
+    input.addEventListener('keydown', function (e) {
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        input.blur();
+        moveFocus(input, e.shiftKey ? -1 : 1);
+      }
+      if (e.key === 'Tab') {
+        updateDirty();
+      }
+    });
+  }
+
+  function moveFocus(fromInput, dir) {
+    var all = Array.prototype.slice.call(document.querySelectorAll('.dim-input'));
+    var i = all.indexOf(fromInput);
+    if (i < 0) return;
+    var next = all[i + dir];
+    if (next) {
+      next.focus();
+      next.select();
+    }
+  }
+
+  function renderToleranceTable() {
+    var h = '<section><h2>B16.10 — Dimensional tolerances by NPS range</h2>';
+    h += '<p class="sub">Face-to-face and related linear dimensions (typical practice). All values editable.</p>';
+    h += '<div class="table-wrap"><table><thead><tr><th class="corner">NPS range</th><th>Tolerance (in.)</th></tr></thead><tbody>';
+    state.b16_10_tolerances.forEach(function (row, ri) {
+      h += '<tr><td class="tol-range" data-tol-range="' + ri + '"></td><td data-tol-val="' + ri + '"></td></tr>';
+    });
+    h += '</tbody></table></div></section>';
+    return h;
+  }
+
+  function renderGridTable(title, subtitle, stateKey) {
+    var h = '<section><h2>' + title + '</h2>';
+    if (subtitle) h += '<p class="sub">' + subtitle + '</p>';
+    h += '<div class="table-wrap"><table><thead><tr><th class="corner">NPS</th>';
+    CLASSES_FTF.forEach(function (c) {
+      h += '<th>Class ' + escapeHtml(c) + '</th>';
+    });
+    h += '</tr></thead><tbody>';
+    NPS.forEach(function (nps) {
+      h += '<tr><td class="row-label">' + escapeHtml(nps) + '</td>';
+      CLASSES_FTF.forEach(function (c) {
+        h += '<td data-grid="' + stateKey + '" data-nps="' + encodeAttr(nps) + '" data-class="' + escapeHtml(c) + '"></td>';
+      });
+      h += '</tr>';
+    });
+    h += '</tbody></table></div></section>';
+    return h;
+  }
+
+  function renderPtTable() {
+    var h = '<section><h2>B16.5 — Pressure–temperature ratings (psig), Group 1.1 carbon steel</h2>';
+    h += '<p class="sub">Table 2-1.1 style grid. Temperatures in °F; enter allowable gauge pressure (psig) only.</p>';
+    h += '<div class="table-wrap"><table><thead><tr><th class="corner">Temp (°F)</th>';
+    CLASSES_PT.forEach(function (c) {
+      h += '<th>Class ' + escapeHtml(c) + '</th>';
+    });
+    h += '</tr></thead><tbody>';
+    tempsList().forEach(function (temp) {
+      var tk = String(temp);
+      h += '<tr><td class="row-label">' + escapeHtml(tk) + '</td>';
+      CLASSES_PT.forEach(function (c) {
+        h += '<td data-pt="1" data-temp="' + escapeHtml(tk) + '" data-class="' + escapeHtml(c) + '"></td>';
+      });
+      h += '</tr>';
+    });
+    h += '</tbody></table></div></section>';
+    return h;
+  }
+
+  function escapeHtml(s) {
+    return String(s)
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;');
+  }
+
+  function encodeAttr(s) {
+    return encodeURIComponent(String(s));
+  }
+
+  function mountToleranceCells(root) {
+    state.b16_10_tolerances.forEach(function (row, ri) {
+      var td = root.querySelector('td[data-tol-idx="' + ri + '"]');
+      if (!td) return;
+      var val = row.tolerance;
+      td.innerHTML = '<input type="text" class="dim-input" value="' + escapeHtml(val) + '" aria-label="Tolerance for ' + escapeHtml(row.npsRange) + '" />';
+      var path = ['b16_10_tolerances', ri, 'tolerance'];
+      bindInput(td, path, {
+        set: function (v) {
+          state.b16_10_tolerances[ri].tolerance = v;
+        }
+      });
+      if (!valueEqualsSaved(path)) td.classList.add('dirty');
+    });
+  }
+
+  function mountGridCells(root) {
+    root.querySelectorAll('td[data-grid]').forEach(function (td) {
+      var key = td.getAttribute('data-grid');
+      var nps = decodeURIComponent(td.getAttribute('data-nps'));
+      var cls = td.getAttribute('data-class');
+      var val = (state[key][nps] && state[key][nps][cls]) || '';
+      td.innerHTML = '<input type="text" class="dim-input" value="' + escapeHtml(val) + '" aria-label="' + escapeHtml(key + ' ' + nps + ' class ' + cls) + '" />';
+      var path = [key, nps, cls];
+      bindInput(td, path, {
+        set: function (v) {
+          if (!state[key][nps]) state[key][nps] = {};
+          state[key][nps][cls] = v;
+        }
+      });
+      if (!valueEqualsSaved(path)) td.classList.add('dirty');
+    });
+  }
+
+  function mountPtCells(root) {
+    root.querySelectorAll('td[data-pt]').forEach(function (td) {
+      var tk = td.getAttribute('data-temp');
+      var cls = td.getAttribute('data-class');
+      var val = (state.b16_5_pt_group11[tk] && state.b16_5_pt_group11[tk][cls]) || '';
+      td.innerHTML = '<input type="text" class="dim-input" value="' + escapeHtml(val) + '" aria-label="PSIG ' + escapeHtml(tk) + '°F class ' + escapeHtml(cls) + '" />';
+      var path = ['b16_5_pt_group11', tk, cls];
+      bindInput(td, path, {
+        set: function (v) {
+          if (!state.b16_5_pt_group11[tk]) state.b16_5_pt_group11[tk] = {};
+          state.b16_5_pt_group11[tk][cls] = v;
+        }
+      });
+      if (!valueEqualsSaved(path)) td.classList.add('dirty');
+    });
+  }
+
+  function valueEqualsSaved(path) {
+    try {
+      var cur = state;
+      var saved = lastSaved;
+      for (var i = 0; i < path.length; i++) {
+        var key = path[i];
+        if (i === path.length - 1) {
+          return String(cur[key]) === String(saved[key]);
+        }
+        cur = cur[key];
+        saved = saved[key];
+        if (cur === undefined || saved === undefined) return false;
+      }
+    } catch (e) {
+      return false;
+    }
+    return false;
+  }
+
+  function render() {
+    var app = document.getElementById('app');
+    var html = '';
+    html += renderToleranceTable();
+    html += renderGridTable('B16.10 — Face-to-face nominal (in.), Gate valve', 'ASME B16.10 Table 1 (short pattern) / long pattern per edition in use — verify against your code.', 'b16_10_ftf_gate');
+    html += renderGridTable('B16.10 — Face-to-face nominal (in.), Globe valve', '', 'b16_10_ftf_globe');
+    html += renderGridTable('B16.10 — Face-to-face nominal (in.), Swing check', '', 'b16_10_ftf_swing_check');
+    html += renderGridTable('B16.10 — Face-to-face nominal (in.), Lift check', '', 'b16_10_ftf_lift_check');
+    html += renderGridTable('API 6D — Ball valve face-to-face (in.)', 'Same NPS × class grid; fill from purchased standard / API 6D tables.', 'api6d_ball_ftf');
+    html += renderGridTable('B16.5 — Minimum flange thickness (in.), weld neck', 'Per B16.5 and flange rating; verify bore schedule.', 'b16_5_wn_thickness');
+    html += renderPtTable();
+    app.innerHTML = html;
+    mountToleranceCells(app);
+    mountGridCells(app);
+    mountPtCells(app);
+  }
+
+  document.getElementById('btn-save').addEventListener('click', saveStorage);
+  document.getElementById('btn-export').addEventListener('click', exportJson);
+  document.getElementById('file-import').addEventListener('change', function (e) {
+    var f = e.target.files && e.target.files[0];
+    e.target.value = '';
+    if (!f) return;
+    var reader = new FileReader();
+    reader.onload = function () {
+      try {
+        var parsed = JSON.parse(reader.result);
+        state = defaultState();
+        mergeState(parsed);
+        lastSaved = deepClone(state);
+        dirtyPaths = {};
+        render();
+        setStatus('Imported JSON; merged into editor. Click Save to persist to localStorage.', 'ok');
+      } catch (err) {
+        setStatus('Import failed: invalid JSON.', 'error');
+      }
+    };
+    reader.readAsText(f);
+  });
+
+  if (loadFromStorage()) {
+    setStatus('Loaded saved data from localStorage.', 'ok');
+  } else {
+    setStatus('Using defaults for tolerances; other tables empty until you enter or import data.', '');
+  }
+
+  render();
+})();
+  </script>
+</body>
+</html>
