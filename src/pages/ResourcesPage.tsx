@@ -9,7 +9,11 @@ import {
   type ResourceDocumentCategory,
   type ResourceDocumentRow,
   type ResourceDocumentScope,
+  type WeldProcess,
+  type WpsType,
   uploadResourceDocument,
+  WELD_PROCESSES,
+  WPS_TYPES,
 } from '../lib/resourceDocuments'
 import { supabase } from '../lib/supabase'
 
@@ -48,6 +52,13 @@ export function ResourcesPage() {
   const [uploading, setUploading] = useState(false)
   const [dragOver, setDragOver] = useState(false)
   const fileInputRef = useRef<HTMLInputElement>(null)
+  // Weld procedure extra fields
+  const [wpsType, setWpsType] = useState<WpsType | ''>('')
+  const [weldProcesses, setWeldProcesses] = useState<WeldProcess[]>([])
+  const [fillerMetal, setFillerMetal] = useState('')
+
+  const toggleWeldProcess = (p: WeldProcess) =>
+    setWeldProcesses((prev) => (prev.includes(p) ? prev.filter((x) => x !== p) : [...prev, p]))
 
   const openUploadModal = () => {
     setUploadTitle('')
@@ -55,6 +66,9 @@ export function ResourcesPage() {
     setUploadCategory('general')
     setUploadFile(null)
     setDragOver(false)
+    setWpsType('')
+    setWeldProcesses([])
+    setFillerMetal('')
     setUploadModalOpen(true)
   }
 
@@ -104,7 +118,7 @@ export function ResourcesPage() {
     setTableMissing(false)
     let query = supabase
       .from('resource_documents')
-      .select('id,scope,valve_type,category,title,notes,storage_path,file_name,mime_type,created_at,updated_at')
+      .select('id,scope,valve_type,category,title,notes,storage_path,file_name,mime_type,created_at,updated_at,wps_type,weld_processes,filler_metal')
       .order('updated_at', { ascending: false })
       .order('id', { ascending: false })
       .limit(400)
@@ -183,6 +197,9 @@ export function ResourcesPage() {
       category: uploadCategory,
       title: uploadTitle,
       notes: uploadNotes,
+      wpsType: wpsType || null,
+      weldProcesses,
+      fillerMetal,
     })
     setUploading(false)
     if (error) {
@@ -317,6 +334,9 @@ export function ResourcesPage() {
                 <th>Title</th>
                 <th>Category</th>
                 <th>Section</th>
+                <th>WPS Type</th>
+                <th>Processes</th>
+                <th>Filler Metal</th>
                 <th>File</th>
                 <th>Notes</th>
                 <th>Updated</th>
@@ -329,6 +349,9 @@ export function ResourcesPage() {
                   <td>{row.title}</td>
                   <td>{DOC_CATEGORY_OPTIONS.find((c) => c.value === row.category)?.label ?? row.category}</td>
                   <td>{row.scope === 'general' ? 'General' : row.valve_type ?? '-'}</td>
+                  <td>{row.wps_type ?? '-'}</td>
+                  <td>{row.weld_processes?.length ? row.weld_processes.join(', ') : '-'}</td>
+                  <td>{row.filler_metal ?? '-'}</td>
                   <td>
                     <a href={resourceDocumentPublicUrl(row.storage_path)} target="_blank" rel="noreferrer">
                       {row.file_name}
@@ -445,6 +468,56 @@ export function ResourcesPage() {
                 placeholder="Short description or revision note"
                 disabled={uploading}
               />
+
+              {uploadCategory === 'weld_procedure' ? (
+                <>
+                  <div className="weld-fields-divider">Weld Procedure Details</div>
+
+                  <label className="modal-label" htmlFor="upload-wps-type">
+                    WPS Type
+                  </label>
+                  <select
+                    id="upload-wps-type"
+                    className="modal-status-select"
+                    value={wpsType}
+                    onChange={(e) => setWpsType(e.target.value as WpsType | '')}
+                    disabled={uploading}
+                  >
+                    <option value="">— Select WPS type —</option>
+                    {WPS_TYPES.map((t) => (
+                      <option key={t} value={t}>{t}</option>
+                    ))}
+                  </select>
+
+                  <label className="modal-label">Weld Process Utilized</label>
+                  <div className="weld-process-checkboxes">
+                    {WELD_PROCESSES.map((p) => (
+                      <label key={p} className="weld-process-check-label">
+                        <input
+                          type="checkbox"
+                          checked={weldProcesses.includes(p)}
+                          onChange={() => toggleWeldProcess(p)}
+                          disabled={uploading}
+                        />
+                        {p}
+                      </label>
+                    ))}
+                  </div>
+
+                  <label className="modal-label" htmlFor="upload-filler-metal">
+                    Filler Metal
+                  </label>
+                  <input
+                    id="upload-filler-metal"
+                    type="text"
+                    className="modal-status-select"
+                    value={fillerMetal}
+                    onChange={(e) => setFillerMetal(e.target.value)}
+                    placeholder="e.g. ER70S-6"
+                    disabled={uploading}
+                  />
+                </>
+              ) : null}
             </div>
 
             <div className="technician-modal-footer">

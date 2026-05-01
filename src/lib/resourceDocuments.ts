@@ -11,6 +11,12 @@ export type ResourceDocumentCategory =
   | 'maintenance_manual'
   | 'other'
 
+export const WPS_TYPES = ['Joint', 'Corrosion Resistant Overlay', 'Hardface Overlay'] as const
+export type WpsType = (typeof WPS_TYPES)[number]
+
+export const WELD_PROCESSES = ['GTAW', 'GMAW', 'SMAW', 'SAW', 'FCAW'] as const
+export type WeldProcess = (typeof WELD_PROCESSES)[number]
+
 export type ResourceDocumentRow = {
   id: number
   scope: ResourceDocumentScope
@@ -23,6 +29,10 @@ export type ResourceDocumentRow = {
   mime_type: string | null
   created_at: string
   updated_at: string
+  // Weld procedure fields
+  wps_type: WpsType | null
+  weld_processes: WeldProcess[]
+  filler_metal: string | null
 }
 
 const MAX_BYTES = 40 * 1024 * 1024
@@ -54,6 +64,9 @@ export async function uploadResourceDocument(args: {
   category: ResourceDocumentCategory
   title: string
   notes?: string
+  wpsType?: WpsType | null
+  weldProcesses?: WeldProcess[]
+  fillerMetal?: string
 }): Promise<{ error: string | null }> {
   const { file, scope, category } = args
   const title = args.title.trim()
@@ -73,6 +86,7 @@ export async function uploadResourceDocument(args: {
   })
   if (uploadErr) return { error: uploadErr.message || 'Upload failed.' }
 
+  const isWeld = category === 'weld_procedure'
   const { error: rowErr } = await supabase.from('resource_documents').insert({
     scope,
     valve_type: scope === 'general' ? null : valveType,
@@ -82,6 +96,9 @@ export async function uploadResourceDocument(args: {
     storage_path: storagePath,
     file_name: file.name.slice(0, 500),
     mime_type: file.type || null,
+    wps_type: isWeld ? (args.wpsType ?? null) : null,
+    weld_processes: isWeld ? (args.weldProcesses ?? []) : [],
+    filler_metal: isWeld ? ((args.fillerMetal ?? '').trim() || null) : null,
   })
 
   if (rowErr) {
