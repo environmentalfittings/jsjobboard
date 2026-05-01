@@ -44,6 +44,7 @@ export function NewJobPage({ role }: NewJobPageProps) {
   const [description, setDescription] = useState('')
   const [notes, setNotes] = useState('')
   const [isTurnaround, setIsTurnaround] = useState(false)
+  const [addToPriority, setAddToPriority] = useState(false)
   const [saving, setSaving] = useState(false)
   const [lookupOptions, setLookupOptions] = useState<Record<LookupCategory, string[]>>(() =>
     Object.fromEntries(LOOKUP_CATEGORY_DEFS.map((d) => [d.key, [...d.fallback]])) as Record<
@@ -112,6 +113,12 @@ export function NewJobPage({ role }: NewJobPageProps) {
       return
     }
 
+    if (addToPriority) {
+      await supabase.from('priority_queue').insert({ valve_id: id }).then(({ error: pErr }) => {
+        if (pErr) showToast(`Job created but could not add to priority: ${pErr.message}`)
+      })
+    }
+
     showToast(`Job created: ${id}`)
     setValveId('')
     setCustomer('')
@@ -128,6 +135,7 @@ export function NewJobPage({ role }: NewJobPageProps) {
     setDescription('')
     setNotes('')
     setIsTurnaround(false)
+    setAddToPriority(false)
     setStatus('Arrived - Not Started')
     navigate('/job-board')
   }
@@ -316,6 +324,14 @@ export function NewJobPage({ role }: NewJobPageProps) {
               onChange={(e) => setIsTurnaround(e.target.checked)}
             />
             <span>Turnaround (customer job — use for updates &amp; turnaround reports)</span>
+          </label>
+          <label className="new-job-checkbox-row">
+            <input
+              type="checkbox"
+              checked={addToPriority}
+              onChange={(e) => setAddToPriority(e.target.checked)}
+            />
+            <span>Add to priority queue (flags job at the top of the board)</span>
           </label>
           <div className="new-job-actions">
             <button type="submit" className="button-primary" disabled={saving}>
