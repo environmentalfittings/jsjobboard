@@ -22,8 +22,25 @@ type ItpTemplateRow = {
   required: boolean
 }
 
+const MANAGE_LISTS_PIN = '1582'
+
 export function AdminListsPage() {
   const { showToast } = useToast()
+  const [unlocked, setUnlocked] = useState(false)
+  const [pinDraft, setPinDraft] = useState('')
+  const [pinError, setPinError] = useState(false)
+
+  const tryUnlock = () => {
+    if (pinDraft === MANAGE_LISTS_PIN) {
+      setUnlocked(true)
+      setPinDraft('')
+      setPinError(false)
+    } else {
+      setPinError(true)
+      setPinDraft('')
+    }
+  }
+
   const [tab, setTab] = useState<Tab>('lookups')
   const [lookupRows, setLookupRows] = useState<LookupValueRow[]>([])
   const [lookupLoading, setLookupLoading] = useState(true)
@@ -363,6 +380,39 @@ export function AdminListsPage() {
       return
     }
     loadItpTemplates()
+  }
+
+  if (!unlocked) {
+    return (
+      <section className="dashboard-page">
+        <div className="dashboard-title-row admin-page-heading">
+          <h2 className="dashboard-title">Manage lists</h2>
+          <Link to="/dashboard" className="button-secondary">Back</Link>
+        </div>
+        <div className="manage-lists-pin-gate">
+          <div className="manage-lists-pin-card">
+            <div className="manage-lists-pin-icon">🔒</div>
+            <h3 className="manage-lists-pin-title">Admin access required</h3>
+            <p className="manage-lists-pin-desc">Enter the Manage Lists PIN to continue.</p>
+            <input
+              type="password"
+              inputMode="numeric"
+              className="manage-lists-pin-input"
+              value={pinDraft}
+              onChange={(e) => { setPinDraft(e.target.value); setPinError(false) }}
+              onKeyDown={(e) => e.key === 'Enter' && tryUnlock()}
+              placeholder="PIN"
+              autoFocus
+              autoComplete="off"
+            />
+            {pinError ? <p className="manage-lists-pin-error">Incorrect PIN. Try again.</p> : null}
+            <button type="button" className="button-primary manage-lists-pin-btn" onClick={tryUnlock}>
+              Unlock
+            </button>
+          </div>
+        </div>
+      </section>
+    )
   }
 
   return (
