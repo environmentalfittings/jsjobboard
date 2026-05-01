@@ -27,6 +27,10 @@ type PhaseOrder = Record<PhaseKey, number[]>
 type ScopeFilter = 'all' | 'in-process' | 'on-hold' | 'ready-to-ship' | 'not-arrived'
 type TurnaroundFilter = 'all' | 'turnaround' | 'not_turnaround'
 
+function compareValveIdSequential(a: string, b: string): number {
+  return a.localeCompare(b, undefined, { numeric: true, sensitivity: 'base' })
+}
+
 function isTurnaroundValve(v: Valve): boolean {
   return v.is_turnaround === true
 }
@@ -269,6 +273,15 @@ export function JobBoardPage() {
 
   const techniciansById = useMemo(() => new Map(technicians.map((t) => [t.id, t])), [technicians])
   const activeTechnicians = useMemo(() => technicians.filter((t) => t.active), [technicians])
+  const compareValvesForDisplay = useCallback(
+    (a: Valve, b: Valve) => {
+      const aPriority = priorityIds.has(a.valve_id) ? 1 : 0
+      const bPriority = priorityIds.has(b.valve_id) ? 1 : 0
+      if (aPriority !== bPriority) return bPriority - aPriority
+      return compareValveIdSequential(a.valve_id, b.valve_id)
+    },
+    [priorityIds],
+  )
   const technicianIdsForValve = useCallback(
     (valve: Valve) => jobTechnicianIdsByValve[valve.id] ?? parseAssignedTechnicianIds(valve.assigned_technician_ids),
     [jobTechnicianIdsByValve],
@@ -467,8 +480,8 @@ export function JobBoardPage() {
       const matchesTechnician =
         technicianFilter === 'all' || technicianIdsForValve(v).includes(Number.parseInt(technicianFilter, 10))
       return matchesScope && matchesText && matchesStatus && matchesCell && matchesTurnaround && matchesTechnician
-    })
-  }, [activeNonTerminal, scopeFilter, searchText, statusFilter, cellFilter, turnaroundFilter, technicianFilter, technicianIdsForValve])
+    }).sort(compareValvesForDisplay)
+  }, [activeNonTerminal, scopeFilter, searchText, statusFilter, cellFilter, turnaroundFilter, technicianFilter, technicianIdsForValve, compareValvesForDisplay])
 
   const openModal = (valve: Valve) => {
     setActiveValve(valve)
@@ -594,19 +607,7 @@ export function JobBoardPage() {
       phaseKey === 'done'
         ? doneLimited
         : activeNonTerminal.filter((valve) => isValveInPhase(valve, phaseKey))
-    const order = phaseOrder[phaseKey]
-    if (!order.length) return base
-
-    const baseIndex = new Map(base.map((item, index) => [item.id, index]))
-    const orderIndex = new Map(order.map((id, index) => [id, index]))
-    return [...base].sort((a, b) => {
-      const aOrder = orderIndex.get(a.id)
-      const bOrder = orderIndex.get(b.id)
-      if (aOrder == null && bOrder == null) return (baseIndex.get(a.id) ?? 0) - (baseIndex.get(b.id) ?? 0)
-      if (aOrder == null) return 1
-      if (bOrder == null) return -1
-      return aOrder - bOrder
-    })
+    return [...base].sort(compareValvesForDisplay)
   }
 
   const placeInPhaseOrder = (phaseKey: PhaseKey, draggedId: number, targetId: number | null) => {
@@ -783,8 +784,6 @@ export function JobBoardPage() {
                   }}
                 >
                   {(() => {
-                    const turnarounds = items.filter((v) => isTurnaroundValve(v))
-                    const otherWork = items.filter((v) => !isTurnaroundValve(v))
                     const onDragEnd = () => {
                       if (dragFrameRef.current != null) {
                         window.cancelAnimationFrame(dragFrameRef.current)
@@ -814,24 +813,9 @@ export function JobBoardPage() {
                     })
                     return (
                       <>
-                        {turnarounds.length > 0 ? (
-                          <>
-                            <div className="kanban-subheading">Turnarounds</div>
-                            {turnarounds.map((valve) => (
-                              <KanbanJobCard key={valve.id} {...cardProps(valve)} />
-                            ))}
-                          </>
-                        ) : null}
-                        {otherWork.length > 0 ? (
-                          <>
-                            {turnarounds.length > 0 ? (
-                              <div className="kanban-subheading kanban-subheading-divider">Other work</div>
-                            ) : null}
-                            {otherWork.map((valve) => (
-                              <KanbanJobCard key={valve.id} {...cardProps(valve)} />
-                            ))}
-                          </>
-                        ) : null}
+                        {items.map((valve) => (
+                          <KanbanJobCard key={valve.id} {...cardProps(valve)} />
+                        ))}
                       </>
                     )
                   })()}
