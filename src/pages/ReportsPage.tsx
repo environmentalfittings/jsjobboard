@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { useToast } from '../components/ToastNotification'
 import { JOB_TYPES, normalizeJobType } from '../constants/jobTypes'
@@ -8,6 +8,51 @@ import { VALVE_LIST_SELECT } from '../lib/valveSelect'
 import type { TestLogEntry, Valve } from '../types'
 
 type TurnaroundReportFilter = 'all' | 'turnaround' | 'not_turnaround'
+
+interface OtdRow {
+  valve_id: string
+  date_closed: string
+  due_date: string | null
+  on_time: boolean
+}
+
+interface OtdSummary {
+  total: number
+  onTime: number
+  late: number
+  noDueDate: number
+  pct: number
+}
+
+function calcOtdSummary(rows: OtdRow[]): OtdSummary {
+  const withDue = rows.filter((r) => r.due_date)
+  const onTime = withDue.filter((r) => r.on_time).length
+  return {
+    total: withDue.length,
+    onTime,
+    late: withDue.length - onTime,
+    noDueDate: rows.length - withDue.length,
+    pct: withDue.length > 0 ? (onTime / withDue.length) * 100 : 0,
+  }
+}
+
+function getYearRange(year: number) {
+  return { start: `${year}-01-01`, end: `${year}-12-31` }
+}
+
+function getMonthRange(year: number, month: number) {
+  const start = new Date(year, month, 1)
+  const end = new Date(year, month + 1, 0)
+  return {
+    start: start.toISOString().slice(0, 10),
+    end: end.toISOString().slice(0, 10),
+  }
+}
+
+const MONTH_NAMES = [
+  'January','February','March','April','May','June',
+  'July','August','September','October','November','December',
+]
 
 function isTurnaroundValve(v: Valve): boolean {
   return v.is_turnaround === true
@@ -56,6 +101,59 @@ export function ReportsPage() {
   const [activeByCellRows, setActiveByCellRows] = useState<Valve[]>([])
   const [activeByCellLoading, setActiveByCellLoading] = useState(false)
   const [activeByCellFilter, setActiveByCellFilter] = useState(searchParams.get('cell') ?? 'all')
+
+  const currentYear = new Date().getFullYear()
+  const currentMonth = new Date().getMonth()
+  const [otdRows, setOtdRows] = useState<OtdRow[]>([])
+  const [otdLoading, setOtdLoading] = useState(false)
+  const [otdYear, setOtdYear] = useState(currentYear)
+  const [otdMonth, setOtdMonth] = useState(currentMonth)
+
+  const loadOtdData = async (year: number) => {
+    setOtdLoading(true)
+    const { start, end } = getYearRange(year)
+    const { data, error } = await supabase
+      .from('valves')
+      .select('valve_id,date_closed,due_date')
+      .in('status', ['Completed', 'Warehouse RTS'])
+      .gte('date_closed', start)
+      .lte('date_closed', end)
+      .order('date_closed', { ascending: true })
+      .limit(5000)
+    setOtdLoading(false)
+    if (error) {
+      showToast(`Could not load OTD data: ${error.message}`)
+      return
+    }
+    const parsed: OtdRow[] = ((data ?? []) as { valve_id: string; date_closed: string; due_date: string | null }[]).map(
+      (r) => ({
+        valve_id: r.valve_id,
+        date_closed: r.date_closed,
+        due_date: r.due_date ?? null,
+        on_time: r.due_date ? r.date_closed <= r.due_date : false,
+      }),
+    )
+    setOtdRows(parsed)
+  }
+
+  useEffect(() => {
+    void loadOtdData(otdYear)
+  }, [otdYear])
+
+  const otdYearSummary = useMemo(() => calcOtdSummary(otdRows), [otdRows])
+
+  const otdMonthSummary = useMemo(() => {
+    const { start, end } = getMonthRange(otdYear, otdMonth)
+    return calcOtdSummary(otdRows.filter((r) => r.date_closed >= start && r.date_closed <= end))
+  }, [otdRows, otdYear, otdMonth])
+
+  const otdByMonth = useMemo(() => {
+    return Array.from({ length: 12 }, (_, m) => {
+      const { start, end } = getMonthRange(otdYear, m)
+      const monthRows = otdRows.filter((r) => r.date_closed >= start && r.date_closed <= end)
+      return { month: m, label: MONTH_NAMES[m], ...calcOtdSummary(monthRows) }
+    })
+  }, [otdRows, otdYear])
 
   const runReport = async () => {
     if (!startDate || !endDate) return
@@ -269,6 +367,109 @@ export function ReportsPage() {
       <div className="dashboard-title-row">
         <h2 className="dashboard-title">Reports</h2>
       </div>
+
+      <section className="dashboard-panel">
+        <h3>On-time delivery</h3>
+        <p className="placeholder-copy">
+          Percentage of completed jobs closed on or before their due date. Jobs with no due date are excluded from percentage calculations.
+        </p>
+        <div className="report-filters">
+          <label>
+            Year
+            <select value={otdYear} onChange={(e) => setOtdYear(Number(e.target.value))}>
+              {[currentYear - 2, currentYear - 1, currentYear].map((y) => (
+                <option key={y} value={y}>{y}</option>
+              ))}
+            </select>
+          </label>
+          <label>
+            Month (detail)
+            <select value={otdMonth} onChange={(e) => setOtdMonth(Number(e.target.value))}>
+              {MONTH_NAMES.map((name, i) => (
+                <option key={i} value={i}>{name}</option>
+              ))}
+            </select>
+          </label>
+          <button type="button" className="button-primary" onClick={() => void loadOtdData(otdYear)} disabled={otdLoading}>
+            {otdLoading ? 'Loading…' : 'Refresh'}
+          </button>
+        </div>
+
+        <div className="report-summary-bar">
+          <div className="report-summary-item">
+            <span>Year {otdYear} — On-time %</span>
+            <strong className={otdYearSummary.pct >= 90 ? 'text-green' : otdYearSummary.pct >= 75 ? 'text-yellow' : 'text-red'}>
+              {otdYearSummary.total > 0 ? `${otdYearSummary.pct.toFixed(1)}%` : '—'}
+            </strong>
+          </div>
+          <div className="report-summary-item">
+            <span>Year jobs w/ due date</span>
+            <strong>{otdYearSummary.total}</strong>
+          </div>
+          <div className="report-summary-item">
+            <span>Year on-time</span>
+            <strong>{otdYearSummary.onTime}</strong>
+          </div>
+          <div className="report-summary-item">
+            <span>Year late</span>
+            <strong>{otdYearSummary.late}</strong>
+          </div>
+        </div>
+
+        <div className="report-summary-bar">
+          <div className="report-summary-item">
+            <span>{MONTH_NAMES[otdMonth]} {otdYear} — On-time %</span>
+            <strong className={otdMonthSummary.pct >= 90 ? 'text-green' : otdMonthSummary.pct >= 75 ? 'text-yellow' : 'text-red'}>
+              {otdMonthSummary.total > 0 ? `${otdMonthSummary.pct.toFixed(1)}%` : '—'}
+            </strong>
+          </div>
+          <div className="report-summary-item">
+            <span>Month jobs w/ due date</span>
+            <strong>{otdMonthSummary.total}</strong>
+          </div>
+          <div className="report-summary-item">
+            <span>Month on-time</span>
+            <strong>{otdMonthSummary.onTime}</strong>
+          </div>
+          <div className="report-summary-item">
+            <span>Month late</span>
+            <strong>{otdMonthSummary.late}</strong>
+          </div>
+        </div>
+
+        <div className="dashboard-table-wrap">
+          <table className="dashboard-table">
+            <thead>
+              <tr>
+                <th>Month</th>
+                <th>Jobs w/ due date</th>
+                <th>On-time</th>
+                <th>Late</th>
+                <th>No due date</th>
+                <th>On-time %</th>
+              </tr>
+            </thead>
+            <tbody>
+              {otdByMonth.map((row) => (
+                <tr key={row.month}>
+                  <td>{row.label}</td>
+                  <td>{row.total}</td>
+                  <td>{row.onTime}</td>
+                  <td>{row.late}</td>
+                  <td>{row.noDueDate}</td>
+                  <td>
+                    {row.total > 0 ? (
+                      <span className={row.pct >= 90 ? 'text-green' : row.pct >= 75 ? 'text-yellow' : 'text-red'}>
+                        {row.pct.toFixed(1)}%
+                      </span>
+                    ) : '—'}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </section>
 
       <section className="dashboard-panel">
         <h3>Completed jobs report</h3>
