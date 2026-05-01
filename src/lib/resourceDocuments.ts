@@ -20,6 +20,19 @@ export type WeldProcess = (typeof WELD_PROCESSES)[number]
 export const WELD_MODES = ['Manual', 'Machine'] as const
 export type WeldMode = (typeof WELD_MODES)[number]
 
+export const BASE_METAL_CATEGORIES = [
+  'Carbon/P1',
+  'P4/F11',
+  'P4A/F22',
+  'P5/C5',
+  'P5B/C12',
+  'P15E/F91',
+  'P8/300 Series Stainless',
+  'P6/400 Series Stainless',
+  'Other',
+] as const
+export type BaseMetalCategory = (typeof BASE_METAL_CATEGORIES)[number]
+
 export type ResourceDocumentRow = {
   id: number
   scope: ResourceDocumentScope
@@ -37,6 +50,7 @@ export type ResourceDocumentRow = {
   weld_processes: WeldProcess[]
   weld_modes: WeldMode[]
   filler_metal: string | null
+  base_metal_category: BaseMetalCategory | null
   base_metal_thickness_qualified: string | null
   filler_metal_thickness_qualified: string | null
   post_weld_heat_treat_required: boolean
@@ -78,6 +92,7 @@ export async function uploadResourceDocument(args: {
   weldProcesses?: WeldProcess[]
   weldModes?: WeldMode[]
   fillerMetal?: string
+  baseMetalCategory?: BaseMetalCategory | null
   baseMetalThicknessQualified?: string
   fillerMetalThicknessQualified?: string
   postWeldHeatTreatRequired?: boolean
@@ -117,6 +132,7 @@ export async function uploadResourceDocument(args: {
     weld_processes: isWeld ? (args.weldProcesses ?? []) : [],
     weld_modes: isWeld ? (args.weldModes ?? []) : [],
     filler_metal: isWeld ? ((args.fillerMetal ?? '').trim() || null) : null,
+    base_metal_category: isWeld ? (args.baseMetalCategory ?? null) : null,
     base_metal_thickness_qualified: isWeld ? ((args.baseMetalThicknessQualified ?? '').trim() || null) : null,
     filler_metal_thickness_qualified: isWeld ? ((args.fillerMetalThicknessQualified ?? '').trim() || null) : null,
     post_weld_heat_treat_required: isWeld ? (args.postWeldHeatTreatRequired ?? false) : false,

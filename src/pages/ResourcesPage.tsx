@@ -6,10 +6,12 @@ import {
   resourceDocumentPublicUrl,
   type ResourceDocumentCategory,
   type ResourceDocumentRow,
+  type BaseMetalCategory,
   type WeldMode,
   type WeldProcess,
   type WpsType,
   uploadResourceDocument,
+  BASE_METAL_CATEGORIES,
   WELD_MODES,
   WELD_PROCESSES,
   WPS_TYPES,
@@ -26,7 +28,7 @@ const DOC_CATEGORY_OPTIONS: { value: ResourceDocumentCategory; label: string }[]
 ]
 
 const RESOURCE_DOC_SELECT =
-  'id,scope,valve_type,category,title,notes,storage_path,file_name,mime_type,created_at,updated_at,wps_type,weld_processes,weld_modes,filler_metal,base_metal_thickness_qualified,filler_metal_thickness_qualified,post_weld_heat_treat_required,pwht_temperature,pwht_time,hf_approved'
+  'id,scope,valve_type,category,title,notes,storage_path,file_name,mime_type,created_at,updated_at,wps_type,base_metal_category,weld_processes,weld_modes,filler_metal,base_metal_thickness_qualified,filler_metal_thickness_qualified,post_weld_heat_treat_required,pwht_temperature,pwht_time,hf_approved'
 
 export function ResourcesPage() {
   const { showToast } = useToast()
@@ -36,6 +38,7 @@ export function ResourcesPage() {
   const [weldLoading, setWeldLoading] = useState(false)
   const [weldWpsFilter, setWeldWpsFilter] = useState<WpsType | 'all'>('all')
   const [weldProcessFilter, setWeldProcessFilter] = useState<WeldProcess | 'all'>('all')
+  const [weldCategoryFilter, setWeldCategoryFilter] = useState<BaseMetalCategory | 'all'>('all')
 
   const loadWeldProcedures = async () => {
     setWeldLoading(true)
@@ -56,11 +59,11 @@ export function ResourcesPage() {
   const visibleWeldRows = useMemo(() => {
     return weldRows.filter((r) => {
       const matchWps = weldWpsFilter === 'all' || r.wps_type === weldWpsFilter
-      const matchProcess =
-        weldProcessFilter === 'all' || (r.weld_processes ?? []).includes(weldProcessFilter)
-      return matchWps && matchProcess
+      const matchProcess = weldProcessFilter === 'all' || (r.weld_processes ?? []).includes(weldProcessFilter)
+      const matchCategory = weldCategoryFilter === 'all' || r.base_metal_category === weldCategoryFilter
+      return matchWps && matchProcess && matchCategory
     })
-  }, [weldRows, weldWpsFilter, weldProcessFilter])
+  }, [weldRows, weldWpsFilter, weldProcessFilter, weldCategoryFilter])
 
   useEffect(() => {
     void loadWeldProcedures()
@@ -142,6 +145,7 @@ export function ResourcesPage() {
   const fileInputRef = useRef<HTMLInputElement>(null)
   // Weld-specific fields
   const [wpsType, setWpsType] = useState<WpsType | ''>('')
+  const [baseMetalCategory, setBaseMetalCategory] = useState<BaseMetalCategory | ''>('')
   const [weldProcesses, setWeldProcesses] = useState<WeldProcess[]>([])
   const [weldModes, setWeldModes] = useState<WeldMode[]>([])
   const [fillerMetal, setFillerMetal] = useState('')
@@ -162,6 +166,7 @@ export function ResourcesPage() {
     setUploadFile(null)
     setDragOver(false)
     setWpsType('')
+    setBaseMetalCategory('')
     setWeldProcesses([])
     setWeldModes([])
     setFillerMetal('')
@@ -182,6 +187,7 @@ export function ResourcesPage() {
     setUploadFile(null)
     setDragOver(false)
     setWpsType(row.wps_type ?? '')
+    setBaseMetalCategory(row.base_metal_category ?? '')
     setWeldProcesses((row.weld_processes ?? []) as WeldProcess[])
     setWeldModes((row.weld_modes ?? []) as WeldMode[])
     setFillerMetal(row.filler_metal ?? '')
@@ -264,6 +270,7 @@ export function ResourcesPage() {
         title: uploadTitle.trim(),
         notes: uploadNotes,
         wps_type: wpsType || null,
+        base_metal_category: baseMetalCategory || null,
         weld_processes: weldProcesses,
         weld_modes: weldModes,
         filler_metal: fillerMetal.trim() || null,
@@ -313,6 +320,7 @@ export function ResourcesPage() {
       title: uploadTitle,
       notes: uploadNotes,
       wpsType: wpsType || null,
+      baseMetalCategory: baseMetalCategory || null,
       weldProcesses,
       weldModes,
       fillerMetal,
@@ -483,6 +491,13 @@ export function ResourcesPage() {
               {WELD_PROCESSES.map((p) => <option key={p} value={p}>{p}</option>)}
             </select>
           </label>
+          <label>
+            Category
+            <select value={weldCategoryFilter} onChange={(e) => setWeldCategoryFilter(e.target.value as BaseMetalCategory | 'all')}>
+              <option value="all">All categories</option>
+              {BASE_METAL_CATEGORIES.map((c) => <option key={c} value={c}>{c}</option>)}
+            </select>
+          </label>
           <button type="button" className="button-secondary" onClick={() => void loadWeldProcedures()} disabled={weldLoading}>
             {weldLoading ? 'Loading…' : 'Refresh'}
           </button>
@@ -503,6 +518,7 @@ export function ResourcesPage() {
               <tr>
                 <th>Title</th>
                 <th>WPS Type</th>
+                <th>Category</th>
                 <th>Processes</th>
                 <th>Manual / Machine</th>
                 <th>Filler Metal</th>
@@ -523,6 +539,7 @@ export function ResourcesPage() {
                 <tr key={row.id}>
                   <td className="weld-col-title">{row.title}</td>
                   <td>{row.wps_type ?? '-'}</td>
+                  <td>{row.base_metal_category ?? '-'}</td>
                   <td>{row.weld_processes?.length ? row.weld_processes.join(', ') : '-'}</td>
                   <td>{row.weld_modes?.length ? row.weld_modes.join(', ') : '-'}</td>
                   <td>{row.filler_metal ?? '-'}</td>
@@ -748,6 +765,18 @@ export function ResourcesPage() {
                   >
                     <option value="">— Select WPS type —</option>
                     {WPS_TYPES.map((t) => <option key={t} value={t}>{t}</option>)}
+                  </select>
+
+                  <label className="modal-label" htmlFor="upload-bm-category">Base Metal Category</label>
+                  <select
+                    id="upload-bm-category"
+                    className="modal-status-select"
+                    value={baseMetalCategory}
+                    onChange={(e) => setBaseMetalCategory(e.target.value as BaseMetalCategory | '')}
+                    disabled={uploading}
+                  >
+                    <option value="">— Select category —</option>
+                    {BASE_METAL_CATEGORIES.map((c) => <option key={c} value={c}>{c}</option>)}
                   </select>
 
                   <label className="modal-label">Weld Process Utilized</label>
