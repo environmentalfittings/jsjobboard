@@ -16,6 +16,7 @@ import {
   WELD_PROCESSES,
   WPS_TYPES,
 } from '../lib/resourceDocuments'
+import { loadLookupOptionsMap } from '../lib/lookupValues'
 import { supabase } from '../lib/supabase'
 
 
@@ -28,10 +29,24 @@ const DOC_CATEGORY_OPTIONS: { value: ResourceDocumentCategory; label: string }[]
 ]
 
 const RESOURCE_DOC_SELECT =
-  'id,scope,valve_type,category,title,notes,storage_path,file_name,mime_type,created_at,updated_at,wps_type,base_metal_category,weld_processes,weld_modes,filler_metal,base_metal_thickness_qualified,filler_metal_thickness_qualified,post_weld_heat_treat_required,pwht_temperature,pwht_time,hf_approved'
+  'id,scope,valve_type,category,title,notes,storage_path,file_name,mime_type,created_at,updated_at,wps_type,base_metal_category,weld_processes,weld_modes,filler_metal,base_metal_thickness_qualified,filler_metal_thickness_qualified,post_weld_heat_treat_required,pwht_temperature,pwht_time,hf_approved,manufacturer,product_valve_type'
 
 export function ResourcesPage() {
   const { showToast } = useToast()
+
+  // ── Lookup lists for modal dropdowns ─────────────────────────────────────
+  const [manufacturers, setManufacturers] = useState<string[]>([])
+  const [valveTypeOptions, setValveTypeOptions] = useState<string[]>([])
+
+  useEffect(() => {
+    void (async () => {
+      try {
+        const map = await loadLookupOptionsMap()
+        setManufacturers(map.manufacturer ?? [])
+        setValveTypeOptions(map.valve_type ?? [])
+      } catch { /* silently ignore */ }
+    })()
+  }, [])
 
   // ── Weld procedures section ──────────────────────────────────────────────
   const [weldRows, setWeldRows] = useState<ResourceDocumentRow[]>([])
@@ -144,6 +159,8 @@ export function ResourcesPage() {
   const [dragOver, setDragOver] = useState(false)
   const fileInputRef = useRef<HTMLInputElement>(null)
   // Weld-specific fields
+  const [manufacturer, setManufacturer] = useState('')
+  const [productValveType, setProductValveType] = useState('')
   const [wpsType, setWpsType] = useState<WpsType | ''>('')
   const [baseMetalCategory, setBaseMetalCategory] = useState<BaseMetalCategory | ''>('')
   const [weldProcesses, setWeldProcesses] = useState<WeldProcess[]>([])
@@ -165,6 +182,8 @@ export function ResourcesPage() {
     setUploadNotes('')
     setUploadFile(null)
     setDragOver(false)
+    setManufacturer('')
+    setProductValveType('')
     setWpsType('')
     setBaseMetalCategory('')
     setWeldProcesses([])
@@ -186,6 +205,8 @@ export function ResourcesPage() {
     setUploadNotes(row.notes ?? '')
     setUploadFile(null)
     setDragOver(false)
+    setManufacturer(row.manufacturer ?? '')
+    setProductValveType(row.product_valve_type ?? '')
     setWpsType(row.wps_type ?? '')
     setBaseMetalCategory(row.base_metal_category ?? '')
     setWeldProcesses((row.weld_processes ?? []) as WeldProcess[])
@@ -269,6 +290,8 @@ export function ResourcesPage() {
       const patch: Record<string, unknown> = {
         title: uploadTitle.trim(),
         notes: uploadNotes,
+        manufacturer: manufacturer || null,
+        product_valve_type: productValveType || null,
         wps_type: wpsType || null,
         base_metal_category: baseMetalCategory || null,
         weld_processes: weldProcesses,
@@ -319,6 +342,8 @@ export function ResourcesPage() {
       category: uploadCategory,
       title: uploadTitle,
       notes: uploadNotes,
+      manufacturer: manufacturer || null,
+      productValveType: productValveType || null,
       wpsType: wpsType || null,
       baseMetalCategory: baseMetalCategory || null,
       weldProcesses,
@@ -610,6 +635,12 @@ export function ResourcesPage() {
                 <thead>
                   <tr>
                     <th>Title</th>
+                    {(activeSimpleSection.categories[0] === 'iom' || activeSimpleSection.categories.includes('maintenance_manual' as ResourceDocumentCategory)) ? (
+                      <>
+                        <th>Manufacturer</th>
+                        <th>Valve Type</th>
+                      </>
+                    ) : null}
                     <th>File</th>
                     <th>Notes</th>
                     <th>Updated</th>
@@ -619,10 +650,16 @@ export function ResourcesPage() {
                 <tbody>
                   {docs.map((row) => (
                     <tr key={row.id}>
-                      <td>{row.title}</td>
+                      <td style={{ fontWeight: 600 }}>{row.title}</td>
+                      {(activeSimpleSection.categories[0] === 'iom' || activeSimpleSection.categories.includes('maintenance_manual' as ResourceDocumentCategory)) ? (
+                        <>
+                          <td>{row.manufacturer ?? '-'}</td>
+                          <td>{row.product_valve_type ?? '-'}</td>
+                        </>
+                      ) : null}
                       <td>
                         <a href={resourceDocumentPublicUrl(row.storage_path)} target="_blank" rel="noreferrer">
-                          {row.file_name}
+                          📄 {row.file_name}
                         </a>
                       </td>
                       <td className="table-cell-clamp">{row.notes || '-'}</td>
@@ -638,7 +675,7 @@ export function ResourcesPage() {
                     </tr>
                   ))}
                   {!loading && docs.length === 0 ? (
-                    <tr><td colSpan={5} className="table-empty-cell">No documents found.</td></tr>
+                    <tr><td colSpan={7} className="table-empty-cell">No documents found.</td></tr>
                   ) : null}
                 </tbody>
               </table>
@@ -735,6 +772,35 @@ export function ResourcesPage() {
                     {DOC_CATEGORY_OPTIONS.map((c) => (
                       <option key={c.value} value={c.value}>{c.label}</option>
                     ))}
+                  </select>
+                </>
+              ) : null}
+
+              {/* Manufacturer + Valve Type — shown for IOM / maintenance manual */}
+              {(uploadCategory === 'iom' || uploadCategory === 'maintenance_manual') ? (
+                <>
+                  <label className="modal-label" htmlFor="upload-manufacturer">Manufacturer</label>
+                  <select
+                    id="upload-manufacturer"
+                    className="modal-status-select"
+                    value={manufacturer}
+                    onChange={(e) => setManufacturer(e.target.value)}
+                    disabled={uploading}
+                  >
+                    <option value="">— Select manufacturer —</option>
+                    {manufacturers.map((m) => <option key={m} value={m}>{m}</option>)}
+                  </select>
+
+                  <label className="modal-label" htmlFor="upload-product-valve-type">Valve Type</label>
+                  <select
+                    id="upload-product-valve-type"
+                    className="modal-status-select"
+                    value={productValveType}
+                    onChange={(e) => setProductValveType(e.target.value)}
+                    disabled={uploading}
+                  >
+                    <option value="">— Select valve type —</option>
+                    {valveTypeOptions.map((t) => <option key={t} value={t}>{t}</option>)}
                   </select>
                 </>
               ) : null}

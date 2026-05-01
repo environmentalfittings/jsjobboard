@@ -24,6 +24,7 @@ const BY_CATEGORY: Record<LookupCategory, readonly string[]> = {
   finish_cell: FINISH_CELLS,
   order_type: ORDER_TYPES,
   job_sub_status: JOB_SUB_STATUSES,
+  manufacturer: [],
 }
 
 export function buildSeedLookupValueRows(): {
