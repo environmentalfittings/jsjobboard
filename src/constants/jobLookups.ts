@@ -41,6 +41,7 @@ export const VALVE_SIZES = [
   '30',
   '36',
   '42',
+  '48',
 ] as const
 
 export const VALVE_TYPES = [
