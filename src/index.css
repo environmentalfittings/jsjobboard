@@ -4773,3 +4773,137 @@ tbody tr:hover {
   color: #dc2626;
   font-weight: 700;
 }
+
+/* ── Resources upload trigger row ───────────────────── */
+.resources-upload-trigger-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin: 12px 0 8px;
+}
+
+.resources-upload-hint {
+  font-size: 13px;
+  color: #6b7280;
+}
+
+/* ── Upload document modal ──────────────────────────── */
+.resources-upload-modal {
+  width: min(560px, 100%);
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+}
+
+.resources-upload-modal-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 16px;
+}
+
+.resources-upload-modal-header h3 {
+  margin: 0;
+  font-size: 17px;
+  font-weight: 700;
+  color: #1e293b;
+}
+
+.modal-close-btn {
+  background: none;
+  border: none;
+  cursor: pointer;
+  font-size: 18px;
+  color: #6b7280;
+  line-height: 1;
+  padding: 4px 6px;
+  border-radius: 6px;
+  transition: background 0.15s;
+}
+
+.modal-close-btn:hover {
+  background: #f1f5f9;
+  color: #1e293b;
+}
+
+/* ── Drag & drop zone ───────────────────────────────── */
+.resources-drop-zone {
+  border: 2px dashed #cbd5e1;
+  border-radius: 10px;
+  padding: 32px 20px;
+  text-align: center;
+  cursor: pointer;
+  transition: border-color 0.15s, background 0.15s;
+  background: #f8fafc;
+  margin-bottom: 20px;
+  outline: none;
+}
+
+.resources-drop-zone:focus-visible {
+  border-color: #6366f1;
+  box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.2);
+}
+
+.resources-drop-zone:hover {
+  border-color: #6366f1;
+  background: #f0f1ff;
+}
+
+.resources-drop-zone--over {
+  border-color: #6366f1;
+  background: #eef2ff;
+}
+
+.resources-drop-zone--has-file {
+  border-color: #16a34a;
+  background: #f0fdf4;
+}
+
+.resources-drop-icon {
+  font-size: 36px;
+  display: block;
+  margin-bottom: 8px;
+}
+
+.resources-drop-primary {
+  margin: 0 0 4px;
+  font-size: 15px;
+  font-weight: 600;
+  color: #1e293b;
+}
+
+.resources-drop-sub {
+  margin: 0 0 6px;
+  font-size: 13px;
+  color: #6b7280;
+}
+
+.resources-drop-types {
+  margin: 0;
+  font-size: 12px;
+  color: #94a3b8;
+}
+
+.resources-drop-filename {
+  margin: 0 0 4px;
+  font-size: 14px;
+  font-weight: 600;
+  color: #15803d;
+  word-break: break-all;
+}
+
+.resources-drop-zone-input {
+  display: none;
+}
+
+/* ── Upload form fields ─────────────────────────────── */
+.resources-upload-fields {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-bottom: 8px;
+}
+
+.required-star {
+  color: #dc2626;
+}

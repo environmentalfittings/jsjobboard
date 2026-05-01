@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { useToast } from '../components/ToastNotification'
 import { ValveTypeProceduresPanel } from '../components/ValveTypeProceduresPanel'
@@ -40,11 +40,42 @@ export function ResourcesPage() {
   const [rowsLoading, setRowsLoading] = useState(false)
   const [tableMissing, setTableMissing] = useState(false)
 
+  const [uploadModalOpen, setUploadModalOpen] = useState(false)
   const [uploadTitle, setUploadTitle] = useState('')
   const [uploadNotes, setUploadNotes] = useState('')
   const [uploadCategory, setUploadCategory] = useState<ResourceDocumentCategory>('general')
   const [uploadFile, setUploadFile] = useState<File | null>(null)
   const [uploading, setUploading] = useState(false)
+  const [dragOver, setDragOver] = useState(false)
+  const fileInputRef = useRef<HTMLInputElement>(null)
+
+  const openUploadModal = () => {
+    setUploadTitle('')
+    setUploadNotes('')
+    setUploadCategory('general')
+    setUploadFile(null)
+    setDragOver(false)
+    setUploadModalOpen(true)
+  }
+
+  const closeUploadModal = () => {
+    if (uploading) return
+    setUploadModalOpen(false)
+  }
+
+  const onDrop = useCallback((e: React.DragEvent) => {
+    e.preventDefault()
+    setDragOver(false)
+    const file = e.dataTransfer.files[0]
+    if (file) setUploadFile(file)
+  }, [])
+
+  const onDragOver = useCallback((e: React.DragEvent) => {
+    e.preventDefault()
+    setDragOver(true)
+  }, [])
+
+  const onDragLeave = useCallback(() => setDragOver(false), [])
 
   useEffect(() => {
     let cancelled = false
@@ -158,9 +189,7 @@ export function ResourcesPage() {
       showToast(error)
       return
     }
-    setUploadFile(null)
-    setUploadTitle('')
-    setUploadNotes('')
+    setUploadModalOpen(false)
     showToast('Document uploaded')
     void loadDocuments()
   }
@@ -264,49 +293,18 @@ export function ResourcesPage() {
           </p>
         ) : null}
 
-        <div className="resources-add-block">
-          <h3 className="resources-add-heading">Upload document ({scopeLabel})</h3>
-          <div className="report-filters">
-            <label>
-              Title
-              <input
-                type="text"
-                value={uploadTitle}
-                onChange={(e) => setUploadTitle(e.target.value)}
-                placeholder="e.g. WPS-017 Carbon Weld Procedure"
-              />
-            </label>
-            <label>
-              Category
-              <select value={uploadCategory} onChange={(e) => setUploadCategory(e.target.value as ResourceDocumentCategory)}>
-                {DOC_CATEGORY_OPTIONS.map((c) => (
-                  <option key={c.value} value={c.value}>
-                    {c.label}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <label>
-              File
-              <input
-                type="file"
-                onChange={(e) => setUploadFile(e.target.files?.[0] ?? null)}
-                accept=".pdf,.doc,.docx,.xls,.xlsx,.csv,.txt,.png,.jpg,.jpeg,.webp,.gif"
-              />
-            </label>
-            <label>
-              Notes (optional)
-              <input type="text" value={uploadNotes} onChange={(e) => setUploadNotes(e.target.value)} />
-            </label>
-            <button
-              type="button"
-              className="button-primary"
-              onClick={() => void handleUpload()}
-              disabled={uploading || (scope === 'valve_type' && !selectedValveType.trim())}
-            >
-              {uploading ? 'Uploading…' : 'Upload document'}
-            </button>
-          </div>
+        <div className="resources-upload-trigger-row">
+          <button
+            type="button"
+            className="button-primary"
+            onClick={openUploadModal}
+            disabled={scope === 'valve_type' && !selectedValveType.trim()}
+          >
+            + Add resource document
+          </button>
+          {scope === 'valve_type' && !selectedValveType.trim() ? (
+            <span className="resources-upload-hint">Select a valve type above first</span>
+          ) : null}
         </div>
 
         <p className="status-breakdown-note">
@@ -351,6 +349,115 @@ export function ResourcesPage() {
       </section>
 
       <ValveTypeProceduresPanel key={typeReloadTick} variant="page" />
+
+      {uploadModalOpen ? (
+        <div
+          className="modal-overlay"
+          role="dialog"
+          aria-modal="true"
+          aria-label="Upload document"
+          onMouseDown={(e) => e.target === e.currentTarget && closeUploadModal()}
+        >
+          <div className="modal-card resources-upload-modal">
+            <div className="resources-upload-modal-header">
+              <h3>Upload document — {scopeLabel}</h3>
+              <button type="button" className="modal-close-btn" onClick={closeUploadModal} disabled={uploading} aria-label="Close">
+                ✕
+              </button>
+            </div>
+
+            <div
+              className={`resources-drop-zone${dragOver ? ' resources-drop-zone--over' : uploadFile ? ' resources-drop-zone--has-file' : ''}`}
+              onDrop={onDrop}
+              onDragOver={onDragOver}
+              onDragLeave={onDragLeave}
+              onClick={() => !uploading && fileInputRef.current?.click()}
+              role="button"
+              tabIndex={0}
+              onKeyDown={(e) => (e.key === 'Enter' || e.key === ' ') && !uploading && fileInputRef.current?.click()}
+              aria-label="Drop file here or click to browse"
+            >
+              <input
+                ref={fileInputRef}
+                type="file"
+                className="resources-drop-zone-input"
+                onChange={(e) => setUploadFile(e.target.files?.[0] ?? null)}
+                accept=".pdf,.doc,.docx,.xls,.xlsx,.csv,.txt,.png,.jpg,.jpeg,.webp,.gif"
+                tabIndex={-1}
+              />
+              {uploadFile ? (
+                <>
+                  <span className="resources-drop-icon">📄</span>
+                  <p className="resources-drop-filename">{uploadFile.name}</p>
+                  <p className="resources-drop-sub">Click to change file</p>
+                </>
+              ) : (
+                <>
+                  <span className="resources-drop-icon">📂</span>
+                  <p className="resources-drop-primary">Drag &amp; drop a file here</p>
+                  <p className="resources-drop-sub">or click to browse your computer</p>
+                  <p className="resources-drop-types">PDF, Word, Excel, CSV, image — up to 40 MB</p>
+                </>
+              )}
+            </div>
+
+            <div className="resources-upload-fields">
+              <label className="modal-label" htmlFor="upload-title">
+                Title <span className="required-star">*</span>
+              </label>
+              <input
+                id="upload-title"
+                type="text"
+                className="modal-status-select"
+                value={uploadTitle}
+                onChange={(e) => setUploadTitle(e.target.value)}
+                placeholder="e.g. WPS-017 Carbon Weld Procedure"
+                disabled={uploading}
+                autoFocus
+              />
+
+              <label className="modal-label" htmlFor="upload-category">
+                Category
+              </label>
+              <select
+                id="upload-category"
+                className="modal-status-select"
+                value={uploadCategory}
+                onChange={(e) => setUploadCategory(e.target.value as ResourceDocumentCategory)}
+                disabled={uploading}
+              >
+                {DOC_CATEGORY_OPTIONS.map((c) => (
+                  <option key={c.value} value={c.value}>
+                    {c.label}
+                  </option>
+                ))}
+              </select>
+
+              <label className="modal-label" htmlFor="upload-notes">
+                Notes (optional)
+              </label>
+              <input
+                id="upload-notes"
+                type="text"
+                className="modal-status-select"
+                value={uploadNotes}
+                onChange={(e) => setUploadNotes(e.target.value)}
+                placeholder="Short description or revision note"
+                disabled={uploading}
+              />
+            </div>
+
+            <div className="technician-modal-footer">
+              <button type="button" className="button-secondary" onClick={closeUploadModal} disabled={uploading}>
+                Cancel
+              </button>
+              <button type="button" className="button-primary" onClick={() => void handleUpload()} disabled={uploading}>
+                {uploading ? 'Uploading…' : 'Upload document'}
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
     </section>
   )
 }
