@@ -33,6 +33,7 @@ export function NewJobPage({ role }: NewJobPageProps) {
   const [cell, setCell] = useState('')
   const [size, setSize] = useState('')
   const [pressureClass, setPressureClass] = useState('')
+  const [bodyMaterial, setBodyMaterial] = useState('')
   const [jobType, setJobType] = useState('Valve Repair')
   const [materialSpec, setMaterialSpec] = useState('')
   const [drawingPoNumber, setDrawingPoNumber] = useState('')
@@ -90,6 +91,7 @@ export function NewJobPage({ role }: NewJobPageProps) {
       cell: cell.trim() || null,
       size: size.trim() || null,
       pressure_class: pressureClass.trim() || null,
+      body_material: bodyMaterial.trim() || null,
       test_type: valveRelated ? testType.trim() || null : null,
       valve_type: valveRelated ? valveType.trim() || null : null,
       order_type: orderType.trim() || null,
@@ -125,6 +127,7 @@ export function NewJobPage({ role }: NewJobPageProps) {
     setCell('')
     setSize('')
     setPressureClass('')
+    setBodyMaterial('')
     setJobType('Valve Repair')
     setMaterialSpec('')
     setDrawingPoNumber('')
@@ -218,6 +221,13 @@ export function NewJobPage({ role }: NewJobPageProps) {
                 <select value={pressureClass} onChange={(e) => setPressureClass(e.target.value)}>
                   <option value="">— Select pressure class —</option>
                   {lookupSelectOptions(lookupOptions.pressure_class)}
+                </select>
+              </label>
+              <label>
+                Body material
+                <select value={bodyMaterial} onChange={(e) => setBodyMaterial(e.target.value)}>
+                  <option value="">— Select body material —</option>
+                  {lookupSelectOptions(lookupOptions.body_material)}
                 </select>
               </label>
               {isValveRelatedJobType(jobType) ? (

@@ -31,6 +31,7 @@ export interface Valve {
   /** Customer turnaround — use for status updates and turnaround reports. */
   is_turnaround?: boolean | null
   pressure_class?: string | null
+  body_material?: string | null
 }
 
 export interface ValveItp {

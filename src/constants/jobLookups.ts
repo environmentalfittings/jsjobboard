@@ -96,3 +96,10 @@ export const ORDER_TYPES = ['In-Process Order', 'Waiting on Arrival', 'On-Hold',
 
 /** ANSI/ASME and API pressure classes (lb) used as fallback when DB lookup_values is empty. */
 export const PRESSURE_CLASSES = ['150', '300', '400', '600', '800', '900', '1500', '2500', '3000', '5000', '10000'] as const
+
+/** Body material designations used as fallback when DB lookup_values is empty. */
+export const BODY_MATERIALS = [
+  'WCB', 'WC1', 'F11', 'F22', 'C5', 'C9', 'P91',
+  '304 SS', '309 SS', '316 SS', '347 SS',
+  'Monel', 'Hastelloy',
+] as const

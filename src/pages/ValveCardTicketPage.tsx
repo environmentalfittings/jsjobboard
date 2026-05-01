@@ -79,6 +79,7 @@ function buildPrintHtml(valve: Valve) {
       <div class="row"><div class="label">Work Cell:</div><div class="value">${escapeHtml(valve.cell ?? '-')}</div></div>
       <div class="row"><div class="label">Size:</div><div class="value">${escapeHtml(valve.size ?? '-')}</div></div>
       <div class="row"><div class="label">Pressure class:</div><div class="value">${escapeHtml(valve.pressure_class ?? '-')}</div></div>
+      <div class="row"><div class="label">Body material:</div><div class="value">${escapeHtml(valve.body_material ?? '-')}</div></div>
       <div class="row"><div class="label">Job type:</div><div class="value">${escapeHtml(jobType)}</div></div>
       ${
         valveRelated
@@ -408,6 +409,9 @@ export function ValveCardTicketPage() {
               </p>
               <p>
                 <strong>Pressure class:</strong> {selected.pressure_class ?? '-'}
+              </p>
+              <p>
+                <strong>Body material:</strong> {selected.body_material ?? '-'}
               </p>
               {valveRelated ? (
                 <>
