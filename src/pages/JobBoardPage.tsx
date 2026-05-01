@@ -495,7 +495,7 @@ export function JobBoardPage() {
     const { error } = await supabase.from('valves').update({ sub_status: next }).eq('id', valve.id)
     if (error) {
       setValves((p) => p.map((v) => (v.id === valve.id ? { ...v, sub_status: prev } : v)))
-      showToast('Could not update sub-status')
+      showToast(`Could not update sub-status: ${error.message}`)
       return
     }
     showToast('Sub-status updated')
@@ -562,7 +562,7 @@ export function JobBoardPage() {
     const { error } = await supabase.from('valves').update(patch).eq('id', activeValve.id)
     setIsSaving(false)
     if (error) {
-      showToast('Could not save changes')
+      showToast(`Could not save changes: ${error.message}`)
       return
     }
     setValves((prev) => prev.map((v) => (v.id === activeValve.id ? { ...v, ...patch } : v)))
@@ -637,7 +637,7 @@ export function JobBoardPage() {
 
     if (error) {
       setValves((prev) => prev.map((v) => (v.id === previous.id ? previous : v)))
-      showToast(`Could not move ${valve.valve_id}`)
+      showToast(`Could not move ${valve.valve_id}: ${error.message}`)
       return
     }
 
