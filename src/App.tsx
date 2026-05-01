@@ -189,7 +189,7 @@ function App() {
               <Route path="/valve-card-ticket" element={role === 'admin' ? <ValveCardTicketPage /> : <Navigate to="/login" replace />} />
               <Route path="/reports" element={role === 'admin' ? <ReportsPage /> : <Navigate to="/login" replace />} />
               <Route path="/resources" element={role === 'admin' ? <ResourcesPage /> : <Navigate to="/login" replace />} />
-              <Route path="/technicians" element={role === 'admin' || role === 'manager' ? <TechniciansPage /> : <Navigate to="/login" replace />} />
+              <Route path="/technicians" element={role === 'admin' ? <TechniciansPage /> : <Navigate to="/login" replace />} />
               <Route path="/admin/lists" element={role === 'admin' ? <AdminListsPage /> : <Navigate to="/login" replace />} />
             </Routes>
           )}

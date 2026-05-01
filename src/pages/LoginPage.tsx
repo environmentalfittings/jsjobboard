@@ -9,31 +9,59 @@ interface LoginPageProps {
 }
 
 export function LoginPage({ onLogin }: LoginPageProps) {
-  const [email, setEmail] = useState('')
+  const [username, setUsername] = useState('')
   const [password, setPassword] = useState('')
+  const [showPassword, setShowPassword] = useState(false)
   const [error, setError] = useState('')
   const [saving, setSaving] = useState(false)
 
   const submit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault()
-    const normalizedEmail = email.trim()
+    const normalizedUsername = username.trim().toLowerCase()
     const genericAdminEnabled = import.meta.env.VITE_ENABLE_GENERIC_ADMIN_LOGIN === 'true'
-    const genericAdminEmail = String(import.meta.env.VITE_GENERIC_ADMIN_EMAIL ?? '').trim().toLowerCase()
+    const genericAdminUsername = String(import.meta.env.VITE_GENERIC_ADMIN_USERNAME ?? '').trim().toLowerCase()
     const genericAdminPassword = String(import.meta.env.VITE_GENERIC_ADMIN_PASSWORD ?? '')
     if (
       genericAdminEnabled &&
-      genericAdminEmail &&
+      genericAdminUsername &&
       genericAdminPassword &&
-      normalizedEmail.toLowerCase() === genericAdminEmail &&
+      normalizedUsername === genericAdminUsername &&
       password === genericAdminPassword
     ) {
       await onLogin({ localRole: 'admin', username: 'Generic Admin' })
       return
     }
 
+    if (!normalizedUsername) {
+      setError('Username is required')
+      return
+    }
+
     setSaving(true)
+    const { data: technicianRow, error: technicianLookupError } = await supabase
+      .from('technicians')
+      .select('login_email')
+      .eq('login_username', normalizedUsername)
+      .eq('active', true)
+      .maybeSingle()
+    if (technicianLookupError) {
+      setSaving(false)
+      setError(
+        /login_username/i.test(technicianLookupError.message)
+          ? 'Database update required: run migration-username-auth-admin-only.sql in Supabase SQL Editor.'
+          : technicianLookupError.message || 'Could not look up username',
+      )
+      return
+    }
+    const resolvedEmail = String(technicianRow?.login_email ?? '').trim()
+    if (!resolvedEmail) {
+      setSaving(false)
+      setError('Unknown username. Ask an admin to create or assign your login username.')
+      return
+    }
+
     const { error: signInError } = await supabase.auth.signInWithPassword({
-      email: normalizedEmail,
+      email: resolvedEmail,
       password,
     })
     setSaving(false)
@@ -61,30 +89,40 @@ export function LoginPage({ onLogin }: LoginPageProps) {
         <img src={logo} alt="JS Valve logo" className="login-logo" />
         <h1>JS Valve Job Board</h1>
         <p>Sign in with your shop login.</p>
-        <label htmlFor="email-input">Email</label>
+        <label htmlFor="username-input">Username</label>
         <input
-          id="email-input"
-          type="email"
-          value={email}
+          id="username-input"
+          type="text"
+          value={username}
           onChange={(event) => {
-            setEmail(event.target.value)
+            setUsername(event.target.value)
             setError('')
           }}
-          placeholder="name@shop.com"
-          autoComplete="email"
+          placeholder="shop username"
+          autoComplete="username"
         />
         <label htmlFor="password-input">Password</label>
-        <input
-          id="password-input"
-          type="password"
-          value={password}
-          onChange={(event) => {
-            setPassword(event.target.value)
-            setError('')
-          }}
-          placeholder="Enter password"
-          autoComplete="current-password"
-        />
+        <div className="password-input-wrap">
+          <input
+            id="password-input"
+            type={showPassword ? 'text' : 'password'}
+            value={password}
+            onChange={(event) => {
+              setPassword(event.target.value)
+              setError('')
+            }}
+            placeholder="Enter password"
+            autoComplete="current-password"
+          />
+          <button
+            type="button"
+            className="password-toggle-btn"
+            onClick={() => setShowPassword((value) => !value)}
+            aria-label={showPassword ? 'Hide password' : 'Show password'}
+          >
+            {showPassword ? '🙈' : '👁'}
+          </button>
+        </div>
         {error ? <div className="login-error">{error}</div> : null}
         <button className="button-primary" type="submit" disabled={saving}>
           {saving ? 'Signing in…' : 'Sign in'}

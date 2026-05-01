@@ -16,9 +16,15 @@ type Draft = {
   supervisor_id: number | null
   manager_id: number | null
   create_login: boolean
-  email: string
+  username: string
   temp_password: string
 }
+
+const LOGIN_EMAIL_DOMAIN = String(import.meta.env.VITE_LOGIN_EMAIL_DOMAIN ?? 'users.jsvalve.local').trim() || 'users.jsvalve.local'
+
+const normalizeUsername = (value: string) => value.trim().toLowerCase()
+
+const usernameToLoginEmail = (username: string) => `${username}@${LOGIN_EMAIL_DOMAIN}`
 
 const emptyDraft = (): Draft => ({
   name: '',
@@ -30,7 +36,7 @@ const emptyDraft = (): Draft => ({
   supervisor_id: null,
   manager_id: null,
   create_login: false,
-  email: '',
+  username: '',
   temp_password: '',
 })
 
@@ -49,7 +55,9 @@ export function TechniciansPage() {
     setLoading(true)
     const { data, error } = await supabase
       .from('technicians')
-      .select('id,name,employee_id,work_cell_specialties,group_team,active,user_id,login_email,role,supervisor_id,manager_id,created_at,updated_at')
+      .select(
+        'id,name,employee_id,work_cell_specialties,group_team,active,user_id,login_username,login_email,role,supervisor_id,manager_id,created_at,updated_at',
+      )
       .order('group_team', { ascending: true, nullsFirst: false })
       .order('name')
     setLoading(false)
@@ -111,7 +119,7 @@ export function TechniciansPage() {
       supervisor_id: t.supervisor_id ?? null,
       manager_id: t.manager_id ?? null,
       create_login: false,
-      email: t.login_email ?? '',
+      username: t.login_username ?? '',
       temp_password: '',
     })
     setModalOpen(true)
@@ -129,6 +137,16 @@ export function TechniciansPage() {
       showToast('Name is required')
       return
     }
+    const normalizedUsername = normalizeUsername(draft.username)
+    if (!normalizedUsername) {
+      showToast('Username is required')
+      return
+    }
+    if (!/^[a-z0-9._-]{3,64}$/.test(normalizedUsername)) {
+      showToast('Username must be 3-64 characters: lowercase letters, numbers, dot, underscore, or dash')
+      return
+    }
+    const loginEmail = usernameToLoginEmail(normalizedUsername)
     setSaving(true)
     const payload = {
       name,
@@ -139,7 +157,8 @@ export function TechniciansPage() {
         .filter(Boolean),
       group_team: draft.group_team.trim() || null,
       active: draft.active,
-      login_email: draft.email.trim() || null,
+      login_username: normalizedUsername,
+      login_email: loginEmail,
       role: draft.role,
       supervisor_id: draft.role === 'technician' || draft.role === 'supervisor' ? draft.supervisor_id : null,
       manager_id: draft.role === 'technician' || draft.role === 'supervisor' ? draft.manager_id : null,
@@ -147,13 +166,13 @@ export function TechniciansPage() {
     let authUserId: string | null = null
     let loginCreateWarning: string | null = null
     if (draft.create_login) {
-      if (!draft.email.trim() || !draft.temp_password.trim()) {
+      if (!draft.temp_password.trim()) {
         setSaving(false)
-        showToast('Email and temporary password are required when creating login')
+        showToast('Temporary password is required when creating login')
         return
       }
       const adminCreate = await supabase.auth.admin.createUser({
-        email: draft.email.trim(),
+        email: loginEmail,
         password: draft.temp_password,
         user_metadata: { role: draft.role, name },
         email_confirm: true,
@@ -273,7 +292,7 @@ export function TechniciansPage() {
                 <th>Active</th>
                 <th>Role</th>
                 <th>Reports To</th>
-                <th>Email / Login</th>
+                <th>Username</th>
                 <th>Open jobs</th>
                 <th />
               </tr>
@@ -290,7 +309,7 @@ export function TechniciansPage() {
                     <RoleBadge role={t.role} />
                   </td>
                   <td>{rows.find((x) => x.id === t.supervisor_id)?.name ?? '—'}</td>
-                  <td>{t.login_email?.trim() || 'No login'}</td>
+                  <td>{t.login_username?.trim() || 'No username'}</td>
                   <td>
                     {(() => {
                       const jobs = openJobsForTech(t.id, valves)
@@ -424,6 +443,19 @@ export function TechniciansPage() {
                 <option value="manager">Manager</option>
                 <option value="admin">Admin</option>
               </select>
+              <label className="modal-label" htmlFor="tech-username">
+                Username
+              </label>
+              <input
+                id="tech-username"
+                type="text"
+                className="modal-status-select"
+                value={draft.username}
+                onChange={(e) => setDraft((d) => ({ ...d, username: e.target.value }))}
+                disabled={saving}
+                autoComplete="username"
+                placeholder="e.g. ghensley"
+              />
               {draft.role === 'technician' || draft.role === 'supervisor' ? (
                 <>
                   <label className="modal-label" htmlFor="tech-supervisor-id">
@@ -483,17 +515,6 @@ export function TechniciansPage() {
                   </label>
                   {draft.create_login ? (
                     <>
-                      <label className="modal-label" htmlFor="tech-email">
-                        Email
-                      </label>
-                      <input
-                        id="tech-email"
-                        type="email"
-                        className="modal-status-select"
-                        value={draft.email}
-                        onChange={(e) => setDraft((d) => ({ ...d, email: e.target.value }))}
-                        disabled={saving}
-                      />
                       <label className="modal-label" htmlFor="tech-temp-password">
                         Temporary Password
                       </label>
