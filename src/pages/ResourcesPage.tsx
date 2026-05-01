@@ -20,13 +20,6 @@ import { loadLookupOptionsMap } from '../lib/lookupValues'
 import { supabase } from '../lib/supabase'
 
 
-const DOC_CATEGORY_OPTIONS: { value: ResourceDocumentCategory; label: string }[] = [
-  { value: 'general', label: 'General' },
-  { value: 'quality_control', label: 'Quality control' },
-  { value: 'iom', label: 'IOM' },
-  { value: 'maintenance_manual', label: 'Maintenance manual' },
-  { value: 'other', label: 'Other' },
-]
 
 const RESOURCE_DOC_SELECT =
   'id,scope,valve_type,category,title,notes,storage_path,file_name,mime_type,created_at,updated_at,wps_type,base_metal_category,weld_processes,weld_modes,filler_metal,base_metal_thickness_qualified,filler_metal_thickness_qualified,post_weld_heat_treat_required,pwht_temperature,pwht_time,hf_approved,manufacturer,product_valve_type'
@@ -758,23 +751,6 @@ export function ResourcesPage() {
                 autoFocus
               />
 
-              {/* Category selector only for general docs */}
-              {modalMode === 'general' ? (
-                <>
-                  <label className="modal-label" htmlFor="upload-category">Category</label>
-                  <select
-                    id="upload-category"
-                    className="modal-status-select"
-                    value={uploadCategory}
-                    onChange={(e) => setUploadCategory(e.target.value as ResourceDocumentCategory)}
-                    disabled={uploading}
-                  >
-                    {DOC_CATEGORY_OPTIONS.map((c) => (
-                      <option key={c.value} value={c.value}>{c.label}</option>
-                    ))}
-                  </select>
-                </>
-              ) : null}
 
               {/* Manufacturer + Valve Type — shown for IOM / maintenance manual */}
               {(uploadCategory === 'iom' || uploadCategory === 'maintenance_manual') ? (
