@@ -4908,6 +4908,13 @@ tbody tr:hover {
   color: #dc2626;
 }
 
+.table-empty-cell {
+  text-align: center;
+  color: #94a3b8;
+  font-style: italic;
+  padding: 20px 0;
+}
+
 /* ── Weld procedure extra fields ────────────────────── */
 .weld-fields-divider {
   font-size: 12px;
