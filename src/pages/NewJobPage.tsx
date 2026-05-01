@@ -327,22 +327,30 @@ export function NewJobPage({ role }: NewJobPageProps) {
             </div>
           </fieldset>
 
-          <label className="new-job-checkbox-row">
-            <input
-              type="checkbox"
-              checked={isTurnaround}
-              onChange={(e) => setIsTurnaround(e.target.checked)}
-            />
-            <span>Turnaround (customer job — use for updates &amp; turnaround reports)</span>
-          </label>
-          <label className="new-job-checkbox-row">
-            <input
-              type="checkbox"
-              checked={addToPriority}
-              onChange={(e) => setAddToPriority(e.target.checked)}
-            />
-            <span>Add to priority queue (flags job at the top of the board)</span>
-          </label>
+          <div className="new-job-flags-row">
+            <label className="new-job-flag-card">
+              <input
+                type="checkbox"
+                checked={isTurnaround}
+                onChange={(e) => setIsTurnaround(e.target.checked)}
+              />
+              <div className="new-job-flag-text">
+                <span className="new-job-flag-title">Turnaround</span>
+                <span className="new-job-flag-desc">Customer job — use for updates &amp; turnaround reports</span>
+              </div>
+            </label>
+            <label className="new-job-flag-card">
+              <input
+                type="checkbox"
+                checked={addToPriority}
+                onChange={(e) => setAddToPriority(e.target.checked)}
+              />
+              <div className="new-job-flag-text">
+                <span className="new-job-flag-title">Priority queue</span>
+                <span className="new-job-flag-desc">Flags job at the top of the board</span>
+              </div>
+            </label>
+          </div>
           <div className="new-job-actions">
             <button type="submit" className="button-primary" disabled={saving}>
               {saving ? 'Saving...' : 'Create job & go to board'}

@@ -670,6 +670,66 @@ body {
   flex-shrink: 0;
 }
 
+/* ── Job flags row (turnaround + priority) ──────────── */
+.new-job-flags-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin: 8px 0 4px;
+}
+
+.new-job-flag-card {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  flex: 1;
+  min-width: 200px;
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 10px;
+  padding: 12px 16px;
+  cursor: pointer;
+  transition: border-color 0.15s, background 0.15s;
+  user-select: none;
+}
+
+.new-job-flag-card:hover {
+  border-color: #6366f1;
+  background: #f0f1ff;
+}
+
+.new-job-flag-card input[type='checkbox'] {
+  width: 18px;
+  height: 18px;
+  flex-shrink: 0;
+  margin-top: 2px;
+  accent-color: #6366f1;
+  cursor: pointer;
+}
+
+.new-job-flag-card:has(input:checked) {
+  border-color: #6366f1;
+  background: #eef2ff;
+}
+
+.new-job-flag-text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.new-job-flag-title {
+  font-size: 14px;
+  font-weight: 600;
+  color: #1e293b;
+}
+
+.new-job-flag-desc {
+  font-size: 12px;
+  color: #64748b;
+  line-height: 1.4;
+}
+
 .new-job-actions {
   display: flex;
   flex-wrap: wrap;
