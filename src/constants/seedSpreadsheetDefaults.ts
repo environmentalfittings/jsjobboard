@@ -5,8 +5,10 @@
 import type { LookupCategory } from './lookupCategories'
 import { LOOKUP_CATEGORY_DEFS } from './lookupCategories'
 import {
+  BODY_MATERIALS,
   FINISH_CELLS,
   ORDER_TYPES,
+  PRESSURE_CLASSES,
   TEST_TYPES,
   VALVE_SIZES,
   VALVE_TYPES,
@@ -17,6 +19,8 @@ const BY_CATEGORY: Record<LookupCategory, readonly string[]> = {
   test_type: TEST_TYPES,
   valve_size: VALVE_SIZES,
   valve_type: VALVE_TYPES,
+  pressure_class: PRESSURE_CLASSES,
+  body_material: BODY_MATERIALS,
   finish_cell: FINISH_CELLS,
   order_type: ORDER_TYPES,
   job_sub_status: JOB_SUB_STATUSES,
