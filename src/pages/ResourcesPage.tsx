@@ -6,7 +6,6 @@ import {
   resourceDocumentPublicUrl,
   type ResourceDocumentCategory,
   type ResourceDocumentRow,
-  type ResourceDocumentScope,
   type WeldMode,
   type WeldProcess,
   type WpsType,
@@ -308,8 +307,8 @@ export function ResourcesPage() {
     if (!uploadFile) { setUploading(false); showToast('Choose a file to upload'); return }
     const { error } = await uploadResourceDocument({
       file: uploadFile,
-      scope: modalMode === 'weld' ? 'general' : scope,
-      valveType: (modalMode === 'general' && scope === 'valve_type') ? selectedValveType : null,
+      scope: 'general',
+      valveType: null,
       category: uploadCategory,
       title: uploadTitle,
       notes: uploadNotes,
