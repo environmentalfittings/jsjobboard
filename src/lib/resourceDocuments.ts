@@ -17,6 +17,9 @@ export type WpsType = (typeof WPS_TYPES)[number]
 export const WELD_PROCESSES = ['GTAW', 'GMAW', 'SMAW', 'SAW', 'FCAW'] as const
 export type WeldProcess = (typeof WELD_PROCESSES)[number]
 
+export const WELD_MODES = ['Manual', 'Machine'] as const
+export type WeldMode = (typeof WELD_MODES)[number]
+
 export type ResourceDocumentRow = {
   id: number
   scope: ResourceDocumentScope
@@ -32,7 +35,14 @@ export type ResourceDocumentRow = {
   // Weld procedure fields
   wps_type: WpsType | null
   weld_processes: WeldProcess[]
+  weld_modes: WeldMode[]
   filler_metal: string | null
+  base_metal_thickness_qualified: string | null
+  filler_metal_thickness_qualified: string | null
+  post_weld_heat_treat_required: boolean
+  pwht_temperature: string | null
+  pwht_time: string | null
+  hf_approved: boolean
 }
 
 const MAX_BYTES = 40 * 1024 * 1024
@@ -66,7 +76,14 @@ export async function uploadResourceDocument(args: {
   notes?: string
   wpsType?: WpsType | null
   weldProcesses?: WeldProcess[]
+  weldModes?: WeldMode[]
   fillerMetal?: string
+  baseMetalThicknessQualified?: string
+  fillerMetalThicknessQualified?: string
+  postWeldHeatTreatRequired?: boolean
+  pwhtTemperature?: string
+  pwhtTime?: string
+  hfApproved?: boolean
 }): Promise<{ error: string | null }> {
   const { file, scope, category } = args
   const title = args.title.trim()
@@ -98,12 +115,20 @@ export async function uploadResourceDocument(args: {
     mime_type: file.type || null,
     wps_type: isWeld ? (args.wpsType ?? null) : null,
     weld_processes: isWeld ? (args.weldProcesses ?? []) : [],
+    weld_modes: isWeld ? (args.weldModes ?? []) : [],
     filler_metal: isWeld ? ((args.fillerMetal ?? '').trim() || null) : null,
+    base_metal_thickness_qualified: isWeld ? ((args.baseMetalThicknessQualified ?? '').trim() || null) : null,
+    filler_metal_thickness_qualified: isWeld ? ((args.fillerMetalThicknessQualified ?? '').trim() || null) : null,
+    post_weld_heat_treat_required: isWeld ? (args.postWeldHeatTreatRequired ?? false) : false,
+    pwht_temperature: isWeld && args.postWeldHeatTreatRequired ? ((args.pwhtTemperature ?? '').trim() || null) : null,
+    pwht_time: isWeld && args.postWeldHeatTreatRequired ? ((args.pwhtTime ?? '').trim() || null) : null,
+    hf_approved: isWeld ? (args.hfApproved ?? false) : false,
   })
 
   if (rowErr) {
     await supabase.storage.from(RESOURCE_DOCS_BUCKET).remove([storagePath])
-    return { error: rowErr.message || 'Could not save document record.' }
+    const isdup = rowErr.code === '23505' || /duplicate|unique/i.test(rowErr.message)
+    return { error: isdup ? `A document named "${title}" already exists in this section. Each title must be unique.` : rowErr.message || 'Could not save document record.' }
   }
 
   return { error: null }

@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { useToast } from '../components/ToastNotification'
+import { ValveTypeProceduresPanel } from '../components/ValveTypeProceduresPanel'
 import { JOB_TYPES, normalizeJobType } from '../constants/jobTypes'
 import { LOOKUP_CATEGORY_DEFS, type LookupCategory } from '../constants/lookupCategories'
 import {
@@ -10,7 +11,7 @@ import {
 import type { LookupValueRow } from '../lib/lookupValues'
 import { supabase } from '../lib/supabase'
 
-type Tab = 'lookups' | 'customers' | 'itpTemplates'
+type Tab = 'lookups' | 'customers' | 'itpTemplates' | 'valveTypes'
 
 type CustomerRow = { id: number; name: string }
 type ItpTemplateRow = {
@@ -59,6 +60,13 @@ export function AdminListsPage() {
   const [seedingDefaults, setSeedingDefaults] = useState(false)
   const [itpRows, setItpRows] = useState<ItpTemplateRow[]>([])
   const [itpLoading, setItpLoading] = useState(true)
+
+  // ── Valve types ──────────────────────────────────────────────────────────
+  const [valveTypes, setValveTypes] = useState<string[]>([])
+  const [valveTypesLoading, setValveTypesLoading] = useState(false)
+  const [newValveType, setNewValveType] = useState('')
+  const [addingValveType, setAddingValveType] = useState(false)
+  const [valveTypeReloadTick, setValveTypeReloadTick] = useState(0)
   const [itpJobType, setItpJobType] = useState<string>('Valve Repair')
   const [itpValveType, setItpValveType] = useState<string>('')
   const [itpNewStep, setItpNewStep] = useState('')
@@ -83,6 +91,36 @@ export function AdminListsPage() {
     setLookupRows((data ?? []) as LookupValueRow[])
   }, [showToast])
 
+  const loadValveTypes = useCallback(async () => {
+    setValveTypesLoading(true)
+    const { data, error } = await supabase
+      .from('lookup_values')
+      .select('value')
+      .eq('category', 'valve_type')
+      .order('sort_order', { ascending: true })
+    setValveTypesLoading(false)
+    if (error) { showToast('Could not load valve types'); return }
+    setValveTypes((data ?? []).map((r: { value: string }) => r.value))
+  }, [showToast])
+
+  const addValveType = async () => {
+    const value = newValveType.trim()
+    if (!value) { showToast('Enter a valve type name'); return }
+    if (valveTypes.some((t) => t.toLowerCase() === value.toLowerCase())) {
+      showToast('Valve type already exists'); return
+    }
+    setAddingValveType(true)
+    const { error } = await supabase.from('lookup_values').insert({
+      category: 'valve_type', value, sort_order: valveTypes.length + 1,
+    })
+    setAddingValveType(false)
+    if (error) { showToast(`Could not add valve type: ${error.message}`); return }
+    setNewValveType('')
+    setValveTypeReloadTick((n) => n + 1)
+    showToast('Valve type added')
+    void loadValveTypes()
+  }
+
   const loadCustomers = useCallback(async () => {
     setCustomersLoading(true)
     const { data, error } = await supabase.from('customers').select('id,name').order('name')
@@ -97,7 +135,8 @@ export function AdminListsPage() {
   useEffect(() => {
     loadLookups()
     loadCustomers()
-  }, [loadLookups, loadCustomers])
+    void loadValveTypes()
+  }, [loadLookups, loadCustomers, loadValveTypes])
 
   const loadItpTemplates = useCallback(async () => {
     setItpLoading(true)
@@ -469,6 +508,15 @@ export function AdminListsPage() {
         >
           Customers
         </button>
+        <button
+          type="button"
+          role="tab"
+          aria-selected={tab === 'valveTypes'}
+          className={`admin-lists-tab ${tab === 'valveTypes' ? 'active' : ''}`}
+          onClick={() => setTab('valveTypes')}
+        >
+          Valve Types
+        </button>
       </div>
 
       {tab === 'lookups' ? (
@@ -807,6 +855,53 @@ export function AdminListsPage() {
               </div>
             </>
           )}
+        </section>
+      )}
+
+      {tab === 'valveTypes' && (
+        <section className="dashboard-panel admin-lists-panel">
+          <h3>Valve Types</h3>
+          <p className="placeholder-copy resources-hint">
+            Add new valve types here. They appear in job dropdowns and procedure panels.
+          </p>
+
+          <div className="admin-add-row" style={{ marginBottom: '16px' }}>
+            <span className="admin-add-label">New valve type</span>
+            <div className="admin-add-controls">
+              <input
+                type="text"
+                value={newValveType}
+                onChange={(e) => setNewValveType(e.target.value)}
+                onKeyDown={(e) => e.key === 'Enter' && void addValveType()}
+                placeholder="e.g. Triple Offset Butterfly"
+                disabled={addingValveType}
+              />
+              <button
+                type="button"
+                className="button-primary"
+                disabled={addingValveType || valveTypesLoading}
+                onClick={() => void addValveType()}
+              >
+                {addingValveType ? 'Adding…' : 'Add valve type'}
+              </button>
+            </div>
+          </div>
+
+          {valveTypesLoading ? (
+            <p className="placeholder-copy">Loading…</p>
+          ) : valveTypes.length === 0 ? (
+            <p className="placeholder-copy">No valve types yet.</p>
+          ) : (
+            <ul className="admin-list">
+              {valveTypes.map((t) => (
+                <li key={t} className="admin-list-item">
+                  <span className="admin-list-value">{t}</span>
+                </li>
+              ))}
+            </ul>
+          )}
+
+          <ValveTypeProceduresPanel key={valveTypeReloadTick} variant="page" />
         </section>
       )}
     </section>
