@@ -600,6 +600,18 @@ export function StatusChangeModal({
 
               <div className="job-card-panel">
                 <div className="job-card-panel-head">
+                  <span className="job-card-panel-title">Priority queue</span>
+                </div>
+                <div className="job-card-panel-body job-card-priority-inline">
+                  <span className="job-card-muted">Flag this job for the shop priority column.</span>
+                  <button type="button" className="button-secondary" onClick={onTogglePriority} disabled={isSaving}>
+                    {isPriority ? 'Remove from priority' : 'Add to priority'}
+                  </button>
+                </div>
+              </div>
+
+              <div className="job-card-panel">
+                <div className="job-card-panel-head">
                   <span className="job-card-panel-title">Valve info</span>
                 </div>
                 <div className="job-card-panel-row">
@@ -764,17 +776,6 @@ export function StatusChangeModal({
                 <div className="job-card-panel-body">{renderTestLogBody(true)}</div>
               </div>
 
-              <div className="job-card-panel">
-                <div className="job-card-panel-head">
-                  <span className="job-card-panel-title">Priority queue</span>
-                </div>
-                <div className="job-card-panel-body job-card-priority-inline">
-                  <span className="job-card-muted">Flag this job for the shop priority column.</span>
-                  <button type="button" className="button-secondary" onClick={onTogglePriority} disabled={isSaving}>
-                    {isPriority ? 'Remove from priority' : 'Add to priority'}
-                  </button>
-                </div>
-              </div>
             </>
           ) : null}
 
