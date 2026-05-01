@@ -85,6 +85,7 @@ interface StatusChangeModalProps {
     isTurnaround: boolean,
     subStatus: JobSubStatus,
     assignedTechnicianId: number | null,
+    pressureClass: string | null,
   ) => void | Promise<void>
   assignedTechnicianIds: number[]
   assignedTechnicianId?: number | null
@@ -119,6 +120,8 @@ export function StatusChangeModal({
   const [valveTypeDraft, setValveTypeDraft] = useState(valve.valve_type ?? '')
   const [valveTypeOptions, setValveTypeOptions] = useState<string[]>([])
   const [subStatusOptions, setSubStatusOptions] = useState<string[]>([])
+  const [pressureClassOptions, setPressureClassOptions] = useState<string[]>([])
+  const [pressureClassDraft, setPressureClassDraft] = useState(valve.pressure_class ?? '')
   const [valveTypeUnlocked, setValveTypeUnlocked] = useState(false)
   const [pinPromptOpen, setPinPromptOpen] = useState(false)
   const [pinDraft, setPinDraft] = useState('')
@@ -169,6 +172,7 @@ export function StatusChangeModal({
     void loadLookupOptionsMap().then((map) => {
       setValveTypeOptions(map.valve_type ?? [])
       setSubStatusOptions(map.job_sub_status ?? [])
+      setPressureClassOptions(map.pressure_class ?? [])
     })
   }, [])
 
@@ -208,7 +212,8 @@ export function StatusChangeModal({
     setDescription(valve.description ?? '')
     setNotes(valve.notes ?? '')
     setBowlTypeDraft(valve.bowl_type ?? '')
-  }, [valve.id, valve.description, valve.notes, valve.bowl_type])
+    setPressureClassDraft(valve.pressure_class ?? '')
+  }, [valve.id, valve.description, valve.notes, valve.bowl_type, valve.pressure_class])
 
   useEffect(() => {
     setValveTypeDraft(valve.valve_type ?? '')
@@ -336,6 +341,7 @@ export function StatusChangeModal({
       turnaroundDraft,
       subStatusDraft,
       assignedTechSingleDraft,
+      pressureClassDraft.trim() || null,
     )
 
   const renderValveTypeEditor = (inPanel?: boolean) => (
@@ -600,6 +606,12 @@ export function StatusChangeModal({
                   <span className="job-card-row-label">Valve type</span>
                   <div className="job-card-row-value">{renderValveTypeEditor(true)}</div>
                 </div>
+                {(valve.pressure_class ?? '').trim() ? (
+                  <div className="job-card-panel-row">
+                    <span className="job-card-row-label">Pressure class</span>
+                    <div className="job-card-row-value job-card-readonly-value">{valve.pressure_class}</div>
+                  </div>
+                ) : null}
                 <button
                   type="button"
                   className="job-card-template-trigger"
@@ -788,6 +800,22 @@ export function StatusChangeModal({
               <p className="modal-save-hint-subtle">
                 Sets inspection sections in ITP. Leave Auto to infer from valve type when possible.
               </p>
+
+              <label className="modal-label" htmlFor="modal-pressure-class">
+                Pressure class
+              </label>
+              <select
+                id="modal-pressure-class"
+                className="modal-status-select"
+                value={pressureClassDraft}
+                onChange={(e) => setPressureClassDraft(e.target.value)}
+                disabled={isSaving}
+              >
+                <option value="">— Select pressure class —</option>
+                {pressureClassOptions.map((pc) => (
+                  <option key={pc} value={pc}>{pc}</option>
+                ))}
+              </select>
 
               <div className="modal-label">Description</div>
               <textarea

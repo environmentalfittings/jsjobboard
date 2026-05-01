@@ -93,3 +93,6 @@ export const FINISH_CELLS = [
 ] as const
 
 export const ORDER_TYPES = ['In-Process Order', 'Waiting on Arrival', 'On-Hold', 'Completed'] as const
+
+/** ANSI/ASME and API pressure classes (lb) used as fallback when DB lookup_values is empty. */
+export const PRESSURE_CLASSES = ['150', '300', '600', '900', '1500', '2500', '3000', '5000', '10000'] as const

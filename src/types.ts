@@ -30,6 +30,7 @@ export interface Valve {
   drawing_po_number?: string | null
   /** Customer turnaround — use for status updates and turnaround reports. */
   is_turnaround?: boolean | null
+  pressure_class?: string | null
 }
 
 export interface ValveItp {

@@ -540,6 +540,7 @@ export function JobBoardPage() {
     isTurnaround: boolean,
     subStatus: JobSubStatus,
     assignedTechnicianId: number | null,
+    pressureClass: string | null,
   ) => {
     if (!activeValve || !selectedStatus) return
     const today = new Date().toISOString().slice(0, 10)
@@ -551,6 +552,7 @@ export function JobBoardPage() {
       is_turnaround: isTurnaround,
       sub_status: subStatus,
       assigned_technician_id: assignedTechnicianId,
+      pressure_class: pressureClass,
     }
     if (selectedStatus !== activeValve.status) {
       patch.status = selectedStatus
