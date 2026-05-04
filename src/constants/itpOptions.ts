@@ -6,6 +6,7 @@ export const ITP_FACING_TYPES: readonly string[] = [
   'Flat Face (FF)',
   'Ring Joint (RTJ)',
   'Tongue & Groove',
+  'Butt Weld',
   'Other',
   'N/A',
 ]
@@ -24,9 +25,6 @@ export const ITP_CONDITIONS: readonly string[] = [
 export const ITP_REPAIR_ACTIONS: readonly string[] = [
   '',
   'None',
-  'Weld & Machine',
-  'Strip & Recoat',
-  'Replace Component',
-  'Monitor',
+  'Welding Machine',
   'Other',
 ]

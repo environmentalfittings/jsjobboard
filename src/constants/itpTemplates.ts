@@ -47,7 +47,7 @@ function twinStemTabs(): ItpTabState[] {
   return [
     tabDef('body', 'Body', [
       'Flanges',
-      'Body Bore',
+      'Body',
       'Sealing Surfaces',
       'Threads/Tapped Holes',
       'Pressure Boundary',
@@ -65,7 +65,7 @@ function nonLubricatedPlugTabs(): ItpTabState[] {
   return [
     tabDef('body', 'Body', [
       'Flanges',
-      'Body Bore',
+      'Body',
       'Port openings',
       'Pressure boundary',
       'Coating/Paint',
@@ -88,7 +88,7 @@ function twinsealTabs(): ItpTabState[] {
     tabDef('overall', 'Overall', []),
     tabDef('body', 'Body', [
       'Flanges',
-      'Body Bore',
+      'Body',
       'Sealing Surfaces',
       'Threads / Tapped Holes',
       'Pressure Boundary',
@@ -104,7 +104,7 @@ function fourWayDiverterTabs(): ItpTabState[] {
   return [
     tabDef('body', 'Body', [
       'Flanges',
-      'Body bore',
+      'Body',
       'Port labeling (A/B/C/D)',
       'Sealing surfaces',
       'Pressure boundary',

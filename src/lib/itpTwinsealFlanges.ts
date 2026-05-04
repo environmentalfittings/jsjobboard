@@ -51,10 +51,12 @@ export function getFlangeFaceState(data: ItpItemState, id: 'A' | 'B' | 'C' | 'D'
     return {
       facingType: data.facingType,
       facingTypeOther: data.facingTypeOther,
+      buttWeldSchedule: data.buttWeldSchedule,
       condition: data.condition,
       conditionOther: data.conditionOther,
       measure1: data.measure1,
       measure2: data.measure2,
+      measureAfterMachining: data.measureAfterMachining,
       measurementNote: data.measurementNote,
       repairAction: data.repairAction,
       repairActionOther: data.repairActionOther,

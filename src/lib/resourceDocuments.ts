@@ -59,6 +59,11 @@ export type ResourceDocumentRow = {
   pwht_temperature: string | null
   pwht_time: string | null
   hf_approved: boolean
+  // Procedure fields
+  sop_number: string | null
+  revision_number: string | null
+  date_updated: string | null
+  proc_category: 'Valve-Specific' | 'NDE' | 'Other' | 'Test' | 'Answer Key' | null
 }
 
 const MAX_BYTES = 40 * 1024 * 1024
@@ -103,6 +108,11 @@ export async function uploadResourceDocument(args: {
   pwhtTemperature?: string
   pwhtTime?: string
   hfApproved?: boolean
+  // Procedure fields
+  sopNumber?: string
+  revisionNumber?: string
+  dateUpdated?: string | null
+  procCategory?: 'Valve-Specific' | 'NDE' | 'Other' | 'Test' | 'Answer Key' | null
 }): Promise<{ error: string | null }> {
   const { file, scope, category } = args
   const title = args.title.trim()
@@ -123,6 +133,7 @@ export async function uploadResourceDocument(args: {
   if (uploadErr) return { error: uploadErr.message || 'Upload failed.' }
 
   const isWeld = category === 'weld_procedure'
+  const isProc = category === 'general' || category === 'quality_control'
   const { error: rowErr } = await supabase.from('resource_documents').insert({
     scope,
     valve_type: scope === 'general' ? null : valveType,
@@ -145,6 +156,10 @@ export async function uploadResourceDocument(args: {
     pwht_temperature: isWeld && args.postWeldHeatTreatRequired ? ((args.pwhtTemperature ?? '').trim() || null) : null,
     pwht_time: isWeld && args.postWeldHeatTreatRequired ? ((args.pwhtTime ?? '').trim() || null) : null,
     hf_approved: isWeld ? (args.hfApproved ?? false) : false,
+    sop_number: isProc ? ((args.sopNumber ?? '').trim() || null) : null,
+    revision_number: isProc ? ((args.revisionNumber ?? '').trim() || null) : null,
+    date_updated: isProc ? (args.dateUpdated || null) : null,
+    proc_category: isProc ? (args.procCategory ?? null) : null,
   })
 
   if (rowErr) {

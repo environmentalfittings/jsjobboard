@@ -73,6 +73,9 @@ export function NewJobPage({ role }: NewJobPageProps) {
     loadCustomers()
   }, [loadCustomers])
 
+  const allowNaSizeAndClass =
+    !isValveRelatedJobType(jobType) || (isValveRelatedJobType(jobType) && /actuator/i.test((valveType ?? '').trim()))
+
   const submit = async (e: React.FormEvent) => {
     e.preventDefault()
     const id = valveId.trim()
@@ -110,7 +113,7 @@ export function NewJobPage({ role }: NewJobPageProps) {
       if (error.message.includes('duplicate') || error.code === '23505') {
         showToast('That Valve ID already exists')
       } else {
-        showToast('Could not create job')
+        showToast(`Could not create job: ${error.message}`)
       }
       return
     }
@@ -213,6 +216,7 @@ export function NewJobPage({ role }: NewJobPageProps) {
                 Size
                 <select value={size} onChange={(e) => setSize(e.target.value)}>
                   <option value="">— Select size —</option>
+                  {allowNaSizeAndClass ? <option value="N/A">N/A</option> : null}
                   {lookupSelectOptions(lookupOptions.valve_size)}
                 </select>
               </label>
@@ -220,6 +224,7 @@ export function NewJobPage({ role }: NewJobPageProps) {
                 Pressure class
                 <select value={pressureClass} onChange={(e) => setPressureClass(e.target.value)}>
                   <option value="">— Select pressure class —</option>
+                  {allowNaSizeAndClass ? <option value="N/A">N/A</option> : null}
                   {lookupSelectOptions(lookupOptions.pressure_class)}
                 </select>
               </label>

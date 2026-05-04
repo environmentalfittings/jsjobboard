@@ -5,11 +5,14 @@ export type FlangeFaceState = {
   facingType: string
   /** Shown when facing type is "Other". */
   facingTypeOther: string
+  /** Shown when facing type is "Butt Weld". */
+  buttWeldSchedule: string
   condition: string
   /** Shown when condition is "Other". */
   conditionOther: string
   measure1: string
   measure2: string
+  measureAfterMachining: string
   measurementNote: string
   repairAction: string
   /** Shown when repair action is "Other". */
@@ -25,6 +28,9 @@ export type ItpItemState = FlangeFaceState & {
   valvePortConfig: string
   /** Shown when valve configuration is "Other". */
   valvePortConfigOther: string
+  /** Dimension 3 in the critical dimensions diagram (end-to-end / face-to-face). */
+  faceToFaceMeasurement: string
+  faceToFaceAfterMachining: string
   flangeB: FlangeFaceState
   flangeC: FlangeFaceState
   flangeD: FlangeFaceState

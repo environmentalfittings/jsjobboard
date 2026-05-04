@@ -8,10 +8,23 @@ import {
   buildSeedLookupValueRows,
   SPREADSHEET_CUSTOMER_NAMES,
 } from '../constants/seedSpreadsheetDefaults'
+import {
+  normalizeNps,
+  normalizePressureClass,
+  parseFlangeThicknessWorkbook,
+  type FlangeThicknessReferenceRow,
+} from '../lib/flangeThicknessRefs'
+import {
+  B1610_DEFAULT_ROWS,
+  normalizeEndConnection,
+  normalizeValveType,
+  parseB1610Workbook,
+  type B1610FaceToFaceReferenceRow,
+} from '../lib/b1610FaceToFace'
 import type { LookupValueRow } from '../lib/lookupValues'
 import { supabase } from '../lib/supabase'
 
-type Tab = 'lookups' | 'customers' | 'itpTemplates' | 'valveTypes'
+type Tab = 'lookups' | 'customers' | 'itpTemplates' | 'valveTypes' | 'flangeThickness' | 'b1610'
 
 type CustomerRow = { id: number; name: string }
 type ItpTemplateRow = {
@@ -21,6 +34,21 @@ type ItpTemplateRow = {
   step_order: number
   step_name: string
   required: boolean
+}
+type FlangeRefForm = {
+  nps: string
+  pressureClass: string
+  minThickness: string
+  notes: string
+}
+type B1610RefForm = {
+  valveType: string
+  nps: string
+  pressureClass: string
+  endConnection: string
+  standardDimension: string
+  tolerance: string
+  notes: string
 }
 
 const MANAGE_LISTS_PIN = '1582'
@@ -75,6 +103,30 @@ export function AdminListsPage() {
   const [itpEditDraft, setItpEditDraft] = useState('')
   const [itpEditRequired, setItpEditRequired] = useState(true)
   const [itpSaving, setItpSaving] = useState(false)
+  const [flangeRefs, setFlangeRefs] = useState<FlangeThicknessReferenceRow[]>([])
+  const [flangeRefsLoading, setFlangeRefsLoading] = useState(false)
+  const [flangeRefSaving, setFlangeRefSaving] = useState(false)
+  const [uploadingFlangeWorkbook, setUploadingFlangeWorkbook] = useState(false)
+  const [flangeDraft, setFlangeDraft] = useState<FlangeRefForm>({
+    nps: '',
+    pressureClass: '',
+    minThickness: '',
+    notes: '',
+  })
+  const [b1610Refs, setB1610Refs] = useState<B1610FaceToFaceReferenceRow[]>([])
+  const [b1610Loading, setB1610Loading] = useState(false)
+  const [b1610Saving, setB1610Saving] = useState(false)
+  const [uploadingB1610Workbook, setUploadingB1610Workbook] = useState(false)
+  const [seedingB1610Defaults, setSeedingB1610Defaults] = useState(false)
+  const [b1610Draft, setB1610Draft] = useState<B1610RefForm>({
+    valveType: 'Plug',
+    nps: '',
+    pressureClass: '',
+    endConnection: 'ANY',
+    standardDimension: '',
+    tolerance: '0.0625',
+    notes: '',
+  })
 
   const loadLookups = useCallback(async () => {
     setLookupLoading(true)
@@ -153,14 +205,57 @@ export function AdminListsPage() {
     setItpRows((data ?? []) as ItpTemplateRow[])
   }, [showToast])
 
+  const loadFlangeRefs = useCallback(async () => {
+    setFlangeRefsLoading(true)
+    const { data, error } = await supabase
+      .from('flange_thickness_refs')
+      .select('id,nps,pressure_class,min_thickness,notes,source,created_at,updated_at')
+      .order('nps', { ascending: true })
+      .order('pressure_class', { ascending: true })
+    setFlangeRefsLoading(false)
+    if (error) {
+      showToast(`Could not load flange thickness refs: ${error.message}`)
+      return
+    }
+    setFlangeRefs((data ?? []) as FlangeThicknessReferenceRow[])
+  }, [showToast])
+
+  const loadB1610Refs = useCallback(async () => {
+    setB1610Loading(true)
+    const { data, error } = await supabase
+      .from('b1610_face_to_face_refs')
+      .select('id,valve_type,nps,pressure_class,end_connection,standard_dimension,tolerance,notes,source,created_at,updated_at')
+      .order('valve_type', { ascending: true })
+      .order('nps', { ascending: true })
+      .order('pressure_class', { ascending: true })
+      .order('end_connection', { ascending: true })
+    setB1610Loading(false)
+    if (error) {
+      showToast(`Could not load B16.10 refs: ${error.message}`)
+      return
+    }
+    setB1610Refs((data ?? []) as B1610FaceToFaceReferenceRow[])
+  }, [showToast])
+
   useEffect(() => {
     loadItpTemplates()
   }, [loadItpTemplates])
 
-  const categoryItems = useMemo(
-    () => lookupRows.filter((r) => r.category === activeCategory),
-    [lookupRows, activeCategory],
-  )
+  useEffect(() => {
+    void loadFlangeRefs()
+  }, [loadFlangeRefs])
+
+  useEffect(() => {
+    void loadB1610Refs()
+  }, [loadB1610Refs])
+
+  const categoryItems = useMemo(() => {
+    const items = lookupRows.filter((r) => r.category === activeCategory)
+    if (activeCategory === 'manufacturer') {
+      return [...items].sort((a, b) => a.value.localeCompare(b.value, undefined, { sensitivity: 'base' }))
+    }
+    return items
+  }, [lookupRows, activeCategory])
 
   const activeLabel = LOOKUP_CATEGORY_DEFS.find((d) => d.key === activeCategory)?.label ?? activeCategory
   const valveTypeOptions = useMemo(
@@ -421,6 +516,195 @@ export function AdminListsPage() {
     loadItpTemplates()
   }
 
+  const addFlangeRef = async () => {
+    const nps = normalizeNps(flangeDraft.nps)
+    const pressureClass = normalizePressureClass(flangeDraft.pressureClass)
+    const minThickness = Number.parseFloat(flangeDraft.minThickness)
+    if (!nps || !pressureClass) {
+      showToast('Enter size and pressure class')
+      return
+    }
+    if (!Number.isFinite(minThickness) || minThickness <= 0) {
+      showToast('Enter a valid minimum thickness')
+      return
+    }
+    setFlangeRefSaving(true)
+    const { error } = await supabase.from('flange_thickness_refs').upsert(
+      {
+        nps,
+        pressure_class: pressureClass,
+        min_thickness: minThickness,
+        notes: flangeDraft.notes.trim() || null,
+        source: 'Admin manual entry',
+      },
+      { onConflict: 'nps,pressure_class' },
+    )
+    setFlangeRefSaving(false)
+    if (error) {
+      showToast(`Could not save row: ${error.message}`)
+      return
+    }
+    setFlangeDraft({ nps: '', pressureClass: '', minThickness: '', notes: '' })
+    showToast('Flange thickness reference saved')
+    void loadFlangeRefs()
+  }
+
+  const deleteFlangeRef = async (id: number) => {
+    if (!window.confirm('Delete this flange thickness reference row?')) return
+    const { error } = await supabase.from('flange_thickness_refs').delete().eq('id', id)
+    if (error) {
+      showToast(`Could not delete row: ${error.message}`)
+      return
+    }
+    showToast('Row deleted')
+    void loadFlangeRefs()
+  }
+
+  const uploadFlangeWorkbook = async (file: File | null) => {
+    if (!file) return
+    setUploadingFlangeWorkbook(true)
+    try {
+      const parsed = await parseFlangeThicknessWorkbook(file)
+      if (!parsed.length) {
+        showToast('No valid rows found in workbook. Expected size/class/min thickness columns.')
+        setUploadingFlangeWorkbook(false)
+        return
+      }
+      const rows = parsed.map((r) => ({
+        nps: r.nps,
+        pressure_class: r.pressure_class,
+        min_thickness: r.min_thickness,
+        notes: r.notes ?? null,
+        source: `Workbook import: ${file.name}`,
+      }))
+      const { error } = await supabase.from('flange_thickness_refs').upsert(rows, {
+        onConflict: 'nps,pressure_class',
+      })
+      setUploadingFlangeWorkbook(false)
+      if (error) {
+        showToast(`Could not import workbook: ${error.message}`)
+        return
+      }
+      showToast(`Imported ${rows.length} flange thickness reference row(s)`)
+      void loadFlangeRefs()
+    } catch (e) {
+      setUploadingFlangeWorkbook(false)
+      showToast(`Could not parse workbook: ${e instanceof Error ? e.message : 'unknown error'}`)
+    }
+  }
+
+  const addB1610Ref = async () => {
+    const valveType = normalizeValveType(b1610Draft.valveType)
+    const nps = normalizeNps(b1610Draft.nps)
+    const pressureClass = normalizePressureClass(b1610Draft.pressureClass)
+    const endConnection = normalizeEndConnection(b1610Draft.endConnection)
+    const standardDimension = Number.parseFloat(b1610Draft.standardDimension)
+    const tolerance = Number.parseFloat(b1610Draft.tolerance)
+    if (!valveType || !nps || !pressureClass) {
+      showToast('Enter valve type, size, and pressure class')
+      return
+    }
+    if (!Number.isFinite(standardDimension) || standardDimension <= 0) {
+      showToast('Enter a valid standard dimension')
+      return
+    }
+    if (!Number.isFinite(tolerance) || tolerance <= 0) {
+      showToast('Enter a valid tolerance')
+      return
+    }
+    setB1610Saving(true)
+    const { error } = await supabase.from('b1610_face_to_face_refs').upsert(
+      {
+        valve_type: valveType,
+        nps,
+        pressure_class: pressureClass,
+        end_connection: endConnection ?? 'ANY',
+        standard_dimension: standardDimension,
+        tolerance,
+        notes: b1610Draft.notes.trim() || null,
+        source: 'Admin manual entry',
+      },
+      { onConflict: 'valve_type,nps,pressure_class,end_connection' },
+    )
+    setB1610Saving(false)
+    if (error) {
+      showToast(`Could not save B16.10 row: ${error.message}`)
+      return
+    }
+    setB1610Draft({
+      valveType: 'Plug',
+      nps: '',
+      pressureClass: '',
+      endConnection: 'ANY',
+      standardDimension: '',
+      tolerance: '0.0625',
+      notes: '',
+    })
+    showToast('B16.10 reference saved')
+    void loadB1610Refs()
+  }
+
+  const deleteB1610Ref = async (id: number) => {
+    if (!window.confirm('Delete this B16.10 reference row?')) return
+    const { error } = await supabase.from('b1610_face_to_face_refs').delete().eq('id', id)
+    if (error) {
+      showToast(`Could not delete row: ${error.message}`)
+      return
+    }
+    showToast('Row deleted')
+    void loadB1610Refs()
+  }
+
+  const uploadB1610Workbook = async (file: File | null) => {
+    if (!file) return
+    setUploadingB1610Workbook(true)
+    try {
+      const parsed = await parseB1610Workbook(file)
+      if (!parsed.length) {
+        showToast('No valid rows found in workbook. Expected valve type/size/class/face-to-face columns.')
+        setUploadingB1610Workbook(false)
+        return
+      }
+      const rows = parsed.map((r) => ({
+        ...r,
+        source: `Workbook import: ${file.name}`,
+      }))
+      const { error } = await supabase.from('b1610_face_to_face_refs').upsert(rows, {
+        onConflict: 'valve_type,nps,pressure_class,end_connection',
+      })
+      setUploadingB1610Workbook(false)
+      if (error) {
+        showToast(`Could not import workbook: ${error.message}`)
+        return
+      }
+      showToast(`Imported ${rows.length} B16.10 row(s)`)
+      void loadB1610Refs()
+    } catch (e) {
+      setUploadingB1610Workbook(false)
+      showToast(`Could not parse workbook: ${e instanceof Error ? e.message : 'unknown error'}`)
+    }
+  }
+
+  const seedB1610Criteria = async () => {
+    if (
+      !window.confirm(
+        'Load starter B16.10 criteria from bundled defaults? Existing matching rows will be updated. Safe to run more than once.',
+      )
+    )
+      return
+    setSeedingB1610Defaults(true)
+    const { error } = await supabase.from('b1610_face_to_face_refs').upsert(B1610_DEFAULT_ROWS, {
+      onConflict: 'valve_type,nps,pressure_class,end_connection',
+    })
+    setSeedingB1610Defaults(false)
+    if (error) {
+      showToast(`Could not seed B16.10 criteria: ${error.message}`)
+      return
+    }
+    showToast(`Loaded ${B1610_DEFAULT_ROWS.length} starter B16.10 row(s)`)
+    void loadB1610Refs()
+  }
+
   if (!unlocked) {
     return (
       <section className="dashboard-page">
@@ -517,9 +801,27 @@ export function AdminListsPage() {
         >
           Valve Types
         </button>
+        <button
+          type="button"
+          role="tab"
+          aria-selected={tab === 'flangeThickness'}
+          className={`admin-lists-tab ${tab === 'flangeThickness' ? 'active' : ''}`}
+          onClick={() => setTab('flangeThickness')}
+        >
+          Flange Thickness
+        </button>
+        <button
+          type="button"
+          role="tab"
+          aria-selected={tab === 'b1610'}
+          className={`admin-lists-tab ${tab === 'b1610' ? 'active' : ''}`}
+          onClick={() => setTab('b1610')}
+        >
+          B16.10 F2F
+        </button>
       </div>
 
-      {tab === 'lookups' ? (
+      {tab === 'lookups' && (
         <section className="dashboard-panel admin-lists-panel">
           <h3>Dropdown options</h3>
           <div className="admin-category-tabs">
@@ -634,7 +936,9 @@ export function AdminListsPage() {
             </>
           )}
         </section>
-      ) : tab === 'itpTemplates' ? (
+      )}
+
+      {tab === 'itpTemplates' && (
         <section className="dashboard-panel admin-lists-panel">
           <h3>ITP Templates</h3>
           <div className="itp-admin-filters">
@@ -777,7 +1081,9 @@ export function AdminListsPage() {
             </>
           )}
         </section>
-      ) : (
+      )}
+
+      {tab === 'customers' && (
         <section className="dashboard-panel admin-lists-panel">
           <h3>Customers</h3>
           {customersLoading ? (
@@ -902,6 +1208,248 @@ export function AdminListsPage() {
           )}
 
           <ValveTypeProceduresPanel key={valveTypeReloadTick} variant="page" />
+        </section>
+      )}
+
+      {tab === 'flangeThickness' && (
+        <section className="dashboard-panel admin-lists-panel">
+          <h3>ASME B16.5 Flange Thickness References</h3>
+          <p className="placeholder-copy resources-hint">
+            Stores minimum flange thickness by valve size and pressure class. ITP uses these values to flag too-thin
+            flanges and calculate removable material.
+          </p>
+
+          <div className="admin-add-row">
+            <span className="admin-add-label">Import workbook</span>
+            <div className="admin-add-controls">
+              <input
+                type="file"
+                accept=".xlsx,.xls,.csv"
+                disabled={uploadingFlangeWorkbook}
+                onChange={(e) => {
+                  void uploadFlangeWorkbook(e.target.files?.[0] ?? null)
+                  e.currentTarget.value = ''
+                }}
+              />
+            </div>
+          </div>
+
+          <div className="admin-add-row">
+            <span className="admin-add-label">Add / update row</span>
+            <div className="admin-add-controls flange-ref-add-controls">
+              <input
+                type="text"
+                placeholder='Size (e.g. 4 or 4")'
+                value={flangeDraft.nps}
+                onChange={(e) => setFlangeDraft((d) => ({ ...d, nps: e.target.value }))}
+              />
+              <input
+                type="text"
+                placeholder="Class (e.g. 150)"
+                value={flangeDraft.pressureClass}
+                onChange={(e) => setFlangeDraft((d) => ({ ...d, pressureClass: e.target.value }))}
+              />
+              <input
+                type="text"
+                placeholder="Min thickness"
+                value={flangeDraft.minThickness}
+                onChange={(e) => setFlangeDraft((d) => ({ ...d, minThickness: e.target.value }))}
+              />
+              <input
+                type="text"
+                placeholder="Notes (optional)"
+                value={flangeDraft.notes}
+                onChange={(e) => setFlangeDraft((d) => ({ ...d, notes: e.target.value }))}
+              />
+              <button type="button" className="button-primary" disabled={flangeRefSaving} onClick={() => void addFlangeRef()}>
+                {flangeRefSaving ? 'Saving…' : 'Save'}
+              </button>
+            </div>
+          </div>
+
+          {flangeRefsLoading ? (
+            <p className="placeholder-copy">Loading…</p>
+          ) : flangeRefs.length === 0 ? (
+            <p className="placeholder-copy">No flange thickness references yet.</p>
+          ) : (
+            <div className="dashboard-table-wrap">
+              <table className="dashboard-table">
+                <thead>
+                  <tr>
+                    <th>Size (NPS)</th>
+                    <th>Pressure Class</th>
+                    <th>Minimum Thickness</th>
+                    <th>Notes</th>
+                    <th>Source</th>
+                    <th>Actions</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {flangeRefs.map((row) => (
+                    <tr key={row.id}>
+                      <td>{row.nps}</td>
+                      <td>{row.pressure_class}</td>
+                      <td>{row.min_thickness}</td>
+                      <td className="table-cell-clamp">{row.notes ?? '-'}</td>
+                      <td className="table-cell-clamp">{row.source ?? '-'}</td>
+                      <td>
+                        <button
+                          type="button"
+                          className="button-secondary admin-list-btn danger"
+                          onClick={() => void deleteFlangeRef(row.id)}
+                        >
+                          Delete
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </section>
+      )}
+
+      {tab === 'b1610' && (
+        <section className="dashboard-panel admin-lists-panel">
+          <h3>ASME B16.10 Face-to-Face References</h3>
+          <p className="placeholder-copy resources-hint">
+            Stores standard face-to-face dimensions by valve type, size, class, and end connection (RF/RTJ). ITP uses
+            these values to validate body end-to-end measurements.
+          </p>
+
+          <div className="admin-add-row">
+            <span className="admin-add-label">Starter criteria</span>
+            <div className="admin-add-controls">
+              <button
+                type="button"
+                className="button-secondary"
+                disabled={seedingB1610Defaults}
+                onClick={() => void seedB1610Criteria()}
+              >
+                {seedingB1610Defaults ? 'Loading…' : 'Load starter B16.10 criteria'}
+              </button>
+            </div>
+          </div>
+
+          <div className="admin-add-row">
+            <span className="admin-add-label">Import workbook</span>
+            <div className="admin-add-controls">
+              <input
+                type="file"
+                accept=".xlsx,.xls,.csv"
+                disabled={uploadingB1610Workbook}
+                onChange={(e) => {
+                  void uploadB1610Workbook(e.target.files?.[0] ?? null)
+                  e.currentTarget.value = ''
+                }}
+              />
+            </div>
+          </div>
+
+          <div className="admin-add-row">
+            <span className="admin-add-label">Add / update row</span>
+            <div className="admin-add-controls flange-ref-add-controls">
+              <select
+                value={b1610Draft.valveType}
+                onChange={(e) => setB1610Draft((d) => ({ ...d, valveType: e.target.value }))}
+              >
+                {(['Gate', 'Globe', 'Check', 'Plug'] as const).map((v) => (
+                  <option key={v} value={v}>
+                    {v}
+                  </option>
+                ))}
+              </select>
+              <input
+                type="text"
+                placeholder='Size (e.g. 4 or 4")'
+                value={b1610Draft.nps}
+                onChange={(e) => setB1610Draft((d) => ({ ...d, nps: e.target.value }))}
+              />
+              <input
+                type="text"
+                placeholder="Class (e.g. 150)"
+                value={b1610Draft.pressureClass}
+                onChange={(e) => setB1610Draft((d) => ({ ...d, pressureClass: e.target.value }))}
+              />
+              <select
+                value={b1610Draft.endConnection}
+                onChange={(e) => setB1610Draft((d) => ({ ...d, endConnection: e.target.value }))}
+              >
+                <option value="ANY">Any (generic)</option>
+                <option value="RF">RF</option>
+                <option value="RTJ">RTJ</option>
+              </select>
+              <input
+                type="text"
+                placeholder="Standard dimension"
+                value={b1610Draft.standardDimension}
+                onChange={(e) => setB1610Draft((d) => ({ ...d, standardDimension: e.target.value }))}
+              />
+              <input
+                type="text"
+                placeholder="Tolerance (default 0.0625)"
+                value={b1610Draft.tolerance}
+                onChange={(e) => setB1610Draft((d) => ({ ...d, tolerance: e.target.value }))}
+              />
+              <input
+                type="text"
+                placeholder="Notes (optional)"
+                value={b1610Draft.notes}
+                onChange={(e) => setB1610Draft((d) => ({ ...d, notes: e.target.value }))}
+              />
+              <button type="button" className="button-primary" disabled={b1610Saving} onClick={() => void addB1610Ref()}>
+                {b1610Saving ? 'Saving…' : 'Save'}
+              </button>
+            </div>
+          </div>
+
+          {b1610Loading ? (
+            <p className="placeholder-copy">Loading…</p>
+          ) : b1610Refs.length === 0 ? (
+            <p className="placeholder-copy">No B16.10 references yet.</p>
+          ) : (
+            <div className="dashboard-table-wrap">
+              <table className="dashboard-table">
+                <thead>
+                  <tr>
+                    <th>Valve Type</th>
+                    <th>Size (NPS)</th>
+                    <th>Pressure Class</th>
+                    <th>End Connection</th>
+                    <th>Standard Dimension</th>
+                    <th>Tolerance</th>
+                    <th>Notes</th>
+                    <th>Source</th>
+                    <th>Actions</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {b1610Refs.map((row) => (
+                    <tr key={row.id}>
+                      <td>{row.valve_type}</td>
+                      <td>{row.nps}</td>
+                      <td>{row.pressure_class}</td>
+                      <td>{row.end_connection === 'ANY' ? 'Any' : row.end_connection}</td>
+                      <td>{row.standard_dimension}</td>
+                      <td>{row.tolerance}</td>
+                      <td className="table-cell-clamp">{row.notes ?? '-'}</td>
+                      <td className="table-cell-clamp">{row.source ?? '-'}</td>
+                      <td>
+                        <button
+                          type="button"
+                          className="button-secondary admin-list-btn danger"
+                          onClick={() => void deleteB1610Ref(row.id)}
+                        >
+                          Delete
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
         </section>
       )}
     </section>

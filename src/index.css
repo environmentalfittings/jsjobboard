@@ -1261,6 +1261,14 @@ body {
   align-items: center;
 }
 
+.flange-ref-add-controls {
+  flex-wrap: wrap;
+}
+
+.flange-ref-add-controls input {
+  min-width: 140px;
+}
+
 .report-filters {
   display: flex;
   flex-wrap: wrap;
@@ -3017,10 +3025,10 @@ tbody tr:hover {
 }
 
 .itp-modal-card {
-  width: min(980px, 100%);
+  width: min(1180px, 100%);
   /* Definite vertical budget so flex:1 scroll child gets space (auto height + flex-grow = collapsed middle). */
-  max-height: min(92vh, calc(100dvh - 48px));
-  min-height: min(520px, 78vh);
+  max-height: min(96vh, calc(100dvh - 24px));
+  min-height: min(620px, 86vh);
   overflow: hidden;
   display: flex;
   flex-direction: column;
@@ -3045,14 +3053,16 @@ tbody tr:hover {
 }
 
 .itp-surface-meta-row {
-  margin: 8px 0 0;
+  margin: 2px 0 0;
   display: flex;
-  flex-wrap: wrap;
-  gap: 8px 14px;
-  font-size: 13px;
+  flex-wrap: nowrap;
+  gap: 8px;
+  font-size: 11px;
   color: rgba(255, 255, 255, 0.9);
-  line-height: 1.35;
+  line-height: 1.2;
   align-items: baseline;
+  white-space: nowrap;
+  overflow: hidden;
 }
 
 .itp-surface-meta-desc {
@@ -3094,7 +3104,7 @@ tbody tr:hover {
   overflow-x: hidden;
   overflow-y: auto;
   -webkit-overflow-scrolling: touch;
-  padding-top: 10px;
+  padding-top: 4px;
 }
 
 .itp-modal-card.itp-modal-card--max {
@@ -3162,10 +3172,10 @@ tbody tr:hover {
 
 .itp-surface-header-top {
   display: flex;
-  align-items: flex-start;
+  align-items: center;
   justify-content: space-between;
   gap: 12px;
-  padding: 16px 16px 18px;
+  padding: 8px 12px;
 }
 
 .itp-surface-header-text {
@@ -3184,11 +3194,14 @@ tbody tr:hover {
 
 .itp-modal-card .itp-surface-job {
   margin: 0;
-  font-size: 22px;
+  font-size: 16px;
   font-weight: 800;
-  letter-spacing: -0.02em;
+  letter-spacing: -0.01em;
   color: #fff;
-  line-height: 1.2;
+  line-height: 1.15;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .itp-modal-card .itp-surface-meta {
@@ -3237,13 +3250,7 @@ tbody tr:hover {
 }
 
 .itp-modal-toolbar {
-  display: flex;
-  align-items: flex-start;
-  justify-content: flex-start;
-  gap: 12px;
-  padding: 12px 0 12px;
-  margin: 0;
-  border-bottom: 1px solid #e2e8f0;
+  display: none;
 }
 
 .itp-modal-lead {
@@ -3553,12 +3560,12 @@ tbody tr:hover {
 
 .itp-ts-header {
   display: grid;
-  grid-template-columns: 42px minmax(0, 1fr) minmax(0, 42%) auto;
-  grid-template-rows: auto auto;
+  grid-template-columns: 36px minmax(0, 1fr) minmax(0, 48%) auto;
+  grid-template-rows: auto;
   column-gap: 8px;
-  row-gap: 4px;
-  padding: 12px 10px 16px 6px;
-  align-items: start;
+  row-gap: 0;
+  padding: 6px 10px 8px 6px;
+  align-items: center;
 }
 
 .itp-ts-header-trail {
@@ -3603,7 +3610,7 @@ tbody tr:hover {
 
 .itp-ts-header-center {
   grid-column: 2;
-  grid-row: 1 / -1;
+  grid-row: 1;
   min-width: 0;
 }
 
@@ -3616,22 +3623,26 @@ tbody tr:hover {
 }
 
 .itp-ts-title {
-  margin: 4px 0 0;
-  font-size: 22px;
+  margin: 0;
+  font-size: 15px;
   font-weight: 800;
-  letter-spacing: -0.02em;
+  letter-spacing: -0.01em;
   color: #fff;
   line-height: 1.15;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .itp-ts-header-aside {
   grid-column: 3;
-  grid-row: 1 / -1;
+  grid-row: 1;
   text-align: right;
-  font-size: 12px;
-  line-height: 1.35;
+  font-size: 11px;
+  line-height: 1.2;
   color: rgba(255, 255, 255, 0.92);
   min-width: 0;
+  overflow: hidden;
 }
 
 .itp-ts-aside-customer {
@@ -3641,11 +3652,13 @@ tbody tr:hover {
 
 .itp-ts-aside-sub {
   display: flex;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
   align-items: center;
   justify-content: flex-end;
-  gap: 4px 6px;
-  margin-top: 4px;
+  gap: 6px;
+  margin-top: 0;
+  white-space: nowrap;
+  overflow: hidden;
 }
 
 .itp-ts-aside-desc {
@@ -3680,8 +3693,8 @@ tbody tr:hover {
   background: #facc15;
   color: #0f172a;
   font-weight: 800;
-  font-size: 11px;
-  padding: 3px 8px;
+  font-size: 10px;
+  padding: 2px 6px;
   border-radius: 8px;
   line-height: 1.2;
 }
@@ -3915,10 +3928,10 @@ tbody tr:hover {
   align-items: stretch;
   min-height: 260px;
   /* Use more of the modal scroll area so the form is not squeezed into a short strip. */
-  max-height: min(62vh, 520px);
+  max-height: min(78vh, 720px);
   border: 1px solid #cbd5e1;
   border-radius: 10px;
-  margin-top: 14px;
+  margin-top: 8px;
   overflow: hidden;
   background: #e2e8f0;
   box-shadow: 0 1px 3px rgba(15, 23, 42, 0.06);
@@ -3927,9 +3940,9 @@ tbody tr:hover {
 .itp-item-list {
   display: flex;
   flex-direction: column;
-  flex: 0 0 min(240px, 34%);
-  min-width: 180px;
-  max-width: 280px;
+  flex: 0 0 min(220px, 28%);
+  min-width: 170px;
+  max-width: 240px;
   background: #fff;
   border-right: 1px solid #cbd5e1;
   overflow-x: hidden;
@@ -4032,6 +4045,15 @@ tbody tr:hover {
   gap: 16px 20px;
 }
 
+.itp-critical-dimensions-image {
+  display: block;
+  width: min(100%, 760px);
+  height: auto;
+  border-radius: 8px;
+  border: 1px solid #dbe2ea;
+  background: #fff;
+}
+
 .itp-critical-dimensions-svg {
   flex: 0 0 auto;
   width: min(100%, 260px);
@@ -4075,10 +4097,20 @@ tbody tr:hover {
   color: #64748b;
 }
 
+.itp-critical-dimensions-ref-note {
+  margin: 8px 0 10px;
+  font-size: 12px;
+  color: #334155;
+}
+
 .itp-flange-section {
-  margin-top: 18px;
-  padding-top: 16px;
-  border-top: 1px solid #e2e8f0;
+  margin-top: 14px;
+  margin-bottom: 14px;
+  padding: 12px;
+  border: 1px solid #dbeafe;
+  border-left: 4px solid #3b82f6;
+  border-radius: 10px;
+  background: #f8fbff;
 }
 
 .itp-flange-section:first-of-type {
@@ -4086,12 +4118,37 @@ tbody tr:hover {
 }
 
 .itp-flange-section-title {
-  margin: 0 0 12px;
-  font-size: 14px;
+  margin: 0 0 10px;
+  font-size: 13px;
   font-weight: 800;
-  letter-spacing: 0.04em;
+  letter-spacing: 0.02em;
   text-transform: uppercase;
-  color: #475569;
+  color: #1e293b;
+}
+
+.itp-measure-section {
+  margin-top: 14px;
+  margin-bottom: 14px;
+  padding: 12px;
+  border: 1px solid #dbeafe;
+  border-left: 4px solid #3b82f6;
+  border-radius: 10px;
+  background: #f8fbff;
+}
+
+.itp-measure-section-subtle {
+  border-color: #e2e8f0;
+  border-left-color: #94a3b8;
+  background: #f8fafc;
+}
+
+.itp-measure-section-title {
+  margin: 0 0 10px;
+  font-size: 13px;
+  font-weight: 800;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  color: #1e293b;
 }
 
 .itp-detail-head {
@@ -4161,6 +4218,10 @@ tbody tr:hover {
   gap: 12px;
 }
 
+.itp-measure-grid--single {
+  grid-template-columns: 1fr;
+}
+
 @media (max-width: 720px) {
   .itp-shell {
     flex-direction: column;
@@ -4209,6 +4270,51 @@ tbody tr:hover {
   font-size: 13px;
   font-weight: 600;
   color: #dc2626;
+}
+
+.itp-measure-ref-note {
+  margin: 0 0 8px;
+  font-size: 12px;
+  font-weight: 600;
+  color: #065f46;
+}
+
+.itp-tolerance-chip {
+  margin: 0 0 8px;
+  padding: 6px 10px;
+  border-radius: 8px;
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1.3;
+}
+
+.itp-tolerance-chip.ok {
+  background: #ecfdf5;
+  color: #065f46;
+  border: 1px solid #86efac;
+}
+
+.itp-tolerance-chip.bad {
+  background: #fef2f2;
+  color: #991b1b;
+  border: 1px solid #fca5a5;
+}
+
+.itp-input.itp-input-ok {
+  border-color: #22c55e;
+  box-shadow: 0 0 0 2px rgba(34, 197, 94, 0.12);
+}
+
+.itp-input.itp-input-bad {
+  border-color: #ef4444;
+  box-shadow: 0 0 0 2px rgba(239, 68, 68, 0.12);
+}
+
+.itp-tolerance-note-inline {
+  margin: 6px 0 0;
+  font-size: 12px;
+  color: #334155;
+  line-height: 1.35;
 }
 
 .itp-notes {
@@ -4931,9 +5037,123 @@ tbody tr:hover {
   margin: 12px 0 8px;
 }
 
+.iom-filter-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 12px;
+  margin: 4px 0 12px;
+}
+
+.iom-filter-label {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: #555;
+}
+
+.iom-filter-select {
+  padding: 6px 10px;
+  border: 1px solid #ccc;
+  border-radius: 6px;
+  font-size: 0.85rem;
+  background: #fff;
+  min-width: 180px;
+}
+
 .resources-upload-hint {
   font-size: 13px;
   color: #6b7280;
+}
+
+.resources-procedure-link-btn {
+  border: 0;
+  background: transparent;
+  padding: 0;
+  margin: 0;
+  color: #0f172a;
+  font: inherit;
+  font-weight: 600;
+  text-align: left;
+  cursor: pointer;
+  text-decoration: underline;
+  text-decoration-color: #cbd5e1;
+  text-underline-offset: 2px;
+}
+
+.resources-procedure-link-btn:hover {
+  color: #1d4ed8;
+  text-decoration-color: #1d4ed8;
+}
+
+.resources-procedure-dialog {
+  width: min(760px, 100%);
+  max-height: min(88vh, 820px);
+  overflow: auto;
+}
+
+.resources-procedure-dialog-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px 20px;
+  margin: 0 0 12px;
+  color: #334155;
+  font-size: 13px;
+}
+
+.resources-procedure-dialog-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+  margin-top: 8px;
+}
+
+.resources-procedure-dialog-block {
+  border: 1px solid #e2e8f0;
+  border-radius: 10px;
+  padding: 10px 12px;
+  background: #f8fafc;
+}
+
+.resources-procedure-dialog-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 8px;
+}
+
+.resources-procedure-dialog-label {
+  margin: 0;
+  font-size: 12px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  font-weight: 700;
+  color: #475569;
+}
+
+.resources-procedure-dialog-link {
+  color: #1d4ed8;
+  word-break: break-word;
+}
+
+.resources-procedure-dialog-list {
+  margin: 0;
+  padding-left: 18px;
+}
+
+.resources-procedure-dialog-notes {
+  margin: 10px 0 4px;
+  color: #334155;
+  font-size: 13px;
+}
+
+@media (max-width: 860px) {
+  .resources-procedure-dialog-grid {
+    grid-template-columns: 1fr;
+  }
 }
 
 /* ── Upload document modal ──────────────────────────── */

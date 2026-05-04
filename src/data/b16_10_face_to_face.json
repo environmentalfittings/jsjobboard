@@ -1,0 +1,100 @@
+[
+  {
+    "valveType": "Plug",
+    "size": "2",
+    "class": "150",
+    "faceToFace": 8.5,
+    "tolerance": 0.0625
+  },
+  {
+    "valveType": "Plug",
+    "size": "3",
+    "class": "150",
+    "faceToFace": 9.5,
+    "tolerance": 0.0625
+  },
+  {
+    "valveType": "Plug",
+    "size": "4",
+    "class": "150",
+    "faceToFace": 11.5,
+    "tolerance": 0.0625
+  },
+  {
+    "valveType": "Plug",
+    "size": "6",
+    "class": "150",
+    "faceToFace": 14,
+    "tolerance": 0.0625
+  },
+  {
+    "valveType": "Plug",
+    "size": "8",
+    "class": "150",
+    "faceToFace": 17,
+    "tolerance": 0.0625
+  },
+  {
+    "valveType": "Plug",
+    "size": "10",
+    "class": "150",
+    "faceToFace": 19,
+    "tolerance": 0.0625
+  },
+  {
+    "valveType": "Plug",
+    "size": "12",
+    "class": "150",
+    "faceToFace": 22,
+    "tolerance": 0.0625
+  },
+  {
+    "valveType": "Plug",
+    "size": "2",
+    "class": "300",
+    "faceToFace": 8.5,
+    "tolerance": 0.0625
+  },
+  {
+    "valveType": "Plug",
+    "size": "3",
+    "class": "300",
+    "faceToFace": 10.5,
+    "tolerance": 0.0625
+  },
+  {
+    "valveType": "Plug",
+    "size": "4",
+    "class": "300",
+    "faceToFace": 12.5,
+    "tolerance": 0.0625
+  },
+  {
+    "valveType": "Plug",
+    "size": "6",
+    "class": "300",
+    "faceToFace": 15,
+    "tolerance": 0.0625
+  },
+  {
+    "valveType": "Plug",
+    "size": "8",
+    "class": "300",
+    "faceToFace": 18,
+    "tolerance": 0.0625
+  },
+  {
+    "valveType": "Plug",
+    "size": "10",
+    "class": "300",
+    "faceToFace": 21,
+    "tolerance": 0.0625
+  },
+  {
+    "valveType": "Plug",
+    "size": "12",
+    "class": "300",
+    "faceToFace": 24,
+    "tolerance": 0.0625
+  }
+]

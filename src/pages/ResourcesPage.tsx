@@ -16,13 +16,14 @@ import {
   WELD_PROCESSES,
   WPS_TYPES,
 } from '../lib/resourceDocuments'
-import { loadLookupOptionsMap } from '../lib/lookupValues'
 import { supabase } from '../lib/supabase'
 
 
 
 const RESOURCE_DOC_SELECT =
-  'id,scope,valve_type,category,title,notes,storage_path,file_name,mime_type,created_at,updated_at,wps_type,base_metal_category,weld_processes,weld_modes,filler_metal,base_metal_thickness_qualified,filler_metal_thickness_qualified,post_weld_heat_treat_required,pwht_temperature,pwht_time,hf_approved,manufacturer,product_valve_type'
+  'id,scope,valve_type,category,title,notes,storage_path,file_name,mime_type,created_at,updated_at,wps_type,base_metal_category,weld_processes,weld_modes,filler_metal,base_metal_thickness_qualified,filler_metal_thickness_qualified,post_weld_heat_treat_required,pwht_temperature,pwht_time,hf_approved,manufacturer,product_valve_type,sop_number,revision_number,date_updated,proc_category'
+const PROCEDURE_COMPANION_SELECT =
+  'id,scope,valve_type,category,title,notes,storage_path,file_name,mime_type,created_at,updated_at,sop_number,revision_number,date_updated,proc_category'
 
 export function ResourcesPage() {
   const { showToast } = useToast()
@@ -33,11 +34,25 @@ export function ResourcesPage() {
 
   useEffect(() => {
     void (async () => {
-      try {
-        const map = await loadLookupOptionsMap()
-        setManufacturers(map.manufacturer ?? [])
-        setValveTypeOptions(map.valve_type ?? [])
-      } catch { /* silently ignore */ }
+      const [mfgRes, vtRes] = await Promise.all([
+        supabase
+          .from('lookup_values')
+          .select('value')
+          .eq('category', 'manufacturer')
+          .order('value', { ascending: true }),
+        supabase
+          .from('lookup_values')
+          .select('value')
+          .eq('category', 'valve_type')
+          .order('sort_order', { ascending: true })
+          .order('id', { ascending: true }),
+      ])
+      if (!mfgRes.error && mfgRes.data?.length) {
+        setManufacturers(mfgRes.data.map((r: { value: string }) => r.value))
+      }
+      if (!vtRes.error && vtRes.data?.length) {
+        setValveTypeOptions(vtRes.data.map((r: { value: string }) => r.value))
+      }
     })()
   }, [])
 
@@ -165,6 +180,11 @@ export function ResourcesPage() {
   const [pwhtTemperature, setPwhtTemperature] = useState('')
   const [pwhtTime, setPwhtTime] = useState('')
   const [hfApproved, setHfApproved] = useState(false)
+  // Procedure-specific fields
+  const [sopNumber, setSopNumber] = useState('')
+  const [revisionNumber, setRevisionNumber] = useState('')
+  const [dateUpdated, setDateUpdated] = useState('')
+  const [procCategory, setProcCategory] = useState<'Valve-Specific' | 'NDE' | 'Other' | 'Test' | 'Answer Key' | ''>('')
 
   const toggleWeldProcess = (p: WeldProcess) =>
     setWeldProcesses((prev) => (prev.includes(p) ? prev.filter((x) => x !== p) : [...prev, p]))
@@ -188,6 +208,10 @@ export function ResourcesPage() {
     setPwhtTemperature('')
     setPwhtTime('')
     setHfApproved(false)
+    setSopNumber('')
+    setRevisionNumber('')
+    setDateUpdated('')
+    setProcCategory('')
   }
 
   const openEditModal = (row: ResourceDocumentRow) => {
@@ -211,6 +235,10 @@ export function ResourcesPage() {
     setPwhtTemperature(row.pwht_temperature ?? '')
     setPwhtTime(row.pwht_time ?? '')
     setHfApproved(row.hf_approved ?? false)
+    setSopNumber(row.sop_number ?? '')
+    setRevisionNumber(row.revision_number ?? '')
+    setDateUpdated(row.date_updated ?? '')
+    setProcCategory((row.proc_category as 'Valve-Specific' | 'NDE' | 'Other' | 'Test' | 'Answer Key' | '') ?? '')
     setUploadModalOpen(true)
   }
 
@@ -296,6 +324,10 @@ export function ResourcesPage() {
         pwht_temperature: postWeldHeatTreatRequired ? (pwhtTemperature.trim() || null) : null,
         pwht_time: postWeldHeatTreatRequired ? (pwhtTime.trim() || null) : null,
         hf_approved: hfApproved,
+        sop_number: sopNumber.trim() || null,
+        revision_number: revisionNumber.trim() || null,
+        date_updated: dateUpdated || null,
+        proc_category: procCategory || null,
       }
       if (newStoragePath) {
         patch.storage_path = newStoragePath
@@ -348,6 +380,10 @@ export function ResourcesPage() {
       pwhtTemperature,
       pwhtTime,
       hfApproved,
+      sopNumber: sopNumber.trim() || undefined,
+      revisionNumber: revisionNumber.trim() || undefined,
+      dateUpdated: dateUpdated || null,
+      procCategory: procCategory || null,
     })
     setUploading(false)
     if (error) { showToast(error); return }
@@ -359,6 +395,9 @@ export function ResourcesPage() {
       const key = sectionKeyForCategory(uploadCategory)
       const section = SIMPLE_SECTIONS.find((s) => s.key === key)
       if (section) void loadSection(section.key, section.categories)
+      if (procedureDialogDoc && sopNumber.trim() && sopNumber.trim() === (procedureDialogDoc.sop_number ?? '').trim()) {
+        void openProcedureDialog(procedureDialogDoc)
+      }
     }
   }
 
@@ -385,6 +424,34 @@ export function ResourcesPage() {
   const modalTitle = editingDoc
     ? (modalMode === 'weld' ? 'Edit weld procedure' : `Edit ${sectionLabelForCategory(editingDoc.category)}`)
     : (modalMode === 'weld' ? 'Add weld procedure' : `Add ${sectionLabelForCategory(uploadCategory)}`)
+
+  const procCategoryAdjacencyRank: Record<string, number> = {
+    Test: 1,
+    'Answer Key': 2,
+  }
+
+  const compareProcedureDocs = (a: ResourceDocumentRow, b: ResourceDocumentRow) => {
+    const aSop = (a.sop_number ?? '').trim()
+    const bSop = (b.sop_number ?? '').trim()
+    if (aSop && bSop) {
+      const sopCmp = aSop.localeCompare(bSop, undefined, { numeric: true, sensitivity: 'base' })
+      if (sopCmp !== 0) return sopCmp
+    } else if (aSop && !bSop) {
+      return -1
+    } else if (!aSop && bSop) {
+      return 1
+    }
+
+    const aRank = procCategoryAdjacencyRank[a.proc_category ?? ''] ?? 0
+    const bRank = procCategoryAdjacencyRank[b.proc_category ?? ''] ?? 0
+    if (aRank !== bRank) return aRank - bRank
+
+    const aDate = a.date_updated ?? ''
+    const bDate = b.date_updated ?? ''
+    if (aDate !== bDate) return bDate.localeCompare(aDate)
+
+    return a.title.localeCompare(b.title, undefined, { numeric: true, sensitivity: 'base' })
+  }
 
   // ── Active module drill-down ────────────────────────────────────────────
   type ActiveModule = 'weld' | SectionKey
@@ -434,6 +501,67 @@ export function ResourcesPage() {
   ]
 
   const activeSimpleSection = SIMPLE_SECTIONS.find((s) => s.key === activeModule)
+
+  // ── IOM filters ──────────────────────────────────────────────────────────
+  const [iomMfgFilter, setIomMfgFilter] = useState('')
+  const [iomVtFilter, setIomVtFilter] = useState('')
+
+  // ── Procedure details dialog (test + answer key quick access) ───────────
+  const [procedureDialogDoc, setProcedureDialogDoc] = useState<ResourceDocumentRow | null>(null)
+  const [procedureCompanionsLoading, setProcedureCompanionsLoading] = useState(false)
+  const [procedureTestDocs, setProcedureTestDocs] = useState<ResourceDocumentRow[]>([])
+  const [procedureAnswerKeyDocs, setProcedureAnswerKeyDocs] = useState<ResourceDocumentRow[]>([])
+
+  const closeProcedureDialog = () => {
+    if (procedureCompanionsLoading) return
+    setProcedureDialogDoc(null)
+    setProcedureTestDocs([])
+    setProcedureAnswerKeyDocs([])
+  }
+
+  const openProcedureDialog = async (row: ResourceDocumentRow) => {
+    setProcedureDialogDoc(row)
+    setProcedureTestDocs([])
+    setProcedureAnswerKeyDocs([])
+
+    const sop = (row.sop_number ?? '').trim()
+    if (!sop) return
+
+    setProcedureCompanionsLoading(true)
+    const { data, error } = await supabase
+      .from('resource_documents')
+      .select(PROCEDURE_COMPANION_SELECT)
+      .in('category', ['general', 'quality_control'])
+      .eq('sop_number', sop)
+      .in('proc_category', ['Test', 'Answer Key'])
+      .order('date_updated', { ascending: false, nullsFirst: false })
+      .order('updated_at', { ascending: false })
+      .order('id', { ascending: false })
+      .limit(100)
+    setProcedureCompanionsLoading(false)
+
+    if (error) {
+      showToast(`Could not load test/answer key documents: ${error.message}`)
+      return
+    }
+
+    const companions = ((data ?? []) as ResourceDocumentRow[]).filter((d) => d.id !== row.id)
+    setProcedureTestDocs(companions.filter((d) => d.proc_category === 'Test'))
+    setProcedureAnswerKeyDocs(companions.filter((d) => d.proc_category === 'Answer Key'))
+  }
+
+  const openProcedureCompanionUpload = (kind: 'Test' | 'Answer Key') => {
+    if (!procedureDialogDoc) return
+    resetModalState()
+    setModalMode('general')
+    setUploadCategory(procedureDialogDoc.category === 'quality_control' ? 'quality_control' : 'general')
+    setUploadTitle(`${procedureDialogDoc.title} - ${kind}`)
+    setSopNumber(procedureDialogDoc.sop_number ?? '')
+    setRevisionNumber(procedureDialogDoc.revision_number ?? '')
+    setDateUpdated(procedureDialogDoc.date_updated ?? '')
+    setProcCategory(kind)
+    setUploadModalOpen(true)
+  }
 
   return (
     <section className="dashboard-page resources-page">
@@ -593,8 +721,18 @@ export function ResourcesPage() {
 
       {/* ── Simple module drill-down (IOMs / Procedures / QA/QC) ─────────── */}
       {activeSimpleSection ? (() => {
-        const docs = sectionDocs[activeSimpleSection.key] ?? []
+        const allDocs = sectionDocs[activeSimpleSection.key] ?? []
         const loading = sectionLoading[activeSimpleSection.key] ?? false
+        const isIom = activeSimpleSection.key === 'iom'
+        const isProcedureLike = activeSimpleSection.key === 'procedures' || activeSimpleSection.key === 'qaqc'
+        const baseDocs = isIom
+          ? allDocs.filter((d) => {
+              if (iomMfgFilter && (d.manufacturer ?? '') !== iomMfgFilter) return false
+              if (iomVtFilter && (d.product_valve_type ?? '') !== iomVtFilter) return false
+              return true
+            })
+          : allDocs
+        const docs = isProcedureLike ? [...baseDocs].sort(compareProcedureDocs) : baseDocs
         return (
           <section className="dashboard-panel resources-panel">
             <div className="resources-module-header">
@@ -622,16 +760,60 @@ export function ResourcesPage() {
               </button>
             </div>
 
-            <p className="status-breakdown-note">Showing {docs.length} document(s).</p>
+            {isIom && (
+              <div className="iom-filter-row">
+                <label className="iom-filter-label">
+                  Manufacturer
+                  <select
+                    value={iomMfgFilter}
+                    onChange={(e) => setIomMfgFilter(e.target.value)}
+                    className="iom-filter-select"
+                  >
+                    <option value="">All manufacturers</option>
+                    {manufacturers.map((m) => <option key={m} value={m}>{m}</option>)}
+                  </select>
+                </label>
+                <label className="iom-filter-label">
+                  Valve Type
+                  <select
+                    value={iomVtFilter}
+                    onChange={(e) => setIomVtFilter(e.target.value)}
+                    className="iom-filter-select"
+                  >
+                    <option value="">All valve types</option>
+                    {valveTypeOptions.map((v) => <option key={v} value={v}>{v}</option>)}
+                  </select>
+                </label>
+                {(iomMfgFilter || iomVtFilter) && (
+                  <button
+                    type="button"
+                    className="button-secondary"
+                    onClick={() => { setIomMfgFilter(''); setIomVtFilter('') }}
+                  >
+                    Clear filters
+                  </button>
+                )}
+              </div>
+            )}
+
+            <p className="status-breakdown-note">Showing {docs.length} of {allDocs.length} document(s).</p>
             <div className="dashboard-table-wrap">
               <table className="dashboard-table">
                 <thead>
                   <tr>
                     <th>Title</th>
-                    {(activeSimpleSection.categories[0] === 'iom' || activeSimpleSection.categories.includes('maintenance_manual' as ResourceDocumentCategory)) ? (
+                    {isIom ? (
                       <>
                         <th>Manufacturer</th>
                         <th>Valve Type</th>
+                      </>
+                    ) : null}
+                    {(activeSimpleSection.key === 'procedures' || activeSimpleSection.key === 'qaqc') ? (
+                      <>
+                        <th>SOP #</th>
+                        <th>Rev</th>
+                        <th>Date Updated</th>
+                        <th>Category</th>
                       </>
                     ) : null}
                     <th>File</th>
@@ -643,11 +825,31 @@ export function ResourcesPage() {
                 <tbody>
                   {docs.map((row) => (
                     <tr key={row.id}>
-                      <td style={{ fontWeight: 600 }}>{row.title}</td>
-                      {(activeSimpleSection.categories[0] === 'iom' || activeSimpleSection.categories.includes('maintenance_manual' as ResourceDocumentCategory)) ? (
+                      <td style={{ fontWeight: 600 }}>
+                        {isProcedureLike ? (
+                          <button
+                            type="button"
+                            className="resources-procedure-link-btn"
+                            onClick={() => void openProcedureDialog(row)}
+                          >
+                            {row.title}
+                          </button>
+                        ) : (
+                          row.title
+                        )}
+                      </td>
+                      {isIom ? (
                         <>
                           <td>{row.manufacturer ?? '-'}</td>
                           <td>{row.product_valve_type ?? '-'}</td>
+                        </>
+                      ) : null}
+                      {(activeSimpleSection.key === 'procedures' || activeSimpleSection.key === 'qaqc') ? (
+                        <>
+                          <td>{row.sop_number ?? '-'}</td>
+                          <td>{row.revision_number ?? '-'}</td>
+                          <td>{row.date_updated ? new Date(row.date_updated).toLocaleDateString() : '-'}</td>
+                          <td>{row.proc_category ?? '-'}</td>
                         </>
                       ) : null}
                       <td>
@@ -668,7 +870,7 @@ export function ResourcesPage() {
                     </tr>
                   ))}
                   {!loading && docs.length === 0 ? (
-                    <tr><td colSpan={7} className="table-empty-cell">No documents found.</td></tr>
+                    <tr><td colSpan={11} className="table-empty-cell">No documents found.</td></tr>
                   ) : null}
                 </tbody>
               </table>
@@ -677,6 +879,124 @@ export function ResourcesPage() {
         )
       })() : null}
 
+
+      {/* ── Procedure detail dialog ───────────────────────────────────────── */}
+      {procedureDialogDoc ? (
+        <div
+          className="modal-overlay"
+          role="dialog"
+          aria-modal="true"
+          aria-label="Procedure details"
+          onMouseDown={(e) => e.target === e.currentTarget && closeProcedureDialog()}
+        >
+          <div className="modal-card resources-procedure-dialog">
+            <div className="resources-upload-modal-header">
+              <h3>{procedureDialogDoc.title}</h3>
+              <button
+                type="button"
+                className="modal-close-btn"
+                onClick={closeProcedureDialog}
+                disabled={procedureCompanionsLoading}
+                aria-label="Close"
+              >
+                ✕
+              </button>
+            </div>
+
+            <div className="resources-procedure-dialog-meta">
+              <span><strong>SOP #:</strong> {procedureDialogDoc.sop_number ?? '-'}</span>
+              <span><strong>Rev:</strong> {procedureDialogDoc.revision_number ?? '-'}</span>
+              <span><strong>Category:</strong> {procedureDialogDoc.proc_category ?? '-'}</span>
+            </div>
+
+            <div className="resources-procedure-dialog-block">
+              <p className="resources-procedure-dialog-label">Procedure file</p>
+              <a
+                href={resourceDocumentPublicUrl(procedureDialogDoc.storage_path)}
+                target="_blank"
+                rel="noreferrer"
+                className="resources-procedure-dialog-link"
+              >
+                📄 {procedureDialogDoc.file_name}
+              </a>
+            </div>
+
+            {procedureDialogDoc.notes ? (
+              <p className="resources-procedure-dialog-notes">{procedureDialogDoc.notes}</p>
+            ) : null}
+
+            <div className="resources-procedure-dialog-grid">
+              <section className="resources-procedure-dialog-block">
+                <div className="resources-procedure-dialog-head">
+                  <p className="resources-procedure-dialog-label">Tests</p>
+                  <button
+                    type="button"
+                    className="button-secondary admin-list-btn"
+                    onClick={() => openProcedureCompanionUpload('Test')}
+                    disabled={procedureCompanionsLoading}
+                  >
+                    Upload test
+                  </button>
+                </div>
+                {procedureCompanionsLoading ? (
+                  <p className="placeholder-copy">Loading…</p>
+                ) : procedureTestDocs.length === 0 ? (
+                  <p className="placeholder-copy">No test documents linked to this SOP yet.</p>
+                ) : (
+                  <ul className="resources-procedure-dialog-list">
+                    {procedureTestDocs.map((doc) => (
+                      <li key={doc.id}>
+                        <a
+                          href={resourceDocumentPublicUrl(doc.storage_path)}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="resources-procedure-dialog-link"
+                        >
+                          📄 {doc.file_name}
+                        </a>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </section>
+
+              <section className="resources-procedure-dialog-block">
+                <div className="resources-procedure-dialog-head">
+                  <p className="resources-procedure-dialog-label">Answer keys</p>
+                  <button
+                    type="button"
+                    className="button-secondary admin-list-btn"
+                    onClick={() => openProcedureCompanionUpload('Answer Key')}
+                    disabled={procedureCompanionsLoading}
+                  >
+                    Upload answer key
+                  </button>
+                </div>
+                {procedureCompanionsLoading ? (
+                  <p className="placeholder-copy">Loading…</p>
+                ) : procedureAnswerKeyDocs.length === 0 ? (
+                  <p className="placeholder-copy">No answer key documents linked to this SOP yet.</p>
+                ) : (
+                  <ul className="resources-procedure-dialog-list">
+                    {procedureAnswerKeyDocs.map((doc) => (
+                      <li key={doc.id}>
+                        <a
+                          href={resourceDocumentPublicUrl(doc.storage_path)}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="resources-procedure-dialog-link"
+                        >
+                          📄 {doc.file_name}
+                        </a>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </section>
+            </div>
+          </div>
+        </div>
+      ) : null}
 
       {/* ── Upload / Add modal ───────────────────────────────────────────── */}
       {uploadModalOpen ? (
@@ -780,6 +1100,61 @@ export function ResourcesPage() {
                   </select>
                 </>
               ) : null}
+
+              {/* Procedure / QA/QC fields */}
+              {(uploadCategory === 'general' || uploadCategory === 'quality_control') && (
+                <>
+                  <div className="weld-fields-divider">Procedure Details</div>
+
+                  <label className="modal-label" htmlFor="upload-sop-number">SOP Number</label>
+                  <input
+                    id="upload-sop-number"
+                    type="text"
+                    className="modal-status-select"
+                    value={sopNumber}
+                    onChange={(e) => setSopNumber(e.target.value)}
+                    placeholder="e.g. SOP-042"
+                    disabled={uploading}
+                  />
+
+                  <label className="modal-label" htmlFor="upload-revision-number">Revision Number</label>
+                  <input
+                    id="upload-revision-number"
+                    type="text"
+                    className="modal-status-select"
+                    value={revisionNumber}
+                    onChange={(e) => setRevisionNumber(e.target.value)}
+                    placeholder="e.g. Rev 3"
+                    disabled={uploading}
+                  />
+
+                  <label className="modal-label" htmlFor="upload-date-updated">Date Updated</label>
+                  <input
+                    id="upload-date-updated"
+                    type="date"
+                    className="modal-status-select"
+                    value={dateUpdated}
+                    onChange={(e) => setDateUpdated(e.target.value)}
+                    disabled={uploading}
+                  />
+
+                  <label className="modal-label" htmlFor="upload-proc-category">Category</label>
+                  <select
+                    id="upload-proc-category"
+                    className="modal-status-select"
+                    value={procCategory}
+                    onChange={(e) => setProcCategory(e.target.value as 'Valve-Specific' | 'NDE' | 'Other' | 'Test' | 'Answer Key' | '')}
+                    disabled={uploading}
+                  >
+                    <option value="">— Select category —</option>
+                    <option value="Valve-Specific">Valve-Specific</option>
+                    <option value="NDE">NDE</option>
+                    <option value="Other">Other</option>
+                    <option value="Test">Test</option>
+                    <option value="Answer Key">Answer Key</option>
+                  </select>
+                </>
+              )}
 
               <label className="modal-label" htmlFor="upload-notes">Notes (optional)</label>
               <input

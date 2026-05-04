@@ -154,6 +154,14 @@ function KanbanJobCard({
         <div className="job-id">{valve.valve_id}</div>
         <div className="job-muted truncate">{valve.customer ?? 'Unknown customer'}</div>
         <div className="job-muted small">{valve.cell ?? 'No cell'}</div>
+        <div className="job-muted small">
+          {(() => {
+            const rawSize = (valve.size ?? '').trim()
+            const sizeToken = rawSize ? rawSize.replace(/"/g, '').trim() : '—'
+            const cls = (valve.pressure_class ?? '').trim()
+            return cls ? `${sizeToken} in ${cls}` : `${sizeToken} in —`
+          })()}
+        </div>
         <div className="job-card-detail">
           <span className="job-card-detail-label">Description</span>
           <span className="job-card-detail-text" title={valve.description ?? ''}>

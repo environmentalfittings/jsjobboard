@@ -24,8 +24,16 @@ import {
   normalizedPortConfig,
   visibleFlangeIds,
 } from '../lib/itpTwinsealFlanges'
+import {
+  normalizeNps,
+  normalizePressureClass,
+  parseMeasurementNumber,
+  type FlangeThicknessReferenceRow,
+} from '../lib/flangeThicknessRefs'
+import { findB1610FaceToFaceStandard, type B1610FaceToFaceReferenceRow } from '../lib/b1610FaceToFace'
 
 const ITP_SELECT_OTHER = 'Other'
+const ITP_FACING_BUTT_WELD = 'Butt Weld'
 
 function repairActionLabel(f: FlangeFaceState): string {
   const r = f.repairAction.trim()
@@ -78,11 +86,85 @@ function ItpFullscreenIcons({ expanded }: { expanded: boolean }) {
 }
 
 function measurementWarning(measure1: string, measure2: string): string | null {
-  const a = parseFloat(measure1.replace(/,/g, ''))
-  const b = parseFloat(measure2.replace(/,/g, ''))
-  if (!Number.isFinite(a) || !Number.isFinite(b)) return null
+  const a = parseMeasurementNumber(measure1)
+  const b = parseMeasurementNumber(measure2)
+  if (a == null || b == null) return null
   if (a < b) return 'Below acceptable limit'
   return null
+}
+
+function toleranceText(beforeMachining: string, afterMachining: string): string {
+  const before = parseMeasurementNumber(beforeMachining)
+  const after = parseMeasurementNumber(afterMachining)
+  if (before == null || after == null) return ''
+  const delta = before - after
+  return `${delta.toFixed(3)}`
+}
+
+function toleranceVsMinimumSummary(
+  measured: string,
+  minimumAllowable: string,
+  label: string,
+): { tone: 'ok' | 'bad'; text: string } | null {
+  const m = parseMeasurementNumber(measured)
+  const min = parseMeasurementNumber(minimumAllowable)
+  if (m == null || min == null) return null
+  const delta = m - min
+  const pass = delta >= 0
+  const signed = `${delta >= 0 ? '+' : ''}${delta.toFixed(3)}`
+  return {
+    tone: pass ? 'ok' : 'bad',
+    text: `${label}: ${pass ? 'PASS' : 'OUT OF TOLERANCE'} (${signed} vs minimum)`,
+  }
+}
+
+function toleranceState(
+  measured: string,
+  minimumAllowable: string,
+): { tone: 'ok' | 'bad' | null; delta: number | null } {
+  const m = parseMeasurementNumber(measured)
+  const min = parseMeasurementNumber(minimumAllowable)
+  if (m == null || min == null) return { tone: null, delta: null }
+  const delta = m - min
+  return { tone: delta >= 0 ? 'ok' : 'bad', delta }
+}
+
+function maxRemovableText(measured: string, minimumAllowable: string): string {
+  const m = parseMeasurementNumber(measured)
+  const min = parseMeasurementNumber(minimumAllowable)
+  if (m == null || min == null) return ''
+  const removable = m - min
+  if (removable >= 0) return removable.toFixed(3)
+  return `0.000 (below min by ${Math.abs(removable).toFixed(3)})`
+}
+
+function referenceThicknessFeedback(asFound: string, afterMachining: string, minThickness: number): string[] {
+  const notes: string[] = []
+  const asFoundNum = parseMeasurementNumber(asFound)
+  const afterMachNum = parseMeasurementNumber(afterMachining)
+  if (asFoundNum != null) {
+    const removable = asFoundNum - minThickness
+    if (removable >= 0) {
+      notes.push(`B16.5 check: thick enough. Max removable ≈ ${removable.toFixed(3)}`)
+    } else {
+      notes.push(`B16.5 check: too thin by ≈ ${Math.abs(removable).toFixed(3)}`)
+    }
+  }
+  if (afterMachNum != null && afterMachNum < minThickness) {
+    notes.push(`After machining is below minimum by ≈ ${(minThickness - afterMachNum).toFixed(3)}`)
+  }
+  return notes
+}
+
+function b1610ValidationState(
+  asFound: string,
+  standard: number,
+  tolerance: number,
+): { tone: 'ok' | 'bad' | null; delta: number | null } {
+  const measured = parseMeasurementNumber(asFound)
+  if (measured == null) return { tone: null, delta: null }
+  const delta = measured - standard
+  return { tone: Math.abs(delta) <= tolerance ? 'ok' : 'bad', delta }
 }
 
 function overviewStatusLabel(s: ItpItemInspectionStatus): string {
@@ -95,6 +177,12 @@ function overviewStatusClass(s: ItpItemInspectionStatus): string {
   if (s === 'pending') return 'itp-overview-status itp-os-pending'
   if (s === 'acceptable') return 'itp-overview-status itp-os-ok'
   return 'itp-overview-status itp-os-warn'
+}
+
+function displayItpItemLabel(tabId: string, label: string): string {
+  const clean = (label ?? '').trim()
+  if (tabId === 'body' && /^(body|body\s*bore)$/i.test(clean)) return 'Wall Thickness'
+  return clean
 }
 
 function firstTwinsealFlangeRepairBadge(data: ItpItemState): string | null {
@@ -178,14 +266,69 @@ export function ItpEditorModal({ valve, onClose }: ItpEditorModalProps) {
   const [selectedItemId, setSelectedItemId] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
-  const [isMaximized, setIsMaximized] = useState(false)
+  const [isMaximized, setIsMaximized] = useState(true)
+  const [flangeRef, setFlangeRef] = useState<FlangeThicknessReferenceRow | null>(null)
+  const [flangeRefLoading, setFlangeRefLoading] = useState(false)
+  const [b1610Refs, setB1610Refs] = useState<B1610FaceToFaceReferenceRow[]>([])
+  const [b1610Loading, setB1610Loading] = useState(false)
 
   useEffect(() => {
-    setIsMaximized(false)
+    setIsMaximized(true)
   }, [valve.id])
 
   useEffect(() => {
     setSessionTechName(window.localStorage.getItem(AUTH_USER_STORAGE_KEY)?.trim() ?? '')
+  }, [])
+
+  useEffect(() => {
+    const nps = normalizeNps(valve.size)
+    const pressureClass = normalizePressureClass(valve.pressure_class)
+    if (!nps || !pressureClass) {
+      setFlangeRef(null)
+      return
+    }
+    let cancelled = false
+    setFlangeRefLoading(true)
+    void (async () => {
+      const { data, error } = await supabase
+        .from('flange_thickness_refs')
+        .select('id,nps,pressure_class,min_thickness,notes,source,created_at,updated_at')
+        .eq('nps', nps)
+        .eq('pressure_class', pressureClass)
+        .maybeSingle()
+      if (cancelled) return
+      setFlangeRefLoading(false)
+      if (error) {
+        setFlangeRef(null)
+        return
+      }
+      setFlangeRef((data ?? null) as FlangeThicknessReferenceRow | null)
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [valve.size, valve.pressure_class])
+
+  useEffect(() => {
+    let cancelled = false
+    setB1610Loading(true)
+    void (async () => {
+      const { data, error } = await supabase
+        .from('b1610_face_to_face_refs')
+        .select(
+          'id,valve_type,nps,pressure_class,end_connection,standard_dimension,tolerance,notes,source,created_at,updated_at',
+        )
+      if (cancelled) return
+      setB1610Loading(false)
+      if (error) {
+        setB1610Refs([])
+        return
+      }
+      setB1610Refs((data ?? []) as B1610FaceToFaceReferenceRow[])
+    })()
+    return () => {
+      cancelled = true
+    }
   }, [])
 
   useEffect(() => {
@@ -300,6 +443,9 @@ export function ItpEditorModal({ valve, onClose }: ItpEditorModalProps) {
       if (value !== ITP_SELECT_OTHER) {
         n = updateTwinsealFlangeField(n, activeTab.id, selectedItemId, face, 'facingTypeOther', '')
       }
+      if (value !== ITP_FACING_BUTT_WELD) {
+        n = updateTwinsealFlangeField(n, activeTab.id, selectedItemId, face, 'buttWeldSchedule', '')
+      }
       return n
     })
   }
@@ -332,6 +478,9 @@ export function ItpEditorModal({ valve, onClose }: ItpEditorModalProps) {
       let n = updateItemField(p, activeTab.id, selectedItemId, 'facingType', value)
       if (value !== ITP_SELECT_OTHER) {
         n = updateItemField(n, activeTab.id, selectedItemId, 'facingTypeOther', '')
+      }
+      if (value !== ITP_FACING_BUTT_WELD) {
+        n = updateItemField(n, activeTab.id, selectedItemId, 'buttWeldSchedule', '')
       }
       return n
     })
@@ -447,30 +596,21 @@ export function ItpEditorModal({ valve, onClose }: ItpEditorModalProps) {
                 ←
               </button>
               <div className="itp-ts-header-center">
-                <p className="itp-ts-job-line">Inspection for Job #{valve.valve_id}</p>
                 <h2 id="itp-modal-title" className="itp-ts-title">
-                  {valve.valve_type?.trim() || 'Twinseal'}
+                  Job #{valve.valve_id} · {valve.valve_type?.trim() || 'Twinseal'}
                 </h2>
               </div>
               <div className="itp-ts-header-aside">
-                {valve.customer?.trim() ? <span className="itp-ts-aside-customer">{valve.customer.trim()}</span> : null}
                 <div className="itp-ts-aside-sub">
+                  {valve.customer?.trim() ? <span>{valve.customer.trim()}</span> : null}
                   {valve.size?.trim() ? <span>Size: {valve.size.trim()}</span> : null}
+                  {valve.cell?.trim() ? <span>Cell: {valve.cell.trim()}</span> : null}
                   {sessionTechName ? (
                     <>
-                      {valve.size?.trim() ? <span className="itp-ts-dot">•</span> : null}
                       <span className="itp-ts-tech-pill">Tech: {sessionTechName}</span>
                     </>
                   ) : null}
                 </div>
-                {(valve.description ?? '').trim() ? (
-                  <p className="itp-ts-aside-desc" title={(valve.description ?? '').trim()}>
-                    {(valve.description ?? '').trim()}
-                  </p>
-                ) : null}
-                {valve.cell?.trim() ? (
-                  <p className="itp-ts-aside-cell">Cell: {valve.cell.trim()}</p>
-                ) : null}
               </div>
               <div className="itp-ts-header-trail">
                 <button
@@ -497,30 +637,14 @@ export function ItpEditorModal({ valve, onClose }: ItpEditorModalProps) {
           ) : (
             <div className="itp-surface-header-top">
               <div className="itp-surface-header-text">
-                <div className="itp-surface-kicker">Inspection</div>
                 <h2 id="itp-modal-title" className="itp-surface-job">
-                  Inspection for Job #{valve.valve_id}
+                  Job #{valve.valve_id} · {valve.valve_type?.trim() || '—'}
                 </h2>
-                <p className="itp-surface-valve-type">{valve.valve_type?.trim() || '—'}</p>
                 <div className="itp-surface-meta-row" aria-label="Valve type, size, and description">
                   {valve.size?.trim() ? <span>Size: {valve.size.trim()}</span> : null}
-                  {(valve.description ?? '').trim() ? (
-                    <span className="itp-surface-meta-desc" title={(valve.description ?? '').trim()}>
-                      {(valve.description ?? '').trim()}
-                    </span>
-                  ) : (
-                    <span className="itp-surface-meta-muted">No description</span>
-                  )}
+                  {valve.customer?.trim() ? <span>{valve.customer.trim()}</span> : null}
+                  {valve.cell?.trim() ? <span>Cell: {valve.cell.trim()}</span> : null}
                 </div>
-                {valve.customer?.trim() || valve.cell?.trim() ? (
-                  <div className="itp-surface-meta-secondary" aria-label="Customer and finish cell">
-                    {valve.customer?.trim() ? <span>{valve.customer.trim()}</span> : null}
-                    {valve.customer?.trim() && valve.cell?.trim() ? (
-                      <span className="itp-surface-meta-dot">·</span>
-                    ) : null}
-                    {valve.cell?.trim() ? <span>Cell: {valve.cell.trim()}</span> : null}
-                  </div>
-                ) : null}
               </div>
               <div className="itp-surface-header-actions">
                 <button
@@ -546,15 +670,6 @@ export function ItpEditorModal({ valve, onClose }: ItpEditorModalProps) {
             </div>
           )}
         </div>
-
-        {!isTwinsealUi ? (
-          <div className="itp-modal-toolbar">
-            <p className="itp-modal-lead">
-              Walk through each area, record condition, measurements, and repair intent. Photos stay on the job card
-              (Attachments).
-            </p>
-          </div>
-        ) : null}
 
         {loading ? (
           <p className="placeholder-copy itp-loading">Loading…</p>
@@ -681,7 +796,7 @@ export function ItpEditorModal({ valve, onClose }: ItpEditorModalProps) {
                           >
                             <span className="itp-overview-row-main">
                               {isTwinsealUi ? <ItpItemGlyph label={item.label} /> : null}
-                              <span className="itp-overview-row-label">{item.label}</span>
+                              <span className="itp-overview-row-label">{displayItpItemLabel(tab.id, item.label)}</span>
                             </span>
                             <span className={overviewStatusClass(st)}>
                               {overviewStatusLabel(st)} ›
@@ -704,7 +819,7 @@ export function ItpEditorModal({ valve, onClose }: ItpEditorModalProps) {
                         disabled={saving}
                       >
                         {isTwinsealUi ? <ItpItemGlyph label={item.label} /> : null}
-                        <span className="itp-item-row-label">{item.label}</span>
+                        <span className="itp-item-row-label">{displayItpItemLabel(activeTab.id, item.label)}</span>
                         <span
                           className={`itp-item-row-status ${overviewStatusClass(
                             itemInspectionStatus(item.data, bodyFlangesItemCtx(activeTab.id, item.label)),
@@ -727,7 +842,7 @@ export function ItpEditorModal({ valve, onClose }: ItpEditorModalProps) {
                         <>
                           <div className="itp-detail-head">
                             <h3 className="itp-detail-title">
-                              {activeTab.label} — {selectedItem.label}
+                              {activeTab.label} — {displayItpItemLabel(activeTab.id, selectedItem.label)}
                             </h3>
                             {multiFlangeHeaderRepair ? (
                               <span className="itp-badge-repair">{multiFlangeHeaderRepair}</span>
@@ -766,15 +881,40 @@ export function ItpEditorModal({ valve, onClose }: ItpEditorModalProps) {
                           ) : null}
 
                           <ItpFlangeDimensionsDiagram />
+                          <p className="itp-critical-dimensions-ref-note">
+                            {flangeRefLoading
+                              ? 'Loading B16.5 minimum thickness reference…'
+                              : flangeRef
+                                ? `B16.5 reference for ${valve.size ?? '-'} / Class ${valve.pressure_class ?? '-'}: minimum thickness ${flangeRef.min_thickness}`
+                                : 'No B16.5 reference found for this size/class yet. Add it in Manage lists → Flange Thickness.'}
+                          </p>
 
                           {visibleFlangeIds(normalizedPortConfig(selectedItem.data.valvePortConfig)).map((fid) => {
                             const face = getFlangeFaceState(selectedItem.data, fid)
+                            const effectiveMinimum = (face.measure2 || (flangeRef ? String(flangeRef.min_thickness) : '')).trim()
                             const flangeHint = measurementWarning(face.measure1, face.measure2)
+                            const asFoundState = toleranceState(face.measure1, effectiveMinimum)
+                            const afterMachState = toleranceState(face.measureAfterMachining, effectiveMinimum)
+                            const asFoundTol = toleranceVsMinimumSummary(
+                              face.measure1,
+                              effectiveMinimum,
+                              'As found tolerance',
+                            )
+                            const afterMachTol = toleranceVsMinimumSummary(
+                              face.measureAfterMachining,
+                              effectiveMinimum,
+                              'After machining tolerance',
+                            )
+                            const refNotes = flangeRef
+                              ? referenceThicknessFeedback(face.measure1, face.measureAfterMachining, flangeRef.min_thickness)
+                              : []
+                            const flangeTitle =
+                              fid === 'A' ? '1. Flange A' : fid === 'B' ? '2. Flange B' : `Flange ${fid}`
                             return (
-                              <div key={fid} className="itp-flange-section">
-                                <h4 className="itp-flange-section-title">Flange {fid}</h4>
+                              <section key={fid} className="itp-flange-section">
+                                <h4 className="itp-flange-section-title">{flangeTitle}</h4>
                                 <label className="itp-field">
-                                  <span className="itp-field-label">Facing type</span>
+                                  <span className="itp-field-label">1. Facing type</span>
                                   <select
                                     className="itp-select"
                                     value={face.facingType}
@@ -790,7 +930,7 @@ export function ItpEditorModal({ valve, onClose }: ItpEditorModalProps) {
                                 </label>
                                 {face.facingType === ITP_SELECT_OTHER ? (
                                   <label className="itp-field">
-                                    <span className="itp-field-label">Facing type (specify)</span>
+                                    <span className="itp-field-label">1a. Facing type (specify)</span>
                                     <input
                                       type="text"
                                       className="itp-input"
@@ -802,8 +942,22 @@ export function ItpEditorModal({ valve, onClose }: ItpEditorModalProps) {
                                     />
                                   </label>
                                 ) : null}
+                                {face.facingType === ITP_FACING_BUTT_WELD ? (
+                                  <label className="itp-field">
+                                    <span className="itp-field-label">1b. Schedule</span>
+                                    <input
+                                      type="text"
+                                      className="itp-input"
+                                      value={face.buttWeldSchedule}
+                                      onChange={(e) => setFlangeField(fid, 'buttWeldSchedule', e.target.value)}
+                                      placeholder="e.g. Sch 40 / Sch 80"
+                                      disabled={saving}
+                                      autoComplete="off"
+                                    />
+                                  </label>
+                                ) : null}
                                 <label className="itp-field">
-                                  <span className="itp-field-label">Condition</span>
+                                  <span className="itp-field-label">2. Condition</span>
                                   <select
                                     className="itp-select"
                                     value={face.condition}
@@ -819,7 +973,7 @@ export function ItpEditorModal({ valve, onClose }: ItpEditorModalProps) {
                                 </label>
                                 {face.condition === ITP_SELECT_OTHER ? (
                                   <label className="itp-field">
-                                    <span className="itp-field-label">Condition (specify)</span>
+                                    <span className="itp-field-label">2a. Condition (specify)</span>
                                     <input
                                       type="text"
                                       className="itp-input"
@@ -831,12 +985,12 @@ export function ItpEditorModal({ valve, onClose }: ItpEditorModalProps) {
                                     />
                                   </label>
                                 ) : null}
-                                <div className="itp-measure-grid">
+                                <div className="itp-measure-grid itp-measure-grid--single">
                                   <label className="itp-field">
-                                    <span className="itp-field-label">Measurement (as found)</span>
+                                    <span className="itp-field-label">3. Measurement (as found)</span>
                                     <input
                                       type="text"
-                                      className="itp-input"
+                                      className={`itp-input${asFoundState.tone === 'ok' ? ' itp-input-ok' : asFoundState.tone === 'bad' ? ' itp-input-bad' : ''}`}
                                       value={face.measure1}
                                       onChange={(e) => setFlangeField(fid, 'measure1', e.target.value)}
                                       placeholder="e.g. 0.49 in"
@@ -845,21 +999,64 @@ export function ItpEditorModal({ valve, onClose }: ItpEditorModalProps) {
                                     />
                                   </label>
                                   <label className="itp-field">
-                                    <span className="itp-field-label">Minimum allowable</span>
+                                    <span className="itp-field-label">4. Minimum allowable</span>
                                     <input
                                       type="text"
                                       className="itp-input"
                                       value={face.measure2}
                                       onChange={(e) => setFlangeField(fid, 'measure2', e.target.value)}
-                                      placeholder="e.g. 0.51 in"
+                                      placeholder={flangeRef ? `B16.5 min ${flangeRef.min_thickness}` : 'e.g. 0.51 in'}
+                                      disabled={saving}
+                                      autoComplete="off"
+                                    />
+                                    {effectiveMinimum ? (
+                                      <p className="itp-tolerance-note-inline">
+                                        Min thickness: {effectiveMinimum}
+                                        {asFoundState.delta != null ? ` | As-found tolerance: ${asFoundState.delta >= 0 ? '+' : ''}${asFoundState.delta.toFixed(3)}` : ''}
+                                        {afterMachState.delta != null ? ` | After-machining tolerance: ${afterMachState.delta >= 0 ? '+' : ''}${afterMachState.delta.toFixed(3)}` : ''}
+                                      </p>
+                                    ) : null}
+                                  </label>
+                                  <label className="itp-field">
+                                    <span className="itp-field-label">5. After machining</span>
+                                    <input
+                                      type="text"
+                                      className={`itp-input${afterMachState.tone === 'ok' ? ' itp-input-ok' : afterMachState.tone === 'bad' ? ' itp-input-bad' : ''}`}
+                                      value={face.measureAfterMachining}
+                                      onChange={(e) => setFlangeField(fid, 'measureAfterMachining', e.target.value)}
+                                      placeholder="e.g. 0.52 in"
                                       disabled={saving}
                                       autoComplete="off"
                                     />
                                   </label>
+                                  <label className="itp-field">
+                                    <span className="itp-field-label">6. Max removable to minimum</span>
+                                    <input
+                                      type="text"
+                                      className="itp-input"
+                                      value={maxRemovableText(face.measure1, effectiveMinimum)}
+                                      placeholder="Auto-calculated from as-found and minimum"
+                                      disabled
+                                      readOnly
+                                    />
+                                  </label>
                                 </div>
                                 {flangeHint ? <p className="itp-measure-warn">{flangeHint}</p> : null}
+                                {asFoundTol ? (
+                                  <p className={`itp-tolerance-chip ${asFoundTol.tone === 'ok' ? 'ok' : 'bad'}`}>
+                                    {asFoundTol.text}
+                                  </p>
+                                ) : null}
+                                {afterMachTol ? (
+                                  <p className={`itp-tolerance-chip ${afterMachTol.tone === 'ok' ? 'ok' : 'bad'}`}>
+                                    {afterMachTol.text}
+                                  </p>
+                                ) : null}
+                                {refNotes.map((note) => (
+                                  <p key={`${fid}-${note}`} className="itp-measure-ref-note">{note}</p>
+                                ))}
                                 <label className="itp-field">
-                                  <span className="itp-field-label">Measurement notes</span>
+                                  <span className="itp-field-label">7. Measurement notes</span>
                                   <input
                                     type="text"
                                     className="itp-input"
@@ -870,7 +1067,7 @@ export function ItpEditorModal({ valve, onClose }: ItpEditorModalProps) {
                                   />
                                 </label>
                                 <label className="itp-field">
-                                  <span className="itp-field-label">Repair action</span>
+                                  <span className="itp-field-label">8. Repair action</span>
                                   <select
                                     className="itp-select"
                                     value={face.repairAction}
@@ -886,7 +1083,7 @@ export function ItpEditorModal({ valve, onClose }: ItpEditorModalProps) {
                                 </label>
                                 {face.repairAction === ITP_SELECT_OTHER ? (
                                   <label className="itp-field">
-                                    <span className="itp-field-label">Repair action (specify)</span>
+                                    <span className="itp-field-label">8a. Repair action (specify)</span>
                                     <input
                                       type="text"
                                       className="itp-input"
@@ -899,7 +1096,7 @@ export function ItpEditorModal({ valve, onClose }: ItpEditorModalProps) {
                                   </label>
                                 ) : null}
                                 <label className="itp-field">
-                                  <span className="itp-field-label">Notes</span>
+                                  <span className="itp-field-label">9. Notes</span>
                                   <textarea
                                     className="itp-notes"
                                     value={face.notes}
@@ -909,15 +1106,134 @@ export function ItpEditorModal({ valve, onClose }: ItpEditorModalProps) {
                                     disabled={saving}
                                   />
                                 </label>
-                              </div>
+                              </section>
                             )
                           })}
+
+                          <section className="itp-measure-section">
+                            <h4 className="itp-measure-section-title">3. Face-to-Face Validation</h4>
+                            {(() => {
+                              const b1610Ref = findB1610FaceToFaceStandard(
+                                {
+                                  valveType: valve.valve_type,
+                                  size: valve.size,
+                                  pressureClass: valve.pressure_class,
+                                  facingType: selectedItem.data.facingType,
+                                },
+                                b1610Refs,
+                              )
+                              const faceToFaceState: { tone: 'ok' | 'bad' | null; delta: number | null } = b1610Ref
+                                ? b1610ValidationState(
+                                    selectedItem.data.faceToFaceMeasurement,
+                                    b1610Ref.standard,
+                                    b1610Ref.tolerance,
+                                  )
+                                : { tone: null, delta: null }
+                              return (
+                                <>
+                                  <label className="itp-field">
+                                    <span className="itp-field-label">1. Overall Face-to-Face (As Found)</span>
+                                    <input
+                                      type="text"
+                                      className={`itp-input${faceToFaceState.tone === 'ok' ? ' itp-input-ok' : faceToFaceState.tone === 'bad' ? ' itp-input-bad' : ''}`}
+                                      value={selectedItem.data.faceToFaceMeasurement}
+                                      onChange={(e) => setField('faceToFaceMeasurement', e.target.value)}
+                                      placeholder='e.g. 12.75 in'
+                                      disabled={saving}
+                                      autoComplete="off"
+                                    />
+                                  </label>
+                                  <label className="itp-field">
+                                    <span className="itp-field-label">2. B16.10 Standard Dimension</span>
+                                    <input
+                                      type="text"
+                                      className="itp-input"
+                                      value={b1610Ref ? `${b1610Ref.standard.toFixed(3)} in` : ''}
+                                      placeholder={
+                                        b1610Loading
+                                          ? 'Loading B16.10 reference...'
+                                          : 'No B16.10 reference for this size / class / type'
+                                      }
+                                      disabled
+                                      readOnly
+                                    />
+                                  </label>
+                                  <label className="itp-field">
+                                    <span className="itp-field-label">3. Deviation (As Found - Standard)</span>
+                                    <input
+                                      type="text"
+                                      className="itp-input"
+                                      value={
+                                        b1610Ref && faceToFaceState.delta != null
+                                          ? `${faceToFaceState.delta >= 0 ? '+' : ''}${faceToFaceState.delta.toFixed(3)} in`
+                                          : ''
+                                      }
+                                      placeholder="Auto-calculated"
+                                      disabled
+                                      readOnly
+                                    />
+                                  </label>
+                                  <label className="itp-field">
+                                    <span className="itp-field-label">4. B16.10 Tolerance</span>
+                                    <input
+                                      type="text"
+                                      className="itp-input"
+                                      value={b1610Ref ? `±${b1610Ref.tolerance.toFixed(4)} in` : ''}
+                                      placeholder="Auto-calculated"
+                                      disabled
+                                      readOnly
+                                    />
+                                  </label>
+                                  {b1610Ref && faceToFaceState.delta != null ? (
+                                    <p className={`itp-tolerance-chip ${faceToFaceState.tone === 'ok' ? 'ok' : 'bad'}`}>
+                                      B16.10 face-to-face check: {faceToFaceState.tone === 'ok' ? 'PASS' : 'FAIL'} (
+                                      {faceToFaceState.delta >= 0 ? '+' : ''}
+                                      {faceToFaceState.delta.toFixed(3)} vs standard, tol ±
+                                      {b1610Ref.tolerance.toFixed(4)})
+                                    </p>
+                                  ) : null}
+                                  {b1610Ref && faceToFaceState.tone === 'bad' ? (
+                                    <p className="itp-measure-warn">
+                                      Dimension exceeds B16.10 standard. Verify for body stretching or excessive previous
+                                      machining.
+                                    </p>
+                                  ) : null}
+                                  <label className="itp-field">
+                                    <span className="itp-field-label">5. End to End (After Machining)</span>
+                                    <input
+                                      type="text"
+                                      className="itp-input"
+                                      value={selectedItem.data.faceToFaceAfterMachining}
+                                      onChange={(e) => setField('faceToFaceAfterMachining', e.target.value)}
+                                      placeholder="e.g. 12.78 in"
+                                      disabled={saving}
+                                      autoComplete="off"
+                                    />
+                                  </label>
+                                  <label className="itp-field">
+                                    <span className="itp-field-label">6. End to End Tolerance</span>
+                                    <input
+                                      type="text"
+                                      className="itp-input"
+                                      value={toleranceText(
+                                        selectedItem.data.faceToFaceMeasurement,
+                                        selectedItem.data.faceToFaceAfterMachining,
+                                      )}
+                                      placeholder="Auto-calculated from before and after"
+                                      disabled
+                                      readOnly
+                                    />
+                                  </label>
+                                </>
+                              )
+                            })()}
+                          </section>
                         </>
                       ) : (
                         <>
                           <div className="itp-detail-head">
                             <h3 className="itp-detail-title">
-                              {activeTab.label} — {selectedItem.label}
+                              {activeTab.label} — {displayItpItemLabel(activeTab.id, selectedItem.label)}
                             </h3>
                             {selectedItem.data.condition &&
                             selectedItem.data.condition !== 'Acceptable' &&
@@ -952,6 +1268,20 @@ export function ItpEditorModal({ valve, onClose }: ItpEditorModalProps) {
                                     value={selectedItem.data.facingTypeOther}
                                     onChange={(e) => setField('facingTypeOther', e.target.value)}
                                     placeholder="Describe facing type…"
+                                    disabled={saving}
+                                    autoComplete="off"
+                                  />
+                                </label>
+                              ) : null}
+                              {selectedItem.data.facingType === ITP_FACING_BUTT_WELD ? (
+                                <label className="itp-field">
+                                  <span className="itp-field-label">Schedule</span>
+                                  <input
+                                    type="text"
+                                    className="itp-input"
+                                    value={selectedItem.data.buttWeldSchedule}
+                                    onChange={(e) => setField('buttWeldSchedule', e.target.value)}
+                                    placeholder="e.g. Sch 40 / Sch 80"
                                     disabled={saving}
                                     autoComplete="off"
                                   />

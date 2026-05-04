@@ -62,6 +62,8 @@ function jobCardSubtitle(valve: Valve, descriptionDraft: string): string {
   const parts: string[] = []
   const sz = (valve.size ?? '').trim()
   if (sz) parts.push(sz.includes('"') ? sz : `${sz}"`)
+  const pc = (valve.pressure_class ?? '').trim()
+  if (pc) parts.push(`Class ${pc}`)
   const d = (descriptionDraft ?? '').trim()
   if (d) parts.push(d)
   const ot = (valve.order_type ?? '').trim()

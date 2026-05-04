@@ -36,6 +36,7 @@ function normalizeMergedItemData(d: ItpItemState): void {
     if (!d.conditionOther?.trim()) d.conditionOther = 'Strip & Recoat'
   }
   if (typeof d.facingTypeOther !== 'string') d.facingTypeOther = ''
+  if (typeof d.buttWeldSchedule !== 'string') d.buttWeldSchedule = ''
   if (typeof d.conditionOther !== 'string') d.conditionOther = ''
   if (typeof d.repairActionOther !== 'string') d.repairActionOther = ''
   if (typeof d.valvePortConfigOther !== 'string') d.valvePortConfigOther = ''
@@ -46,6 +47,7 @@ function normalizeMergedItemData(d: ItpItemState): void {
       if (!f.conditionOther?.trim()) f.conditionOther = 'Strip & Recoat'
     }
     if (typeof f.facingTypeOther !== 'string') f.facingTypeOther = ''
+    if (typeof f.buttWeldSchedule !== 'string') f.buttWeldSchedule = ''
     if (typeof f.conditionOther !== 'string') f.conditionOther = ''
     if (typeof f.repairActionOther !== 'string') f.repairActionOther = ''
   }
