@@ -178,7 +178,18 @@ export function DashboardNotesPanel() {
     setEditDraft(note.body)
   }
 
-  const renderNote = (note: DailyNote, done: boolean) => (
+  const [poppedOut, setPoppedOut] = useState(false)
+
+  useEffect(() => {
+    if (!poppedOut) return
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setPoppedOut(false)
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [poppedOut])
+
+  const renderNote = (note: DailyNote, done: boolean, expanded: boolean) => (
     <li key={note.id} className={`daily-note-row ${done ? 'done' : ''}`}>
       <input
         type="checkbox"
@@ -199,7 +210,7 @@ export function DashboardNotesPanel() {
           <textarea
             className="daily-note-edit"
             value={editDraft}
-            rows={3}
+            rows={expanded ? 4 : 3}
             autoFocus
             onChange={(e) => setEditDraft(e.target.value)}
             onBlur={() => void saveEdit(note)}
@@ -246,13 +257,24 @@ export function DashboardNotesPanel() {
     </li>
   )
 
-  return (
-    <section className="dashboard-panel daily-notes-panel">
-      <h3>Shop to-do list</h3>
+  const openLargerViewButton = (
+    <button
+      type="button"
+      className="button-secondary daily-notes-open-larger-btn"
+      onClick={() => setPoppedOut(true)}
+    >
+      Open larger view
+    </button>
+  )
+
+  const renderPanelBody = (expanded: boolean) => (
+    <>
       <p className="daily-notes-hint">
         Active tasks from Excel (bold items on Daily Notes). Check off when complete — timestamps are saved
         automatically.
       </p>
+
+      {!expanded ? openLargerViewButton : null}
 
       <form
         className="daily-note-add"
@@ -265,7 +287,7 @@ export function DashboardNotesPanel() {
           className="daily-note-add-input"
           placeholder="Add a new task…"
           value={draft}
-          rows={2}
+          rows={expanded ? 3 : 2}
           onChange={(e) => setDraft(e.target.value)}
           disabled={saving || setupRequired}
         />
@@ -310,7 +332,9 @@ export function DashboardNotesPanel() {
       ) : null}
 
       {!setupRequired ? (
-        <ul className="daily-notes-list">{openNotes.map((note) => renderNote(note, false))}</ul>
+        <ul className={`daily-notes-list${expanded ? ' daily-notes-list--expanded' : ''}`}>
+          {openNotes.map((note) => renderNote(note, false, expanded))}
+        </ul>
       ) : null}
 
       {!setupRequired && completedNotes.length > 0 ? (
@@ -323,10 +347,59 @@ export function DashboardNotesPanel() {
             {showCompleted ? 'Hide' : 'Show'} completed ({completedNotes.length})
           </button>
           {showCompleted ? (
-            <ul className="daily-notes-list completed">{completedNotes.map((note) => renderNote(note, true))}</ul>
+            <ul className={`daily-notes-list completed${expanded ? ' daily-notes-list--expanded' : ''}`}>
+              {completedNotes.map((note) => renderNote(note, true, expanded))}
+            </ul>
           ) : null}
         </div>
       ) : null}
-    </section>
+    </>
+  )
+
+  const panelHeader = (expanded: boolean) => (
+    <div className="daily-notes-panel-head">
+      <h3 id={expanded ? 'daily-notes-popout-title' : undefined}>Shop to-do list</h3>
+      {expanded ? (
+        <button
+          type="button"
+          className="button-secondary daily-notes-popout-btn"
+          onClick={() => setPoppedOut(false)}
+          aria-label="Close expanded to-do list"
+        >
+          Close
+        </button>
+      ) : null}
+    </div>
+  )
+
+  return (
+    <>
+      {!poppedOut ? (
+        <section className="dashboard-panel daily-notes-panel">
+          {panelHeader(false)}
+          {renderPanelBody(false)}
+        </section>
+      ) : null}
+
+      {poppedOut ? (
+        <div
+          className="modal-overlay daily-notes-popout-overlay"
+          role="presentation"
+          onMouseDown={(e) => {
+            if (e.target === e.currentTarget) setPoppedOut(false)
+          }}
+        >
+          <section
+            className="dashboard-panel daily-notes-panel daily-notes-panel--popout"
+            role="dialog"
+            aria-labelledby="daily-notes-popout-title"
+            aria-modal="true"
+          >
+            {panelHeader(true)}
+            {renderPanelBody(true)}
+          </section>
+        </div>
+      ) : null}
+    </>
   )
 }

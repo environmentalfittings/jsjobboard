@@ -1,0 +1,130 @@
+import { useEffect, useId, useMemo, useRef, useState } from 'react'
+import {
+  suggestWorkOrders,
+  type ValveListSort,
+} from '../lib/valveWorkOrderSearch'
+import type { Valve } from '../types'
+
+interface WorkOrderFilterBarProps {
+  valves: Valve[]
+  query: string
+  selectedValveId: string
+  sort: ValveListSort
+  onQueryChange: (value: string) => void
+  onSelect: (valve: Valve) => void
+  onClear: () => void
+  onSortChange: (sort: ValveListSort) => void
+}
+
+export function WorkOrderFilterBar({
+  valves,
+  query,
+  selectedValveId,
+  sort,
+  onQueryChange,
+  onSelect,
+  onClear,
+  onSortChange,
+}: WorkOrderFilterBarProps) {
+  const listId = useId()
+  const rootRef = useRef<HTMLDivElement>(null)
+  const [open, setOpen] = useState(false)
+  const inputValue = selectedValveId || query
+  const suggestions = useMemo(() => suggestWorkOrders(valves, query), [valves, query])
+
+  useEffect(() => {
+    if (!open) return
+    const onPointerDown = (event: MouseEvent) => {
+      if (!rootRef.current?.contains(event.target as Node)) setOpen(false)
+    }
+    document.addEventListener('mousedown', onPointerDown)
+    return () => document.removeEventListener('mousedown', onPointerDown)
+  }, [open])
+
+  const handleClear = () => {
+    onClear()
+    onQueryChange('')
+    setOpen(false)
+  }
+
+  return (
+    <div className="job-board-wo-filter" ref={rootRef}>
+      <label className="job-board-wo-filter-field">
+        <span>Work order #</span>
+        <div className="job-board-wo-combobox">
+          <input
+            type="text"
+            role="combobox"
+            aria-expanded={open}
+            aria-controls={listId}
+            aria-autocomplete="list"
+            placeholder="Type to filter…"
+            value={inputValue}
+            onChange={(event) => {
+              onClear()
+              onQueryChange(event.target.value)
+              setOpen(true)
+            }}
+            onFocus={() => setOpen(true)}
+            onKeyDown={(event) => {
+              if (event.key === 'Escape') {
+                setOpen(false)
+                return
+              }
+              if (event.key === 'Enter' && suggestions[0]) {
+                event.preventDefault()
+                onSelect(suggestions[0])
+                setOpen(false)
+              }
+            }}
+          />
+          {inputValue ? (
+            <button
+              type="button"
+              className="job-board-wo-clear"
+              onClick={handleClear}
+              aria-label="Clear work order filter"
+            >
+              ×
+            </button>
+          ) : null}
+          {open && query.trim() && !selectedValveId && suggestions.length > 0 ? (
+            <ul className="job-board-wo-suggestions" id={listId} role="listbox">
+              {suggestions.map((valve) => (
+                <li key={valve.id} role="none">
+                  <button
+                    type="button"
+                    role="option"
+                    className="job-board-wo-suggestion"
+                    onMouseDown={(event) => event.preventDefault()}
+                    onClick={() => {
+                      onSelect(valve)
+                      setOpen(false)
+                    }}
+                  >
+                    <strong>{valve.valve_id}</strong>
+                    <span>{valve.customer ?? 'Unknown customer'}</span>
+                    {valve.status ? <span className="job-board-wo-suggestion-status">{valve.status}</span> : null}
+                  </button>
+                </li>
+              ))}
+            </ul>
+          ) : null}
+        </div>
+      </label>
+
+      <label className="job-board-wo-filter-field">
+        <span>Sort</span>
+        <select value={sort} onChange={(event) => onSortChange(event.target.value as ValveListSort)}>
+          <option value="default">Default (priority)</option>
+          <option value="wo-asc">Work order — ascending</option>
+          <option value="wo-desc">Work order — descending</option>
+          <option value="due-asc">Due date — ascending</option>
+          <option value="due-desc">Due date — descending</option>
+          <option value="customer-asc">Customer — A to Z</option>
+          <option value="customer-desc">Customer — Z to A</option>
+        </select>
+      </label>
+    </div>
+  )
+}

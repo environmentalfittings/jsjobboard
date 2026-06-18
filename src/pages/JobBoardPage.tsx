@@ -7,6 +7,8 @@ import { TechnicianAvatars } from '../components/TechnicianAvatars'
 import { StatusChangeModal } from '../components/StatusChangeModal'
 import { useToast } from '../components/ToastNotification'
 import { normalizeJobType } from '../constants/jobTypes'
+import { ColumnFilterCombobox } from '../components/ColumnFilterCombobox'
+import { WorkOrderFilterBar } from '../components/WorkOrderFilterBar'
 import { normalizeJobSubStatus, type JobSubStatus } from '../constants/jobSubStatuses'
 import {
   DONE_STATUSES,
@@ -16,6 +18,22 @@ import {
 import { parseAssignedTechnicianIds } from '../lib/valveTechnicianIds'
 import { fetchAllValves } from '../lib/fetchAllValves'
 import { displayJobStatus, isActiveOrderType } from '../lib/jobDisplayStatus'
+import {
+  compareValveIdSequential,
+  compareValvesBySort,
+  valveMatchesWorkOrderFilter,
+  type ValveListSort,
+} from '../lib/valveWorkOrderSearch'
+import {
+  compareValvesByListColumn,
+  emptyColumnFilters,
+  LIST_FILTER_COLUMNS,
+  valveMatchesAllColumnFilters,
+  type ListColumnKey,
+  type ListColumnContext,
+  type ListSortState,
+  type ColumnFilterState,
+} from '../lib/jobBoardListColumns'
 import { recordDueDateChange, resolveChangedByName } from '../lib/dueDateChanges'
 import { isEligiblePriorityValve, syncPriorityQueueWithValves } from '../lib/priorityQueue'
 import { supabase } from '../lib/supabase'
@@ -35,11 +53,6 @@ type ScopeFilter =
   | 'closed'
   | 'ready-to-ship'
   | 'not-arrived'
-type TurnaroundFilter = 'all' | 'turnaround' | 'not_turnaround'
-
-function compareValveIdSequential(a: string, b: string): number {
-  return a.localeCompare(b, undefined, { numeric: true, sensitivity: 'base' })
-}
 
 function isTurnaroundValve(v: Valve): boolean {
   return v.is_turnaround === true
@@ -252,8 +265,6 @@ export function JobBoardPage({ role, username }: { role?: UserRole; username?: s
   const isDedicatedDetailRoute = Boolean(routeJobId)
   const initialTab = searchParams.get('view') === 'list' ? 'list' : 'kanban'
   const scopeParam = searchParams.get('scope')
-  const statusParam = searchParams.get('status')
-  const cellParam = searchParams.get('cell')
   const initialScope: ScopeFilter =
     scopeParam === 'in-process' ||
     scopeParam === 'on-hold' ||
@@ -273,14 +284,14 @@ export function JobBoardPage({ role, username }: { role?: UserRole; username?: s
   const [selectedStatus, setSelectedStatus] = useState('')
   const [isSaving, setIsSaving] = useState(false)
   const [attachmentCounts, setAttachmentCounts] = useState<Record<number, number>>({})
-  const [searchText, setSearchText] = useState('')
-  const [statusFilter, setStatusFilter] = useState(statusParam ? statusParam : 'All')
+  const [workOrderQuery, setWorkOrderQuery] = useState('')
+  const [selectedWorkOrder, setSelectedWorkOrder] = useState('')
+  const [listSort, setListSort] = useState<ValveListSort>('default')
+  const [columnFilters, setColumnFilters] = useState(emptyColumnFilters)
+  const [listColumnSort, setListColumnSort] = useState<ListSortState>({ column: 'default', direction: 'asc' })
   const [scopeFilter, setScopeFilter] = useState<ScopeFilter>(initialScope)
-  const [cellFilter, setCellFilter] = useState(cellParam ? cellParam : 'all')
-  const [turnaroundFilter, setTurnaroundFilter] = useState<TurnaroundFilter>('all')
   const [technicians, setTechnicians] = useState<Technician[]>([])
   const [jobTechnicianIdsByValve, setJobTechnicianIdsByValve] = useState<Record<number, number[]>>({})
-  const [technicianFilter, setTechnicianFilter] = useState('all')
   const [dueDateEditValve, setDueDateEditValve] = useState<Valve | null>(null)
   const [savingDueDate, setSavingDueDate] = useState(false)
   const [phaseOrder, setPhaseOrder] = useState<PhaseOrder>(() => {
@@ -302,7 +313,6 @@ export function JobBoardPage({ role, username }: { role?: UserRole; username?: s
   const { showToast } = useToast()
 
   const techniciansById = useMemo(() => new Map(technicians.map((t) => [t.id, t])), [technicians])
-  const activeTechnicians = useMemo(() => technicians.filter((t) => t.active), [technicians])
   const compareValvesForDisplay = useCallback(
     (a: Valve, b: Valve) => {
       const aPriority = priorityIds.has(a.valve_id) ? 1 : 0
@@ -315,6 +325,36 @@ export function JobBoardPage({ role, username }: { role?: UserRole; username?: s
   const technicianIdsForValve = useCallback(
     (valve: Valve) => jobTechnicianIdsByValve[valve.id] ?? parseAssignedTechnicianIds(valve.assigned_technician_ids),
     [jobTechnicianIdsByValve],
+  )
+  const technicianLabelForValve = useCallback(
+    (valve: Valve) =>
+      technicianIdsForValve(valve)
+        .map((id) => techniciansById.get(id)?.name)
+        .filter((name): name is string => Boolean(name))
+        .join(', '),
+    [technicianIdsForValve, techniciansById],
+  )
+  const listColumnContext = useMemo<ListColumnContext>(
+    () => ({ technicianLabelForValve }),
+    [technicianLabelForValve],
+  )
+  const setColumnFilter = useCallback((key: ListColumnKey, next: ColumnFilterState) => {
+    setColumnFilters((prev) => ({ ...prev, [key]: next }))
+  }, [])
+  const toggleColumnSort = useCallback((key: ListColumnKey) => {
+    setListColumnSort((prev) => {
+      if (prev.column !== key) return { column: key, direction: 'asc' }
+      if (prev.direction === 'asc') return { column: key, direction: 'desc' }
+      return { column: 'default', direction: 'asc' }
+    })
+  }, [])
+  const activeColumnFilterCount = useMemo(
+    () =>
+      LIST_FILTER_COLUMNS.filter(({ key }) => {
+        const f = columnFilters[key]
+        return Boolean(f.selected || f.query.trim())
+      }).length,
+    [columnFilters],
   )
 
   useEffect(() => {
@@ -481,12 +521,7 @@ export function JobBoardPage({ role, username }: { role?: UserRole; username?: s
     [valves],
   )
 
-  const availableCells = useMemo(() => {
-    return [...new Set(activeNonTerminal.map((v) => v.cell).filter((c): c is string => Boolean(c && c.trim())))]
-      .sort((a, b) => a.localeCompare(b))
-  }, [activeNonTerminal])
-
-  const tableRows = useMemo(() => {
+  const scopeBaseValves = useMemo(() => {
     const base = scopeFilter === 'closed' ? closedWorkOrders : activeNonTerminal
     return base.filter((v) => {
       const matchesScope =
@@ -498,35 +533,27 @@ export function JobBoardPage({ role, username }: { role?: UserRole; username?: s
         (scopeFilter === 'on-order' && isActiveOrderType(v.order_type)) ||
         (scopeFilter === 'ready-to-ship' && v.status === 'Warehouse RTS') ||
         (scopeFilter === 'not-arrived' && v.status === 'Not Arrived')
-      const text = searchText.trim().toLowerCase()
-      const matchesText =
-        !text ||
-        v.valve_id.toLowerCase().includes(text) ||
-        (v.customer ?? '').toLowerCase().includes(text) ||
-        (v.description ?? '').toLowerCase().includes(text) ||
-        (v.notes ?? '').toLowerCase().includes(text)
-      const matchesStatus = statusFilter === 'All' || v.status === statusFilter
-      const matchesCell = cellFilter === 'all' || (v.cell ?? '') === cellFilter
-      const matchesTurnaround =
-        turnaroundFilter === 'all' ||
-        (turnaroundFilter === 'turnaround' && isTurnaroundValve(v)) ||
-        (turnaroundFilter === 'not_turnaround' && !isTurnaroundValve(v))
-      const matchesTechnician =
-        technicianFilter === 'all' || technicianIdsForValve(v).includes(Number.parseInt(technicianFilter, 10))
-      return matchesScope && matchesText && matchesStatus && matchesCell && matchesTurnaround && matchesTechnician
-    }).sort(compareValvesForDisplay)
-  }, [
-    activeNonTerminal,
-    closedWorkOrders,
-    scopeFilter,
-    searchText,
-    statusFilter,
-    cellFilter,
-    turnaroundFilter,
-    technicianFilter,
-    technicianIdsForValve,
-    compareValvesForDisplay,
-  ])
+      return matchesScope
+    })
+  }, [activeNonTerminal, closedWorkOrders, scopeFilter])
+
+  const sortValves = useCallback(
+    (items: Valve[]) => {
+      if (listSort === 'default') {
+        return [...items].sort(compareValvesForDisplay)
+      }
+      return [...items].sort((a, b) => compareValvesBySort(a, b, listSort, compareValvesForDisplay))
+    },
+    [listSort, compareValvesForDisplay],
+  )
+
+  const tableRows = useMemo(() => {
+    return scopeBaseValves
+      .filter((v) => valveMatchesAllColumnFilters(v, columnFilters, listColumnContext))
+      .sort((a, b) =>
+        compareValvesByListColumn(a, b, listColumnSort, listColumnContext, compareValvesForDisplay),
+      )
+  }, [scopeBaseValves, columnFilters, listColumnSort, listColumnContext, compareValvesForDisplay])
 
   const openModal = (valve: Valve) => {
     setActiveValve(valve)
@@ -711,10 +738,17 @@ export function JobBoardPage({ role, username }: { role?: UserRole; username?: s
 
   const itemsForPhase = useCallback(
     (phaseKey: PhaseKey) => {
-      const base = baseItemsForPhase(phaseKey)
+      let base = baseItemsForPhase(phaseKey).filter((valve) =>
+        valveMatchesWorkOrderFilter(valve, workOrderQuery, selectedWorkOrder),
+      )
+
+      if (listSort !== 'default') {
+        return sortValves(base)
+      }
+
       const orderIds = phaseOrder[phaseKey]
       if (!orderIds.length) {
-        return [...base].sort(compareValvesForDisplay)
+        return sortValves(base)
       }
 
       const byId = new Map(base.map((valve) => [valve.id, valve]))
@@ -726,10 +760,10 @@ export function JobBoardPage({ role, username }: { role?: UserRole; username?: s
           byId.delete(id)
         }
       }
-      const rest = [...byId.values()].sort(compareValvesForDisplay)
+      const rest = sortValves([...byId.values()])
       return [...ordered, ...rest]
     },
-    [baseItemsForPhase, phaseOrder, compareValvesForDisplay],
+    [baseItemsForPhase, phaseOrder, workOrderQuery, selectedWorkOrder, listSort, sortValves],
   )
 
   const placeInPhaseOrder = useCallback(
@@ -857,6 +891,22 @@ export function JobBoardPage({ role, username }: { role?: UserRole; username?: s
 
       {loading ? <div className="loading">Loading valves...</div> : null}
 
+      {!isDedicatedDetailRoute && !loading && tab === 'kanban' ? (
+        <WorkOrderFilterBar
+          valves={scopeBaseValves}
+          query={workOrderQuery}
+          selectedValveId={selectedWorkOrder}
+          sort={listSort}
+          onQueryChange={setWorkOrderQuery}
+          onSelect={(valve) => {
+            setSelectedWorkOrder(valve.valve_id)
+            setWorkOrderQuery(valve.valve_id)
+          }}
+          onClear={() => setSelectedWorkOrder('')}
+          onSortChange={setListSort}
+        />
+      ) : null}
+
       {!isDedicatedDetailRoute && tab === 'kanban' ? (
         <>
         <p className="kanban-reorder-hint">Use ↑ ↓ on each card to set priority within a column. Order is saved on this device.</p>
@@ -897,7 +947,7 @@ export function JobBoardPage({ role, username }: { role?: UserRole; username?: s
         </>
       ) : !isDedicatedDetailRoute ? (
         <div className="list-view">
-          <div className="filters">
+          <div className="filters list-view-scope">
             <select value={scopeFilter} onChange={(e) => setScopeFilter(e.target.value as ScopeFilter)}>
               <option value="all">All active work</option>
               <option value="on-order">On order (all active)</option>
@@ -908,62 +958,59 @@ export function JobBoardPage({ role, username }: { role?: UserRole; username?: s
               <option value="ready-to-ship">Ready to ship</option>
               <option value="not-arrived">Not arrived (shop status)</option>
             </select>
-            <input
-              type="text"
-              placeholder="Search valve, customer, description, or notes"
-              value={searchText}
-              onChange={(e) => setSearchText(e.target.value)}
-            />
-            <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)}>
-              <option value="All">All statuses</option>
-              {[...new Set(activeNonTerminal.map((v) => v.status))].map((status) => (
-                <option value={status} key={status}>
-                  {status}
-                </option>
-              ))}
-            </select>
-            <select value={cellFilter} onChange={(e) => setCellFilter(e.target.value)}>
-              <option value="all">All cells</option>
-              {availableCells.map((cell) => (
-                <option value={cell} key={cell}>
-                  {cell}
-                </option>
-              ))}
-            </select>
-            <select
-              value={turnaroundFilter}
-              onChange={(e) => setTurnaroundFilter(e.target.value as TurnaroundFilter)}
-              aria-label="Filter by turnaround"
+            <button
+              type="button"
+              className="button-secondary list-clear-filters"
+              onClick={() => {
+                setColumnFilters(emptyColumnFilters())
+                setListColumnSort({ column: 'default', direction: 'asc' })
+              }}
+              disabled={activeColumnFilterCount === 0 && listColumnSort.column === 'default'}
             >
-              <option value="all">All jobs</option>
-              <option value="turnaround">Turnarounds only</option>
-              <option value="not_turnaround">Exclude turnarounds</option>
-            </select>
-            <select value={technicianFilter} onChange={(e) => setTechnicianFilter(e.target.value)}>
-              <option value="all">All technicians</option>
-              {activeTechnicians.map((t) => (
-                <option key={t.id} value={t.id}>
-                  {t.name}
-                </option>
-              ))}
-            </select>
+              {activeColumnFilterCount > 0
+                ? `Clear ${activeColumnFilterCount} filter${activeColumnFilterCount === 1 ? '' : 's'}`
+                : 'Clear filters'}
+            </button>
+            <span className="list-view-count">
+              {tableRows.length} row{tableRows.length === 1 ? '' : 's'}
+            </span>
           </div>
-          <div className="table-wrap">
-            <table>
+          <div className="table-wrap list-table-wrap">
+            <table className="list-view-table">
               <thead>
-                <tr>
-                  <th>Valve ID</th>
-                  <th>Customer</th>
-                  <th>Cell</th>
-                  <th>Size</th>
-                  <th>Turnaround</th>
-                  <th>Status</th>
-                  <th>Sub-status</th>
-                  <th>Techs</th>
-                  <th>Due Date</th>
-                  <th>Description</th>
-                  <th>Notes</th>
-                  <th>Actions</th>
+                <tr className="list-filter-row">
+                  {LIST_FILTER_COLUMNS.map(({ key, label }) => (
+                    <th key={key}>
+                      <div className="list-col-header">
+                        <button
+                          type="button"
+                          className={`list-col-sort-btn ${
+                            listColumnSort.column === key ? `sorted-${listColumnSort.direction}` : ''
+                          }`}
+                          onClick={() => toggleColumnSort(key)}
+                          aria-label={`Sort by ${label}`}
+                        >
+                          <span className="list-col-label">{label}</span>
+                          <span className="list-col-sort-indicator" aria-hidden="true">
+                            {listColumnSort.column === key
+                              ? listColumnSort.direction === 'asc'
+                                ? '↑'
+                                : '↓'
+                              : '↕'}
+                          </span>
+                        </button>
+                        <ColumnFilterCombobox
+                          column={key}
+                          label={label}
+                          valves={scopeBaseValves}
+                          filter={columnFilters[key]}
+                          context={listColumnContext}
+                          onChange={(next) => setColumnFilter(key, next)}
+                        />
+                      </div>
+                    </th>
+                  ))}
+                  <th className="list-col-actions">Actions</th>
                 </tr>
               </thead>
               <tbody>
