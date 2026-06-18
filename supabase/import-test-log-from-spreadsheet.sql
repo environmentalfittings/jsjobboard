@@ -1,6 +1,8 @@
--- Generated from "Test Log Current" worksheet
--- Total test rows imported: 4163
+-- Generated from Valve Status 2026 new 5.26.26.xlsx "Test Log Current" worksheet
+-- Total test rows imported: 4392
 begin;
+
+truncate table public.test_logs restart identity;
 
 insert into public.test_logs (tested_on, valve_id, size, pressure, manufacturer, valve_type, test_type, worked, pass_fail, action_taken, tester)
 values
@@ -503,7 +505,11 @@ values
   ('2023-07-17'::date, '1551187', '8', '300', 'ORBIT Reduced Port', 'ORBIT', 'Water', 'TEST', 'PASS', 'WCC', 'TC'),
   ('2023-07-17'::date, '6055-1', '1', '300', 'DURCO', 'Non Lubricated Plug', 'Mineral Oil', 'COMPLETE', 'PASS', null, null),
   ('2023-07-17'::date, '6055-2', '1', '300', 'DURCO', 'Non Lubricated Plug', 'Mineral Oil', 'COMPLETE', 'PASS', null, null),
-  ('2023-07-17'::date, '6055-3', '1', '300', 'DURCO', 'Non Lubricated Plug', 'Mineral Oil', 'COMPLETE', 'PASS', null, null),
+  ('2023-07-17'::date, '6055-3', '1', '300', 'DURCO', 'Non Lubricated Plug', 'Mineral Oil', 'COMPLETE', 'PASS', null, null)
+;
+
+insert into public.test_logs (tested_on, valve_id, size, pressure, manufacturer, valve_type, test_type, worked, pass_fail, action_taken, tester)
+values
   ('2023-07-17'::date, '6055-4', '1', '300', 'DURCO', 'Non Lubricated Plug', 'Mineral Oil', 'COMPLETE', 'PASS', null, null),
   ('2023-07-17'::date, '6097-1', '3', '300', 'ORBIT', 'ORBIT', 'Water', 'COMPLETE', 'PASS', 'WCB', 'TC'),
   ('2023-07-17'::date, '6097-2', '6', '300', 'ORBIT', 'ORBIT', 'Water', 'COMPLETE', 'PASS', 'WCB', 'TC'),
@@ -1003,7 +1009,11 @@ values
   ('2024-01-10'::date, '6475-1', '0.75', '300', 'VELAN', 'Gate', 'Helium Mineral Oil', 'TEST', 'Pass', null, 'TC'),
   ('2024-01-11'::date, '6388-1', '16', '400', 'GENERAL', 'Twinseal', 'Water w/ 4 Hour', 'COMPLETE', 'Pass', null, 'TC'),
   ('2024-01-11'::date, '6475-2', '0.75', '300', 'VELAN', 'Gate', 'Helium Mineral Oil', 'TEST', 'Pass', null, 'TC'),
-  ('2024-01-15'::date, '6271-1', '8', '1500', 'CAMERON', 'Ball Valve', 'Water/Helium', 'COMPLETE', 'Pass', null, 'TC'),
+  ('2024-01-15'::date, '6271-1', '8', '1500', 'CAMERON', 'Ball Valve', 'Water/Helium', 'COMPLETE', 'Pass', null, 'TC')
+;
+
+insert into public.test_logs (tested_on, valve_id, size, pressure, manufacturer, valve_type, test_type, worked, pass_fail, action_taken, tester)
+values
   ('2024-01-15'::date, '6450-1', '0.75', '300', 'DURCO', 'Non Lubricated Plug', 'Helium Mineral Oil', 'COMPLETE', 'Pass', null, 'TC'),
   ('2024-01-15'::date, '6450-2', '0.75', '300', 'DURCO', 'Non Lubricated Plug', 'Helium Mineral Oil', 'COMPLETE', 'Pass', null, 'TC'),
   ('2024-01-15'::date, '6450-3', '0.75', '300', 'DURCO', 'Non Lubricated Plug', 'Helium Mineral Oil', 'COMPLETE', 'Pass', null, 'TC'),
@@ -1503,7 +1513,11 @@ values
   ('2024-07-31'::date, '6797-39', '0.75', '275', 'Farris', 'Relief Valve', 'Water', 'COMPLETE', 'Pass', null, null),
   ('2024-07-31'::date, '6797-40', '0.75', '275', 'Farris', 'Relief Valve', 'Water', 'COMPLETE', 'Pass', null, null),
   ('2024-07-31'::date, '6797-41', '0.75', '300', 'Farris', 'Relief Valve', 'Water', 'COMPLETE', 'Pass', null, null),
-  ('2024-07-31'::date, '6797-42', '.75x1', '300', 'Farris', 'Relief Valve', 'Water', 'COMPLETE', 'Pass', null, null),
+  ('2024-07-31'::date, '6797-42', '.75x1', '300', 'Farris', 'Relief Valve', 'Water', 'COMPLETE', 'Pass', null, null)
+;
+
+insert into public.test_logs (tested_on, valve_id, size, pressure, manufacturer, valve_type, test_type, worked, pass_fail, action_taken, tester)
+values
   ('2024-07-31'::date, '6797-43', '.75x1', '300', 'Farris', 'Relief Valve', 'Water', 'COMPLETE', 'Pass', null, null),
   ('2024-07-31'::date, '6797-44', '.75x1', '300', 'Farris', 'Relief Valve', 'Water', 'COMPLETE', 'Pass', null, null),
   ('2024-07-31'::date, '6797-45', '.75x1', '300', 'Farris', 'Relief Valve', 'Water', 'COMPLETE', 'Pass', null, null),
@@ -2003,7 +2017,11 @@ values
   ('2024-10-17'::date, '6792-69', '2', '300', 'DURCO', 'Non Lubricated Plug', 'Helium Mineral Oil', 'COMPLETE', 'Pass', null, 'CP'),
   ('2024-10-17'::date, '6792-196', '8', '300', 'DURCO', 'Non Lubricated Plug', 'Helium Mineral Oil', 'COMPLETE', 'Pass', null, 'CP'),
   ('2024-10-17'::date, '6792-199', '8', '300', 'DURCO', 'Non Lubricated Plug', 'Helium Mineral Oil', 'COMPLETE', 'Pass', null, 'CP'),
-  ('2024-10-17'::date, '6792-220', '12', '300', 'DURCO', 'Non Lubricated Plug', 'Helium Mineral Oil', 'COMPLETE', 'Pass', null, 'CP'),
+  ('2024-10-17'::date, '6792-220', '12', '300', 'DURCO', 'Non Lubricated Plug', 'Helium Mineral Oil', 'COMPLETE', 'Pass', null, 'CP')
+;
+
+insert into public.test_logs (tested_on, valve_id, size, pressure, manufacturer, valve_type, test_type, worked, pass_fail, action_taken, tester)
+values
   ('2024-10-17'::date, '7012-3', '2', '300', 'PACIFIC', 'Gate', 'Helium Mineral Oil', 'COMPLETE', 'Pass', null, 'CP'),
   ('2024-10-17'::date, '7014-3', '6', '300', 'PACIFIC', 'Gate', 'Helium Mineral Oil', 'COMPLETE', 'Pass', null, 'CP'),
   ('2024-10-17'::date, '7017-6', '6', '300', 'PACIFIC', 'Globe', 'Helium Mineral Oil', 'COMPLETE', 'Pass', null, 'CP'),
@@ -2503,7 +2521,11 @@ values
   ('2025-01-30'::date, '7196-25', '2', '300', 'VELAN', 'Gate', 'Helium Only', 'TEST', 'Pass', null, 'CP'),
   ('2025-01-30'::date, '7196-26', '2', '300', 'VELAN', 'Gate', 'Helium Only', 'TEST', 'Pass', null, 'CP'),
   ('2025-01-30'::date, '7196-17', '0.75', '800', 'VELAN', 'Gate', 'Helium Only', 'TEST', 'Pass', null, 'TC'),
-  ('2025-01-30'::date, '7196-18', '0.75', '800', 'VELAN', 'Gate', 'Helium Only', 'TEST', 'Pass', null, 'TC'),
+  ('2025-01-30'::date, '7196-18', '0.75', '800', 'VELAN', 'Gate', 'Helium Only', 'TEST', 'Pass', null, 'TC')
+;
+
+insert into public.test_logs (tested_on, valve_id, size, pressure, manufacturer, valve_type, test_type, worked, pass_fail, action_taken, tester)
+values
   ('2025-01-31'::date, '7182-1', '4', '300', 'VALTEK', 'CONTROLVALVE', 'Water/Helium', 'COMPLETE', 'Pass', null, 'CP'),
   ('2025-01-31'::date, '7102-4', '6', '300', 'ORBIT', 'ORBIT', 'Water/Helium', 'COMPLETE', 'Pass', null, 'TC'),
   ('2025-01-31'::date, '7164-7', '3', '150', 'VELAN', 'Gate', 'Water w/Air', 'COMPLETE', 'Pass', null, 'TC'),
@@ -2637,7 +2659,6 @@ values
   ('2025-02-11'::date, '7230-2', '0.75', '220', null, 'Relief Valve', null, 'COMPLETE', 'Pass', null, 'jo'),
   ('2025-02-12'::date, '7201-3', '1.5', '600', 'BONNEY FORGE', 'Swing Check', 'Water', 'TEST', 'Pass', null, 'TC'),
   ('2025-02-12'::date, '7196-56', '4', '300', 'VELAN', 'Swing Check', 'Helium Mineral Oil', 'TEST', 'Pass', null, 'CP'),
-  ('2025-02-12'::date, '7201-4', '1.5', '600', 'BONNEY FORGE', 'Swing Check', 'Water', 'TEST', 'Pass', null, 'TC'),
   ('2025-02-12'::date, '7201-5', '1.5', '600', 'BONNEY FORGE', 'Swing Check', 'Water', 'TEST', 'Pass', null, 'TC'),
   ('2025-02-12'::date, '7201-1', '0.5', '200', null, 'Swing Check', 'Water', 'TEST', 'Fail', null, 'TC'),
   ('2025-02-12'::date, '7062-1', '10', '900', 'KITZ', 'Gate', 'Water', 'COMPLETE', 'Pass', null, 'TC'),
@@ -3004,7 +3025,11 @@ values
   ('2025-03-13'::date, '7146-6', '4', '600', 'KF', 'Piston Check', 'Water/Helium', 'COMPLETE', 'Fail', null, 'CP'),
   ('2025-03-13'::date, '7146-1', '3', '600', 'KF', 'Piston Check', 'Water/Helium', 'COMPLETE', 'Pass', null, 'CP'),
   ('2025-03-13'::date, '7146-3', '3', '600', 'KF', 'Piston Check', 'Water/Helium', 'COMPLETE', 'Pass', null, 'CP'),
-  ('2025-03-13'::date, '7146-5', '4', '600', 'KF', 'Piston Check', 'Water/Helium', 'COMPLETE', 'Pass', null, 'TC'),
+  ('2025-03-13'::date, '7146-5', '4', '600', 'KF', 'Piston Check', 'Water/Helium', 'COMPLETE', 'Pass', null, 'TC')
+;
+
+insert into public.test_logs (tested_on, valve_id, size, pressure, manufacturer, valve_type, test_type, worked, pass_fail, action_taken, tester)
+values
   ('2025-03-14'::date, '7256-1', '12', '300', 'PACIFIC', 'Wedgeplug', 'Water', 'COMPLETE', 'Pass', null, 'TC'),
   ('2025-03-14'::date, '7089-8', '0.75', '300', 'DURCO', 'Non Lubricated Plug', 'Helium Mineral Oil', 'COMPLETE', 'Pass', null, 'TC'),
   ('2025-03-14'::date, '7259-1', '4', '900', 'GENERAL', 'Twinseal', 'Water w/ 4 Hour', 'COMPLETE', 'Pass', null, 'TC'),
@@ -3317,7 +3342,7 @@ values
   ('2025-05-23'::date, '7474-2', '3', '150', 'TUFLINE', 'Non Lubricated Plug', 'Water', 'COMPLETE', 'Pass', null, 'CB'),
   ('2025-05-23'::date, '7299-19', '6', '600', 'ORBIT', 'ORBIT', 'Water/Helium', 'COMPLETE', 'Pass', null, 'JO'),
   ('2025-05-24'::date, '7474-4', '4', '150', 'DURCO', 'Non Lubricated Plug', 'Water', 'COMPLETE', 'Pass', null, 'CB'),
-  ('2025-05-27'::date, '7237-3', '10', '300', 'PACIFIC', 'Wedgeplug', 'Water', 'COMPLETE', 'Pass', null, 'CP'),
+  ('2025-05-27'::date, '6979-22', '1', '300', 'PACIFIC', 'Non Lubricated Plug', 'Water', 'COMPLETE', 'Pass', null, 'CP'),
   ('2025-05-27'::date, '7299-14', '6', '600', 'ORBIT', 'ORBIT', 'Water/Helium', 'COMPLETE', 'Pass', null, 'CB'),
   ('2025-05-27'::date, '7299-15', '6', '600', 'ORBIT', 'ORBIT', 'Water/Helium', 'COMPLETE', 'Pass', null, 'CP'),
   ('2025-05-27'::date, '7415-1', '6', '600', 'GENERAL', 'Twinseal', 'Water w/ 4 Hour', 'COMPLETE', 'Fail', 'LEAKING @ TRUNNION', 'CB'),
@@ -3504,7 +3529,11 @@ values
   ('2025-08-06'::date, '7587-8', '0.75', '300', 'DURCO', 'Non Lubricated Plug', 'Helium Only', 'COMPLETE', 'Pass', null, 'CPCB'),
   ('2025-08-06'::date, '7587-9', '0.75', '300', 'DURCO', 'Non Lubricated Plug', 'Helium Only', 'COMPLETE', 'Pass', null, 'CPCB'),
   ('2025-08-06'::date, '7587-10', '0.75', '300', 'DURCO', 'Non Lubricated Plug', 'Helium Only', 'COMPLETE', 'Pass', null, 'CPCB'),
-  ('2025-08-06'::date, '7587-11', '0.75', '300', 'DURCO', 'Non Lubricated Plug', 'Helium Only', 'COMPLETE', 'Pass', null, 'CPCB'),
+  ('2025-08-06'::date, '7587-11', '0.75', '300', 'DURCO', 'Non Lubricated Plug', 'Helium Only', 'COMPLETE', 'Pass', null, 'CPCB')
+;
+
+insert into public.test_logs (tested_on, valve_id, size, pressure, manufacturer, valve_type, test_type, worked, pass_fail, action_taken, tester)
+values
   ('2025-08-06'::date, '7587-12', '0.75', '300', 'DURCO', 'Non Lubricated Plug', 'Helium Only', 'COMPLETE', 'Pass', null, 'CPCB'),
   ('2025-08-06'::date, '7587-13', '0.75', '300', 'DURCO', 'Non Lubricated Plug', 'Helium Only', 'COMPLETE', 'Pass', null, 'CPCB'),
   ('2025-08-06'::date, '7587-14', '1', '300', 'DURCO', 'Non Lubricated Plug', 'Helium Only', 'COMPLETE', 'Pass', null, 'CBCP'),
@@ -4004,7 +4033,11 @@ values
   ('2026-01-13'::date, '475227-1', '10', '600', 'General', 'Twinseal', 'Water w/ 4 Hour', 'Complete', 'Pass', null, 'JOCPCB'),
   ('2026-01-13'::date, '475227-2', '10', '600', 'General', 'Twinseal', 'Water w/ 4 Hour', 'Complete', 'Pass', null, 'CBCPJO'),
   ('2026-01-14'::date, '474736-1', '12', '300', 'Pacific', 'Wedgeplug', 'Water', 'Complete', 'Pass', null, 'JOCB'),
-  ('2026-01-14'::date, '476034-1', '2', '150', 'Durco', '3 WAY PLUG', 'Water', 'Complete', 'Pass', null, 'CP'),
+  ('2026-01-14'::date, '476034-1', '2', '150', 'Durco', '3 WAY PLUG', 'Water', 'Complete', 'Pass', null, 'CP')
+;
+
+insert into public.test_logs (tested_on, valve_id, size, pressure, manufacturer, valve_type, test_type, worked, pass_fail, action_taken, tester)
+values
   ('2026-01-14'::date, '476034-2', '2', '150', 'Durco', '3 WAY PLUG', 'Water', 'Complete', 'Pass', null, 'CP'),
   ('2026-01-14'::date, '476034-3', '2', '150', 'Durco', '3 WAY PLUG', 'Water', 'Complete', 'Pass', null, 'CP'),
   ('2026-01-14'::date, '476034-4', '2', '150', 'Durco', '3 WAY PLUG', 'Water', 'Complete', 'Pass', null, 'CP'),
@@ -4166,21 +4199,237 @@ values
   ('2026-03-30'::date, '449456-2', '12', '300', 'Durco', 'Non Lubricated Plug', 'Helium Only', 'Complete', 'Pass', null, 'CP'),
   ('2026-03-31'::date, '449456-3', '12', '300', 'Durco', 'Non Lubricated Plug', 'Helium Only', 'Complete', 'Pass', null, 'CBCP'),
   ('2026-03-31'::date, '449456-9', '14', '300', 'Durco', 'Non Lubricated Plug', 'Helium Only', 'Complete', 'Pass', null, 'CPCB'),
-  ('2026-03-31'::date, '449456-6', '14', '300', 'Durco', 'Non Lubricated Plug', 'Helium Only', 'Complete', 'Pass', null, 'CBCP')
+  ('2026-03-31'::date, '449456-6', '14', '300', 'Durco', 'Non Lubricated Plug', 'Helium Only', 'Complete', 'Pass', null, 'CBCP'),
+  ('2026-03-31'::date, '449456-10', '14', '300', 'Durco', 'Non Lubricated Plug', 'Helium Only', 'Complete', 'Pass', null, 'CPCB'),
+  ('2026-03-31'::date, '466800-1', '0.5', '300', 'Durco', 'Non Lubricated Plug', 'Helium Only', 'Complete', 'Pass', null, 'CBCP'),
+  ('2026-04-01'::date, '490067-1', '6', '600', 'Velan', 'Globe', 'Water', 'Test', 'Pass', null, 'CPCB'),
+  ('2026-04-01'::date, '449456-7', '14', '300', 'Durco', 'Non Lubricated Plug', 'Helium Only', 'Test', 'Fail', 'Sent back to teardown.', 'CBCP'),
+  ('2026-04-02'::date, '449456-4', '12', '300', 'Durco', 'Non Lubricated Plug', 'Helium Only', 'Complete', 'Pass', null, 'CPCB'),
+  ('2026-04-02'::date, '449456-7', '14', '300', 'Durco', 'Non Lubricated Plug', 'Helium Only', 'Test', 'Pass', null, 'CPCBBD'),
+  ('2026-04-03'::date, '449456-12', '14', '300', 'Durco', 'Non Lubricated Plug', 'Helium Only', 'Complete', 'Pass', null, 'CBCP'),
+  ('2026-04-03'::date, '449456-11', '14', '300', 'Durco', 'Non Lubricated Plug', 'Helium Only', 'Complete', 'Pass', null, 'CPCBBD'),
+  ('2026-04-03'::date, '449456-5', '14', '300', 'Durco', 'Non Lubricated Plug', 'Helium Only', 'Complete', 'Pass', null, 'CBCPBD'),
+  ('2026-04-03'::date, '449455-9', '4', '300', 'Durco', 'Non Lubricated Plug', 'Helium Only', 'Complete', 'Pass', null, 'CPCB'),
+  ('2026-04-04'::date, '490091-1', '2', '300', 'Durco', 'Non Lubricated Plug', 'Helium Only', 'Complete', 'Pass', null, 'CBCP'),
+  ('2026-04-04'::date, '490091-2', '2', '300', 'Durco', 'Non Lubricated Plug', 'Helium Only', 'Complete', 'Pass', null, 'CPCB'),
+  ('2026-04-04'::date, '490183-1', '3', '300', 'Durco', 'Non Lubricated Plug', 'Helium Only', 'Complete', 'Pass', null, 'CBCP'),
+  ('2026-04-04'::date, '490091-4', '10', '300', 'Pacific', 'Gate', 'Helium Mineral Oil', 'Complete', 'Fail', 'Leak at weld', 'CPCB'),
+  ('2026-04-06'::date, '490091-3', '8', '300', 'Xanik', 'Gate', 'Helium Mineral Oil', 'Complete', 'Pass', null, 'CBCP'),
+  ('2026-04-06'::date, '449456-8', '14', '300', 'Durco', 'Non Lubricated Plug', 'Helium Only', 'Complete', 'Pass', null, 'CPCB'),
+  ('2026-04-06'::date, '449467-15', '10', '300', 'Durco', 'Non Lubricated Plug', 'Helium Only', 'Complete', 'Pass', null, 'CBCP'),
+  ('2026-04-07'::date, '449455-5', '8', '300', 'Pacific', 'Gate', 'Helium Mineral Oil', 'Complete', 'Pass', null, 'CPCB'),
+  ('2026-04-07'::date, '490455-4', '10', '300', 'Durco', 'Non Lubricated Plug', 'Helium Only', 'Complete', 'Pass', null, 'CBCP'),
+  ('2026-04-07'::date, '449467-6', '10', '300', 'Durco', 'Non Lubricated Plug', 'Helium Only', 'Complete', 'Pass', null, 'CPCB'),
+  ('2026-04-07'::date, '490455-3', '10', '300', 'Durco', 'Non Lubricated Plug', 'Helium Only', 'Complete', 'Pass', null, 'CBCP'),
+  ('2026-04-07'::date, '449467-7', '10', '300', 'Durco', 'Non Lubricated Plug', 'Helium Only', 'Complete', 'Pass', null, 'CPCB'),
+  ('2026-04-07'::date, '449467-5', '10', '300', 'Durco', 'Non Lubricated Plug', 'Helium Only', 'Complete', 'Pass', null, 'CBCP'),
+  ('2026-04-08'::date, '449455-4', '12', '300', 'Xanik', 'Gate', 'Helium Mineral Oil', 'Complete', 'Pass', null, 'CPCB'),
+  ('2026-04-08'::date, '449456-15', '2', '300', 'Durco', 'Non Lubricated Plug', 'Helium Only', 'Complete', 'Pass', null, 'CBCP'),
+  ('2026-04-08'::date, '449456-16', '2', '300', 'Durco', 'Non Lubricated Plug', 'Helium Only', 'Complete', 'Pass', null, 'CPCB'),
+  ('2026-04-08'::date, '490492-2', '10', '300', 'Durco', 'Non Lubricated Plug', 'Helium Only', 'Complete', 'Pass', null, 'CPCB'),
+  ('2026-04-08'::date, '449455-1', '8', '300', 'Xanik', 'Gate', 'Helium Mineral Oil', 'Complete', 'Pass', null, 'CBCP'),
+  ('2026-04-08'::date, '490091-4', '10', '300', 'Pacific', 'Gate', 'Helium Mineral Oil', 'Complete', 'Pass', null, 'CPCB'),
+  ('2026-04-08'::date, '490455-5', '8', '300', 'Durco', 'Non Lubricated Plug', 'Helium Only', 'Complete', 'Pass', null, 'CBCP'),
+  ('2026-04-08'::date, '449456-1', '12', '300', 'Durco', 'Non Lubricated Plug', 'Helium Mineral Oil', 'Complete', 'Pass', null, 'CPCB'),
+  ('2026-04-08'::date, '449467-8', '8', '300', 'Durco', 'Non Lubricated Plug', 'Helium Only', 'Complete', 'Pass', null, 'CBCP'),
+  ('2026-04-08'::date, '490492-5', '3', '300', 'Durco', 'Non Lubricated Plug', 'Helium Only', 'Complete', 'Pass', null, 'CPCB'),
+  ('2026-04-09'::date, '490492-3', '2', '300', 'Durco', 'Non Lubricated Plug', 'Helium Only', 'Complete', 'Pass', null, 'CBCP'),
+  ('2026-04-09'::date, '490492-4', '2', '300', 'Durco', 'Non Lubricated Plug', 'Helium Only', 'Complete', 'Pass', null, 'CPCB'),
+  ('2026-04-09'::date, '490492-1', '12', '300', 'Durco', 'Non Lubricated Plug', 'Helium Only', 'Complete', 'Pass', null, 'CBCP'),
+  ('2026-04-09'::date, '449467-1', '6', '300', 'Durco', 'Non Lubricated Plug', 'Helium Only', 'Complete', 'Pass', null, 'CPCB'),
+  ('2026-04-09'::date, '479323-2', '16', '300', 'Cameron', 'Ball Valve', 'Water w/ 4 Hour', 'Complete', 'Pass', null, 'CPCB'),
+  ('2026-04-09'::date, '491084-3', '12', '300', 'Durco', 'Non Lubricated Plug', 'Helium Only', 'Complete', 'Pass', null, 'CPCB'),
+  ('2026-04-09'::date, '490455-2', '10', '300', 'Durco', 'Non Lubricated Plug', 'Helium Only', 'Complete', 'Pass', null, 'CBCP'),
+  ('2026-04-09'::date, '449467-9', '12', '300', 'Durco', 'Non Lubricated Plug', 'Helium Only', 'Complete', 'Pass', null, 'CPCB'),
+  ('2026-04-09'::date, '449455-6', '12', '300', 'Pacific', 'Gate', 'Helium Mineral Oil', 'Complete', 'Pass', null, 'CBCP'),
+  ('2026-04-10'::date, '449455-3', '4', '300', 'Pacific', 'Gate', 'Helium Mineral Oil', 'Complete', 'Pass', null, 'CPCB'),
+  ('2026-04-10'::date, '449455-10', '8', '300', 'Tufline', 'Non Lubricated Plug', 'Helium Only', 'Complete', 'Pass', null, 'CBCP'),
+  ('2026-04-10'::date, '449467-4', '6', '300', 'Tufline', 'Non Lubricated Plug', 'Helium Only', 'Complete', 'Pass', null, 'CPCB'),
+  ('2026-04-10'::date, '449455-12', '8', '300', 'Tufline', 'Non Lubricated Plug', 'Helium Only', 'Complete', 'Pass', null, 'CBCPTC'),
+  ('2026-04-10'::date, '490455-1', '4', '300', 'Tufline', 'Non Lubricated Plug', 'Helium Only', 'Complete', 'Pass', null, 'CPCB'),
+  ('2026-04-10'::date, '449455-7', '8', '300', 'Pacific', 'Gate', 'Helium Mineral Oil', 'Complete', 'Pass', null, 'CBCP'),
+  ('2026-04-10'::date, '491395-1', '2', '300', 'Durco', 'Non Lubricated Plug', 'Helium Mineral Oil', 'Complete', 'Pass', null, 'CPCB'),
+  ('2026-04-10'::date, '491395-2', '2', '300', 'Durco', 'Non Lubricated Plug', 'Helium Mineral Oil', 'Complete', 'Pass', null, 'CBCP'),
+  ('2026-04-10'::date, '449467-14', '3', '300', 'Durco', 'Non Lubricated Plug', 'Helium Only', 'Complete', 'Pass', null, 'CPCB'),
+  ('2026-04-10'::date, '491084-2', '3', '300', 'Durco', 'Non Lubricated Plug', 'Helium Mineral Oil', 'Complete', 'Pass', null, 'CBCP'),
+  ('2026-04-11'::date, '491084-6', '4', '300', 'Xanik', 'Gate', 'Helium Mineral Oil', 'Complete', 'Pass', null, 'CB'),
+  ('2026-04-12'::date, '491084-4', '6', '150', 'Xanik', 'Gate', 'Helium Mineral Oil', 'Complete', 'Fail', null, 'CP'),
+  ('2026-04-13'::date, '491084-5', '6', '300', 'Pacific', 'Gate', 'Helium Mineral Oil', 'Complete', 'Pass', null, 'CP'),
+  ('2026-04-13'::date, '491084-1', '4', '300', 'Pacific', 'Gate', 'Helium Mineral Oil', 'Complete', 'Pass', null, 'CPCB'),
+  ('2026-04-13'::date, '490704-1', '4', '600', 'Velan', 'Check', 'Water', 'Test', 'Pass', null, 'CBCP'),
+  ('2026-04-14'::date, '486846-1', '4', '300', 'General', '4 WAY Diverter Valve', 'Water w/ 4 Hour', 'Complete', 'Pass', null, 'CBCP'),
+  ('2026-04-14'::date, '491084-4', '4', '300', 'Pacific', 'Gate', 'Helium Mineral Oil', 'Complete', 'Pass', null, 'CPCB'),
+  ('2026-04-14'::date, '488579-1', '2', '150', 'Durco', '3 WAY PLUG', 'Water', 'Complete', 'Pass', null, 'CPCB'),
+  ('2026-04-14'::date, '488579-2', '2', '150', 'Durco', '3 WAY PLUG', 'Water', 'Complete', 'Pass', null, 'CBCP'),
+  ('2026-04-15'::date, '488579-3', '2', '150', 'Durco', '3 WAY PLUG', 'Water', 'Complete', 'Pass', null, 'CP'),
+  ('2026-04-15'::date, '488579-4', '2', '150', 'Durco', '3 WAY PLUG', 'Water', 'Complete', 'Pass', null, 'CP'),
+  ('2026-04-15'::date, '488579-5', '2', '150', 'General', '3 WAY PLUG', 'Water', 'Complete', 'Pass', null, 'CP'),
+  ('2026-04-15'::date, '488579-6', '2', '150', 'Durco', '3 WAY PLUG', 'Water', 'Complete', 'Pass', null, 'CP'),
+  ('2026-04-15'::date, '488579-7', '2', '150', 'Durco', '3 WAY PLUG', 'Water', 'Complete', 'Pass', null, 'CP'),
+  ('2026-04-15'::date, '488579-8', '2', '150', 'Durco', '3 WAY PLUG', 'Water', 'Complete', 'Pass', null, 'CP'),
+  ('2026-04-15'::date, '491628-7', '14', '300', 'Pacific', 'Swing Check', 'Helium Mineral Oil', 'Complete', 'Pass', null, 'CBCP'),
+  ('2026-04-15'::date, '491628-8', '12', '300', 'Pacific', 'Swing Check', 'Helium Mineral Oil', 'Complete', 'Pass', null, 'CPCB'),
+  ('2026-04-16'::date, '491930-1', '12', '300', 'Durco', 'Non Lubricated Plug', 'Helium Only', 'Complete', 'Pass', null, 'CBTC'),
+  ('2026-04-16'::date, '491084-4', '6', '300', 'Xanik', 'Gate', 'Helium Mineral Oil', 'Complete', 'Pass', null, 'CB'),
+  ('2026-04-16'::date, '491628-2', '12', '300', 'Pacific', 'Swing Check', 'Helium Mineral Oil', 'Complete', 'Pass', null, 'CBCP'),
+  ('2026-04-16'::date, '491628-1', '12', '300', 'Pacific', 'Swing Check', 'Helium Mineral Oil', 'Complete', 'Pass', null, 'CPCB'),
+  ('2026-04-17'::date, '491628-6', '12', '300', 'Pacific', 'Swing Check', 'Helium Mineral Oil', 'Complete', 'Pass', null, 'CBCP'),
+  ('2026-04-17'::date, '491628-4', '6', '300', 'Pacific', 'Gate', 'Helium Mineral Oil', 'Complete', 'Pass', null, 'CPCB'),
+  ('2026-04-17'::date, '491628-5', '12', '300', 'Pacific', 'Swing Check', 'Helium Mineral Oil', 'Complete', 'Pass', null, 'CBCP'),
+  ('2026-04-20'::date, '492794-1', '8', '300', 'Pacific', 'Gate', 'Mineral Oil', 'Test', 'Pass', 'In traveler as 492794', 'CPCB'),
+  ('2026-04-20'::date, '492790-1', '8', '300', 'Crane', 'DUO CHECK', 'Water', 'Test', 'Pass', null, 'CBCP'),
+  ('2026-04-20'::date, '492790-2', '8', '300', 'Crane', 'DUO CHECK', 'Water', 'Test', 'Pass', null, 'CBCP'),
+  ('2026-04-20'::date, '491759-1', '0.5', '300', 'Durco', 'Non Lubricated Plug', 'Helium Only', 'Complete', 'Pass', null, 'CPCB'),
+  ('2026-04-20'::date, '491759-2', '0.5', '300', 'Durco', 'Non Lubricated Plug', 'Helium Only', 'Complete', 'Pass', null, 'CPCB'),
+  ('2026-04-20'::date, '491759-3', '0.5', '300', 'Durco', 'Non Lubricated Plug', 'Helium Only', 'Complete', 'Pass', null, 'CPCB'),
+  ('2026-04-20'::date, '491759-4', '0.5', '300', 'Durco', 'Non Lubricated Plug', 'Helium Only', 'Complete', 'Pass', null, 'CPCB'),
+  ('2026-04-20'::date, '491759-5', '0.5', '300', 'Durco', 'Non Lubricated Plug', 'Helium Only', 'Complete', 'Pass', null, 'CPCB'),
+  ('2026-04-20'::date, '491759-6', '0.5', '300', 'Durco', 'Non Lubricated Plug', 'Helium Only', 'Complete', 'Pass', null, 'CPCB'),
+  ('2026-04-20'::date, '491759-7', '0.75', '300', 'Durco', 'Non Lubricated Plug', 'Helium Only', 'Complete', 'Pass', null, 'CPCB'),
+  ('2026-04-20'::date, '491759-8', '0.75', '300', 'Durco', 'Non Lubricated Plug', 'Helium Only', 'Complete', 'Pass', null, 'CPCB'),
+  ('2026-04-20'::date, '491759-9', '0.75', '300', 'Durco', 'Non Lubricated Plug', 'Helium Only', 'Complete', 'Pass', null, 'CPCB'),
+  ('2026-04-20'::date, '491759-10', '0.75', '300', 'Durco', 'Non Lubricated Plug', 'Helium Only', 'Complete', 'Pass', null, 'CPCB'),
+  ('2026-04-20'::date, '491759-11', '0.75', '300', 'Durco', 'Non Lubricated Plug', 'Helium Only', 'Complete', 'Pass', null, 'CPCB'),
+  ('2026-04-20'::date, '491759-12', '0.75', '300', 'Durco', 'Non Lubricated Plug', 'Helium Only', 'Complete', 'Pass', null, 'CPCB'),
+  ('2026-04-20'::date, '489755-1', '3', '150', 'Velan', 'Swing Check', 'Water', 'Test', 'Pass', null, 'CB'),
+  ('2026-04-22'::date, '491287-1', '8', '600', 'General', 'Twinseal', 'Water w/ 4 Hour', 'Complete', 'Pass', null, 'CBCP'),
+  ('2026-04-22'::date, '491287-2', '8', '600', 'General', 'Twinseal', 'Water w/ 4 Hour', 'Complete', 'Pass', null, 'CPCB'),
+  ('2026-04-23'::date, '492716-1', '3', '150', 'Velan', 'Globe', 'Water', 'Test', 'Pass', null, 'CPCB'),
+  ('2026-04-23'::date, '492716-2', '3', '150', 'Velan', 'Globe', 'Water', 'Test', 'Pass', null, 'CBCP'),
+  ('2026-04-23'::date, '472718-1', '10', '900', 'M&J', 'Pipeline Gate- Slab', 'Water w/ 4 Hour', 'Test', 'Pass', null, 'CPCB'),
+  ('2026-04-24'::date, '493246-1', '3', '150', 'DSI', 'Gate', 'Water', 'Test', 'Pass', null, 'CBCP'),
+  ('2026-04-24'::date, '493246-2', '3', '150', 'DSI', 'Gate', 'Water', 'Test', 'Pass', null, 'CPCB'),
+  ('2026-04-24'::date, '493246-3', '3', '150', 'DSI', 'Gate', 'Water', 'Test', 'Pass', null, 'CBCP'),
+  ('2026-04-29'::date, '493648-1', '2', '150', 'Velan', 'Swing Check', 'Water', 'Test', 'Pass', null, 'CPCB'),
+  ('2026-04-29'::date, '493648-2', '2', '150', 'Velan', 'Swing Check', 'Water', 'Test', 'Pass', null, 'CBCP'),
+  ('2026-04-29'::date, '481631-1', '6', '300', 'Daniel', '4 WAY Diverter Valve', 'Water w/ 4 Hour', 'Complete', 'Pass', null, 'CPCB'),
+  ('2026-04-29'::date, '493148-3', '4', '300', 'Velan', 'Swing Check', 'Water', 'Test', 'Pass', null, 'CPCB'),
+  ('2026-04-30'::date, '493072-1', '8', '300', 'Durco', 'Non Lubricated Plug', 'Helium Mineral Oil', 'Complete', 'Pass', null, 'CBCP'),
+  ('2026-05-01'::date, '486844-1', '4', '900', 'General', '4 WAY Diverter Valve', 'Water', 'Complete', 'Pass', null, 'CPCB'),
+  ('2026-05-01'::date, '492993-1', '2', '300', 'Durco', 'Non Lubricated Plug', 'Helium Mineral Oil', 'Complete', 'Pass', null, 'CPBCP'),
+  ('2026-05-01'::date, '494517-1', '6', '150', 'Velan', 'Gate', 'Water', 'Test', 'Pass', null, 'CPCB'),
+  ('2026-05-01'::date, '494517-2', '6', '150', 'Velan', 'Gate', 'Water', 'Test', 'Pass', null, 'CBCP'),
+  ('2026-05-01'::date, '494173-2', '6', '900', 'Velan', 'Gate', 'Water', 'Complete', 'Pass', null, 'CP'),
+  ('2026-05-01'::date, '494173-1', '6', '900', 'Velan', 'Gate', 'Water', 'Complete', 'Pass', null, 'CP'),
+  ('2026-05-02'::date, '492871-2', '6', '900', 'Velan', 'Swing Check', 'Water', 'Complete', 'Pass', null, 'CB'),
+  ('2026-05-02'::date, '492871-4', '6', '900', 'Velan', 'Swing Check', 'Water', 'Complete', 'Pass', null, 'CB'),
+  ('2026-05-02'::date, '492871-3', '6', '900', 'Velan', 'Swing Check', 'Water', 'Complete', 'Pass', null, 'CB'),
+  ('2026-05-02'::date, '492871-5', '6', '900', 'Velan', 'Swing Check', 'Water', 'Complete', 'Pass', null, 'CB'),
+  ('2026-05-04'::date, '492871-1', '4', '900', 'Tom Wheatley', 'Piston Check', 'Water/Helium', 'Complete', 'Pass', null, 'CPCB'),
+  ('2026-05-05'::date, '481466-1', '0.5', '300', 'Durco', 'Non Lubricated Plug', 'Helium Mineral Oil', 'Test', 'Pass', null, 'CBCP'),
+  ('2026-05-05'::date, '481466-2', '0.5', '300', 'Durco', 'Non Lubricated Plug', 'Helium Mineral Oil', 'Test', 'Pass', null, 'CPCB'),
+  ('2026-05-05'::date, '481466-3', '0.5', '300', 'Durco', 'Non Lubricated Plug', 'Helium Mineral Oil', 'Test', 'Pass', null, 'CPCB'),
+  ('2026-05-05'::date, '481466-4', '0.5', '300', 'Durco', 'Non Lubricated Plug', 'Helium Mineral Oil', 'Test', 'Pass', null, 'CBCP'),
+  ('2026-05-05'::date, '481466-5', '0.5', '300', 'Durco', 'Non Lubricated Plug', 'Helium Mineral Oil', 'Test', 'Pass', null, 'CPCB'),
+  ('2026-05-05'::date, '481466-6', '0.5', '300', 'Durco', 'Non Lubricated Plug', 'Helium Mineral Oil', 'Test', 'Pass', null, 'CBCP'),
+  ('2026-05-05'::date, '481466-7', '0.5', '300', 'Durco', 'Non Lubricated Plug', 'Helium Mineral Oil', 'Test', 'Pass', null, 'CPCB'),
+  ('2026-05-05'::date, '481466-8', '0.5', '300', 'Durco', 'Non Lubricated Plug', 'Helium Mineral Oil', 'Test', 'Pass', null, 'CBCP'),
+  ('2026-05-05'::date, '494194-1', '6', '900', 'Velan', 'Gate', 'Water', 'Complete', 'Pass', null, 'CPCB'),
+  ('2026-05-06'::date, '486307-2', '8', '600', 'Orbit', 'ORBIT', 'Water w/ 4 Hour', 'Complete', 'Pass', null, 'CBCP'),
+  ('2026-05-07'::date, '494215-1', '6', '900', 'Valvitalia', 'Ball Valve', 'Water w/ 4 Hour', 'Complete', 'Pass', null, 'CPCB'),
+  ('2026-05-07'::date, '494386-1', '3', '210', 'Consolidated', 'Relief Valve', 'PRV Steam', 'Complete', 'Pass', null, 'AF'),
+  ('2026-05-07'::date, '482153-1', '6', '102', 'Consolidated', 'Relief Valve', 'PRV Air', 'Complete', 'Pass', null, 'AF'),
+  ('2026-05-08'::date, '486307-1', '8', '600', 'Orbit', 'ORBIT', 'Water w/ 4 Hour', 'Complete', 'Pass', null, 'CBCP'),
+  ('2026-05-08'::date, '494674-1', '4', '230', 'Consolidated', 'Relief Valve', 'PRV Air', 'Complete', 'Pass', null, 'AF'),
+  ('2026-05-08'::date, '492299-1', '2', '75', 'consolidated', 'Relief Valve', 'PRV Steam', 'Complete', 'Pass', null, 'AF'),
+  ('2026-05-08'::date, '495973-1', '6', '30', 'Consolidated', 'Relief Valve', 'PRV Steam', 'Complete', 'Pass', null, 'AF'),
+  ('2026-05-11'::date, '493597-1', '4', '150', 'Durco', '3 WAY PLUG', 'Water', 'Complete', 'Pass', null, 'CBCP'),
+  ('2026-05-11'::date, '493597-2', '4', '150', 'Durco', '3 WAY PLUG', 'Water', 'Complete', 'Pass', null, 'CPCB'),
+  ('2026-05-13'::date, '496441-1', '2', '300', 'Durco', 'Non Lubricated Plug', 'Helium Mineral Oil', 'Test', 'Pass', null, 'CBCP'),
+  ('2026-05-13'::date, '496441-2', '2', '300', 'Durco', 'Non Lubricated Plug', 'Helium Mineral Oil', 'Test', 'Pass', null, 'CPCB'),
+  ('2026-05-13'::date, '496441-4', '1', '300', 'Durco', 'Non Lubricated Plug', 'Helium Mineral Oil', 'Test', 'Pass', null, 'CBCP'),
+  ('2026-05-13'::date, '496441-5', '1', '300', 'Durco', 'Non Lubricated Plug', 'Helium Mineral Oil', 'Test', 'Pass', null, 'CPCB'),
+  ('2026-05-13'::date, '496441-6', '1', '300', 'Durco', 'Non Lubricated Plug', 'Helium Mineral Oil', 'Test', 'Pass', null, 'CBCP'),
+  ('2026-05-13'::date, '496441-7', '1', '300', 'Durco', 'Non Lubricated Plug', 'Helium Mineral Oil', 'Test', 'Pass', null, 'CPCB'),
+  ('2026-05-13'::date, '496441-8', '1', '300', 'Durco', 'Non Lubricated Plug', 'Helium Mineral Oil', 'Test', 'Pass', null, 'CBCP'),
+  ('2026-05-13'::date, '495691-1', '1', '300', 'Durco', 'Non Lubricated Plug', 'Helium Mineral Oil', 'Complete', 'Pass', null, 'CPCB'),
+  ('2026-05-13'::date, '495691-2', '1', '300', 'Durco', 'Non Lubricated Plug', 'Helium Mineral Oil', 'Complete', 'Pass', null, 'CBCP'),
+  ('2026-05-13'::date, '495691-3', '1', '300', 'Durco', 'Non Lubricated Plug', 'Helium Mineral Oil', 'Complete', 'Pass', null, 'CPCB'),
+  ('2026-05-13'::date, '495691-4', '1', '300', 'Durco', 'Non Lubricated Plug', 'Helium Mineral Oil', 'Complete', 'Pass', null, 'CBCP'),
+  ('2026-05-13'::date, '495691-5', '1', '300', 'Durco', 'Non Lubricated Plug', 'Helium Mineral Oil', 'Complete', 'Pass', null, 'CPCB'),
+  ('2026-05-14'::date, '484153-3', '8', '600', 'M&J', 'Gate', 'Water w/ 4 Hour', 'Complete', 'Pass', null, 'CBCP'),
+  ('2026-05-14'::date, '495758-1', '30', '600', 'Cameron', 'Ball Valve', 'Water', 'Complete', 'Pass', null, 'CPCB'),
+  ('2026-05-15'::date, '485113-1', '6', '600', 'M&J', 'Gate', 'Water w/ 4 Hour', 'Complete', 'Pass', null, 'CBCP'),
+  ('2026-05-15'::date, '496441-3', '3', '150', 'Pacific', 'Gate', 'Helium Mineral Oil', 'Complete', 'Pass', null, 'CPCB'),
+  ('2026-05-15'::date, '496879-1', '12', '600', 'M&J', 'Gate', 'Water w/ 4 Hour', 'Complete', 'Pass', null, 'CBCP'),
+  ('2026-05-15'::date, '488122-1', '10', '600', 'Franklin', 'Twinseal', 'Water w/ 4 Hour', 'Complete', 'Pass', null, 'CPCB'),
+  ('2026-05-15'::date, '496441-3', '3', '150', 'Pacific', 'Gate', 'Helium Mineral Oil', 'Complete', 'Pass', null, 'CBCP'),
+  ('2026-05-15'::date, '485113-2', '6', '600', 'M&J', 'Gate', 'Water w/ 4 Hour', 'Complete', 'Pass', null, 'CPCB'),
+  ('2026-05-15'::date, '494790-2', '0.5', '100', 'kunkle', 'Relief Valve', 'PRV Air', 'Complete', 'Pass', 'valve size is .25 not .5 (.25 is not an option)', 'AF'),
+  ('2026-05-15'::date, '494790-1', '4', '330', 'consolidated', 'Relief Valve', 'PRV Air', 'Complete', 'Pass', null, 'AF'),
+  ('2026-05-16'::date, '496441-9', '4', '300', 'Pacific', 'Globe', 'Helium Mineral Oil', 'Complete', 'Pass', null, 'CBCP'),
+  ('2026-05-16'::date, '496450-6', '3', '150', 'Pacific', 'Gate', 'Helium Mineral Oil', 'Complete', 'Pass', null, 'CPCB'),
+  ('2026-05-18'::date, '484586-1', '0.75', '225', 'Mercer', 'Relief Valve', 'Water', 'Complete', 'Pass', null, 'AF'),
+  ('2026-05-18'::date, '7587-19', '1', '300', 'Durco', 'Non Lubricated Plug', 'Helium Mineral Oil', 'Test', 'Pass', null, 'CB'),
+  ('2026-05-18'::date, '495758-2', '30', '600', 'Cameron', 'Ball Valve', 'Water', 'Complete', 'Pass', '496383', 'CB'),
+  ('2026-05-19'::date, '496408-1', '18', '150', 'DSI', 'Gate', 'Water w/ 4 Hour', 'Test', 'Pass', null, 'CPCB'),
+  ('2026-05-20'::date, '496383-1', '2', '150', 'Durco', '3 WAY PLUG', 'Water', 'Complete', 'Pass', null, 'CP'),
+  ('2026-05-20'::date, '496383-2', '2', '150', 'Durco', '3 WAY PLUG', 'Water', 'Complete', 'Pass', null, 'CP'),
+  ('2026-05-20'::date, '496383-3', '2', '150', 'Durco', '3 WAY PLUG', 'Water', 'Complete', 'Pass', null, 'CP'),
+  ('2026-05-20'::date, '496383-4', '2', '150', 'Durco', '3 WAY PLUG', 'Water', 'Complete', 'Pass', null, 'CP'),
+  ('2026-05-20'::date, '496383-8', '2', '150', 'Durco', '3 WAY PLUG', 'Water', 'Complete', 'Pass', null, 'CP'),
+  ('2026-05-20'::date, '497731-1', '3', '112', 'Crosby', 'Relief Valve', 'PRV Air', 'complete', 'Pass', null, 'af'),
+  ('2026-05-21'::date, '496450-1', '1', '300', 'Durco', 'Non Lubricated Plug', 'Helium Mineral Oil', 'Complete', 'Pass', null, 'CB'),
+  ('2026-05-21'::date, '496450-2', '1', '300', 'Durco', 'Non Lubricated Plug', 'Helium Mineral Oil', 'Complete', 'Pass', 'Recorded in traveler as 469450-2', 'CB'),
+  ('2026-05-21'::date, '496450-3', '1', '300', 'Durco', 'Non Lubricated Plug', 'Helium Mineral Oil', 'Complete', 'Pass', null, 'CB'),
+  ('2026-05-21'::date, '496450-4', '1', '300', 'Durco', 'Non Lubricated Plug', 'Helium Mineral Oil', 'Complete', 'Pass', null, 'CB'),
+  ('2026-05-21'::date, '496450-5', '1', '300', 'Durco', 'Non Lubricated Plug', 'Helium Mineral Oil', 'Complete', 'Pass', null, 'CB'),
+  ('2026-05-21'::date, '492343-1', '8', '300', 'Mission', 'Check', 'Water', 'Complete', 'Pass', null, 'CP'),
+  ('2026-05-21'::date, '497408-1', '4', '150', 'DSI', 'Gate', 'Water w/ 4 Hour', 'Test', 'Pass', null, 'CBCP'),
+  ('2026-05-21'::date, '484153-4', '8', '600', 'M&J', 'Gate', 'Water w/ 4 Hour', 'Complete', 'Pass', null, 'CPCB'),
+  ('2026-05-22'::date, '497733-2', '1', '300', 'Durco', 'Non Lubricated Plug', 'Helium Mineral Oil', 'Complete', 'Pass', null, 'CB'),
+  ('2026-05-22'::date, '497733-1', '1', '300', 'Durco', 'Non Lubricated Plug', 'Helium Mineral Oil', 'Complete', 'Pass', null, 'CB'),
+  ('2026-05-22'::date, '497733-3', '1', '300', 'Durco', 'Non Lubricated Plug', 'Helium Mineral Oil', 'Complete', 'Pass', null, 'CB'),
+  ('2026-05-22'::date, '497733-4', '1', '300', 'Durco', 'Non Lubricated Plug', 'Helium Mineral Oil', 'Complete', 'Pass', null, 'CB'),
+  ('2026-05-22'::date, '497733-5', '1', '300', 'Durco', 'Non Lubricated Plug', 'Helium Mineral Oil', 'Complete', 'Pass', null, 'CB'),
+  ('2026-05-22'::date, '492343-2', '8', '300', 'Mission', 'Check', 'Water', 'Complete', 'Fail', null, 'CB'),
+  ('2026-05-22'::date, '496716-1', '4', '150', 'DSI', 'Swing Check', 'Water', 'Test', 'Pass', null, 'CB'),
+  ('2026-05-22'::date, '485123-1', '14', '600', 'Valvitalia', 'Ball Valve', 'Water w/ 4 Hour', 'Complete', 'Pass', null, 'CB'),
+  ('2026-05-26'::date, '496716-2', '2', '150', 'DSI', 'Gate', 'Water', 'Test', 'Pass', null, 'CB'),
+  ('2026-05-26'::date, '496716-3', '2', '150', 'DSI', 'Gate', 'Water', 'Test', 'Pass', null, 'CB'),
+  ('2026-05-26'::date, '496716-4', '2', '150', 'DSI', 'Gate', 'Water', 'Test', 'Pass', null, 'CB'),
+  ('2026-05-26'::date, '496716-5', '2', '150', 'DSI', 'Gate', 'Water', 'Test', 'Pass', null, 'CB'),
+  ('2026-05-26'::date, '496716-6', '2', '300', 'DSI', 'Swing Check', 'Helium Mineral Oil', 'Test', 'Pass', null, 'CB'),
+  ('2026-05-26'::date, '498494-1', '8', '300', 'pacific', 'Swing Check', 'Helium Mineral Oil', 'test', 'Pass', null, 'tc'),
+  ('2026-05-26'::date, '492343-2', '8', '300', 'mission', 'Check', 'Water', 'complete', 'Pass', null, 'th'),
+  ('2026-05-26'::date, '497866-2', '2.5', '225', 'kunkle', 'Relief Valve', 'PRV Steam', 'complete', 'Pass', null, 'af'),
+  ('2026-05-26'::date, '497866-3', '2.5', '220', 'kunkle', 'Relief Valve', 'PRV Steam', 'complete', 'Pass', null, 'af'),
+  ('2026-05-26'::date, '497866-1', '1', '325', 'kunkle', 'Relief Valve', 'PRV Steam', 'complete', 'Pass', null, 'af'),
+  ('2026-05-26'::date, '496369-1', '0.75', '250', 'mercer', 'Relief Valve', 'PRV Water', 'complete', 'Pass', null, 'af'),
+  ('2026-05-27'::date, '496716-7', '4', '150', 'DSI', 'Swing Check', 'Water', 'Complete', 'Pass', null, 'CBCP'),
+  ('2026-05-28'::date, '492225-1', '16', '600', 'Valvitalia', 'Ball Valve', 'Water w/ 4 Hour', 'Complete', 'Pass', null, 'CPCB'),
+  ('2026-05-29'::date, '496383-5', '2', '150', 'Durco', '3 WAY PLUG', 'Water', 'Complete', 'Pass', null, 'CB'),
+  ('2026-05-29'::date, '496383-6', '2', '150', 'Durco', '3 WAY PLUG', 'Water', 'Complete', 'Pass', null, 'CB'),
+  ('2026-05-29'::date, '496383-7', '2', '150', 'Durco', '3 WAY PLUG', 'Water', 'Complete', 'Pass', null, 'CB'),
+  ('2026-05-29'::date, '497901-1', '2', '300', 'Durco', 'Non Lubricated Plug', 'Helium Mineral Oil', 'Complete', 'Pass', null, 'CP'),
+  ('2026-05-29'::date, '497901-2', '2', '300', 'Durco', 'Non Lubricated Plug', 'Helium Mineral Oil', 'Complete', 'Pass', null, 'CP'),
+  ('2026-05-29'::date, '497901-3', '2', '300', 'Durco', 'Non Lubricated Plug', 'Helium Mineral Oil', 'Complete', 'Pass', null, 'CP'),
+  ('2026-05-29'::date, '489604-1', '20', '150', 'Velan', 'BUTTERFLY', 'Water', 'Complete', 'Pass', null, 'CBCPTH'),
+  ('2026-05-30'::date, '499053-1', '3', '75', 'consolidated', 'Relief Valve', 'PRV Steam', 'complete', 'Pass', null, 'AF'),
+  ('2026-05-30'::date, '499053-2', '3', '75', 'consolidated', 'Relief Valve', 'PRV Steam', 'complete', 'Pass', null, 'AF'),
+  ('2026-06-01'::date, '491428-1', '6', '900', 'General', 'Twinseal', 'Water w/ 4 Hour', 'Complete', 'Pass', null, 'CPCB'),
+  ('2026-06-02'::date, '498678-1', '6', '150', 'Velan', 'Gate', 'Water', 'Test', 'Pass', null, 'CB'),
+  ('2026-06-02'::date, '498678-2', '6', '150', 'Velan', 'Gate', 'Water', 'Test', 'Pass', null, 'CB'),
+  ('2026-06-02'::date, '498678-4', '6', '150', 'Velan', 'Swing Check', 'Water', 'Test', 'Pass', null, 'CB'),
+  ('2026-06-02'::date, '499290-1', '16', '600', 'SCV', 'Pipeline Gate- Expanding', 'Water w/ 4 Hour', 'Test', 'Pass', null, 'CB'),
+  ('2026-06-04'::date, '499508-1', '16', '300', 'Pacific', 'Swing Check', 'Helium Mineral Oil', 'Complete', 'Pass', null, 'CBCP'),
+  ('2026-06-04'::date, '489385-1', '2', '50', 'farris', 'relief valve', 'PRV Steam', 'Complete', 'Pass', null, 'af'),
+  ('2026-06-08'::date, '483776-1', '10', '300', 'Pacific', 'Wedgeplug', 'Water', 'Complete', 'Pass', null, 'CPCB'),
+  ('2026-06-08'::date, '494777-3', '1', '800', 'Vogt', 'Check', 'AIR', 'Complete', 'Pass', null, 'CPCB'),
+  ('2026-06-08'::date, '494777-2', '1', '800', 'Vogt', 'Check', 'AIR', 'Complete', 'Pass', null, 'CPCB'),
+  ('2026-06-08'::date, '494777-1', '1', '800', 'Vogt', 'Check', 'AIR', 'Complete', 'Pass', null, 'CPCB'),
+  ('2026-06-10'::date, '487514-9', '6', '600', 'Walworth', 'Pipeline Gate- Slab', 'Water w/ 4 Hour', 'Complete', 'Pass', null, 'CB'),
+  ('2026-06-10'::date, '487514-8', '8', '600', 'Walworth', 'Pipeline Gate- Slab', 'Water w/ 4 Hour', 'Complete', 'Pass', null, 'CP'),
+  ('2026-06-10'::date, '487514-2', '6', '600', 'Walworth', 'Pipeline Gate- Slab', 'Water w/ 4 Hour', 'Complete', 'Pass', null, 'CB'),
+  ('2026-06-10'::date, '487514-10', '8', '600', 'Walworth', 'Pipeline Gate- Slab', 'Water w/ 4 Hour', 'Complete', 'Pass', null, 'CP'),
+  ('2026-06-11'::date, '487514-3', '6', '600', 'Walworth', 'Pipeline Gate- Slab', 'Water w/ 4 Hour', 'Complete', 'Pass', null, 'CB'),
+  ('2026-06-11'::date, '487514-7', '6', '600', 'Walworth', 'Pipeline Gate- Slab', 'Water w/ 4 Hour', 'Complete', 'Pass', null, 'CPCB'),
+  ('2026-06-12'::date, '500217-2', '18', '300', 'Pacific', 'Gate', 'Helium Mineral Oil', 'Complete', 'Pass', null, 'CBCP'),
+  ('2026-06-12'::date, '500217-1', '18', '300', 'Pacific', 'Gate', 'Helium Mineral Oil', 'Complete', 'Pass', 'A 22 bpm  B 28 bpm', 'CPCB'),
+  ('2026-06-12'::date, '487514-4', '8', '300', 'Walworth', 'Gate', 'Water w/ 4 Hour', 'Complete', 'Pass', null, 'CPCB'),
+  ('2026-06-16'::date, '501004-1', '16', '600', 'Cameron', 'Ball Valve', 'Water', 'Test', 'Pass', '598 Pretest', 'CBCP'),
+  ('2026-06-17'::date, '499612-1', '16', '150', 'ty', 'gate', 'Water', 'Complete', 'Pass', null, 'CP'),
+  ('2026-06-17'::date, '490752-1', '12', '150', null, 'Twinseal', 'Water w/ 4 Hour', 'Complete', 'Pass', null, 'CP')
 ;
-
--- Update valves that have PASS test results with latest tested date.
-with latest_pass as (
-  select valve_id, max(tested_on) as tested_on
-  from public.test_logs where upper(coalesce(pass_fail, '')) like '%PASS%'
-  group by valve_id
-)
-update public.valves v
-set
-  date_tested = lp.tested_on,
-  status = case when v.status = 'Completed' then 'Completed' else 'Warehouse RTS' end,
-  updated_at = now()
-from latest_pass lp
-where v.valve_id = lp.valve_id;
 
 commit;

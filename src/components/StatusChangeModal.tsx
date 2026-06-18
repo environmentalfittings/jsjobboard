@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
-import { Link } from 'react-router-dom'
+import { Link, useNavigate } from 'react-router-dom'
 import { normalizeJobSubStatus, type JobSubStatus } from '../constants/jobSubStatuses'
 import { ITP_BOWL_TYPE_OPTIONS, itpTemplateLabel } from '../constants/itpTemplates'
 import { STATUS_ORDER } from '../constants/statuses'
@@ -116,6 +116,7 @@ export function StatusChangeModal({
   onOpenFullPage,
   forceMaximized = false,
 }: StatusChangeModalProps) {
+  const navigate = useNavigate()
   const [activeTab, setActiveTab] = useState<JobCardTab>('summary')
   const [description, setDescription] = useState(valve.description ?? '')
   const [notes, setNotes] = useState(valve.notes ?? '')
@@ -143,6 +144,7 @@ export function StatusChangeModal({
   const [assignedTechSingleDraft, setAssignedTechSingleDraft] = useState<number | null>(assignedTechnicianId)
   const [technicians, setTechnicians] = useState<Technician[]>([])
   const { showToast } = useToast()
+  const travelerValveId = (valve.valve_id ?? '').trim()
   const assignedTechKey = useMemo(() => assignedTechnicianIds.slice().sort((a, b) => a - b).join(','), [assignedTechnicianIds])
 
   useEffect(() => {
@@ -542,6 +544,14 @@ export function StatusChangeModal({
               </button>
               <button
                 type="button"
+                className="button-primary job-card-header-btn"
+                onClick={() => navigate(`/traveler/${encodeURIComponent(travelerValveId)}`)}
+                disabled={isSaving || !travelerValveId}
+              >
+                Open Traveler
+              </button>
+              <button
+                type="button"
                 className="modal-window-toggle job-card-window-toggle"
                 onClick={() => {
                   if (onOpenFullPage && !forceMaximized) {
@@ -602,6 +612,14 @@ export function StatusChangeModal({
                   </button>
                   <button type="button" className="job-card-seg job-card-seg-primary" onClick={onOpenItp}>
                     Open ITP ▾
+                  </button>
+                  <button
+                    type="button"
+                    className="job-card-seg job-card-seg-primary"
+                    onClick={() => navigate(`/traveler/${encodeURIComponent(travelerValveId)}`)}
+                    disabled={isSaving || !travelerValveId}
+                  >
+                    Open Traveler
                   </button>
                 </div>
               </div>
@@ -917,6 +935,14 @@ export function StatusChangeModal({
             </button>
             <button type="button" className="button-primary job-card-footer-itp" onClick={onOpenItp} disabled={isSaving}>
               Open ITP ›
+            </button>
+            <button
+              type="button"
+              className="button-primary job-card-footer-itp"
+              onClick={() => navigate(`/traveler/${encodeURIComponent(travelerValveId)}`)}
+              disabled={isSaving || !travelerValveId}
+            >
+              Open Traveler ›
             </button>
           </div>
         </footer>

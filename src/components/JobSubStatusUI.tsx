@@ -2,6 +2,7 @@ import { JOB_SUB_STATUSES, type JobSubStatus, jobSubStatusIndex, normalizeJobSub
 
 function subStatusBadgeClass(status: JobSubStatus): string {
   const toneByStatus: Record<string, string> = {
+    'Not Received': 'not-received',
     Received: 'received',
     Disassembly: 'disassembly',
     Inspection: 'inspection',

@@ -1,15 +1,34 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
-import { IN_SHOP_STATUSES, TESTING_STATUSES, WAITING_STATUSES } from '../constants/statuses'
+import { DashboardNotesPanel } from '../components/DashboardNotesPanel'
 import { useToast } from '../components/ToastNotification'
+import {
+  calcActiveJobsByCell,
+  calcActiveStatusBreakdown,
+  calcCompletedMetrics,
+  calcCompletedMonthlyBars,
+  calcDashboardKpis,
+} from '../lib/dashboardMetrics'
+import { fetchAllValves } from '../lib/fetchAllValves'
+import { displayJobStatus } from '../lib/jobDisplayStatus'
+import { isEligiblePriorityValve, syncPriorityQueueWithValves } from '../lib/priorityQueue'
 import { supabase } from '../lib/supabase'
-import { VALVE_LIST_SELECT } from '../lib/valveSelect'
 import type { Valve } from '../types'
 import logo from '../assets/js-logo.png'
+
+type RecentTestedRow = {
+  valve_id: string
+  customer: string | null
+  cell: string | null
+  status: string
+  date_tested: string
+  valveRowId: number | null
+}
 
 export function DashboardPage() {
   const navigate = useNavigate()
   const [valves, setValves] = useState<Valve[]>([])
+  const [recentTested, setRecentTested] = useState<RecentTestedRow[]>([])
   const [priorityQueueIds, setPriorityQueueIds] = useState<string[]>([])
   const [loading, setLoading] = useState(true)
   const [lastRefreshed, setLastRefreshed] = useState<Date | null>(null)
@@ -20,25 +39,43 @@ export function DashboardPage() {
 
   const fetchData = useCallback(async () => {
     setLoading(true)
-    const { data: valvesData, error: valvesError } = await supabase
-      .from('valves')
-      .select(VALVE_LIST_SELECT)
-      .order('id', { ascending: false })
-
-    const { data: queueData, error: queueError } = await supabase
-      .from('priority_queue')
-      .select('valve_id,created_at')
-      .order('created_at', { ascending: true })
+    const { data: valvesData, error: valvesError } = await fetchAllValves()
 
     if (valvesError) {
       showToast(`Could not load valves: ${valvesError.message}`)
     } else if (valvesData) {
-      setValves(valvesData as Valve[])
-    }
-    if (queueError) {
-      showToast(`Could not load priority queue: ${queueError.message}`)
-    } else if (queueData) {
-      setPriorityQueueIds(queueData.map((item: { valve_id: string }) => item.valve_id))
+      setValves(valvesData)
+
+      const { data: testLogRows, error: testLogError } = await supabase
+        .from('test_logs')
+        .select('tested_on,valve_id,pass_fail')
+        .order('tested_on', { ascending: false })
+        .limit(40)
+
+      if (testLogError) {
+        showToast(`Could not load recent test log: ${testLogError.message}`)
+        setRecentTested([])
+      } else {
+        const byValveId = new Map(valvesData.map((v) => [v.valve_id, v]))
+        const rows: RecentTestedRow[] = []
+        for (const entry of testLogRows ?? []) {
+          if (!String(entry.pass_fail ?? '').toUpperCase().includes('PASS')) continue
+          const valve = byValveId.get(entry.valve_id)
+          rows.push({
+            valve_id: entry.valve_id,
+            customer: valve?.customer ?? null,
+            cell: valve?.cell ?? null,
+            status: displayJobStatus(valve),
+            date_tested: entry.tested_on,
+            valveRowId: valve?.id ?? null,
+          })
+          if (rows.length >= 5) break
+        }
+        setRecentTested(rows)
+      }
+
+      const eligiblePriority = await syncPriorityQueueWithValves(valvesData)
+      setPriorityQueueIds(eligiblePriority)
     }
     setLastRefreshed(new Date())
     setLoading(false)
@@ -68,95 +105,23 @@ export function DashboardPage() {
     return `Last updated ${secondsAgo} second${secondsAgo === 1 ? '' : 's'} ago`
   }, [lastRefreshed, refreshTick])
 
-  const metrics = useMemo(() => {
-    const inProcess = valves.filter((v) => IN_SHOP_STATUSES.has(v.status) || TESTING_STATUSES.has(v.status)).length
-    const onHold = valves.filter((v) => WAITING_STATUSES.has(v.status)).length
-    const readyToShip = valves.filter((v) => v.status === 'Warehouse RTS').length
-    const notArrived = valves.filter((v) => v.status === 'Not Arrived').length
-    return { inProcess, onHold, readyToShip, notArrived }
-  }, [valves])
+  const metrics = useMemo(() => calcDashboardKpis(valves), [valves])
 
-  const cellRows = useMemo(() => {
-    const counts = new Map<string, number>()
-    valves.forEach((v) => {
-      if (v.status === 'Completed' || v.status === 'Junked' || v.status === 'Replaced') return
-      if (!v.cell) return
-      counts.set(v.cell, (counts.get(v.cell) ?? 0) + 1)
-    })
-    return [...counts.entries()]
-      .map(([cell, count]) => ({ cell, count }))
-      .sort((a, b) => b.count - a.count)
-      .slice(0, 6)
-  }, [valves])
+  const cellRows = useMemo(() => calcActiveJobsByCell(valves), [valves])
 
   const topCell = cellRows[0]?.count ?? 1
 
-  const recentTested = useMemo(() => {
-    return valves
-      .filter((v) => v.date_tested)
-      .sort((a, b) => new Date(b.date_tested ?? 0).getTime() - new Date(a.date_tested ?? 0).getTime())
-      .slice(0, 5)
-  }, [valves])
+  const completedMetrics = useMemo(() => calcCompletedMetrics(valves), [valves])
 
-  const completedMetrics = useMemo(() => {
-    const now = new Date()
-    const month = now.getMonth()
-    const year = now.getFullYear()
-    const lastYear = year - 1
+  const completedMonthly = useMemo(() => calcCompletedMonthlyBars(valves), [valves])
 
-    let monthCount = 0
-    let yearCount = 0
-    let lastYearCount = 0
-
-    const completionDateForValve = (v: Valve): Date | null => {
-      // Older records may miss date_closed. Fall back to other known timestamps.
-      const raw =
-        v.date_closed ??
-        v.date_tested ??
-        ((v as unknown as { updated_at?: string | null }).updated_at ?? null) ??
-        ((v as unknown as { created_at?: string | null }).created_at ?? null)
-      if (!raw) return null
-      const parsed = new Date(raw)
-      return Number.isNaN(parsed.getTime()) ? null : parsed
-    }
-
-    valves.forEach((v) => {
-      if (v.status !== 'Completed') return
-      const closed = completionDateForValve(v)
-      if (!closed) return
-      if (closed.getFullYear() === year) {
-        yearCount += 1
-        if (closed.getMonth() === month) monthCount += 1
-      } else if (closed.getFullYear() === lastYear) {
-        lastYearCount += 1
-      }
-    })
-
-    return { monthCount, yearCount, lastYearCount }
-  }, [valves])
-
-  const statusBreakdown = useMemo(() => {
-    const counts = new Map<string, number>()
-    valves.forEach((v) => {
-      counts.set(v.status, (counts.get(v.status) ?? 0) + 1)
-    })
-    const rows = [...counts.entries()]
-      .map(([status, count]) => ({
-        status,
-        label: status === 'Warehouse RTS' ? 'Ready to Ship' : status,
-        count,
-      }))
-      .filter((row) => row.count > 0)
-      .sort((a, b) => b.count - a.count || a.label.localeCompare(b.label))
-    const maxCount = rows[0]?.count ?? 1
-    return { rows, maxCount }
-  }, [valves])
+  const statusBreakdown = useMemo(() => calcActiveStatusBreakdown(valves), [valves])
 
   const priorityRows = useMemo(() => {
     const byValveId = new Map(valves.map((v) => [v.valve_id, v]))
     return priorityQueueIds
       .map((valveId) => byValveId.get(valveId))
-      .filter((row): row is Valve => Boolean(row))
+      .filter((row): row is Valve => isEligiblePriorityValve(row))
       .slice(0, 8)
   }, [priorityQueueIds, valves])
 
@@ -239,13 +204,13 @@ export function DashboardPage() {
               <div className="kpi-number amber">{metrics.onHold}</div>
               <div className="kpi-label">On hold</div>
             </Link>
-            <Link className="kpi-card kpi-link" to="/job-board?view=list&scope=ready-to-ship">
-              <div className="kpi-number green">{metrics.readyToShip}</div>
-              <div className="kpi-label">Ready to ship</div>
+            <Link className="kpi-card kpi-link" to="/job-board?view=list&scope=waiting-on-arrival">
+              <div className="kpi-number green">{metrics.waitingOnArrival}</div>
+              <div className="kpi-label">Waiting on arrival</div>
             </Link>
-            <Link className="kpi-card kpi-link" to="/job-board?view=list&scope=not-arrived">
-              <div className="kpi-number red">{metrics.notArrived}</div>
-              <div className="kpi-label">Not arrived</div>
+            <Link className="kpi-card kpi-link" to="/job-board?view=list&scope=on-order">
+              <div className="kpi-number red">{metrics.onOrder}</div>
+              <div className="kpi-label">On order</div>
             </Link>
           </div>
 
@@ -256,7 +221,7 @@ export function DashboardPage() {
                 <Link
                   key={row.cell}
                   className="cell-row"
-                  to={`/job-board?view=list&scope=all&cell=${encodeURIComponent(row.cell)}`}
+                  to={`/job-board?view=list&scope=in-process&cell=${encodeURIComponent(row.cell)}`}
                   title={`View active valves in ${row.cell}`}
                 >
                   <div className="cell-name">{row.cell}</div>
@@ -286,15 +251,17 @@ export function DashboardPage() {
                 <tbody>
                   {recentTested.map((row) => (
                     <tr
-                      key={row.id}
+                      key={`${row.valve_id}-${row.date_tested}`}
                       className="dashboard-table-row-open"
                       role="button"
                       tabIndex={0}
-                      onClick={() => navigate(`/job-board?open=${row.id}`)}
+                      onClick={() => {
+                        if (row.valveRowId) navigate(`/job-board?open=${row.valveRowId}`)
+                      }}
                       onKeyDown={(e) => {
                         if (e.key === 'Enter' || e.key === ' ') {
                           e.preventDefault()
-                          navigate(`/job-board?open=${row.id}`)
+                          if (row.valveRowId) navigate(`/job-board?open=${row.valveRowId}`)
                         }
                       }}
                     >
@@ -311,7 +278,7 @@ export function DashboardPage() {
           </section>
 
           <section className="dashboard-panel">
-            <h3>Breakdown by status</h3>
+            <h3>Breakdown by status (active jobs)</h3>
             <div className="status-breakdown-grid">
               {statusBreakdown.rows.map((item) => {
                 const ratio = item.count / statusBreakdown.maxCount
@@ -336,29 +303,56 @@ export function DashboardPage() {
                 )
               })}
             </div>
-            <p className="status-breakdown-note">Sorted by highest volume.</p>
+            <p className="status-breakdown-note">Open work orders only — closed jobs excluded.</p>
           </section>
 
           <section className="dashboard-panel">
             <h3>Completed</h3>
             <div className="completed-metrics">
-              <Link className="kpi-card kpi-link" to="/job-board?view=list&scope=all&status=Completed">
+              <Link className="kpi-card kpi-link" to="/job-board?view=list&scope=closed">
                 <div className="kpi-number green">{completedMetrics.monthCount}</div>
                 <div className="kpi-label">Completed this month</div>
               </Link>
-              <Link className="kpi-card kpi-link" to="/job-board?view=list&scope=all&status=Completed">
+              <Link className="kpi-card kpi-link" to="/job-board?view=list&scope=closed">
                 <div className="kpi-number blue">{completedMetrics.yearCount}</div>
                 <div className="kpi-label">Completed this year</div>
               </Link>
-              <Link className="kpi-card kpi-link" to="/job-board?view=list&scope=all&status=Completed">
+              <Link className="kpi-card kpi-link" to="/job-board?view=list&scope=closed">
                 <div className="kpi-number amber">{completedMetrics.lastYearCount}</div>
                 <div className="kpi-label">Completed last year</div>
               </Link>
             </div>
+            <div
+              className="completed-monthly-chart"
+              role="img"
+              aria-label="Completed jobs by month for the last twelve months"
+            >
+              <div className="completed-monthly-bars">
+                {completedMonthly.bars.map((bar) => (
+                  <div
+                    key={bar.key}
+                    className={`completed-monthly-bar-col${bar.isCurrentMonth ? ' current' : ''}`}
+                  >
+                    <div className="completed-monthly-bar-value">{bar.count > 0 ? bar.count : ''}</div>
+                    <div className="completed-monthly-bar-track">
+                      <div
+                        className="completed-monthly-bar-fill"
+                        style={{
+                          height: `${bar.count > 0 ? Math.max(6, (bar.count / completedMonthly.maxCount) * 100) : 0}%`,
+                        }}
+                      />
+                    </div>
+                    <div className="completed-monthly-bar-label">{bar.label}</div>
+                  </div>
+                ))}
+              </div>
+            </div>
+            <p className="status-breakdown-note">By close date — last 12 months. Current month highlighted.</p>
           </section>
         </div>
 
-        <aside className="dashboard-panel priority-panel">
+        <aside className="dashboard-sidebar">
+          <section className="dashboard-panel priority-panel">
           <h3>Today's priority list</h3>
           <div className="priority-list">
             {priorityRows.length ? (
@@ -397,7 +391,7 @@ export function DashboardPage() {
                       {row.customer ?? 'Unknown customer'} · {row.cell ?? 'No cell'}
                     </div>
                   </div>
-                  <span className="priority-status">{row.status}</span>
+                  <span className="priority-status">{displayJobStatus(row)}</span>
                   <div className="priority-move-buttons">
                     <button
                       type="button"
@@ -431,6 +425,8 @@ export function DashboardPage() {
           <Link className="dashboard-link-button" to="/job-board">
             Manage priorities on Job Board
           </Link>
+          </section>
+          <DashboardNotesPanel />
         </aside>
       </div>
       <div className="dashboard-actions">

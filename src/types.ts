@@ -86,3 +86,14 @@ export interface TestLogEntry {
   tester: string | null
   created_at: string
 }
+
+export interface DueDateChangeRecord {
+  id: number
+  valve_row_id: number
+  valve_id: string
+  previous_due_date: string | null
+  new_due_date: string | null
+  reason: string
+  changed_by_name: string | null
+  changed_at: string
+}

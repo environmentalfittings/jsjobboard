@@ -4,7 +4,9 @@ import { fileURLToPath } from 'node:url'
 import XLSX from 'xlsx'
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
-const workbookPath = 'C:/Users/envir/Downloads/Valve Status 2026 new 3.31.26 (1).xlsx'
+const workbookPath =
+  process.argv[2] ||
+  path.join(process.env.USERPROFILE || '', 'Downloads', 'Valve Status 2026 new 5.26.26.xlsx')
 const outputPath = path.join(ROOT, 'supabase', 'backfill-pressure-class-from-valve-status.sql')
 
 const validClasses = new Set(['150', '300', '400', '600', '800', '900', '1500', '2500', '3000', '5000', '10000'])

@@ -14,11 +14,8 @@ export const ITP_FACING_TYPES: readonly string[] = [
 export const ITP_CONDITIONS: readonly string[] = [
   '',
   'Acceptable',
-  'Minor Damage',
-  'Reserrate Only',
-  'Machine Required',
-  'Weld Repair Required',
-  'Replace Body',
+  'Not acceptable',
+  'Weld and repair',
   'Other',
 ]
 

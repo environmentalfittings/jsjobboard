@@ -1,11 +1,11 @@
--- Allows signed-in users (including technicians) to create new jobs.
+-- Restores job-board visibility for authenticated sessions that do not carry
+-- role claims in JWT (common with local username login flows).
 -- Run in Supabase SQL Editor.
 
-drop policy if exists "admin_manager_insert_valves" on public.valves;
-drop policy if exists "authenticated_insert_valves" on public.valves;
+drop policy if exists "authenticated_read_valves" on public.valves;
 
-create policy "authenticated_insert_valves"
+create policy "authenticated_read_valves"
 on public.valves
-for insert
+for select
 to authenticated
-with check (true);
+using (true);

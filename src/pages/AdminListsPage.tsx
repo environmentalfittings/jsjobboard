@@ -21,10 +21,15 @@ import {
   parseB1610Workbook,
   type B1610FaceToFaceReferenceRow,
 } from '../lib/b1610FaceToFace'
+import {
+  B1634_DEFAULT_ROWS,
+  parseB1634Workbook,
+  type B1634WallThicknessReferenceRow,
+} from '../lib/b1634WallThickness'
 import type { LookupValueRow } from '../lib/lookupValues'
 import { supabase } from '../lib/supabase'
 
-type Tab = 'lookups' | 'customers' | 'itpTemplates' | 'valveTypes' | 'flangeThickness' | 'b1610'
+type Tab = 'lookups' | 'customers' | 'itpTemplates' | 'valveTypes' | 'flangeThickness' | 'b1610' | 'b1634'
 
 type CustomerRow = { id: number; name: string }
 type ItpTemplateRow = {
@@ -48,6 +53,13 @@ type B1610RefForm = {
   endConnection: string
   standardDimension: string
   tolerance: string
+  notes: string
+}
+type B1634RefForm = {
+  valveType: string
+  nps: string
+  pressureClass: string
+  minWallThickness: string
   notes: string
 }
 
@@ -125,6 +137,18 @@ export function AdminListsPage() {
     endConnection: 'ANY',
     standardDimension: '',
     tolerance: '0.0625',
+    notes: '',
+  })
+  const [b1634Refs, setB1634Refs] = useState<B1634WallThicknessReferenceRow[]>([])
+  const [b1634Loading, setB1634Loading] = useState(false)
+  const [b1634Saving, setB1634Saving] = useState(false)
+  const [uploadingB1634Workbook, setUploadingB1634Workbook] = useState(false)
+  const [seedingB1634Defaults, setSeedingB1634Defaults] = useState(false)
+  const [b1634Draft, setB1634Draft] = useState<B1634RefForm>({
+    valveType: 'Plug',
+    nps: '',
+    pressureClass: '',
+    minWallThickness: '',
     notes: '',
   })
 
@@ -237,6 +261,22 @@ export function AdminListsPage() {
     setB1610Refs((data ?? []) as B1610FaceToFaceReferenceRow[])
   }, [showToast])
 
+  const loadB1634Refs = useCallback(async () => {
+    setB1634Loading(true)
+    const { data, error } = await supabase
+      .from('b1634_wall_thickness_refs')
+      .select('id,valve_type,nps,pressure_class,min_wall_thickness,notes,source,created_at,updated_at')
+      .order('valve_type', { ascending: true })
+      .order('nps', { ascending: true })
+      .order('pressure_class', { ascending: true })
+    setB1634Loading(false)
+    if (error) {
+      showToast(`Could not load B16.34 refs: ${error.message}`)
+      return
+    }
+    setB1634Refs((data ?? []) as B1634WallThicknessReferenceRow[])
+  }, [showToast])
+
   useEffect(() => {
     loadItpTemplates()
   }, [loadItpTemplates])
@@ -248,6 +288,10 @@ export function AdminListsPage() {
   useEffect(() => {
     void loadB1610Refs()
   }, [loadB1610Refs])
+
+  useEffect(() => {
+    void loadB1634Refs()
+  }, [loadB1634Refs])
 
   const categoryItems = useMemo(() => {
     const items = lookupRows.filter((r) => r.category === activeCategory)
@@ -705,6 +749,112 @@ export function AdminListsPage() {
     void loadB1610Refs()
   }
 
+  const addB1634Ref = async () => {
+    const valveType = normalizeValveType(b1634Draft.valveType)
+    const nps = normalizeNps(b1634Draft.nps)
+    const pressureClass = normalizePressureClass(b1634Draft.pressureClass)
+    const minWallThickness = Number.parseFloat(b1634Draft.minWallThickness)
+    if (!valveType || !nps || !pressureClass) {
+      showToast('Enter valve type, size, and pressure class')
+      return
+    }
+    if (!Number.isFinite(minWallThickness) || minWallThickness <= 0) {
+      showToast('Enter a valid minimum wall thickness')
+      return
+    }
+    setB1634Saving(true)
+    const { error } = await supabase.from('b1634_wall_thickness_refs').upsert(
+      {
+        valve_type: valveType,
+        nps,
+        pressure_class: pressureClass,
+        min_wall_thickness: minWallThickness,
+        notes: b1634Draft.notes.trim() || null,
+        source: 'Admin manual entry',
+      },
+      { onConflict: 'valve_type,nps,pressure_class' },
+    )
+    setB1634Saving(false)
+    if (error) {
+      showToast(`Could not save B16.34 row: ${error.message}`)
+      return
+    }
+    setB1634Draft({
+      valveType: 'Plug',
+      nps: '',
+      pressureClass: '',
+      minWallThickness: '',
+      notes: '',
+    })
+    showToast('B16.34 reference saved')
+    void loadB1634Refs()
+  }
+
+  const deleteB1634Ref = async (id: number) => {
+    if (!window.confirm('Delete this B16.34 reference row?')) return
+    const { error } = await supabase.from('b1634_wall_thickness_refs').delete().eq('id', id)
+    if (error) {
+      showToast(`Could not delete row: ${error.message}`)
+      return
+    }
+    showToast('Row deleted')
+    void loadB1634Refs()
+  }
+
+  const uploadB1634Workbook = async (file: File | null) => {
+    if (!file) return
+    setUploadingB1634Workbook(true)
+    try {
+      const parsed = await parseB1634Workbook(file)
+      if (!parsed.length) {
+        showToast('No valid rows found in workbook. Expected valve type/size/class/min wall columns.')
+        setUploadingB1634Workbook(false)
+        return
+      }
+      const rows = parsed.map((r) => ({
+        ...r,
+        source: `Workbook import: ${file.name}`,
+      }))
+      const { error } = await supabase.from('b1634_wall_thickness_refs').upsert(rows, {
+        onConflict: 'valve_type,nps,pressure_class',
+      })
+      setUploadingB1634Workbook(false)
+      if (error) {
+        showToast(`Could not import workbook: ${error.message}`)
+        return
+      }
+      showToast(`Imported ${rows.length} B16.34 row(s)`)
+      void loadB1634Refs()
+    } catch (e) {
+      setUploadingB1634Workbook(false)
+      showToast(`Could not parse workbook: ${e instanceof Error ? e.message : 'unknown error'}`)
+    }
+  }
+
+  const seedB1634Criteria = async () => {
+    if (!B1634_DEFAULT_ROWS.length) {
+      showToast('No bundled B16.34 starter rows yet. Import a workbook to populate this list.')
+      return
+    }
+    if (
+      !window.confirm(
+        'Load starter B16.34 criteria from bundled defaults? Existing matching rows will be updated. Safe to run more than once.',
+      )
+    )
+      return
+    setSeedingB1634Defaults(true)
+    const { error } = await supabase.from('b1634_wall_thickness_refs').upsert(B1634_DEFAULT_ROWS, {
+      onConflict: 'valve_type,nps,pressure_class',
+    })
+    setSeedingB1634Defaults(false)
+    if (error) {
+      showToast(`Could not seed B16.34 criteria: ${error.message}`)
+      return
+    }
+    showToast(`Loaded ${B1634_DEFAULT_ROWS.length} starter B16.34 row(s)`)
+    void loadB1634Refs()
+  }
+
   if (!unlocked) {
     return (
       <section className="dashboard-page">
@@ -818,6 +968,15 @@ export function AdminListsPage() {
           onClick={() => setTab('b1610')}
         >
           B16.10 F2F
+        </button>
+        <button
+          type="button"
+          role="tab"
+          aria-selected={tab === 'b1634'}
+          className={`admin-lists-tab ${tab === 'b1634' ? 'active' : ''}`}
+          onClick={() => setTab('b1634')}
+        >
+          B16.34 Wall
         </button>
       </div>
 
@@ -1440,6 +1599,135 @@ export function AdminListsPage() {
                           type="button"
                           className="button-secondary admin-list-btn danger"
                           onClick={() => void deleteB1610Ref(row.id)}
+                        >
+                          Delete
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </section>
+      )}
+
+      {tab === 'b1634' && (
+        <section className="dashboard-panel admin-lists-panel">
+          <h3>ASME B16.34 Wall Thickness References</h3>
+          <p className="placeholder-copy resources-hint">
+            Stores minimum wall thickness by valve type, size, and class. ITP Wall Thickness uses these values for
+            automatic minimum checks and removable-material calculations.
+          </p>
+
+          <div className="admin-add-row">
+            <span className="admin-add-label">Starter criteria</span>
+            <div className="admin-add-controls">
+              <button
+                type="button"
+                className="button-secondary"
+                disabled={seedingB1634Defaults || !B1634_DEFAULT_ROWS.length}
+                onClick={() => void seedB1634Criteria()}
+              >
+                {seedingB1634Defaults
+                  ? 'Loading…'
+                  : B1634_DEFAULT_ROWS.length
+                    ? 'Load starter B16.34 criteria'
+                    : 'No bundled starter rows'}
+              </button>
+            </div>
+          </div>
+
+          <div className="admin-add-row">
+            <span className="admin-add-label">Import workbook</span>
+            <div className="admin-add-controls">
+              <input
+                type="file"
+                accept=".xlsx,.xls,.csv"
+                disabled={uploadingB1634Workbook}
+                onChange={(e) => {
+                  void uploadB1634Workbook(e.target.files?.[0] ?? null)
+                  e.currentTarget.value = ''
+                }}
+              />
+            </div>
+          </div>
+
+          <div className="admin-add-row">
+            <span className="admin-add-label">Add / update row</span>
+            <div className="admin-add-controls flange-ref-add-controls">
+              <select
+                value={b1634Draft.valveType}
+                onChange={(e) => setB1634Draft((d) => ({ ...d, valveType: e.target.value }))}
+              >
+                {(['Gate', 'Globe', 'Check', 'Plug'] as const).map((v) => (
+                  <option key={v} value={v}>
+                    {v}
+                  </option>
+                ))}
+              </select>
+              <input
+                type="text"
+                placeholder='Size (e.g. 4 or 4")'
+                value={b1634Draft.nps}
+                onChange={(e) => setB1634Draft((d) => ({ ...d, nps: e.target.value }))}
+              />
+              <input
+                type="text"
+                placeholder="Class (e.g. 150)"
+                value={b1634Draft.pressureClass}
+                onChange={(e) => setB1634Draft((d) => ({ ...d, pressureClass: e.target.value }))}
+              />
+              <input
+                type="text"
+                placeholder="Minimum wall thickness"
+                value={b1634Draft.minWallThickness}
+                onChange={(e) => setB1634Draft((d) => ({ ...d, minWallThickness: e.target.value }))}
+              />
+              <input
+                type="text"
+                placeholder="Notes (optional)"
+                value={b1634Draft.notes}
+                onChange={(e) => setB1634Draft((d) => ({ ...d, notes: e.target.value }))}
+              />
+              <button type="button" className="button-primary" disabled={b1634Saving} onClick={() => void addB1634Ref()}>
+                {b1634Saving ? 'Saving…' : 'Save'}
+              </button>
+            </div>
+          </div>
+
+          {b1634Loading ? (
+            <p className="placeholder-copy">Loading…</p>
+          ) : b1634Refs.length === 0 ? (
+            <p className="placeholder-copy">No B16.34 references yet.</p>
+          ) : (
+            <div className="dashboard-table-wrap">
+              <table className="dashboard-table">
+                <thead>
+                  <tr>
+                    <th>Valve Type</th>
+                    <th>Size (NPS)</th>
+                    <th>Pressure Class</th>
+                    <th>Min Wall Thickness</th>
+                    <th>Notes</th>
+                    <th>Source</th>
+                    <th>Actions</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {b1634Refs.map((row) => (
+                    <tr key={row.id}>
+                      <td>{row.valve_type}</td>
+                      <td>{row.nps}</td>
+                      <td>{row.pressure_class}</td>
+                      <td>{row.min_wall_thickness}</td>
+                      <td className="table-cell-clamp">{row.notes ?? '-'}</td>
+                      <td className="table-cell-clamp">{row.source ?? '-'}</td>
+                      <td>
+                        <button
+                          type="button"
+                          className="button-secondary admin-list-btn danger"
+                          onClick={() => void deleteB1634Ref(row.id)}
                         >
                           Delete
                         </button>

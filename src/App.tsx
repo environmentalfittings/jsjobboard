@@ -14,6 +14,12 @@ import { ResourcesPage } from './pages/ResourcesPage'
 import { TechniciansPage } from './pages/TechniciansPage'
 import { MyWorkPage } from './pages/MyWorkPage'
 import { SupervisorDashboardPage } from './pages/SupervisorDashboardPage'
+import { ReceivedValvesPage } from './pages/ReceivedValvesPage'
+import { TravelerPage } from './pages/TravelerPage'
+import { ItpPage } from './pages/ItpPage'
+import { CustomerLogin } from './pages/CustomerLogin'
+import { CustomerPortal } from './pages/CustomerPortal'
+import { CustomerTravelerView } from './pages/CustomerTravelerView'
 import { supabase } from './lib/supabase'
 import type { User } from '@supabase/supabase-js'
 
@@ -27,19 +33,21 @@ function App() {
   const [user, setUser] = useState<User | null>(null)
 
   const refreshAuth = async () => {
+    const localDevAuthEnabled = import.meta.env.VITE_ENABLE_GENERIC_ADMIN_LOGIN === 'true'
+    const localAuthRaw = localDevAuthEnabled ? window.localStorage.getItem(LOCAL_DEV_AUTH_KEY) : null
+    if (localAuthRaw === 'admin') {
+      setUser(null)
+      setRole('admin')
+      setUsername('Generic Admin')
+      setLoadingAuth(false)
+      return
+    }
+
     const { data, error } = await supabase.auth.getUser()
     if (error || !data.user) {
-      const localDevAuthEnabled = import.meta.env.VITE_ENABLE_GENERIC_ADMIN_LOGIN === 'true'
-      const localAuthRaw = localDevAuthEnabled ? window.localStorage.getItem(LOCAL_DEV_AUTH_KEY) : null
-      if (localAuthRaw === 'admin') {
-        setUser(null)
-        setRole('admin')
-        setUsername('Generic Admin')
-      } else {
-        setUser(null)
-        setRole(null)
-        setUsername('')
-      }
+      setUser(null)
+      setRole(null)
+      setUsername('')
       setLoadingAuth(false)
       return
     }
@@ -76,6 +84,7 @@ function App() {
 
   const handleLogin = async (options?: { localRole?: UserRole; username?: string }) => {
     if (options?.localRole === 'admin') {
+      await supabase.auth.signOut()
       window.localStorage.setItem(LOCAL_DEV_AUTH_KEY, 'admin')
       setUser(null)
       setRole('admin')
@@ -144,11 +153,19 @@ function App() {
                           : role === 'technician'
                             ? '/my-work'
                             : '/supervisor-dashboard'
-                        : '/login'
+                        : user
+                          ? '/customer-portal'
+                          : '/login'
                     }
                     replace
                   />
                 }
+              />
+              <Route path="/customer-login" element={<CustomerLogin />} />
+              <Route path="/customer-portal" element={user ? <CustomerPortal /> : <Navigate to="/customer-login" replace />} />
+              <Route
+                path="/customer-portal/traveler/:valveId"
+                element={user ? <CustomerTravelerView /> : <Navigate to="/customer-login" replace />}
               />
               <Route
                 path="/my-work"
@@ -182,11 +199,14 @@ function App() {
                 path="/dashboard"
                 element={role === 'admin' ? <DashboardPage /> : role ? <Navigate to={role === 'technician' ? '/my-work' : '/supervisor-dashboard'} replace /> : <Navigate to="/login" replace />}
               />
+              <Route path="/received-valves" element={role === 'admin' ? <ReceivedValvesPage /> : <Navigate to="/login" replace />} />
               <Route path="/new-job" element={role === 'admin' ? <NewJobPage role={role} /> : <Navigate to="/login" replace />} />
-              <Route path="/job-board" element={role === 'admin' || role === 'manager' || role === 'supervisor' ? <JobBoardPage /> : <Navigate to="/login" replace />} />
-              <Route path="/jobs/:id" element={role === 'admin' || role === 'manager' || role === 'supervisor' ? <JobBoardPage /> : <Navigate to="/login" replace />} />
+              <Route path="/job-board" element={role === 'admin' || role === 'manager' || role === 'supervisor' ? <JobBoardPage role={role ?? undefined} username={username} /> : <Navigate to="/login" replace />} />
+              <Route path="/jobs/:id" element={role === 'admin' || role === 'manager' || role === 'supervisor' ? <JobBoardPage role={role ?? undefined} username={username} /> : <Navigate to="/login" replace />} />
+              <Route path="/itp/:id" element={role === 'admin' || role === 'manager' || role === 'supervisor' ? <ItpPage /> : <Navigate to="/login" replace />} />
               <Route path="/test-log-entry" element={role === 'admin' ? <TestLogEntryPage /> : <Navigate to="/login" replace />} />
               <Route path="/valve-card-ticket" element={role === 'admin' ? <ValveCardTicketPage /> : <Navigate to="/login" replace />} />
+              <Route path="/traveler/:valveId" element={role === 'admin' ? <TravelerPage /> : <Navigate to="/login" replace />} />
               <Route path="/reports" element={role === 'admin' ? <ReportsPage /> : <Navigate to="/login" replace />} />
               <Route path="/resources" element={role === 'admin' ? <ResourcesPage /> : <Navigate to="/login" replace />} />
               <Route path="/technicians" element={role === 'admin' ? <TechniciansPage /> : <Navigate to="/login" replace />} />

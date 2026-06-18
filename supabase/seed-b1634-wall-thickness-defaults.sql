@@ -1,0 +1,14 @@
+-- Optional starter seed for ASME B16.34 wall thickness references.
+-- No bundled defaults are provided in-repo yet because criteria vary by source table/revision.
+-- Use Admin -> Manage lists -> B16.34 Wall to import your workbook data.
+
+-- Example format:
+-- insert into public.b1634_wall_thickness_refs (valve_type, nps, pressure_class, min_wall_thickness, notes, source)
+-- values
+--   ('Plug', '4', '150', 0.5000, 'Example only', 'Manual seed template')
+-- on conflict (valve_type, nps, pressure_class)
+-- do update set
+--   min_wall_thickness = excluded.min_wall_thickness,
+--   notes = excluded.notes,
+--   source = excluded.source,
+--   updated_at = now();

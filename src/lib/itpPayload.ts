@@ -30,22 +30,36 @@ function tryParsePayloadFromContent(raw: string): Partial<ItpPayload> | null {
 }
 
 /** Migrate removed options and ensure newer fields exist on merged rows. */
+function normalizeConditionValue(condition: string, conditionOther: string): { condition: string; conditionOther: string } {
+  const c = (condition ?? '').trim()
+  const other = (conditionOther ?? '').trim()
+  if (!c) return { condition: '', conditionOther: other }
+  if (c === 'Acceptable' || c === 'Not acceptable' || c === 'Weld and repair' || c === 'Other') {
+    return { condition: c, conditionOther: other }
+  }
+  if (c === 'Weld Repair Required') return { condition: 'Weld and repair', conditionOther: other }
+  // Legacy values now roll up into "Not acceptable".
+  if (c === 'Strip & Recoat') return { condition: 'Other', conditionOther: other || 'Strip & Recoat' }
+  return { condition: 'Not acceptable', conditionOther: other || c }
+}
+
 function normalizeMergedItemData(d: ItpItemState): void {
-  if (d.condition === 'Strip & Recoat') {
-    d.condition = 'Other'
-    if (!d.conditionOther?.trim()) d.conditionOther = 'Strip & Recoat'
+  {
+    const n = normalizeConditionValue(d.condition, d.conditionOther)
+    d.condition = n.condition
+    d.conditionOther = n.conditionOther
   }
   if (typeof d.facingTypeOther !== 'string') d.facingTypeOther = ''
   if (typeof d.buttWeldSchedule !== 'string') d.buttWeldSchedule = ''
   if (typeof d.conditionOther !== 'string') d.conditionOther = ''
   if (typeof d.repairActionOther !== 'string') d.repairActionOther = ''
   if (typeof d.valvePortConfigOther !== 'string') d.valvePortConfigOther = ''
+  if (typeof d.nptThreadInspection !== 'string') d.nptThreadInspection = ''
   for (const k of ['flangeB', 'flangeC', 'flangeD'] as const) {
     const f = d[k]
-    if (f.condition === 'Strip & Recoat') {
-      f.condition = 'Other'
-      if (!f.conditionOther?.trim()) f.conditionOther = 'Strip & Recoat'
-    }
+    const nf = normalizeConditionValue(f.condition, f.conditionOther)
+    f.condition = nf.condition
+    f.conditionOther = nf.conditionOther
     if (typeof f.facingTypeOther !== 'string') f.facingTypeOther = ''
     if (typeof f.buttWeldSchedule !== 'string') f.buttWeldSchedule = ''
     if (typeof f.conditionOther !== 'string') f.conditionOther = ''

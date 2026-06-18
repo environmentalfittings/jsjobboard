@@ -1,12 +1,13 @@
 import { useEffect, useMemo, useState } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { SubStatusBadge } from '../components/JobSubStatusUI'
 import { TechnicianAvatars } from '../components/TechnicianAvatars'
 import { ValveAttachmentsPanel } from '../components/ValveAttachmentsPanel'
 import { isValveRelatedJobType, normalizeJobType } from '../constants/jobTypes'
 import { normalizeJobSubStatus } from '../constants/jobSubStatuses'
 import { technicianIdsForValve } from '../lib/valveTechnicianIds'
+import { fetchAllValves } from '../lib/fetchAllValves'
 import { supabase } from '../lib/supabase'
-import { VALVE_LIST_SELECT } from '../lib/valveSelect'
 import type { Technician, Valve } from '../types'
 import { useToast } from '../components/ToastNotification'
 
@@ -101,6 +102,7 @@ function buildPrintHtml(valve: Valve) {
 }
 
 export function ValveCardTicketPage() {
+  const navigate = useNavigate()
   const [technicians, setTechnicians] = useState<Technician[]>([])
   const [valves, setValves] = useState<Valve[]>([])
   const [search, setSearch] = useState('')
@@ -120,13 +122,13 @@ export function ValveCardTicketPage() {
 
   useEffect(() => {
     const load = async () => {
-      const { data, error } = await supabase.from('valves').select(VALVE_LIST_SELECT).order('id', { ascending: false })
+      const { data, error } = await fetchAllValves()
       if (error) {
         showToast(`Could not load valves: ${error.message}`)
         setValves([])
         return
       }
-      setValves((data as Valve[]) ?? [])
+      setValves(data)
     }
     load()
   }, [showToast])
@@ -540,6 +542,13 @@ export function ValveCardTicketPage() {
               </section>
 
               <div className="ticket-preview-actions">
+                <button
+                  type="button"
+                  className="button-primary"
+                  onClick={() => navigate(`/traveler/${encodeURIComponent(selected.valve_id)}`)}
+                >
+                  <span aria-hidden>📄</span> Open Traveler
+                </button>
                 <button type="button" className="button-secondary" disabled={savingCard} onClick={saveCardText}>
                   {savingCard ? 'Saving…' : 'Save description & notes'}
                 </button>

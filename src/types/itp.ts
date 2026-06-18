@@ -28,6 +28,44 @@ export type ItpItemState = FlangeFaceState & {
   valvePortConfig: string
   /** Shown when valve configuration is "Other". */
   valvePortConfigOther: string
+  /** Threaded holes inspection status (NPT-specific checks). */
+  nptThreadInspection: string
+  /** Visual condition of seating surface. */
+  seatCondition: string
+  /** Lapping pass/fail or measurement. */
+  seatLapResult: string
+  /** Stem runout measurement. */
+  stemRunout: string
+  /** Stem diameter as-found. */
+  stemDiameter: string
+  /** Minimum allowable stem diameter. */
+  stemDiameterMin: string
+  /** Condition of disc or wedge. */
+  discWedgeCondition: string
+  /** Disc or wedge thickness measurement. */
+  discWedgeThickness: string
+  /** Minimum allowable disc or wedge thickness. */
+  discWedgeThicknessMin: string
+  /** Packing / gland condition. */
+  packingCondition: string
+  /** Type of packing used. */
+  packingType: string
+  /** PRV set pressure as-found. */
+  springSetPressure: string
+  /** PRV specified set pressure. */
+  springSetPressureSpec: string
+  /** PRV blowdown pressure. */
+  blowdownPressure: string
+  /** Actuator stroke measured. */
+  actuatorStrokeMeasured: string
+  /** Actuator stroke specification. */
+  actuatorStrokeSpec: string
+  /** Breakout or running torque measured. */
+  torqueMeasured: string
+  /** Torque specification. */
+  torqueSpec: string
+  /** Leak test result for this section. */
+  sealTestResult: string
   /** Dimension 3 in the critical dimensions diagram (end-to-end / face-to-face). */
   faceToFaceMeasurement: string
   faceToFaceAfterMachining: string

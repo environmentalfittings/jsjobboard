@@ -4,8 +4,9 @@ import { useToast } from '../components/ToastNotification'
 import { JOB_TYPES, normalizeJobType } from '../constants/jobTypes'
 import { TERMINAL_STATUSES } from '../constants/statuses'
 import { supabase } from '../lib/supabase'
+import { fetchDueDateChanges } from '../lib/dueDateChanges'
 import { VALVE_LIST_SELECT } from '../lib/valveSelect'
-import type { TestLogEntry, Valve } from '../types'
+import type { DueDateChangeRecord, TestLogEntry, Valve } from '../types'
 
 type TurnaroundReportFilter = 'all' | 'turnaround' | 'not_turnaround'
 
@@ -109,6 +110,11 @@ export function ReportsPage() {
   const [otdYear, setOtdYear] = useState(currentYear)
   const [otdMonth, setOtdMonth] = useState(currentMonth)
 
+  const [dueDateStart, setDueDateStart] = useState(defaultRange.start)
+  const [dueDateEnd, setDueDateEnd] = useState(defaultRange.end)
+  const [dueDateChangeRows, setDueDateChangeRows] = useState<DueDateChangeRecord[]>([])
+  const [dueDateChangeLoading, setDueDateChangeLoading] = useState(false)
+
   const loadOtdData = async (year: number) => {
     setOtdLoading(true)
     const { start, end } = getYearRange(year)
@@ -134,6 +140,43 @@ export function ReportsPage() {
       }),
     )
     setOtdRows(parsed)
+  }
+
+  const loadDueDateChanges = async () => {
+    if (!dueDateStart || !dueDateEnd) return
+    setDueDateChangeLoading(true)
+    const { data, error } = await fetchDueDateChanges(dueDateStart, dueDateEnd)
+    setDueDateChangeLoading(false)
+    if (error) {
+      showToast(`Could not load due date changes: ${error.message}`)
+      setDueDateChangeRows([])
+      return
+    }
+    setDueDateChangeRows(data)
+  }
+
+  const exportDueDateChangesCsv = () => {
+    const header = ['Changed at', 'Valve ID', 'Previous due date', 'New due date', 'Reason', 'Changed by']
+    const lines = dueDateChangeRows.map((row) =>
+      [
+        row.changed_at,
+        row.valve_id,
+        row.previous_due_date ?? '',
+        row.new_due_date ?? '',
+        row.reason,
+        row.changed_by_name ?? '',
+      ]
+        .map((cell) => `"${String(cell).replace(/"/g, '""')}"`)
+        .join(','),
+    )
+    const csv = [header.join(','), ...lines].join('\n')
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = `due-date-changes-${dueDateStart}-to-${dueDateEnd}.csv`
+    a.click()
+    URL.revokeObjectURL(url)
   }
 
   useEffect(() => {
@@ -741,6 +784,81 @@ export function ReportsPage() {
                   <td className="table-cell-clamp">{row.action_taken ?? '-'}</td>
                 </tr>
               ))}
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <section className="dashboard-panel">
+        <h3>Due date changes</h3>
+        <p className="placeholder-copy">
+          Every due date move from the job board is logged with the reason entered at the time of change.
+        </p>
+        <div className="report-filters">
+          <label>
+            From
+            <input type="date" value={dueDateStart} onChange={(e) => setDueDateStart(e.target.value)} />
+          </label>
+          <label>
+            To
+            <input type="date" value={dueDateEnd} onChange={(e) => setDueDateEnd(e.target.value)} />
+          </label>
+          <button
+            type="button"
+            className="button-primary"
+            onClick={() => void loadDueDateChanges()}
+            disabled={dueDateChangeLoading}
+          >
+            {dueDateChangeLoading ? 'Loading…' : 'Run report'}
+          </button>
+          <button
+            type="button"
+            className="button-secondary"
+            onClick={exportDueDateChangesCsv}
+            disabled={dueDateChangeRows.length === 0}
+          >
+            Export CSV
+          </button>
+        </div>
+
+        <div className="report-summary-bar">
+          <div className="report-summary-item">
+            <span>Changes in range</span>
+            <strong>{dueDateChangeRows.length}</strong>
+          </div>
+        </div>
+
+        <div className="dashboard-table-wrap">
+          <table className="dashboard-table">
+            <thead>
+              <tr>
+                <th>Changed</th>
+                <th>Valve ID</th>
+                <th>Previous</th>
+                <th>New</th>
+                <th>Reason</th>
+                <th>By</th>
+              </tr>
+            </thead>
+            <tbody>
+              {dueDateChangeRows.length === 0 ? (
+                <tr>
+                  <td colSpan={6} className="job-muted">
+                    {dueDateChangeLoading ? 'Loading…' : 'No due date changes in this range.'}
+                  </td>
+                </tr>
+              ) : (
+                dueDateChangeRows.map((row) => (
+                  <tr key={row.id}>
+                    <td>{new Date(row.changed_at).toLocaleString()}</td>
+                    <td>{row.valve_id}</td>
+                    <td>{row.previous_due_date ?? '—'}</td>
+                    <td>{row.new_due_date ?? '—'}</td>
+                    <td className="table-cell-clamp">{row.reason}</td>
+                    <td>{row.changed_by_name ?? '—'}</td>
+                  </tr>
+                ))
+              )}
             </tbody>
           </table>
         </div>

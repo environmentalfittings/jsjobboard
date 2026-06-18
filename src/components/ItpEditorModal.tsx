@@ -31,6 +31,7 @@ import {
   type FlangeThicknessReferenceRow,
 } from '../lib/flangeThicknessRefs'
 import { findB1610FaceToFaceStandard, type B1610FaceToFaceReferenceRow } from '../lib/b1610FaceToFace'
+import { findB1634WallThicknessStandard, type B1634WallThicknessReferenceRow } from '../lib/b1634WallThickness'
 
 const ITP_SELECT_OTHER = 'Other'
 const ITP_FACING_BUTT_WELD = 'Butt Weld'
@@ -182,7 +183,38 @@ function overviewStatusClass(s: ItpItemInspectionStatus): string {
 function displayItpItemLabel(tabId: string, label: string): string {
   const clean = (label ?? '').trim()
   if (tabId === 'body' && /^(body|body\s*bore)$/i.test(clean)) return 'Wall Thickness'
+  if (tabId === 'body' && /(threads?\s*\/?\s*tapped|threaded\s*holes?|port openings?|bored?\s*holes?)/i.test(clean))
+    return 'Threaded Holes'
   return clean
+}
+
+function isThreadedHolesItem(tabId: string, label: string): boolean {
+  return /threaded holes/i.test(displayItpItemLabel(tabId, label))
+}
+
+function isSeatSectionLabel(label: string): boolean {
+  return /seat|lapping/i.test(label) && !/flanges/i.test(label)
+}
+
+function isStemSectionLabel(label: string): boolean {
+  return /stem/i.test(label)
+}
+
+function isSpringSetSectionLabel(label: string): boolean {
+  return /set pressure|spring|blowdown/i.test(label)
+}
+
+function isActuatorSectionLabel(label: string): boolean {
+  return /stroke|travel|mounting/i.test(label)
+}
+
+function isDiscWedgeSectionLabel(label: string): boolean {
+  return /disc|wedge|clapper|plug od|ball condition/i.test(label)
+}
+
+function conditionNeedsRepair(condition: string): boolean {
+  const c = (condition ?? '').trim().toLowerCase()
+  return c === 'not acceptable' || c === 'weld and repair'
 }
 
 function firstTwinsealFlangeRepairBadge(data: ItpItemState): string | null {
@@ -271,6 +303,9 @@ export function ItpEditorModal({ valve, onClose }: ItpEditorModalProps) {
   const [flangeRefLoading, setFlangeRefLoading] = useState(false)
   const [b1610Refs, setB1610Refs] = useState<B1610FaceToFaceReferenceRow[]>([])
   const [b1610Loading, setB1610Loading] = useState(false)
+  const [b1634Refs, setB1634Refs] = useState<B1634WallThicknessReferenceRow[]>([])
+  const [b1634Loading, setB1634Loading] = useState(false)
+  const [attachmentCount, setAttachmentCount] = useState(0)
 
   useEffect(() => {
     setIsMaximized(true)
@@ -279,6 +314,25 @@ export function ItpEditorModal({ valve, onClose }: ItpEditorModalProps) {
   useEffect(() => {
     setSessionTechName(window.localStorage.getItem(AUTH_USER_STORAGE_KEY)?.trim() ?? '')
   }, [])
+
+  useEffect(() => {
+    let cancelled = false
+    void (async () => {
+      const { count, error } = await supabase
+        .from('valve_attachments')
+        .select('id', { count: 'exact', head: true })
+        .eq('valve_row_id', valve.id)
+      if (cancelled) return
+      if (error) {
+        setAttachmentCount(0)
+        return
+      }
+      setAttachmentCount(count ?? 0)
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [valve.id])
 
   useEffect(() => {
     const nps = normalizeNps(valve.size)
@@ -325,6 +379,26 @@ export function ItpEditorModal({ valve, onClose }: ItpEditorModalProps) {
         return
       }
       setB1610Refs((data ?? []) as B1610FaceToFaceReferenceRow[])
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [])
+
+  useEffect(() => {
+    let cancelled = false
+    setB1634Loading(true)
+    void (async () => {
+      const { data, error } = await supabase
+        .from('b1634_wall_thickness_refs')
+        .select('id,valve_type,nps,pressure_class,min_wall_thickness,notes,source,created_at,updated_at')
+      if (cancelled) return
+      setB1634Loading(false)
+      if (error) {
+        setB1634Refs([])
+        return
+      }
+      setB1634Refs((data ?? []) as B1634WallThicknessReferenceRow[])
     })()
     return () => {
       cancelled = true
@@ -509,6 +583,14 @@ export function ItpEditorModal({ valve, onClose }: ItpEditorModalProps) {
   }
 
   const persist = async (message: string) => {
+    const repairedThreadedHoles = payload.tabs.some((tab) =>
+      tab.items.some((item) => isThreadedHolesItem(tab.id, item.label) && conditionNeedsRepair(item.data.condition)),
+    )
+    if (repairedThreadedHoles && attachmentCount <= 0) {
+      showToast('Threaded holes marked for repair require at least one photo attachment before saving.')
+      return
+    }
+
     setSaving(true)
     const withJsonb = {
       valve_row_id: valve.id,
@@ -553,11 +635,36 @@ export function ItpEditorModal({ valve, onClose }: ItpEditorModalProps) {
     }
   }, [flagged, showToast])
 
-  const measureHint =
-    selectedItem &&
-    measurementWarning(selectedItem.data.measure1, selectedItem.data.measure2)
-
   const showFacing = selectedItem?.label.toLowerCase() === 'flanges'
+  const selectedDisplayLabel = selectedItem ? displayItpItemLabel(activeTab?.id ?? '', selectedItem.label) : ''
+  const isWallThicknessSection = /wall thickness/i.test(selectedDisplayLabel)
+  const isThreadedHolesSection = /threaded holes/i.test(selectedDisplayLabel)
+  const isSeatSection = !showFacing && isSeatSectionLabel(selectedDisplayLabel)
+  const isStemSection = isStemSectionLabel(selectedDisplayLabel)
+  const isSpringSetSection = isSpringSetSectionLabel(selectedDisplayLabel)
+  const isActuatorSection = isActuatorSectionLabel(selectedDisplayLabel)
+  const isDiscWedgeSection = isDiscWedgeSectionLabel(selectedDisplayLabel)
+  const b1634Ref =
+    isWallThicknessSection && selectedItem
+      ? findB1634WallThicknessStandard(
+          {
+            valveType: valve.valve_type,
+            size: valve.size,
+            pressureClass: valve.pressure_class,
+          },
+          b1634Refs,
+        )
+      : null
+  const rootMinimum = selectedItem
+    ? (selectedItem.data.measure2 || (b1634Ref ? String(b1634Ref.minimum) : '')).trim()
+    : ''
+  const rootAsFoundState = selectedItem
+    ? toleranceState(selectedItem.data.measure1, rootMinimum)
+    : { tone: null as 'ok' | 'bad' | null, delta: null as number | null }
+  const rootAsFoundTol = selectedItem
+    ? toleranceVsMinimumSummary(selectedItem.data.measure1, rootMinimum, 'As found tolerance')
+    : null
+  const measureHint = selectedItem && measurementWarning(selectedItem.data.measure1, rootMinimum)
   const showBodyMultiFlanges =
     !isResourcesTab && activeTab?.id === 'body' && selectedItem?.label.toLowerCase() === 'flanges'
 
@@ -1290,44 +1397,379 @@ export function ItpEditorModal({ valve, onClose }: ItpEditorModalProps) {
                             </>
                           ) : null}
 
-                          <label className="itp-field">
-                            <span className="itp-field-label">Condition</span>
-                            <select
-                              className="itp-select"
-                              value={selectedItem.data.condition}
-                              onChange={(e) => setRootCondition(e.target.value)}
-                              disabled={saving}
-                            >
-                              {ITP_CONDITIONS.map((opt) => (
-                                <option key={opt || 'empty'} value={opt}>
-                                  {opt || '— Select —'}
-                                </option>
-                              ))}
-                            </select>
-                          </label>
-                          {selectedItem.data.condition === ITP_SELECT_OTHER ? (
+                          {!isSpringSetSection ? (
+                            <>
+                              <label className="itp-field">
+                                <span className="itp-field-label">Condition</span>
+                                <select
+                                  className="itp-select"
+                                  value={selectedItem.data.condition}
+                                  onChange={(e) => setRootCondition(e.target.value)}
+                                  disabled={saving}
+                                >
+                                  {ITP_CONDITIONS.map((opt) => (
+                                    <option key={opt || 'empty'} value={opt}>
+                                      {opt || '— Select —'}
+                                    </option>
+                                  ))}
+                                </select>
+                              </label>
+                              {selectedItem.data.condition === ITP_SELECT_OTHER ? (
+                                <label className="itp-field">
+                                  <span className="itp-field-label">Condition (specify)</span>
+                                  <input
+                                    type="text"
+                                    className="itp-input"
+                                    value={selectedItem.data.conditionOther}
+                                    onChange={(e) => setField('conditionOther', e.target.value)}
+                                    placeholder="Describe condition…"
+                                    disabled={saving}
+                                    autoComplete="off"
+                                  />
+                                </label>
+                              ) : null}
+                            </>
+                          ) : null}
+                          {isThreadedHolesSection ? (
                             <label className="itp-field">
-                              <span className="itp-field-label">Condition (specify)</span>
-                              <input
-                                type="text"
-                                className="itp-input"
-                                value={selectedItem.data.conditionOther}
-                                onChange={(e) => setField('conditionOther', e.target.value)}
-                                placeholder="Describe condition…"
+                              <span className="itp-field-label">NPT threaded holes inspected</span>
+                              <select
+                                className="itp-select"
+                                value={selectedItem.data.nptThreadInspection}
+                                onChange={(e) => setField('nptThreadInspection', e.target.value)}
                                 disabled={saving}
-                                autoComplete="off"
-                              />
+                              >
+                                <option value="">— Select —</option>
+                                <option value="Yes">Yes</option>
+                                <option value="No">No</option>
+                                <option value="N/A">N/A</option>
+                              </select>
                             </label>
                           ) : null}
 
                           {showFacing ? <ItpFlangeDimensionsDiagram /> : null}
+                          {isWallThicknessSection ? (
+                            <p className="itp-critical-dimensions-ref-note">
+                              {b1634Loading
+                                ? 'Loading B16.34 minimum wall-thickness reference…'
+                                : b1634Ref
+                                  ? `B16.34 reference for ${valve.valve_type ?? '-'} / ${valve.size ?? '-'} / Class ${valve.pressure_class ?? '-'}: minimum wall ${b1634Ref.minimum}`
+                                  : 'No B16.34 reference found for this valve type / size / class yet. Add it in Manage lists → B16.34 Wall.'}
+                            </p>
+                          ) : null}
+
+                          {isSeatSection ? (
+                            <>
+                              <div className="itp-measure-grid">
+                                <label className="itp-field">
+                                  <span className="itp-field-label">Seat Lap Result</span>
+                                  <input
+                                    type="text"
+                                    className="itp-input"
+                                    value={selectedItem.data.seatLapResult}
+                                    onChange={(e) => setField('seatLapResult', e.target.value)}
+                                    placeholder="Pass/fail or measured value"
+                                    disabled={saving}
+                                  />
+                                </label>
+                                <label className="itp-field">
+                                  <span className="itp-field-label">Measurement (as found)</span>
+                                  <input
+                                    type="text"
+                                    className="itp-input"
+                                    value={selectedItem.data.measure1}
+                                    onChange={(e) => setField('measure1', e.target.value)}
+                                    placeholder="e.g. 0.49 in"
+                                    disabled={saving}
+                                  />
+                                </label>
+                                <label className="itp-field">
+                                  <span className="itp-field-label">Minimum allowable</span>
+                                  <input
+                                    type="text"
+                                    className="itp-input"
+                                    value={selectedItem.data.measure2}
+                                    onChange={(e) => setField('measure2', e.target.value)}
+                                    placeholder="e.g. 0.51 in"
+                                    disabled={saving}
+                                  />
+                                </label>
+                                <label className="itp-field">
+                                  <span className="itp-field-label">After machining</span>
+                                  <input
+                                    type="text"
+                                    className="itp-input"
+                                    value={selectedItem.data.measureAfterMachining}
+                                    onChange={(e) => setField('measureAfterMachining', e.target.value)}
+                                    placeholder="e.g. 0.50 in"
+                                    disabled={saving}
+                                  />
+                                </label>
+                              </div>
+                              <label className="itp-field">
+                                <span className="itp-field-label">Notes</span>
+                                <textarea
+                                  className="itp-notes"
+                                  value={selectedItem.data.notes}
+                                  onChange={(e) => setField('notes', e.target.value)}
+                                  rows={4}
+                                  placeholder="Seat and lapping observations…"
+                                  disabled={saving}
+                                />
+                              </label>
+                            </>
+                          ) : null}
+
+                          {isStemSection ? (
+                            <>
+                              <div className="itp-measure-grid">
+                                <label className="itp-field">
+                                  <span className="itp-field-label">Stem Diameter (as found)</span>
+                                  <input
+                                    type="text"
+                                    className="itp-input"
+                                    value={selectedItem.data.stemDiameter}
+                                    onChange={(e) => setField('stemDiameter', e.target.value)}
+                                    placeholder="e.g. 1.250 in"
+                                    disabled={saving}
+                                  />
+                                </label>
+                                <label className="itp-field">
+                                  <span className="itp-field-label">Minimum Allowable Diameter</span>
+                                  <input
+                                    type="text"
+                                    className="itp-input"
+                                    value={selectedItem.data.stemDiameterMin}
+                                    onChange={(e) => setField('stemDiameterMin', e.target.value)}
+                                    placeholder="e.g. 1.240 in"
+                                    disabled={saving}
+                                  />
+                                </label>
+                                <label className="itp-field">
+                                  <span className="itp-field-label">Runout Measurement</span>
+                                  <input
+                                    type="text"
+                                    className="itp-input"
+                                    value={selectedItem.data.stemRunout}
+                                    onChange={(e) => setField('stemRunout', e.target.value)}
+                                    placeholder="e.g. 0.003 in"
+                                    disabled={saving}
+                                  />
+                                </label>
+                                <label className="itp-field">
+                                  <span className="itp-field-label">Packing Condition</span>
+                                  <select
+                                    className="itp-select"
+                                    value={selectedItem.data.packingCondition}
+                                    onChange={(e) => setField('packingCondition', e.target.value)}
+                                    disabled={saving}
+                                  >
+                                    <option value="">— Select —</option>
+                                    {ITP_CONDITIONS.filter(Boolean).map((opt) => (
+                                      <option key={`packing-${opt}`} value={opt}>
+                                        {opt}
+                                      </option>
+                                    ))}
+                                  </select>
+                                </label>
+                              </div>
+                              <label className="itp-field">
+                                <span className="itp-field-label">Notes</span>
+                                <textarea
+                                  className="itp-notes"
+                                  value={selectedItem.data.notes}
+                                  onChange={(e) => setField('notes', e.target.value)}
+                                  rows={4}
+                                  placeholder="Stem and packing observations…"
+                                  disabled={saving}
+                                />
+                              </label>
+                            </>
+                          ) : null}
+
+                          {isSpringSetSection ? (
+                            <>
+                              <div className="itp-measure-grid">
+                                <label className="itp-field">
+                                  <span className="itp-field-label">Set Pressure As-Found</span>
+                                  <input
+                                    type="text"
+                                    className="itp-input"
+                                    value={selectedItem.data.springSetPressure}
+                                    onChange={(e) => setField('springSetPressure', e.target.value)}
+                                    placeholder="e.g. 150 psi"
+                                    disabled={saving}
+                                  />
+                                </label>
+                                <label className="itp-field">
+                                  <span className="itp-field-label">Set Pressure Spec</span>
+                                  <input
+                                    type="text"
+                                    className="itp-input"
+                                    value={selectedItem.data.springSetPressureSpec}
+                                    onChange={(e) => setField('springSetPressureSpec', e.target.value)}
+                                    placeholder="e.g. 155 psi"
+                                    disabled={saving}
+                                  />
+                                </label>
+                                <label className="itp-field">
+                                  <span className="itp-field-label">Blowdown</span>
+                                  <input
+                                    type="text"
+                                    className="itp-input"
+                                    value={selectedItem.data.blowdownPressure}
+                                    onChange={(e) => setField('blowdownPressure', e.target.value)}
+                                    placeholder="e.g. 8 psi"
+                                    disabled={saving}
+                                  />
+                                </label>
+                                <label className="itp-field">
+                                  <span className="itp-field-label">Leak Test Result</span>
+                                  <select
+                                    className="itp-select"
+                                    value={selectedItem.data.sealTestResult}
+                                    onChange={(e) => setField('sealTestResult', e.target.value)}
+                                    disabled={saving}
+                                  >
+                                    <option value="">— Select —</option>
+                                    <option value="Pass">Pass</option>
+                                    <option value="Fail">Fail</option>
+                                  </select>
+                                </label>
+                              </div>
+                              <label className="itp-field">
+                                <span className="itp-field-label">Notes</span>
+                                <textarea
+                                  className="itp-notes"
+                                  value={selectedItem.data.notes}
+                                  onChange={(e) => setField('notes', e.target.value)}
+                                  rows={4}
+                                  placeholder="Set pressure and leak-test observations…"
+                                  disabled={saving}
+                                />
+                              </label>
+                            </>
+                          ) : null}
+
+                          {isActuatorSection ? (
+                            <>
+                              <div className="itp-measure-grid">
+                                <label className="itp-field">
+                                  <span className="itp-field-label">Stroke Measured</span>
+                                  <input
+                                    type="text"
+                                    className="itp-input"
+                                    value={selectedItem.data.actuatorStrokeMeasured}
+                                    onChange={(e) => setField('actuatorStrokeMeasured', e.target.value)}
+                                    placeholder="e.g. 3.50 in"
+                                    disabled={saving}
+                                  />
+                                </label>
+                                <label className="itp-field">
+                                  <span className="itp-field-label">Stroke Spec</span>
+                                  <input
+                                    type="text"
+                                    className="itp-input"
+                                    value={selectedItem.data.actuatorStrokeSpec}
+                                    onChange={(e) => setField('actuatorStrokeSpec', e.target.value)}
+                                    placeholder="e.g. 3.50 in"
+                                    disabled={saving}
+                                  />
+                                </label>
+                                <label className="itp-field">
+                                  <span className="itp-field-label">Torque Measured</span>
+                                  <input
+                                    type="text"
+                                    className="itp-input"
+                                    value={selectedItem.data.torqueMeasured}
+                                    onChange={(e) => setField('torqueMeasured', e.target.value)}
+                                    placeholder="e.g. 220 ft-lb"
+                                    disabled={saving}
+                                  />
+                                </label>
+                                <label className="itp-field">
+                                  <span className="itp-field-label">Torque Spec</span>
+                                  <input
+                                    type="text"
+                                    className="itp-input"
+                                    value={selectedItem.data.torqueSpec}
+                                    onChange={(e) => setField('torqueSpec', e.target.value)}
+                                    placeholder="e.g. 200-250 ft-lb"
+                                    disabled={saving}
+                                  />
+                                </label>
+                              </div>
+                              <label className="itp-field">
+                                <span className="itp-field-label">Notes</span>
+                                <textarea
+                                  className="itp-notes"
+                                  value={selectedItem.data.notes}
+                                  onChange={(e) => setField('notes', e.target.value)}
+                                  rows={4}
+                                  placeholder="Actuator, stroke, and torque observations…"
+                                  disabled={saving}
+                                />
+                              </label>
+                            </>
+                          ) : null}
+
+                          {isDiscWedgeSection ? (
+                            <>
+                              <div className="itp-measure-grid">
+                                <label className="itp-field">
+                                  <span className="itp-field-label">Disc/Wedge Thickness</span>
+                                  <input
+                                    type="text"
+                                    className="itp-input"
+                                    value={selectedItem.data.discWedgeThickness}
+                                    onChange={(e) => setField('discWedgeThickness', e.target.value)}
+                                    placeholder="e.g. 0.780 in"
+                                    disabled={saving}
+                                  />
+                                </label>
+                                <label className="itp-field">
+                                  <span className="itp-field-label">Minimum Allowable</span>
+                                  <input
+                                    type="text"
+                                    className="itp-input"
+                                    value={selectedItem.data.discWedgeThicknessMin}
+                                    onChange={(e) => setField('discWedgeThicknessMin', e.target.value)}
+                                    placeholder="e.g. 0.760 in"
+                                    disabled={saving}
+                                  />
+                                </label>
+                                <label className="itp-field">
+                                  <span className="itp-field-label">After Refacing Measurement</span>
+                                  <input
+                                    type="text"
+                                    className="itp-input"
+                                    value={selectedItem.data.measureAfterMachining}
+                                    onChange={(e) => setField('measureAfterMachining', e.target.value)}
+                                    placeholder="e.g. 0.770 in"
+                                    disabled={saving}
+                                  />
+                                </label>
+                              </div>
+                              <label className="itp-field">
+                                <span className="itp-field-label">Notes</span>
+                                <textarea
+                                  className="itp-notes"
+                                  value={selectedItem.data.notes}
+                                  onChange={(e) => setField('notes', e.target.value)}
+                                  rows={4}
+                                  placeholder="Disc/wedge refacing observations…"
+                                  disabled={saving}
+                                />
+                              </label>
+                            </>
+                          ) : null}
 
                           <div className="itp-measure-grid">
                             <label className="itp-field">
                               <span className="itp-field-label">Measurement (as found)</span>
                               <input
                                 type="text"
-                                className="itp-input"
+                                className={`itp-input${rootAsFoundState.tone === 'ok' ? ' itp-input-ok' : rootAsFoundState.tone === 'bad' ? ' itp-input-bad' : ''}`}
                                 value={selectedItem.data.measure1}
                                 onChange={(e) => setField('measure1', e.target.value)}
                                 placeholder="e.g. 0.49 in"
@@ -1336,19 +1778,70 @@ export function ItpEditorModal({ valve, onClose }: ItpEditorModalProps) {
                               />
                             </label>
                             <label className="itp-field">
-                              <span className="itp-field-label">Minimum allowable</span>
+                              <span className="itp-field-label">
+                                {isThreadedHolesSection ? 'Minimum thread wall' : 'Minimum allowable'}
+                              </span>
                               <input
                                 type="text"
                                 className="itp-input"
                                 value={selectedItem.data.measure2}
                                 onChange={(e) => setField('measure2', e.target.value)}
-                                placeholder="e.g. 0.51 in"
+                                placeholder={isWallThicknessSection && b1634Ref ? `B16.34 min ${b1634Ref.minimum}` : 'e.g. 0.51 in'}
                                 disabled={saving}
                                 autoComplete="off"
+                              />
+                              {rootMinimum ? (
+                                <p className="itp-tolerance-note-inline">
+                                  {isThreadedHolesSection ? 'Min thread wall' : 'Min thickness'}:{' '}
+                                  {rootMinimum}
+                                  {rootAsFoundState.delta != null
+                                    ? ` | As-found tolerance: ${rootAsFoundState.delta >= 0 ? '+' : ''}${rootAsFoundState.delta.toFixed(3)}`
+                                    : ''}
+                                </p>
+                              ) : null}
+                            </label>
+                            <label className="itp-field">
+                              <span className="itp-field-label">Max removable to minimum</span>
+                              <input
+                                type="text"
+                                className="itp-input"
+                                value={maxRemovableText(selectedItem.data.measure1, rootMinimum)}
+                                placeholder="Auto-calculated from as-found and minimum"
+                                disabled
+                                readOnly
                               />
                             </label>
                           </div>
                           {measureHint ? <p className="itp-measure-warn">{measureHint}</p> : null}
+                          {rootAsFoundTol ? (
+                            <p className={`itp-tolerance-chip ${rootAsFoundTol.tone === 'ok' ? 'ok' : 'bad'}`}>
+                              {isThreadedHolesSection
+                                ? rootAsFoundTol.text
+                                    .replace('As found tolerance', 'Thread wall tolerance')
+                                    .replace('vs minimum', 'vs minimum thread wall')
+                                : rootAsFoundTol.text}
+                            </p>
+                          ) : null}
+                          {rootAsFoundState.delta != null ? (
+                            <p className="itp-measure-ref-note">
+                              {rootAsFoundState.delta >= 0
+                                ? `${
+                                    isThreadedHolesSection ? 'Thread wall check' : 'Thickness check'
+                                  }: acceptable by ${rootAsFoundState.delta.toFixed(3)}. Max removable ≈ ${rootAsFoundState.delta.toFixed(3)}`
+                                : `${
+                                    isThreadedHolesSection ? 'Thread wall check' : 'Thickness check'
+                                  }: too thin by ${Math.abs(rootAsFoundState.delta).toFixed(3)}`}
+                            </p>
+                          ) : null}
+                          {isThreadedHolesSection && conditionNeedsRepair(selectedItem.data.condition) ? (
+                            <p className={`itp-tolerance-chip ${attachmentCount > 0 ? 'ok' : 'bad'}`}>
+                              Repair photo requirement: {attachmentCount > 0 ? 'PASS' : 'FAIL'} (
+                              {attachmentCount > 0
+                                ? `${attachmentCount} photo${attachmentCount === 1 ? '' : 's'} attached`
+                                : 'attach at least 1 photo before save/submit'}
+                              )
+                            </p>
+                          ) : null}
 
                           <label className="itp-field">
                             <span className="itp-field-label">Measurement notes</span>

@@ -12,7 +12,7 @@ const root = path.join(__dirname, '..')
 
 const xlsxPath =
   process.argv[2] ||
-  path.join(process.env.USERPROFILE || '', 'Downloads', 'Valve Status 2026 new 3.31.26.xlsx')
+  path.join(process.env.USERPROFILE || '', 'Downloads', 'Valve Status 2026 new 5.26.26.xlsx')
 const outPath = process.argv[3] || path.join(root, 'supabase', 'update-valve-descriptions-from-valve-status-2026.sql')
 
 const BATCH = 250

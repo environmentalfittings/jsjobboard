@@ -41,6 +41,7 @@ export function TechJobCard({ job, readOnly = false, onStatusChange }: TechJobCa
               void onStatusChange?.(job, e.target.value)
             }}
           >
+            <option>Not Received</option>
             <option>Received</option>
             <option>Disassembly</option>
             <option>Inspection</option>

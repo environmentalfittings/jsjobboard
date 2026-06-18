@@ -1,30 +1,40 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { useNavigate, useParams, useSearchParams } from 'react-router-dom'
+import { useCallback, useEffect, useMemo, useState } from 'react'
+import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom'
+import { DueDateChangeModal } from '../components/DueDateChangeModal'
 import { JobSubStatusSelect, SubStatusBadge } from '../components/JobSubStatusUI'
 import { StatusBadge } from '../components/StatusBadge'
 import { TechnicianAvatars } from '../components/TechnicianAvatars'
-import { ItpEditorModal } from '../components/ItpEditorModal'
 import { StatusChangeModal } from '../components/StatusChangeModal'
 import { useToast } from '../components/ToastNotification'
 import { normalizeJobType } from '../constants/jobTypes'
 import { normalizeJobSubStatus, type JobSubStatus } from '../constants/jobSubStatuses'
 import {
   DONE_STATUSES,
-  IN_SHOP_STATUSES,
   PHASES,
   TERMINAL_STATUSES,
-  TESTING_STATUSES,
-  WAITING_STATUSES,
 } from '../constants/statuses'
 import { parseAssignedTechnicianIds } from '../lib/valveTechnicianIds'
+import { fetchAllValves } from '../lib/fetchAllValves'
+import { displayJobStatus, isActiveOrderType } from '../lib/jobDisplayStatus'
+import { recordDueDateChange, resolveChangedByName } from '../lib/dueDateChanges'
+import { isEligiblePriorityValve, syncPriorityQueueWithValves } from '../lib/priorityQueue'
 import { supabase } from '../lib/supabase'
 import { VALVE_LIST_SELECT } from '../lib/valveSelect'
 import type { Technician, Valve } from '../types'
+import type { UserRole } from './LoginPage'
 
 type BoardTab = 'kanban' | 'list'
 type PhaseKey = (typeof PHASES)[number]['key']
 type PhaseOrder = Record<PhaseKey, number[]>
-type ScopeFilter = 'all' | 'in-process' | 'on-hold' | 'ready-to-ship' | 'not-arrived'
+type ScopeFilter =
+  | 'all'
+  | 'in-process'
+  | 'on-hold'
+  | 'waiting-on-arrival'
+  | 'on-order'
+  | 'closed'
+  | 'ready-to-ship'
+  | 'not-arrived'
 type TurnaroundFilter = 'all' | 'turnaround' | 'not_turnaround'
 
 function compareValveIdSequential(a: string, b: string): number {
@@ -65,14 +75,6 @@ function isDueSoon(raw: string | null): boolean {
   return diffDays >= 0 && diffDays <= 3
 }
 
-const PHASE_DROP_STATUS: Record<PhaseKey, string> = {
-  incoming: 'Arrived - Not Started',
-  'in-shop': 'Teardown',
-  testing: 'Testing',
-  waiting: 'Waiting on Parts',
-  done: 'Completed',
-}
-
 const ORDER_STORAGE_KEY = 'job-board-phase-order-v1'
 const EMPTY_ORDER: PhaseOrder = {
   incoming: [],
@@ -87,17 +89,16 @@ interface KanbanJobCardProps {
   techIds: number[]
   phaseKey: PhaseKey
   priorityIds: Set<string>
-  draggedValveId: number | null
-  dropCardId: number | null
   attachmentCounts: Record<number, number>
   techniciansById: Map<number, Technician>
   onOpen: (v: Valve) => void
   onSubStatusChange: (v: Valve, next: JobSubStatus) => void | Promise<void>
+  onEditDueDate: (v: Valve) => void
   onQuickReceive: (v: Valve) => void | Promise<void>
-  setDraggedValveId: (id: number | null) => void
-  onDragEnd: () => void
-  handleCardDragOver: (phaseKey: PhaseKey, targetId: number) => void
-  handleCardDrop: (phaseKey: PhaseKey, targetId: number) => void
+  canMoveUp: boolean
+  canMoveDown: boolean
+  onMoveUp: () => void
+  onMoveDown: () => void
 }
 
 function KanbanJobCard({
@@ -105,17 +106,16 @@ function KanbanJobCard({
   techIds,
   phaseKey,
   priorityIds,
-  draggedValveId,
-  dropCardId,
   attachmentCounts,
   techniciansById,
   onOpen,
   onSubStatusChange,
+  onEditDueDate,
   onQuickReceive,
-  setDraggedValveId,
-  onDragEnd,
-  handleCardDragOver,
-  handleCardDrop,
+  canMoveUp,
+  canMoveDown,
+  onMoveUp,
+  onMoveDown,
 }: KanbanJobCardProps) {
   const sub = normalizeJobSubStatus(valve.sub_status)
   const assignedName = valve.assigned_technician_id ? techniciansById.get(valve.assigned_technician_id)?.name : null
@@ -128,24 +128,31 @@ function KanbanJobCard({
           ? ' job-card-urgency-soon'
           : ''
   return (
-    <div
-      className={`job-card${urgencyClass} ${priorityIds.has(valve.valve_id) ? 'priority' : ''} ${draggedValveId === valve.id ? 'dragging' : ''}`}
-      draggable
-      onDragStart={(event) => {
-        event.dataTransfer.effectAllowed = 'move'
-        setDraggedValveId(valve.id)
-      }}
-      onDragEnd={onDragEnd}
-      onDragOver={(event) => {
-        event.preventDefault()
-        handleCardDragOver(phaseKey, valve.id)
-      }}
-      onDrop={async (event) => {
-        event.preventDefault()
-        await handleCardDrop(phaseKey, valve.id)
-      }}
-      data-drop-target={dropCardId === valve.id ? 'true' : 'false'}
-    >
+    <div className={`job-card${urgencyClass} ${priorityIds.has(valve.valve_id) ? 'priority' : ''}`}>
+      <div className="job-card-reorder-bar" onMouseDown={(e) => e.stopPropagation()}>
+        <div className="job-card-reorder-buttons">
+          <button
+            type="button"
+            className="job-card-reorder-btn"
+            disabled={!canMoveUp}
+            title="Move up"
+            aria-label={`Move ${valve.valve_id} up`}
+            onClick={onMoveUp}
+          >
+            ↑
+          </button>
+          <button
+            type="button"
+            className="job-card-reorder-btn"
+            disabled={!canMoveDown}
+            title="Move down"
+            aria-label={`Move ${valve.valve_id} down`}
+            onClick={onMoveDown}
+          >
+            ↓
+          </button>
+        </div>
+      </div>
       <div className="job-card-click-area" onClick={() => onOpen(valve)} role="presentation">
         {isTurnaroundValve(valve) ? (
           <div className="job-card-turnaround-flag">Turnaround</div>
@@ -174,15 +181,28 @@ function KanbanJobCard({
             {(valve.notes ?? '').trim() || '—'}
           </span>
         </div>
-      {dueDateLabel(valve.due_date) ? (
-        <div className="job-card-due-date">
-          <span className="job-card-detail-label">Due date</span>
-          <span className={isDueDateOverdue(valve.due_date) ? 'due-date-overdue' : 'due-date-ok'}>
-            {dueDateLabel(valve.due_date)}
-          </span>
-          {isDueDateOverdue(valve.due_date) ? <span className="job-card-overdue-badge">Overdue</span> : null}
-        </div>
-      ) : null}
+      <div className="job-card-due-date job-card-due-date--editable">
+        <span className="job-card-detail-label">Due date</span>
+        <button
+          type="button"
+          className="job-card-due-date-button"
+          onClick={(e) => {
+            e.stopPropagation()
+            onEditDueDate(valve)
+          }}
+        >
+          {dueDateLabel(valve.due_date) ? (
+            <span className={isDueDateOverdue(valve.due_date) ? 'due-date-overdue' : 'due-date-ok'}>
+              {dueDateLabel(valve.due_date)}
+            </span>
+          ) : (
+            <span className="job-card-due-date-empty">Set due date</span>
+          )}
+        </button>
+        {dueDateLabel(valve.due_date) && isDueDateOverdue(valve.due_date) ? (
+          <span className="job-card-overdue-badge">Overdue</span>
+        ) : null}
+      </div>
         {(attachmentCounts[valve.id] ?? 0) > 0 ? (
           <div className="job-card-attachments" title="Attachments & photos">
             <span className="job-card-attachments-icon" aria-hidden>
@@ -198,11 +218,14 @@ function KanbanJobCard({
         onClick={(e) => e.stopPropagation()}
       >
         <SubStatusBadge status={sub} />
-        <JobSubStatusSelect
-          compact
-          value={sub}
-          onChange={(next) => void onSubStatusChange(valve, next)}
-        />
+        <label className="job-card-received-label">
+          <span className="job-card-detail-label">Received</span>
+          <JobSubStatusSelect
+            compact
+            value={sub}
+            onChange={(next) => void onSubStatusChange(valve, next)}
+          />
+        </label>
         {phaseKey === 'incoming' && valve.status === 'Not Arrived' ? (
           <button
             type="button"
@@ -222,7 +245,7 @@ function KanbanJobCard({
   )
 }
 
-export function JobBoardPage() {
+export function JobBoardPage({ role, username }: { role?: UserRole; username?: string }) {
   const navigate = useNavigate()
   const { id: routeJobId } = useParams<{ id?: string }>()
   const [searchParams, setSearchParams] = useSearchParams()
@@ -234,6 +257,9 @@ export function JobBoardPage() {
   const initialScope: ScopeFilter =
     scopeParam === 'in-process' ||
     scopeParam === 'on-hold' ||
+    scopeParam === 'waiting-on-arrival' ||
+    scopeParam === 'on-order' ||
+    scopeParam === 'closed' ||
     scopeParam === 'ready-to-ship' ||
     scopeParam === 'not-arrived'
       ? scopeParam
@@ -244,7 +270,6 @@ export function JobBoardPage() {
   const [priorityIds, setPriorityIds] = useState<Set<string>>(new Set())
   const [loading, setLoading] = useState(true)
   const [activeValve, setActiveValve] = useState<Valve | null>(null)
-  const [itpValve, setItpValve] = useState<Valve | null>(null)
   const [selectedStatus, setSelectedStatus] = useState('')
   const [isSaving, setIsSaving] = useState(false)
   const [attachmentCounts, setAttachmentCounts] = useState<Record<number, number>>({})
@@ -253,14 +278,11 @@ export function JobBoardPage() {
   const [scopeFilter, setScopeFilter] = useState<ScopeFilter>(initialScope)
   const [cellFilter, setCellFilter] = useState(cellParam ? cellParam : 'all')
   const [turnaroundFilter, setTurnaroundFilter] = useState<TurnaroundFilter>('all')
-  const [draggedValveId, setDraggedValveId] = useState<number | null>(null)
-  const [dropPhase, setDropPhase] = useState<PhaseKey | null>(null)
-  const [dropCardId, setDropCardId] = useState<number | null>(null)
-  const lastHoverKeyRef = useRef<string>('')
-  const dragFrameRef = useRef<number | null>(null)
   const [technicians, setTechnicians] = useState<Technician[]>([])
   const [jobTechnicianIdsByValve, setJobTechnicianIdsByValve] = useState<Record<number, number[]>>({})
   const [technicianFilter, setTechnicianFilter] = useState('all')
+  const [dueDateEditValve, setDueDateEditValve] = useState<Valve | null>(null)
+  const [savingDueDate, setSavingDueDate] = useState(false)
   const [phaseOrder, setPhaseOrder] = useState<PhaseOrder>(() => {
     try {
       const stored = window.localStorage.getItem(ORDER_STORAGE_KEY)
@@ -332,29 +354,21 @@ export function JobBoardPage() {
   }, [])
 
   const fetchValves = async () => {
-    const { data, error } = await supabase
-      .from('valves')
-      .select(VALVE_LIST_SELECT)
-      .order('id', { ascending: false })
+    const { data, error } = await fetchAllValves()
 
     if (error) {
       showToast(`Could not load valves: ${error.message}`)
-    } else if (data) {
-      setValves(data as Valve[])
+    } else {
+      setValves(data)
+      const eligiblePriority = await syncPriorityQueueWithValves(data)
+      setPriorityIds(new Set(eligiblePriority))
     }
     setLoading(false)
     void loadAttachmentCounts()
   }
 
-  const fetchPriority = async () => {
-    const { data, error } = await supabase.from('priority_queue').select('valve_id')
-    if (error || !data) return
-    setPriorityIds(new Set(data.map((item: { valve_id: string }) => item.valve_id)))
-  }
-
   useEffect(() => {
     fetchValves()
-    fetchPriority()
     void loadJobTechnicianAssignments()
 
     const interval = window.setInterval(fetchValves, 30000)
@@ -445,7 +459,7 @@ export function JobBoardPage() {
 
   const doneLimited = useMemo(() => {
     return valves
-      .filter((v) => DONE_STATUSES.has(v.status))
+      .filter((v) => DONE_STATUSES.has(v.status) || v.order_type === 'Completed')
       .sort((a, b) => {
         const ad = a.date_closed ? new Date(a.date_closed).getTime() : 0
         const bd = b.date_closed ? new Date(b.date_closed).getTime() : 0
@@ -455,7 +469,15 @@ export function JobBoardPage() {
   }, [valves])
 
   const activeNonTerminal = useMemo(
-    () => valves.filter((v) => !TERMINAL_STATUSES.has(v.status)),
+    () =>
+      valves.filter(
+        (v) => isActiveOrderType(v.order_type) && !TERMINAL_STATUSES.has(v.status),
+      ),
+    [valves],
+  )
+
+  const closedWorkOrders = useMemo(
+    () => valves.filter((v) => v.order_type === 'Completed'),
     [valves],
   )
 
@@ -465,11 +487,15 @@ export function JobBoardPage() {
   }, [activeNonTerminal])
 
   const tableRows = useMemo(() => {
-    return activeNonTerminal.filter((v) => {
+    const base = scopeFilter === 'closed' ? closedWorkOrders : activeNonTerminal
+    return base.filter((v) => {
       const matchesScope =
         scopeFilter === 'all' ||
-        (scopeFilter === 'in-process' && (IN_SHOP_STATUSES.has(v.status) || TESTING_STATUSES.has(v.status))) ||
-        (scopeFilter === 'on-hold' && WAITING_STATUSES.has(v.status)) ||
+        scopeFilter === 'closed' ||
+        (scopeFilter === 'in-process' && v.order_type === 'In-Process Order') ||
+        (scopeFilter === 'on-hold' && v.order_type === 'On-Hold') ||
+        (scopeFilter === 'waiting-on-arrival' && v.order_type === 'Waiting on Arrival') ||
+        (scopeFilter === 'on-order' && isActiveOrderType(v.order_type)) ||
         (scopeFilter === 'ready-to-ship' && v.status === 'Warehouse RTS') ||
         (scopeFilter === 'not-arrived' && v.status === 'Not Arrived')
       const text = searchText.trim().toLowerCase()
@@ -489,11 +515,69 @@ export function JobBoardPage() {
         technicianFilter === 'all' || technicianIdsForValve(v).includes(Number.parseInt(technicianFilter, 10))
       return matchesScope && matchesText && matchesStatus && matchesCell && matchesTurnaround && matchesTechnician
     }).sort(compareValvesForDisplay)
-  }, [activeNonTerminal, scopeFilter, searchText, statusFilter, cellFilter, turnaroundFilter, technicianFilter, technicianIdsForValve, compareValvesForDisplay])
+  }, [
+    activeNonTerminal,
+    closedWorkOrders,
+    scopeFilter,
+    searchText,
+    statusFilter,
+    cellFilter,
+    turnaroundFilter,
+    technicianFilter,
+    technicianIdsForValve,
+    compareValvesForDisplay,
+  ])
 
   const openModal = (valve: Valve) => {
     setActiveValve(valve)
     setSelectedStatus(valve.status)
+  }
+
+  const openDueDateEditor = (valve: Valve) => {
+    setDueDateEditValve(valve)
+  }
+
+  const saveDueDateChange = async (nextDueDate: string | null, reason: string) => {
+    if (!dueDateEditValve) return
+    const previousDueDate = dueDateLabel(dueDateEditValve.due_date)
+    if ((previousDueDate ?? null) === nextDueDate) return
+
+    setSavingDueDate(true)
+    const changedByName = await resolveChangedByName(username ?? 'Unknown')
+    const { error: valveError } = await supabase
+      .from('valves')
+      .update({ due_date: nextDueDate })
+      .eq('id', dueDateEditValve.id)
+
+    if (valveError) {
+      setSavingDueDate(false)
+      showToast(`Could not update due date: ${valveError.message}`)
+      return
+    }
+
+    const { error: logError } = await recordDueDateChange({
+      valveRowId: dueDateEditValve.id,
+      valveId: dueDateEditValve.valve_id,
+      previousDueDate,
+      newDueDate: nextDueDate,
+      reason,
+      changedByName,
+    })
+
+    setSavingDueDate(false)
+    if (logError) {
+      showToast(`Due date saved, but change log failed: ${logError.message}`)
+    } else {
+      showToast('Due date updated')
+    }
+
+    setValves((prev) =>
+      prev.map((v) => (v.id === dueDateEditValve.id ? { ...v, due_date: nextDueDate } : v)),
+    )
+    setActiveValve((prev) =>
+      prev && prev.id === dueDateEditValve.id ? { ...prev, due_date: nextDueDate } : prev,
+    )
+    setDueDateEditValve(null)
   }
 
   const updateSubStatusFromKanban = async (valve: Valve, next: JobSubStatus) => {
@@ -530,15 +614,11 @@ export function JobBoardPage() {
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key !== 'Escape') return
-      if (itpValve) {
-        setItpValve(null)
-        return
-      }
       if (activeValve) closeModal()
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [itpValve, activeValve, closeModal])
+  }, [activeValve, closeModal])
 
   const saveModalChanges = async (
     description: string,
@@ -599,6 +679,11 @@ export function JobBoardPage() {
       return
     }
 
+    if (!isEligiblePriorityValve(valve)) {
+      showToast('Only in-process active jobs can be added to priority')
+      return
+    }
+
     const { error } = await supabase.from('priority_queue').insert({ valve_id: valve.valve_id })
     if (error) {
       showToast(`Could not add ${valve.valve_id} to priority`)
@@ -609,32 +694,79 @@ export function JobBoardPage() {
   }
 
   const isValveInPhase = (valve: Valve, phaseKey: PhaseKey) => {
-    if (phaseKey === 'done') return DONE_STATUSES.has(valve.status)
+    const status = displayJobStatus(valve)
+    if (phaseKey === 'done') return DONE_STATUSES.has(status)
     const phase = PHASES.find((item) => item.key === phaseKey)
-    return phase ? phase.statuses.has(valve.status) : false
+    return phase ? phase.statuses.has(status) : false
   }
 
-  const itemsForPhase = (phaseKey: PhaseKey) => {
-    const base =
-      phaseKey === 'done'
+  const baseItemsForPhase = useCallback(
+    (phaseKey: PhaseKey) => {
+      return phaseKey === 'done'
         ? doneLimited
         : activeNonTerminal.filter((valve) => isValveInPhase(valve, phaseKey))
-    return [...base].sort(compareValvesForDisplay)
-  }
+    },
+    [activeNonTerminal, doneLimited],
+  )
 
-  const placeInPhaseOrder = (phaseKey: PhaseKey, draggedId: number, targetId: number | null) => {
-    const orderedIds = itemsForPhase(phaseKey).map((item) => item.id)
-    if (!orderedIds.includes(draggedId)) return
-    const withoutDragged = orderedIds.filter((id) => id !== draggedId)
-    const targetIndex = targetId == null ? withoutDragged.length : withoutDragged.indexOf(targetId)
-    const insertAt = targetIndex < 0 ? withoutDragged.length : targetIndex
-    const currentIndex = orderedIds.indexOf(draggedId)
-    const normalizedCurrentIndex = currentIndex > insertAt ? currentIndex : currentIndex - 1
-    if (normalizedCurrentIndex === insertAt) return
-    withoutDragged.splice(insertAt, 0, draggedId)
+  const itemsForPhase = useCallback(
+    (phaseKey: PhaseKey) => {
+      const base = baseItemsForPhase(phaseKey)
+      const orderIds = phaseOrder[phaseKey]
+      if (!orderIds.length) {
+        return [...base].sort(compareValvesForDisplay)
+      }
 
-    setPhaseOrder((prev) => ({ ...prev, [phaseKey]: withoutDragged }))
-  }
+      const byId = new Map(base.map((valve) => [valve.id, valve]))
+      const ordered: Valve[] = []
+      for (const id of orderIds) {
+        const valve = byId.get(id)
+        if (valve) {
+          ordered.push(valve)
+          byId.delete(id)
+        }
+      }
+      const rest = [...byId.values()].sort(compareValvesForDisplay)
+      return [...ordered, ...rest]
+    },
+    [baseItemsForPhase, phaseOrder, compareValvesForDisplay],
+  )
+
+  const placeInPhaseOrder = useCallback(
+    (phaseKey: PhaseKey, draggedId: number, targetId: number | null) => {
+      const orderedIds = itemsForPhase(phaseKey).map((item) => item.id)
+      if (!orderedIds.includes(draggedId)) return
+      const withoutDragged = orderedIds.filter((id) => id !== draggedId)
+      const targetIndex = targetId == null ? withoutDragged.length : withoutDragged.indexOf(targetId)
+      const insertAt = targetIndex < 0 ? withoutDragged.length : targetIndex
+      const currentIndex = orderedIds.indexOf(draggedId)
+      const normalizedCurrentIndex = currentIndex > insertAt ? currentIndex : currentIndex - 1
+      if (normalizedCurrentIndex === insertAt) return
+      withoutDragged.splice(insertAt, 0, draggedId)
+
+      setPhaseOrder((prev) => ({ ...prev, [phaseKey]: withoutDragged }))
+    },
+    [itemsForPhase],
+  )
+
+  const moveCardInPhase = useCallback(
+    (phaseKey: PhaseKey, valveId: number, direction: 'up' | 'down') => {
+      const items = itemsForPhase(phaseKey)
+      const index = items.findIndex((item) => item.id === valveId)
+      if (index < 0) return
+
+      if (direction === 'up') {
+        if (index === 0) return
+        placeInPhaseOrder(phaseKey, valveId, items[index - 1].id)
+        return
+      }
+
+      if (index >= items.length - 1) return
+      const targetId = index + 2 < items.length ? items[index + 2].id : null
+      placeInPhaseOrder(phaseKey, valveId, targetId)
+    },
+    [itemsForPhase, placeInPhaseOrder],
+  )
 
   const moveValveToStatus = async (valve: Valve, nextStatus: string) => {
     if (!nextStatus || valve.status === nextStatus) return
@@ -661,110 +793,64 @@ export function JobBoardPage() {
     await moveValveToStatus(valve, 'Arrived - Not Started')
   }
 
-  const handleDrop = async (phaseKey: PhaseKey) => {
-    const id = draggedValveId
-    setDropPhase(null)
-    setDropCardId(null)
-    setDraggedValveId(null)
-    if (!id) return
-
-    const valve = valves.find((v) => v.id === id)
-    if (!valve || isValveInPhase(valve, phaseKey)) return
-
-    await moveValveToStatus(valve, PHASE_DROP_STATUS[phaseKey])
-    placeInPhaseOrder(phaseKey, id, null)
-  }
-
-  const handleCardDrop = async (phaseKey: PhaseKey, targetId: number) => {
-    const id = draggedValveId
-    setDropPhase(null)
-    setDropCardId(null)
-    setDraggedValveId(null)
-    if (!id) return
-
-    const valve = valves.find((v) => v.id === id)
-    if (!valve) return
-
-    if (isValveInPhase(valve, phaseKey)) {
-      placeInPhaseOrder(phaseKey, id, targetId)
-      return
-    }
-
-    await moveValveToStatus(valve, PHASE_DROP_STATUS[phaseKey])
-    placeInPhaseOrder(phaseKey, id, targetId)
-  }
-
   useEffect(() => {
     window.localStorage.setItem(ORDER_STORAGE_KEY, JSON.stringify(phaseOrder))
   }, [phaseOrder])
 
   useEffect(() => {
-    const idsByPhase: Record<PhaseKey, Set<number>> = {
-      incoming: new Set(itemsForPhase('incoming').map((item) => item.id)),
-      'in-shop': new Set(itemsForPhase('in-shop').map((item) => item.id)),
-      testing: new Set(itemsForPhase('testing').map((item) => item.id)),
-      waiting: new Set(itemsForPhase('waiting').map((item) => item.id)),
-      done: new Set(itemsForPhase('done').map((item) => item.id)),
-    }
-
     setPhaseOrder((prev) => {
       const next: PhaseOrder = {
-        incoming: prev.incoming.filter((id) => idsByPhase.incoming.has(id)),
-        'in-shop': prev['in-shop'].filter((id) => idsByPhase['in-shop'].has(id)),
-        testing: prev.testing.filter((id) => idsByPhase.testing.has(id)),
-        waiting: prev.waiting.filter((id) => idsByPhase.waiting.has(id)),
-        done: prev.done.filter((id) => idsByPhase.done.has(id)),
+        incoming: [],
+        'in-shop': [],
+        testing: [],
+        waiting: [],
+        done: [],
+      }
+      let changed = false
+
+      for (const phase of PHASES) {
+        const key = phase.key
+        const idsInPhase = new Set(baseItemsForPhase(key).map((item) => item.id))
+        const filtered = prev[key].filter((id) => idsInPhase.has(id))
+        const known = new Set(filtered)
+        const appended = baseItemsForPhase(key)
+          .filter((item) => !known.has(item.id))
+          .sort(compareValvesForDisplay)
+          .map((item) => item.id)
+        const merged = [...filtered, ...appended]
+
+        if (
+          merged.length !== prev[key].length ||
+          merged.some((id, index) => id !== prev[key][index])
+        ) {
+          changed = true
+        }
+        next[key] = merged
       }
 
-      let changed = false
-      ;(Object.keys(next) as PhaseKey[]).forEach((key) => {
-        if (next[key].length !== prev[key].length) changed = true
-      })
       return changed ? next : prev
     })
-  }, [valves, activeNonTerminal, doneLimited])
-
-  useEffect(() => {
-    return () => {
-      if (dragFrameRef.current != null) {
-        window.cancelAnimationFrame(dragFrameRef.current)
-      }
-    }
-  }, [])
-
-  const handleCardDragOver = (phaseKey: PhaseKey, targetId: number) => {
-    if (!draggedValveId) return
-    const hoverKey = `${phaseKey}:${targetId}:${draggedValveId}`
-    if (lastHoverKeyRef.current === hoverKey) return
-    lastHoverKeyRef.current = hoverKey
-
-    if (dragFrameRef.current != null) {
-      window.cancelAnimationFrame(dragFrameRef.current)
-    }
-
-    dragFrameRef.current = window.requestAnimationFrame(() => {
-      setDropPhase((prev) => (prev === phaseKey ? prev : phaseKey))
-      setDropCardId((prev) => (prev === targetId ? prev : targetId))
-      const valve = valves.find((v) => v.id === draggedValveId)
-      if (!valve) return
-      if (isValveInPhase(valve, phaseKey)) {
-        placeInPhaseOrder(phaseKey, draggedValveId, targetId)
-      }
-    })
-  }
+  }, [valves, baseItemsForPhase, compareValvesForDisplay])
 
   return (
     <section className="job-board-page">
       {!isDedicatedDetailRoute ? (
         <div className="page-header">
           <h2>Job Board</h2>
-          <div className="tabs">
-            <button className={`tab ${tab === 'kanban' ? 'active' : ''}`} onClick={() => setTab('kanban')}>
-              Kanban board
-            </button>
-            <button className={`tab ${tab === 'list' ? 'active' : ''}`} onClick={() => setTab('list')}>
-              List view
-            </button>
+          <div className="page-header-actions">
+            {role === 'admin' ? (
+              <Link to="/new-job" className="button-primary job-board-new-job-link">
+                New job <kbd className="job-board-shortcut-kbd">N</kbd>
+              </Link>
+            ) : null}
+            <div className="tabs">
+              <button className={`tab ${tab === 'kanban' ? 'active' : ''}`} onClick={() => setTab('kanban')}>
+                Kanban board
+              </button>
+              <button className={`tab ${tab === 'list' ? 'active' : ''}`} onClick={() => setTab('list')}>
+                List view
+              </button>
+            </div>
           </div>
         </div>
       ) : null}
@@ -772,6 +858,8 @@ export function JobBoardPage() {
       {loading ? <div className="loading">Loading valves...</div> : null}
 
       {!isDedicatedDetailRoute && tab === 'kanban' ? (
+        <>
+        <p className="kanban-reorder-hint">Use ↑ ↓ on each card to set priority within a column. Order is saved on this device.</p>
         <div className="kanban-grid">
           {PHASES.map((phase) => {
             const items = itemsForPhase(phase.key)
@@ -781,70 +869,44 @@ export function JobBoardPage() {
                   <span>{phase.title}</span>
                   <span className="count-badge">{items.length}</span>
                 </div>
-                <div
-                  className={`column-cards ${dropPhase === phase.key ? 'drop-target' : ''}`}
-                  onDragOver={(event) => {
-                    event.preventDefault()
-                    setDropPhase(phase.key)
-                  }}
-                  onDragLeave={() => {
-                    if (dropPhase === phase.key) setDropPhase(null)
-                  }}
-                  onDrop={async (event) => {
-                    event.preventDefault()
-                    await handleDrop(phase.key)
-                  }}
-                >
-                  {(() => {
-                    const onDragEnd = () => {
-                      if (dragFrameRef.current != null) {
-                        window.cancelAnimationFrame(dragFrameRef.current)
-                        dragFrameRef.current = null
-                      }
-                      lastHoverKeyRef.current = ''
-                      setDraggedValveId(null)
-                      setDropPhase(null)
-                      setDropCardId(null)
-                    }
-                    const cardProps = (valve: Valve) => ({
-                      valve,
-                      techIds: technicianIdsForValve(valve),
-                      phaseKey: phase.key,
-                      priorityIds,
-                      draggedValveId,
-                      dropCardId,
-                      attachmentCounts,
-                      techniciansById,
-                      onOpen: openModal,
-                      onSubStatusChange: updateSubStatusFromKanban,
-                      onQuickReceive: quickMarkArrived,
-                      setDraggedValveId,
-                      onDragEnd,
-                      handleCardDragOver,
-                      handleCardDrop,
-                    })
-                    return (
-                      <>
-                        {items.map((valve) => (
-                          <KanbanJobCard key={valve.id} {...cardProps(valve)} />
-                        ))}
-                      </>
-                    )
-                  })()}
+                <div className="column-cards">
+                  {items.map((valve, index) => (
+                    <KanbanJobCard
+                      key={valve.id}
+                      valve={valve}
+                      techIds={technicianIdsForValve(valve)}
+                      phaseKey={phase.key}
+                      priorityIds={priorityIds}
+                      attachmentCounts={attachmentCounts}
+                      techniciansById={techniciansById}
+                      onOpen={openModal}
+                      onSubStatusChange={updateSubStatusFromKanban}
+                      onEditDueDate={openDueDateEditor}
+                      onQuickReceive={quickMarkArrived}
+                      canMoveUp={index > 0}
+                      canMoveDown={index < items.length - 1}
+                      onMoveUp={() => moveCardInPhase(phase.key, valve.id, 'up')}
+                      onMoveDown={() => moveCardInPhase(phase.key, valve.id, 'down')}
+                    />
+                  ))}
                 </div>
               </div>
             )
           })}
         </div>
+        </>
       ) : !isDedicatedDetailRoute ? (
         <div className="list-view">
           <div className="filters">
             <select value={scopeFilter} onChange={(e) => setScopeFilter(e.target.value as ScopeFilter)}>
-              <option value="all">All work</option>
+              <option value="all">All active work</option>
+              <option value="on-order">On order (all active)</option>
               <option value="in-process">In process</option>
               <option value="on-hold">On hold</option>
+              <option value="waiting-on-arrival">Waiting on arrival</option>
+              <option value="closed">Closed work orders</option>
               <option value="ready-to-ship">Ready to ship</option>
-              <option value="not-arrived">Not arrived</option>
+              <option value="not-arrived">Not arrived (shop status)</option>
             </select>
             <input
               type="text"
@@ -926,14 +988,23 @@ export function JobBoardPage() {
                       )}
                     </td>
                     <td>
-                      {dueDateLabel(valve.due_date) ? (
-                        <span className={isDueDateOverdue(valve.due_date) ? 'due-date-overdue' : 'due-date-ok'}>
-                          {dueDateLabel(valve.due_date)}
-                          {isDueDateOverdue(valve.due_date) ? ' (Overdue)' : ''}
-                        </span>
-                      ) : (
-                        '-'
-                      )}
+                      <button
+                        type="button"
+                        className="job-list-due-date-button"
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          openDueDateEditor(valve)
+                        }}
+                      >
+                        {dueDateLabel(valve.due_date) ? (
+                          <span className={isDueDateOverdue(valve.due_date) ? 'due-date-overdue' : 'due-date-ok'}>
+                            {dueDateLabel(valve.due_date)}
+                            {isDueDateOverdue(valve.due_date) ? ' (Overdue)' : ''}
+                          </span>
+                        ) : (
+                          <span className="job-card-due-date-empty">Set due date</span>
+                        )}
+                      </button>
                     </td>
                     <td className="table-cell-clamp">{valve.description ?? '-'}</td>
                     <td className="table-cell-clamp">{valve.notes ?? '-'}</td>
@@ -961,6 +1032,17 @@ export function JobBoardPage() {
         </div>
       ) : null}
 
+      {dueDateEditValve ? (
+        <DueDateChangeModal
+          valve={dueDateEditValve}
+          isSaving={savingDueDate}
+          onCancel={() => {
+            if (!savingDueDate) setDueDateEditValve(null)
+          }}
+          onSave={saveDueDateChange}
+        />
+      ) : null}
+
       {activeValve ? (
         <StatusChangeModal
           valve={activeValve}
@@ -975,13 +1057,11 @@ export function JobBoardPage() {
           assignedTechnicianId={activeValve.assigned_technician_id ?? null}
           onAssignmentsChanged={loadJobTechnicianAssignments}
           onAttachmentsChanged={loadAttachmentCounts}
-          onOpenItp={() => setItpValve(activeValve)}
+          onOpenItp={() => navigate(`/itp/${activeValve.id}`)}
           onOpenFullPage={() => navigate(`/jobs/${activeValve.id}`)}
           forceMaximized={isDedicatedDetailRoute}
         />
       ) : null}
-
-      {itpValve ? <ItpEditorModal valve={itpValve} onClose={() => setItpValve(null)} /> : null}
     </section>
   )
 }

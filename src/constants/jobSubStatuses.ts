@@ -3,6 +3,7 @@
  * Edit this array to change labels and ordering app-wide.
  */
 export const JOB_SUB_STATUSES = [
+  'Not Received',
   'Received',
   'Disassembly',
   'Inspection',
