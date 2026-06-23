@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { DueDateChangeModal } from '../components/DueDateChangeModal'
-import { JobSubStatusSelect, SubStatusBadge } from '../components/JobSubStatusUI'
 import { StatusBadge } from '../components/StatusBadge'
 import { TechnicianAvatars } from '../components/TechnicianAvatars'
 import { StatusChangeModal } from '../components/StatusChangeModal'
@@ -9,15 +8,16 @@ import { useToast } from '../components/ToastNotification'
 import { normalizeJobType } from '../constants/jobTypes'
 import { ColumnFilterCombobox } from '../components/ColumnFilterCombobox'
 import { WorkOrderFilterBar } from '../components/WorkOrderFilterBar'
-import { normalizeJobSubStatus, type JobSubStatus } from '../constants/jobSubStatuses'
 import {
   DONE_STATUSES,
   PHASES,
+  STATUS_ORDER,
   TERMINAL_STATUSES,
 } from '../constants/statuses'
 import { parseAssignedTechnicianIds } from '../lib/valveTechnicianIds'
 import { fetchAllValves } from '../lib/fetchAllValves'
 import { displayJobStatus, isActiveOrderType } from '../lib/jobDisplayStatus'
+import { valveStatusPatch } from '../lib/valveStatusPatch'
 import {
   compareValveIdSequential,
   compareValvesBySort,
@@ -105,7 +105,7 @@ interface KanbanJobCardProps {
   attachmentCounts: Record<number, number>
   techniciansById: Map<number, Technician>
   onOpen: (v: Valve) => void
-  onSubStatusChange: (v: Valve, next: JobSubStatus) => void | Promise<void>
+  onStatusChange: (v: Valve, nextStatus: string) => void | Promise<void>
   onEditDueDate: (v: Valve) => void
   onQuickReceive: (v: Valve) => void | Promise<void>
   canMoveUp: boolean
@@ -122,7 +122,7 @@ function KanbanJobCard({
   attachmentCounts,
   techniciansById,
   onOpen,
-  onSubStatusChange,
+  onStatusChange,
   onEditDueDate,
   onQuickReceive,
   canMoveUp,
@@ -130,7 +130,6 @@ function KanbanJobCard({
   onMoveUp,
   onMoveDown,
 }: KanbanJobCardProps) {
-  const sub = normalizeJobSubStatus(valve.sub_status)
   const assignedName = valve.assigned_technician_id ? techniciansById.get(valve.assigned_technician_id)?.name : null
   const urgencyClass =
     phaseKey === 'done'
@@ -230,14 +229,19 @@ function KanbanJobCard({
         onMouseDown={(e) => e.stopPropagation()}
         onClick={(e) => e.stopPropagation()}
       >
-        <SubStatusBadge status={sub} />
-        <label className="job-card-received-label">
-          <span className="job-card-detail-label">Received</span>
-          <JobSubStatusSelect
-            compact
-            value={sub}
-            onChange={(next) => void onSubStatusChange(valve, next)}
-          />
+        <label className="job-card-status-label">
+          <span className="job-card-detail-label">Status</span>
+          <select
+            className="job-sub-status-select job-sub-status-select--compact job-card-kanban-status-select"
+            value={valve.status}
+            onChange={(e) => void onStatusChange(valve, e.target.value)}
+          >
+            {STATUS_ORDER.map((status) => (
+              <option key={status} value={status}>
+                {status}
+              </option>
+            ))}
+          </select>
         </label>
         {phaseKey === 'incoming' && valve.status === 'Not Arrived' ? (
           <button
@@ -607,19 +611,6 @@ export function JobBoardPage({ role, username }: { role?: UserRole; username?: s
     setDueDateEditValve(null)
   }
 
-  const updateSubStatusFromKanban = async (valve: Valve, next: JobSubStatus) => {
-    const prev = normalizeJobSubStatus(valve.sub_status)
-    if (prev === next) return
-    setValves((p) => p.map((v) => (v.id === valve.id ? { ...v, sub_status: next } : v)))
-    const { error } = await supabase.from('valves').update({ sub_status: next }).eq('id', valve.id)
-    if (error) {
-      setValves((p) => p.map((v) => (v.id === valve.id ? { ...v, sub_status: prev } : v)))
-      showToast(`Could not update sub-status: ${error.message}`)
-      return
-    }
-    showToast('Sub-status updated')
-  }
-
   const closeModal = useCallback(() => {
     setActiveValve(null)
     setSelectedStatus('')
@@ -653,28 +644,23 @@ export function JobBoardPage({ role, username }: { role?: UserRole; username?: s
     bowlType: string | null,
     valveType: string | null,
     isTurnaround: boolean,
-    subStatus: JobSubStatus,
     assignedTechnicianId: number | null,
     pressureClass: string | null,
     bodyMaterial: string | null,
   ) => {
     if (!activeValve || !selectedStatus) return
-    const today = new Date().toISOString().slice(0, 10)
     const patch: Partial<Valve> = {
       description: description.trim() || null,
       notes: notes.trim() || null,
       bowl_type: bowlType?.trim() || null,
       valve_type: valveType?.trim() || null,
       is_turnaround: isTurnaround,
-      sub_status: subStatus,
       assigned_technician_id: assignedTechnicianId,
       pressure_class: pressureClass,
       body_material: bodyMaterial,
     }
     if (selectedStatus !== activeValve.status) {
-      patch.status = selectedStatus
-      if (selectedStatus === 'Testing') patch.date_tested = today
-      if (selectedStatus === 'Completed' || selectedStatus === 'Warehouse RTS') patch.date_closed = today
+      Object.assign(patch, valveStatusPatch(selectedStatus))
     }
 
     setIsSaving(true)
@@ -804,11 +790,8 @@ export function JobBoardPage({ role, username }: { role?: UserRole; username?: s
 
   const moveValveToStatus = async (valve: Valve, nextStatus: string) => {
     if (!nextStatus || valve.status === nextStatus) return
-    const today = new Date().toISOString().slice(0, 10)
     const previous = { ...valve }
-    const patch: Partial<Valve> = { status: nextStatus }
-    if (nextStatus === 'Testing') patch.date_tested = today
-    if (nextStatus === 'Completed' || nextStatus === 'Warehouse RTS') patch.date_closed = today
+    const patch = valveStatusPatch(nextStatus)
 
     setValves((prev) => prev.map((v) => (v.id === valve.id ? { ...v, ...patch } : v)))
     const { error } = await supabase.from('valves').update(patch).eq('id', valve.id)
@@ -930,7 +913,7 @@ export function JobBoardPage({ role, username }: { role?: UserRole; username?: s
                       attachmentCounts={attachmentCounts}
                       techniciansById={techniciansById}
                       onOpen={openModal}
-                      onSubStatusChange={updateSubStatusFromKanban}
+                      onStatusChange={moveValveToStatus}
                       onEditDueDate={openDueDateEditor}
                       onQuickReceive={quickMarkArrived}
                       canMoveUp={index > 0}
@@ -1023,9 +1006,6 @@ export function JobBoardPage({ role, username }: { role?: UserRole; username?: s
                     <td>{isTurnaroundValve(valve) ? 'Yes' : '—'}</td>
                     <td>
                       <StatusBadge status={valve.status} />
-                    </td>
-                    <td>
-                      <SubStatusBadge status={normalizeJobSubStatus(valve.sub_status)} />
                     </td>
                     <td>
                       {technicianIdsForValve(valve).length > 0 ? (

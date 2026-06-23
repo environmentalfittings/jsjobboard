@@ -6,6 +6,7 @@ import { TeamJobsTable } from '../components/TeamJobsTable'
 import { TechJobCard } from '../components/TechJobCard'
 import { useToast } from '../components/ToastNotification'
 import { supabase } from '../lib/supabase'
+import { valveStatusPatch } from '../lib/valveStatusPatch'
 import type { Technician, Valve } from '../types'
 
 interface SupervisorDashboardPageProps {
@@ -153,9 +154,11 @@ export function SupervisorDashboardPage({ user, appRole, onLogout }: SupervisorD
         <div className="dashboard-grid">
           {myJobs.map((job) => (
             <TechJobCard key={job.id} job={job} onStatusChange={async (v, next) => {
-              const { error } = await supabase.from('valves').update({ sub_status: next }).eq('id', v.id)
+              if (v.status === next) return
+              const patch = valveStatusPatch(next)
+              const { error } = await supabase.from('valves').update(patch).eq('id', v.id)
               if (error) showToast('Could not update status')
-              else setMyJobs((prev) => prev.map((row) => (row.id === v.id ? { ...row, sub_status: next } : row)))
+              else setMyJobs((prev) => prev.map((row) => (row.id === v.id ? { ...row, ...patch } : row)))
             }} />
           ))}
           {myJobs.length === 0 ? <p className="placeholder-copy">No jobs assigned directly to you.</p> : null}

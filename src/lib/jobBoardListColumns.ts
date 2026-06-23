@@ -1,4 +1,3 @@
-import { normalizeJobSubStatus } from '../constants/jobSubStatuses'
 import {
   compareValveIdSequential,
   valveMatchesWorkOrderFilter,
@@ -13,7 +12,6 @@ export type ListColumnKey =
   | 'size'
   | 'turnaround'
   | 'status'
-  | 'sub_status'
   | 'technician'
   | 'due_date'
   | 'description'
@@ -40,7 +38,6 @@ export const LIST_FILTER_COLUMNS: { key: ListColumnKey; label: string }[] = [
   { key: 'size', label: 'Size' },
   { key: 'turnaround', label: 'Turnaround' },
   { key: 'status', label: 'Status' },
-  { key: 'sub_status', label: 'Sub-status' },
   { key: 'technician', label: 'Techs' },
   { key: 'due_date', label: 'Due Date' },
   { key: 'description', label: 'Description' },
@@ -55,7 +52,6 @@ export function emptyColumnFilters(): Record<ListColumnKey, ColumnFilterState> {
     size: { query: '', selected: '' },
     turnaround: { query: '', selected: '' },
     status: { query: '', selected: '' },
-    sub_status: { query: '', selected: '' },
     technician: { query: '', selected: '' },
     due_date: { query: '', selected: '' },
     description: { query: '', selected: '' },
@@ -77,8 +73,6 @@ export function getColumnValue(valve: Valve, column: ListColumnKey, context: Lis
       return valve.is_turnaround ? 'Yes' : 'No'
     case 'status':
       return valve.status
-    case 'sub_status':
-      return normalizeJobSubStatus(valve.sub_status)
     case 'technician':
       return context.technicianLabelForValve(valve)
     case 'due_date':

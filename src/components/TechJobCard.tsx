@@ -1,3 +1,4 @@
+import { STATUS_ORDER } from '../constants/statuses'
 import type { Valve } from '../types'
 
 interface TechJobCardProps {
@@ -36,25 +37,23 @@ export function TechJobCard({ job, readOnly = false, onStatusChange }: TechJobCa
         <label>
           Status
           <select
-            value={job.sub_status ?? 'Received'}
+            value={job.status}
             onChange={(e) => {
               void onStatusChange?.(job, e.target.value)
             }}
           >
-            <option>Not Received</option>
-            <option>Received</option>
-            <option>Disassembly</option>
-            <option>Inspection</option>
-            <option>Machining</option>
-            <option>Reassembly</option>
-            <option>Testing</option>
-            <option>Ready to Ship</option>
+            {STATUS_ORDER.map((status) => (
+              <option key={status} value={status}>
+                {status}
+              </option>
+            ))}
           </select>
         </label>
-      ) : null}
-      <p>
-        <strong>Current status:</strong> {job.status}
-      </p>
+      ) : (
+        <p>
+          <strong>Status:</strong> {job.status}
+        </p>
+      )}
     </article>
   )
 }

@@ -7,9 +7,8 @@ import {
   VALVE_SIZES,
   VALVE_TYPES,
 } from './jobLookups'
-import { JOB_SUB_STATUSES } from './jobSubStatuses'
 
-export type LookupCategory = 'test_type' | 'valve_size' | 'valve_type' | 'finish_cell' | 'order_type' | 'job_sub_status' | 'pressure_class' | 'body_material' | 'manufacturer'
+export type LookupCategory = 'test_type' | 'valve_size' | 'valve_type' | 'finish_cell' | 'order_type' | 'pressure_class' | 'body_material' | 'manufacturer'
 
 export const LOOKUP_CATEGORY_DEFS: readonly {
   key: LookupCategory
@@ -23,6 +22,5 @@ export const LOOKUP_CATEGORY_DEFS: readonly {
   { key: 'body_material', label: 'Body material', fallback: BODY_MATERIALS },
   { key: 'finish_cell', label: 'Finish cell', fallback: FINISH_CELLS },
   { key: 'order_type', label: 'Order type', fallback: ORDER_TYPES },
-  { key: 'job_sub_status', label: 'Job sub-status', fallback: JOB_SUB_STATUSES },
   { key: 'manufacturer', label: 'Manufacturer', fallback: [] },
 ]

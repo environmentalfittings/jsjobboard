@@ -3,7 +3,6 @@ import { Link, useNavigate } from 'react-router-dom'
 import { useToast } from '../components/ToastNotification'
 import { JOB_TYPES, isValveRelatedJobType, normalizeJobType } from '../constants/jobTypes'
 import { LOOKUP_CATEGORY_DEFS, type LookupCategory } from '../constants/lookupCategories'
-import { defaultJobSubStatus } from '../constants/jobSubStatuses'
 import { STATUS_ORDER } from '../constants/statuses'
 import { loadLookupOptionsMap } from '../lib/lookupValues'
 import { supabase } from '../lib/supabase'
@@ -104,7 +103,6 @@ export function NewJobPage({ role }: NewJobPageProps) {
       notes: notes.trim() || null,
       material_spec: valveRelated ? null : materialSpec.trim() || null,
       drawing_po_number: valveRelated ? null : drawingPoNumber.trim() || null,
-      sub_status: defaultJobSubStatus(),
       assigned_technician_ids: [],
     })
     setSaving(false)

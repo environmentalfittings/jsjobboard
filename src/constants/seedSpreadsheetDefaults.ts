@@ -13,7 +13,6 @@ import {
   VALVE_SIZES,
   VALVE_TYPES,
 } from './jobLookups'
-import { JOB_SUB_STATUSES } from './jobSubStatuses'
 
 const BY_CATEGORY: Record<LookupCategory, readonly string[]> = {
   test_type: TEST_TYPES,
@@ -23,7 +22,6 @@ const BY_CATEGORY: Record<LookupCategory, readonly string[]> = {
   body_material: BODY_MATERIALS,
   finish_cell: FINISH_CELLS,
   order_type: ORDER_TYPES,
-  job_sub_status: JOB_SUB_STATUSES,
   manufacturer: [],
 }
 

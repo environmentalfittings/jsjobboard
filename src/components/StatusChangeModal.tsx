@@ -1,15 +1,13 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
-import { normalizeJobSubStatus, type JobSubStatus } from '../constants/jobSubStatuses'
-import { ITP_BOWL_TYPE_OPTIONS, itpTemplateLabel } from '../constants/itpTemplates'
 import { STATUS_ORDER } from '../constants/statuses'
+import { ITP_BOWL_TYPE_OPTIONS, itpTemplateLabel } from '../constants/itpTemplates'
 import { VALVE_TYPE_EDIT_PIN } from '../constants/valveTypeEditGate'
 import { useToast } from './ToastNotification'
 import { loadLookupOptionsMap } from '../lib/lookupValues'
 import { buildTestLogEntryHref } from '../lib/testLogEntryPrefill'
 import { supabase } from '../lib/supabase'
 import type { Technician, TestLogEntry, Valve } from '../types'
-import { JobSubStatusSelect, SubStatusBadge, SubStatusStepper } from './JobSubStatusUI'
 import { ValveAttachmentsPanel } from './ValveAttachmentsPanel'
 
 type JobCardTab = 'summary' | 'details' | 'itp' | 'test-log' | 'photos' | 'notes'
@@ -85,7 +83,6 @@ interface StatusChangeModalProps {
     bowlType: string | null,
     valveType: string | null,
     isTurnaround: boolean,
-    subStatus: JobSubStatus,
     assignedTechnicianId: number | null,
     pressureClass: string | null,
     bodyMaterial: string | null,
@@ -123,7 +120,6 @@ export function StatusChangeModal({
   const [bowlTypeDraft, setBowlTypeDraft] = useState(valve.bowl_type ?? '')
   const [valveTypeDraft, setValveTypeDraft] = useState(valve.valve_type ?? '')
   const [valveTypeOptions, setValveTypeOptions] = useState<string[]>([])
-  const [subStatusOptions, setSubStatusOptions] = useState<string[]>([])
   const [pressureClassOptions, setPressureClassOptions] = useState<string[]>([])
   const [pressureClassDraft, setPressureClassDraft] = useState(valve.pressure_class ?? '')
   const [bodyMaterialOptions, setBodyMaterialOptions] = useState<string[]>([])
@@ -136,7 +132,6 @@ export function StatusChangeModal({
   const [testLogLoading, setTestLogLoading] = useState(false)
   const [turnaroundDraft, setTurnaroundDraft] = useState(() => valve.is_turnaround === true)
   const [isMaximized, setIsMaximized] = useState(forceMaximized)
-  const [subStatusDraft, setSubStatusDraft] = useState<JobSubStatus>(() => normalizeJobSubStatus(valve.sub_status))
   const [assignedTechDraft, setAssignedTechDraft] = useState<number[]>(assignedTechnicianIds)
   const [pickerOpen, setPickerOpen] = useState(false)
   const [addingTechId, setAddingTechId] = useState('')
@@ -168,17 +163,15 @@ export function StatusChangeModal({
   }, [])
 
   useEffect(() => {
-    setSubStatusDraft(normalizeJobSubStatus(valve.sub_status))
     setAssignedTechDraft(assignedTechnicianIds)
     setPickerOpen(false)
     setAddingTechId('')
     setAssignedTechSingleDraft(assignedTechnicianId)
-  }, [valve.id, valve.sub_status, assignedTechKey, assignedTechnicianId])
+  }, [valve.id, assignedTechKey, assignedTechnicianId])
 
   useEffect(() => {
     void loadLookupOptionsMap().then((map) => {
       setValveTypeOptions(map.valve_type ?? [])
-      setSubStatusOptions(map.job_sub_status ?? [])
       setPressureClassOptions(map.pressure_class ?? [])
       setBodyMaterialOptions(map.body_material ?? [])
     })
@@ -348,7 +341,6 @@ export function StatusChangeModal({
       bowlTypeDraft.trim() || null,
       valveTypeDraft.trim() || null,
       turnaroundDraft,
-      subStatusDraft,
       assignedTechSingleDraft,
       pressureClassDraft.trim() || null,
       bodyMaterialDraft.trim() || null,
@@ -674,31 +666,6 @@ export function StatusChangeModal({
                     {(valve.cell ?? '').trim() ? ` · Cell: ${(valve.cell ?? '').trim()}` : ''}
                   </p>
                 ) : null}
-              </div>
-
-              <div className="job-card-panel">
-                <div className="job-card-panel-head">
-                  <span className="job-card-panel-title">Shop sub-status</span>
-                </div>
-                <div className="job-card-panel-body">
-                  <p className="job-card-muted sub-status-modal-intro">
-                    Track where the valve is in the shop workflow (separate from the column status above).
-                  </p>
-                  <SubStatusStepper current={subStatusDraft} />
-                  <div className="sub-status-modal-set-row">
-                    <SubStatusBadge status={subStatusDraft} />
-                    <label className="job-card-muted sub-status-modal-label" htmlFor={`job-sub-status-${valve.id}`}>
-                      Set stage
-                    </label>
-                    <JobSubStatusSelect
-                      id={`job-sub-status-${valve.id}`}
-                      value={subStatusDraft}
-                      onChange={setSubStatusDraft}
-                      options={subStatusOptions}
-                      disabled={isSaving}
-                    />
-                  </div>
-                </div>
               </div>
 
               <div className="job-card-panel">

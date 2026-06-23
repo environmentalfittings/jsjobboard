@@ -6158,6 +6158,10 @@ tbody tr:hover {
   align-self: flex-start;
 }
 
+.job-card-kanban-status-select {
+  font-weight: 600;
+}
+
 .sub-status-modal-intro {
   margin-top: 0;
 }

@@ -1,10 +1,8 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { SubStatusBadge } from '../components/JobSubStatusUI'
 import { TechnicianAvatars } from '../components/TechnicianAvatars'
 import { ValveAttachmentsPanel } from '../components/ValveAttachmentsPanel'
 import { isValveRelatedJobType, normalizeJobType } from '../constants/jobTypes'
-import { normalizeJobSubStatus } from '../constants/jobSubStatuses'
 import { technicianIdsForValve } from '../lib/valveTechnicianIds'
 import { fetchAllValves } from '../lib/fetchAllValves'
 import { supabase } from '../lib/supabase'
@@ -442,10 +440,6 @@ export function ValveCardTicketPage() {
               </p>
               <p>
                 <strong>Status:</strong> {selected.status}
-              </p>
-              <p className="ticket-sub-status-row">
-                <strong>Sub-status:</strong>{' '}
-                <SubStatusBadge status={normalizeJobSubStatus(selected.sub_status)} />
               </p>
               <p>
                 <strong>Assigned technicians:</strong>{' '}

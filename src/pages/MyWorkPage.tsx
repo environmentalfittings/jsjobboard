@@ -3,6 +3,7 @@ import type { User } from '@supabase/supabase-js'
 import { TechJobCard } from '../components/TechJobCard'
 import { useToast } from '../components/ToastNotification'
 import { supabase } from '../lib/supabase'
+import { valveStatusPatch } from '../lib/valveStatusPatch'
 import type { Technician, Valve } from '../types'
 
 interface MyWorkPageProps {
@@ -80,19 +81,15 @@ export function MyWorkPage({ user, onLogout }: MyWorkPageProps) {
     void loadData()
   }, [user?.id])
 
-  const updateMyJobStatus = async (job: Valve, nextSubStatus: string) => {
-    const { error } = await supabase
-      .from('valves')
-      .update({
-        sub_status: nextSubStatus,
-        received_status: nextSubStatus,
-      } as never)
-      .eq('id', job.id)
+  const updateMyJobStatus = async (job: Valve, nextStatus: string) => {
+    if (job.status === nextStatus) return
+    const patch = valveStatusPatch(nextStatus)
+    const { error } = await supabase.from('valves').update(patch).eq('id', job.id)
     if (error) {
       showToast('Could not update status')
       return
     }
-    setAssignedJobs((prev) => prev.map((row) => (row.id === job.id ? { ...row, sub_status: nextSubStatus } : row)))
+    setAssignedJobs((prev) => prev.map((row) => (row.id === job.id ? { ...row, ...patch } : row)))
   }
 
   const flagForSupervisor = async (job: Valve) => {
