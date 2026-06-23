@@ -136,6 +136,10 @@ export function NavBar({ role, username, onLogout }: NavBarProps) {
                 </NavLink>
               ) : null}
             </>
+          ) : role === 'sales' ? (
+            <NavLink to="/job-board" className={navLinkClass}>
+              Status board
+            </NavLink>
           ) : (
             <NavLink to="/my-work" className={navLinkClass}>
               My Work

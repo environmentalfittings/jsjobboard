@@ -153,7 +153,7 @@ create table if not exists public.technicians (
   active boolean not null default true,
   user_id uuid references auth.users(id),
   login_email text,
-  role text not null default 'technician' check (role in ('admin', 'manager', 'supervisor', 'technician')),
+  role text not null default 'technician' check (role in ('admin', 'manager', 'supervisor', 'technician', 'sales')),
   supervisor_id bigint references public.technicians(id),
   manager_id bigint references public.technicians(id),
   created_at timestamptz not null default now(),
@@ -702,7 +702,7 @@ on public.technicians
 for select
 to authenticated
 using (
-  coalesce(auth.jwt() ->> 'role', auth.jwt() -> 'app_metadata' ->> 'role', auth.jwt() -> 'user_metadata' ->> 'role') in ('admin','manager')
+  coalesce(auth.jwt() -> 'app_metadata' ->> 'role', auth.jwt() -> 'user_metadata' ->> 'role') in ('admin','manager')
   or user_id = auth.uid()
 );
 
@@ -717,7 +717,7 @@ on public.technicians
 for insert
 to authenticated
 with check (
-  coalesce(auth.jwt() ->> 'role', auth.jwt() -> 'app_metadata' ->> 'role', auth.jwt() -> 'user_metadata' ->> 'role') in ('admin','manager')
+  coalesce(auth.jwt() -> 'app_metadata' ->> 'role', auth.jwt() -> 'user_metadata' ->> 'role') in ('admin','manager')
 );
 
 create policy "anon_update_technicians"
@@ -732,10 +732,10 @@ on public.technicians
 for update
 to authenticated
 using (
-  coalesce(auth.jwt() ->> 'role', auth.jwt() -> 'app_metadata' ->> 'role', auth.jwt() -> 'user_metadata' ->> 'role') in ('admin','manager')
+  coalesce(auth.jwt() -> 'app_metadata' ->> 'role', auth.jwt() -> 'user_metadata' ->> 'role') in ('admin','manager')
 )
 with check (
-  coalesce(auth.jwt() ->> 'role', auth.jwt() -> 'app_metadata' ->> 'role', auth.jwt() -> 'user_metadata' ->> 'role') in ('admin','manager')
+  coalesce(auth.jwt() -> 'app_metadata' ->> 'role', auth.jwt() -> 'user_metadata' ->> 'role') in ('admin','manager')
 );
 
 create policy "anon_delete_technicians"
@@ -749,7 +749,7 @@ on public.technicians
 for delete
 to authenticated
 using (
-  coalesce(auth.jwt() ->> 'role', auth.jwt() -> 'app_metadata' ->> 'role', auth.jwt() -> 'user_metadata' ->> 'role') in ('admin','manager')
+  coalesce(auth.jwt() -> 'app_metadata' ->> 'role', auth.jwt() -> 'user_metadata' ->> 'role') in ('admin','manager')
 );
 
 create policy "technician read own profile"

@@ -189,6 +189,72 @@ export function ResourcesPage() {
   const toggleWeldProcess = (p: WeldProcess) =>
     setWeldProcesses((prev) => (prev.includes(p) ? prev.filter((x) => x !== p) : [...prev, p]))
 
+  const uploadModalHasUnsavedChanges = useCallback((): boolean => {
+    if (uploadFile) return true
+
+    const trimmed = (value: string) => value.trim()
+    const norm = (value: string | null | undefined) => trimmed(value ?? '')
+    const sortedKey = <T extends string>(items: T[]) => [...items].sort().join('\0')
+
+    if (editingDoc) {
+      if (trimmed(uploadTitle) !== editingDoc.title) return true
+      if (norm(uploadNotes) !== norm(editingDoc.notes)) return true
+      if (norm(manufacturer) !== norm(editingDoc.manufacturer)) return true
+      if (norm(productValveType) !== norm(editingDoc.product_valve_type)) return true
+      if ((wpsType || '') !== (editingDoc.wps_type ?? '')) return true
+      if ((baseMetalCategory || '') !== (editingDoc.base_metal_category ?? '')) return true
+      if (sortedKey(weldProcesses) !== sortedKey((editingDoc.weld_processes ?? []) as WeldProcess[])) return true
+      if (sortedKey(weldModes) !== sortedKey((editingDoc.weld_modes ?? []) as WeldMode[])) return true
+      if (norm(fillerMetal) !== norm(editingDoc.filler_metal)) return true
+      if (norm(baseMetalThicknessQualified) !== norm(editingDoc.base_metal_thickness_qualified)) return true
+      if (norm(fillerMetalThicknessQualified) !== norm(editingDoc.filler_metal_thickness_qualified)) return true
+      if (postWeldHeatTreatRequired !== (editingDoc.post_weld_heat_treat_required ?? false)) return true
+      if (norm(pwhtTemperature) !== norm(editingDoc.pwht_temperature)) return true
+      if (norm(pwhtTime) !== norm(editingDoc.pwht_time)) return true
+      if (hfApproved !== (editingDoc.hf_approved ?? false)) return true
+      if (norm(sopNumber) !== norm(editingDoc.sop_number)) return true
+      if (norm(revisionNumber) !== norm(editingDoc.revision_number)) return true
+      if ((dateUpdated || '') !== (editingDoc.date_updated ?? '')) return true
+      if ((procCategory || '') !== (editingDoc.proc_category ?? '')) return true
+      return false
+    }
+
+    if (trimmed(uploadTitle)) return true
+    if (trimmed(uploadNotes)) return true
+    if (trimmed(sopNumber) || trimmed(revisionNumber) || dateUpdated || procCategory) return true
+    if (manufacturer || productValveType) return true
+    if (wpsType || baseMetalCategory) return true
+    if (weldProcesses.length > 0 || weldModes.length > 0) return true
+    if (trimmed(fillerMetal) || trimmed(baseMetalThicknessQualified) || trimmed(fillerMetalThicknessQualified)) {
+      return true
+    }
+    if (postWeldHeatTreatRequired || hfApproved) return true
+    if (trimmed(pwhtTemperature) || trimmed(pwhtTime)) return true
+    return false
+  }, [
+    uploadFile,
+    editingDoc,
+    uploadTitle,
+    uploadNotes,
+    manufacturer,
+    productValveType,
+    wpsType,
+    baseMetalCategory,
+    weldProcesses,
+    weldModes,
+    fillerMetal,
+    baseMetalThicknessQualified,
+    fillerMetalThicknessQualified,
+    postWeldHeatTreatRequired,
+    pwhtTemperature,
+    pwhtTime,
+    hfApproved,
+    sopNumber,
+    revisionNumber,
+    dateUpdated,
+    procCategory,
+  ])
+
   const resetModalState = () => {
     setEditingDoc(null)
     setUploadTitle('')
@@ -256,10 +322,23 @@ export function ResourcesPage() {
     setUploadModalOpen(true)
   }
 
-  const closeUploadModal = () => {
+  const closeUploadModal = useCallback(() => {
     if (uploading) return
+    if (uploadModalHasUnsavedChanges()) {
+      if (!window.confirm('You have unsaved changes. Discard them and close?')) return
+    }
     setUploadModalOpen(false)
-  }
+    resetModalState()
+  }, [uploading, uploadModalHasUnsavedChanges])
+
+  useEffect(() => {
+    if (!uploadModalOpen) return
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') closeUploadModal()
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [uploadModalOpen, closeUploadModal])
 
   const onDrop = useCallback((e: React.DragEvent) => {
     e.preventDefault()
@@ -347,6 +426,7 @@ export function ResourcesPage() {
         return
       }
       setUploadModalOpen(false)
+      resetModalState()
       showToast('Document updated')
       if (editingDoc.category === 'weld_procedure') {
         void loadWeldProcedures()
@@ -388,6 +468,7 @@ export function ResourcesPage() {
     setUploading(false)
     if (error) { showToast(error); return }
     setUploadModalOpen(false)
+    resetModalState()
     showToast('Document uploaded')
     if (modalMode === 'weld') {
       void loadWeldProcedures()
@@ -1005,7 +1086,6 @@ export function ResourcesPage() {
           role="dialog"
           aria-modal="true"
           aria-label={modalTitle}
-          onMouseDown={(e) => e.target === e.currentTarget && closeUploadModal()}
         >
           <div className="modal-card resources-upload-modal">
             <div className="resources-upload-modal-header">

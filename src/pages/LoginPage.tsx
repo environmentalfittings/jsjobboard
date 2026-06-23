@@ -2,7 +2,7 @@ import { useState, type FormEvent } from 'react'
 import logo from '../assets/js-logo.png'
 import { supabase } from '../lib/supabase'
 
-export type UserRole = 'admin' | 'manager' | 'supervisor' | 'technician'
+export type UserRole = 'admin' | 'manager' | 'supervisor' | 'technician' | 'sales'
 
 interface LoginPageProps {
   onLogin: (options?: { localRole?: UserRole; username?: string }) => void | Promise<void>
@@ -75,9 +75,9 @@ export function LoginPage({ onLogin }: LoginPageProps) {
       setError(meError?.message || 'Signed in, but could not load user profile')
       return
     }
-    if (!['admin', 'manager', 'supervisor', 'technician', 'tech'].includes(role)) {
+    if (!['admin', 'manager', 'supervisor', 'technician', 'tech', 'sales'].includes(role)) {
       await supabase.auth.signOut()
-      setError('Account has no app role. Set user metadata role to admin/manager/supervisor/technician.')
+      setError('Account has no app role. Set user metadata role to admin/manager/supervisor/technician/sales.')
       return
     }
     await onLogin()

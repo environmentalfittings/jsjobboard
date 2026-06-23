@@ -1,10 +1,11 @@
-type AppRole = 'admin' | 'manager' | 'supervisor' | 'technician'
+type AppRole = 'admin' | 'manager' | 'supervisor' | 'technician' | 'sales'
 
 const ROLE_LABEL: Record<AppRole, string> = {
   admin: 'Admin',
   manager: 'Manager',
   supervisor: 'Supervisor',
   technician: 'Technician',
+  sales: 'Sales',
 }
 
 const ROLE_CLASS: Record<AppRole, string> = {
@@ -12,6 +13,7 @@ const ROLE_CLASS: Record<AppRole, string> = {
   manager: 'role-badge role-badge-manager',
   supervisor: 'role-badge role-badge-supervisor',
   technician: 'role-badge role-badge-technician',
+  sales: 'role-badge role-badge-sales',
 }
 
 export function RoleBadge({ role }: { role: string | null | undefined }) {

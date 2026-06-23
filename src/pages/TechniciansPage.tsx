@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { RoleBadge } from '../components/RoleBadge'
 import { useToast } from '../components/ToastNotification'
@@ -12,7 +12,7 @@ type Draft = {
   work_cell_specialties: string
   group_team: string
   active: boolean
-  role: 'admin' | 'manager' | 'supervisor' | 'technician'
+  role: 'admin' | 'manager' | 'supervisor' | 'technician' | 'sales'
   supervisor_id: number | null
   manager_id: number | null
   create_login: boolean
@@ -25,6 +25,26 @@ const LOGIN_EMAIL_DOMAIN = String(import.meta.env.VITE_LOGIN_EMAIL_DOMAIN ?? 'us
 const normalizeUsername = (value: string) => value.trim().toLowerCase()
 
 const usernameToLoginEmail = (username: string) => `${username}@${LOGIN_EMAIL_DOMAIN}`
+
+const appLoginUrl = () => `${window.location.origin}/login`
+
+function buildLoginWelcomeEmail(name: string, username: string, password: string): string {
+  const greeting = name.trim() ? `Hi ${name.trim()},` : 'Hi,'
+  return `Subject: JS Valve Job Board — your login
+
+${greeting}
+
+Your account has been set up for the JS Valve Job Board.
+
+App link: ${appLoginUrl()}
+Username: ${username}
+Password: ${password}
+
+Sign in with your username (not your email). Please change your password after your first login.
+
+Thanks,
+JS Valve`
+}
 
 const emptyDraft = (): Draft => ({
   name: '',
@@ -40,6 +60,8 @@ const emptyDraft = (): Draft => ({
   temp_password: '',
 })
 
+const cloneDraft = (draft: Draft): Draft => ({ ...draft })
+
 export function TechniciansPage() {
   const { showToast } = useToast()
   const [rows, setRows] = useState<Technician[]>([])
@@ -49,7 +71,28 @@ export function TechniciansPage() {
   const [modalOpen, setModalOpen] = useState(false)
   const [editingId, setEditingId] = useState<number | null>(null)
   const [draft, setDraft] = useState<Draft>(emptyDraft)
+  const [modalBaseline, setModalBaseline] = useState<Draft>(emptyDraft)
   const [saving, setSaving] = useState(false)
+  const [listFilter, setListFilter] = useState('')
+
+  const filteredRows = useMemo(() => {
+    const q = listFilter.trim().toLowerCase()
+    if (!q) return rows
+    return rows.filter((t) => {
+      const haystack = [
+        t.name,
+        t.employee_id,
+        t.group_team,
+        t.login_username,
+        t.role,
+        ...(t.work_cell_specialties ?? []),
+      ]
+        .filter(Boolean)
+        .join(' ')
+        .toLowerCase()
+      return haystack.includes(q)
+    })
+  }, [listFilter, rows])
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -102,14 +145,15 @@ export function TechniciansPage() {
   }
 
   const openCreate = () => {
+    const next = emptyDraft()
     setEditingId(null)
-    setDraft(emptyDraft())
+    setDraft(next)
+    setModalBaseline(cloneDraft(next))
     setModalOpen(true)
   }
 
   const openEdit = (t: Technician) => {
-    setEditingId(t.id)
-    setDraft({
+    const next: Draft = {
       name: t.name,
       employee_id: t.employee_id ?? '',
       work_cell_specialties: (t.work_cell_specialties ?? []).join(', '),
@@ -121,15 +165,37 @@ export function TechniciansPage() {
       create_login: false,
       username: t.login_username ?? '',
       temp_password: '',
-    })
+    }
+    setEditingId(t.id)
+    setDraft(next)
+    setModalBaseline(cloneDraft(next))
     setModalOpen(true)
   }
 
-  const closeModal = () => {
+  const technicianModalHasUnsavedChanges = useCallback(() => {
+    return JSON.stringify(draft) !== JSON.stringify(modalBaseline)
+  }, [draft, modalBaseline])
+
+  const closeModal = useCallback((force = false) => {
+    if (saving && !force) return
+    if (!force && technicianModalHasUnsavedChanges()) {
+      if (!window.confirm('You have unsaved changes. Discard them and close?')) return
+    }
     setModalOpen(false)
     setEditingId(null)
-    setDraft(emptyDraft())
-  }
+    const next = emptyDraft()
+    setDraft(next)
+    setModalBaseline(next)
+  }, [saving, technicianModalHasUnsavedChanges])
+
+  useEffect(() => {
+    if (!modalOpen) return
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') closeModal()
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [modalOpen, closeModal])
 
   const saveModal = async () => {
     const name = draft.name.trim()
@@ -147,6 +213,28 @@ export function TechniciansPage() {
       return
     }
     const loginEmail = usernameToLoginEmail(normalizedUsername)
+    const duplicateUsername = rows.find(
+      (row) =>
+        row.id !== editingId &&
+        (row.login_username ?? '').trim().toLowerCase() === normalizedUsername,
+    )
+    if (duplicateUsername) {
+      showToast(
+        `Username "${normalizedUsername}" is already used by ${duplicateUsername.name}. Edit that person instead, or choose a different username.`,
+      )
+      return
+    }
+    const { data: dbConflict } = await supabase
+      .from('technicians')
+      .select('id,name')
+      .eq('login_username', normalizedUsername)
+      .maybeSingle()
+    if (dbConflict && dbConflict.id !== editingId) {
+      showToast(
+        `Username "${normalizedUsername}" is already used by ${dbConflict.name}. Click Edit on their row to update them.`,
+      )
+      return
+    }
     setSaving(true)
     const payload = {
       name,
@@ -198,6 +286,22 @@ export function TechniciansPage() {
     const { error } = await q
     setSaving(false)
     if (error) {
+      if (/technicians_role_check|role.*check constraint/i.test(error.message)) {
+        showToast(
+          'Could not save: the database does not allow the Sales role yet. Run supabase/migration-technician-sales-role.sql in the Supabase SQL Editor, then try again.',
+        )
+        return
+      }
+      if (
+        error.code === '23505' &&
+        /login_username|idx_technicians_login_username_lower_unique/i.test(error.message)
+      ) {
+        void load()
+        showToast(
+          `Username "${normalizedUsername}" already exists. Refresh the page — if they still don't appear, run supabase/migration-fix-technicians-admin-read-rls.sql in the Supabase SQL Editor.`,
+        )
+        return
+      }
       showToast(`Could not save: ${error.message}`)
       return
     }
@@ -218,7 +322,7 @@ export function TechniciansPage() {
     } else {
       showToast(editingId == null ? 'Technician added' : 'Technician updated')
     }
-    closeModal()
+    closeModal(true)
     void load()
   }
 
@@ -231,6 +335,25 @@ export function TechniciansPage() {
     }
     showToast('Technician removed')
     void load()
+  }
+
+  const copyLoginEmail = async () => {
+    const username = normalizeUsername(draft.username)
+    const password = draft.temp_password.trim()
+    if (!username) {
+      showToast('Enter a username first')
+      return
+    }
+    if (!password) {
+      showToast('Enter a temporary password first')
+      return
+    }
+    try {
+      await navigator.clipboard.writeText(buildLoginWelcomeEmail(draft.name, username, password))
+      showToast('Login email copied to clipboard')
+    } catch {
+      showToast('Could not copy — check browser clipboard permissions')
+    }
   }
 
   const resetPassword = async (t: Technician) => {
@@ -278,6 +401,19 @@ export function TechniciansPage() {
         Maintain shop technicians here. Assign them to jobs from the job card (Status board → open a job).
       </p>
 
+      {!loading && rows.length > 0 ? (
+        <label className="technicians-list-filter">
+          <input
+            type="search"
+            className="modal-status-select"
+            placeholder="Search by name, username, team, role…"
+            value={listFilter}
+            onChange={(e) => setListFilter(e.target.value)}
+            aria-label="Search technicians"
+          />
+        </label>
+      ) : null}
+
       {loading ? (
         <p className="placeholder-copy">Loading…</p>
       ) : (
@@ -298,7 +434,7 @@ export function TechniciansPage() {
               </tr>
             </thead>
             <tbody>
-              {rows.map((t) => (
+              {filteredRows.map((t) => (
                 <tr key={t.id}>
                   <td>{t.name}</td>
                   <td>{t.employee_id?.trim() || '—'}</td>
@@ -346,7 +482,11 @@ export function TechniciansPage() {
               ))}
             </tbody>
           </table>
-          {rows.length === 0 ? <p className="placeholder-copy">No technicians yet. Click “Add technician”.</p> : null}
+          {rows.length === 0 ? (
+            <p className="placeholder-copy">No technicians yet. Click “Add technician”.</p>
+          ) : filteredRows.length === 0 ? (
+            <p className="placeholder-copy">No technicians match your search.</p>
+          ) : null}
         </div>
       )}
 
@@ -356,14 +496,11 @@ export function TechniciansPage() {
           role="dialog"
           aria-modal="true"
           aria-labelledby="technician-modal-title"
-          onMouseDown={(e) => {
-            if (e.target === e.currentTarget) closeModal()
-          }}
         >
           <div className="modal-card modal-card-wide technician-modal-card">
             <div className="technician-modal-head">
               <h3 id="technician-modal-title">{editingId == null ? 'Add technician' : 'Edit technician'}</h3>
-              <button type="button" className="modal-close-x" onClick={closeModal} aria-label="Close">
+              <button type="button" className="modal-close-x" onClick={() => closeModal()} disabled={saving} aria-label="Close">
                 ×
               </button>
             </div>
@@ -441,6 +578,7 @@ export function TechniciansPage() {
                 <option value="technician">Technician</option>
                 <option value="supervisor">Supervisor</option>
                 <option value="manager">Manager</option>
+                <option value="sales">Sales</option>
                 <option value="admin">Admin</option>
               </select>
               <label className="modal-label" htmlFor="tech-username">
@@ -526,13 +664,21 @@ export function TechniciansPage() {
                         onChange={(e) => setDraft((d) => ({ ...d, temp_password: e.target.value }))}
                         disabled={saving}
                       />
+                      <button
+                        type="button"
+                        className="button-secondary technician-copy-login-email"
+                        onClick={() => void copyLoginEmail()}
+                        disabled={saving || !draft.username.trim() || !draft.temp_password.trim()}
+                      >
+                        Copy login email
+                      </button>
                     </>
                   ) : null}
                 </>
               ) : null}
             </div>
             <footer className="technician-modal-footer">
-              <button type="button" className="button-secondary" onClick={closeModal} disabled={saving}>
+              <button type="button" className="button-secondary" onClick={() => closeModal()} disabled={saving}>
                 Cancel
               </button>
               <button type="button" className="button-primary" onClick={() => void saveModal()} disabled={saving}>

@@ -63,7 +63,9 @@ function App() {
             ? 'supervisor'
             : metaRole === 'technician' || metaRole === 'tech'
               ? 'technician'
-              : null
+              : metaRole === 'sales'
+                ? 'sales'
+                : null
     setRole(resolvedRole)
     setUsername(
       (nextUser.user_metadata?.name as string | undefined) ||
@@ -134,7 +136,7 @@ function App() {
                 element={
                   role ? (
                     <Navigate
-                      to={role === 'admin' ? '/dashboard' : role === 'technician' ? '/my-work' : '/supervisor-dashboard'}
+                      to={role === 'admin' ? '/dashboard' : role === 'technician' ? '/my-work' : role === 'sales' ? '/job-board' : '/supervisor-dashboard'}
                       replace
                     />
                   ) : (
@@ -152,7 +154,9 @@ function App() {
                           ? '/dashboard'
                           : role === 'technician'
                             ? '/my-work'
-                            : '/supervisor-dashboard'
+                            : role === 'sales'
+                              ? '/job-board'
+                              : '/supervisor-dashboard'
                         : user
                           ? '/customer-portal'
                           : '/login'
@@ -173,7 +177,16 @@ function App() {
                   role === 'technician' ? (
                     <MyWorkPage user={user} onLogout={() => void handleLogout()} />
                   ) : role ? (
-                    <Navigate to={role === 'admin' ? '/dashboard' : '/supervisor-dashboard'} replace />
+                    <Navigate
+                      to={
+                        role === 'admin'
+                          ? '/dashboard'
+                          : role === 'sales'
+                            ? '/job-board'
+                            : '/supervisor-dashboard'
+                      }
+                      replace
+                    />
                   ) : (
                     <Navigate to="/login" replace />
                   )
@@ -189,7 +202,16 @@ function App() {
                       onLogout={() => void handleLogout()}
                     />
                   ) : role ? (
-                    <Navigate to={role === 'admin' ? '/dashboard' : '/my-work'} replace />
+                    <Navigate
+                      to={
+                        role === 'admin'
+                          ? '/dashboard'
+                          : role === 'sales'
+                            ? '/job-board'
+                            : '/my-work'
+                      }
+                      replace
+                    />
                   ) : (
                     <Navigate to="/login" replace />
                   )
@@ -197,12 +219,12 @@ function App() {
               />
               <Route
                 path="/dashboard"
-                element={role === 'admin' ? <DashboardPage /> : role ? <Navigate to={role === 'technician' ? '/my-work' : '/supervisor-dashboard'} replace /> : <Navigate to="/login" replace />}
+                element={role === 'admin' ? <DashboardPage /> : role ? <Navigate to={role === 'technician' ? '/my-work' : role === 'sales' ? '/job-board' : '/supervisor-dashboard'} replace /> : <Navigate to="/login" replace />}
               />
               <Route path="/received-valves" element={role === 'admin' ? <ReceivedValvesPage /> : <Navigate to="/login" replace />} />
               <Route path="/new-job" element={role === 'admin' ? <NewJobPage role={role} /> : <Navigate to="/login" replace />} />
-              <Route path="/job-board" element={role === 'admin' || role === 'manager' || role === 'supervisor' ? <JobBoardPage role={role ?? undefined} username={username} /> : <Navigate to="/login" replace />} />
-              <Route path="/jobs/:id" element={role === 'admin' || role === 'manager' || role === 'supervisor' ? <JobBoardPage role={role ?? undefined} username={username} /> : <Navigate to="/login" replace />} />
+              <Route path="/job-board" element={role === 'admin' || role === 'manager' || role === 'supervisor' || role === 'sales' ? <JobBoardPage role={role ?? undefined} username={username} /> : <Navigate to="/login" replace />} />
+              <Route path="/jobs/:id" element={role === 'admin' || role === 'manager' || role === 'supervisor' || role === 'sales' ? <JobBoardPage role={role ?? undefined} username={username} /> : <Navigate to="/login" replace />} />
               <Route path="/itp/:id" element={role === 'admin' || role === 'manager' || role === 'supervisor' ? <ItpPage /> : <Navigate to="/login" replace />} />
               <Route path="/test-log-entry" element={role === 'admin' ? <TestLogEntryPage /> : <Navigate to="/login" replace />} />
               <Route path="/valve-card-ticket" element={role === 'admin' ? <ValveCardTicketPage /> : <Navigate to="/login" replace />} />

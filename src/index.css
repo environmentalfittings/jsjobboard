@@ -1727,6 +1727,11 @@ body {
   color: #334155;
 }
 
+.role-badge-sales {
+  background: #fef3c7;
+  color: #92400e;
+}
+
 .role-badge-supervisor {
   background: #dbeafe;
   color: #1d4ed8;
@@ -6428,6 +6433,11 @@ tbody tr:hover {
   margin-top: 16px;
   padding-top: 12px;
   border-top: 1px solid #e5e7eb;
+}
+
+.technician-copy-login-email {
+  align-self: flex-start;
+  margin-top: 4px;
 }
 
 .ticket-sub-status-row {
