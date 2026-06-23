@@ -274,7 +274,7 @@ export function TechniciansPage() {
       })
       if (shopAuth.ok && shopAuth.userId) {
         authUserId = shopAuth.userId
-      } else if (shopAuth.needsDeploy) {
+      } else if (!shopAuth.ok && shopAuth.needsDeploy) {
         const adminCreate = await supabase.auth.admin.createUser({
           email: loginEmail,
           password: draft.temp_password,
@@ -294,7 +294,7 @@ export function TechniciansPage() {
             return
           }
         }
-      } else {
+      } else if (!shopAuth.ok) {
         setSaving(false)
         showToast(`Could not create login: ${shopAuth.error}`)
         return
@@ -426,7 +426,7 @@ export function TechniciansPage() {
       showToast(shopAuth.created ? 'Login created — they can sign in now' : 'Temporary password updated')
       return
     }
-    if (shopAuth.needsDeploy) {
+    if (!shopAuth.ok && shopAuth.needsDeploy) {
       if (t.user_id) {
         const { error } = await supabase.auth.admin.updateUserById(t.user_id, { password })
         if (!error) {
@@ -439,7 +439,9 @@ export function TechniciansPage() {
       )
       return
     }
-    showToast(`Could not reset password: ${shopAuth.error}`)
+    if (!shopAuth.ok) {
+      showToast(`Could not reset password: ${shopAuth.error}`)
+    }
   }
 
   return (
