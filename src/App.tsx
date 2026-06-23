@@ -21,6 +21,7 @@ import { CustomerLogin } from './pages/CustomerLogin'
 import { CustomerPortal } from './pages/CustomerPortal'
 import { CustomerTravelerView } from './pages/CustomerTravelerView'
 import { supabase } from './lib/supabase'
+import { defaultHomePath, hasAdminAccess } from './lib/roles'
 import type { User } from '@supabase/supabase-js'
 
 const LOCAL_DEV_AUTH_KEY = 'js-job-board-local-dev-auth'
@@ -107,7 +108,7 @@ function App() {
   }
 
   useEffect(() => {
-    if (!role || role !== 'admin') return
+    if (!hasAdminAccess(role)) return
     const onKeyDown = (e: KeyboardEvent) => {
       if (!(e.key === 'n' || e.key === 'N')) return
       if (e.ctrlKey || e.metaKey || e.altKey) return
@@ -133,37 +134,11 @@ function App() {
             <Routes>
               <Route
                 path="/login"
-                element={
-                  role ? (
-                    <Navigate
-                      to={role === 'admin' ? '/dashboard' : role === 'technician' ? '/my-work' : role === 'sales' ? '/job-board' : '/supervisor-dashboard'}
-                      replace
-                    />
-                  ) : (
-                    <LoginPage onLogin={handleLogin} />
-                  )
-                }
+                element={role ? <Navigate to={defaultHomePath(role)} replace /> : <LoginPage onLogin={handleLogin} />}
               />
               <Route
                 path="/"
-                element={
-                  <Navigate
-                    to={
-                      role
-                        ? role === 'admin'
-                          ? '/dashboard'
-                          : role === 'technician'
-                            ? '/my-work'
-                            : role === 'sales'
-                              ? '/job-board'
-                              : '/supervisor-dashboard'
-                        : user
-                          ? '/customer-portal'
-                          : '/login'
-                    }
-                    replace
-                  />
-                }
+                element={<Navigate to={role ? defaultHomePath(role) : user ? '/customer-portal' : '/login'} replace />}
               />
               <Route path="/customer-login" element={<CustomerLogin />} />
               <Route path="/customer-portal" element={user ? <CustomerPortal /> : <Navigate to="/customer-login" replace />} />
@@ -177,16 +152,7 @@ function App() {
                   role === 'technician' ? (
                     <MyWorkPage user={user} onLogout={() => void handleLogout()} />
                   ) : role ? (
-                    <Navigate
-                      to={
-                        role === 'admin'
-                          ? '/dashboard'
-                          : role === 'sales'
-                            ? '/job-board'
-                            : '/supervisor-dashboard'
-                      }
-                      replace
-                    />
+                    <Navigate to={defaultHomePath(role)} replace />
                   ) : (
                     <Navigate to="/login" replace />
                   )
@@ -195,23 +161,14 @@ function App() {
               <Route
                 path="/supervisor-dashboard"
                 element={
-                  role === 'manager' || role === 'supervisor' ? (
+                  role === 'supervisor' ? (
                     <SupervisorDashboardPage
                       user={user}
                       appRole={role}
                       onLogout={() => void handleLogout()}
                     />
                   ) : role ? (
-                    <Navigate
-                      to={
-                        role === 'admin'
-                          ? '/dashboard'
-                          : role === 'sales'
-                            ? '/job-board'
-                            : '/my-work'
-                      }
-                      replace
-                    />
+                    <Navigate to={defaultHomePath(role)} replace />
                   ) : (
                     <Navigate to="/login" replace />
                   )
@@ -219,20 +176,31 @@ function App() {
               />
               <Route
                 path="/dashboard"
-                element={role === 'admin' ? <DashboardPage /> : role ? <Navigate to={role === 'technician' ? '/my-work' : role === 'sales' ? '/job-board' : '/supervisor-dashboard'} replace /> : <Navigate to="/login" replace />}
+                element={
+                  hasAdminAccess(role) ? (
+                    <DashboardPage />
+                  ) : role ? (
+                    <Navigate to={defaultHomePath(role)} replace />
+                  ) : (
+                    <Navigate to="/login" replace />
+                  )
+                }
               />
-              <Route path="/received-valves" element={role === 'admin' ? <ReceivedValvesPage /> : <Navigate to="/login" replace />} />
-              <Route path="/new-job" element={role === 'admin' ? <NewJobPage role={role} /> : <Navigate to="/login" replace />} />
+              <Route path="/received-valves" element={hasAdminAccess(role) ? <ReceivedValvesPage /> : <Navigate to="/login" replace />} />
+              <Route
+                path="/new-job"
+                element={hasAdminAccess(role) ? <NewJobPage role={role!} /> : <Navigate to="/login" replace />}
+              />
               <Route path="/job-board" element={role === 'admin' || role === 'manager' || role === 'supervisor' || role === 'sales' ? <JobBoardPage role={role ?? undefined} username={username} /> : <Navigate to="/login" replace />} />
               <Route path="/jobs/:id" element={role === 'admin' || role === 'manager' || role === 'supervisor' || role === 'sales' ? <JobBoardPage role={role ?? undefined} username={username} /> : <Navigate to="/login" replace />} />
               <Route path="/itp/:id" element={role === 'admin' || role === 'manager' || role === 'supervisor' ? <ItpPage /> : <Navigate to="/login" replace />} />
-              <Route path="/test-log-entry" element={role === 'admin' ? <TestLogEntryPage /> : <Navigate to="/login" replace />} />
-              <Route path="/valve-card-ticket" element={role === 'admin' ? <ValveCardTicketPage /> : <Navigate to="/login" replace />} />
-              <Route path="/traveler/:valveId" element={role === 'admin' ? <TravelerPage /> : <Navigate to="/login" replace />} />
-              <Route path="/reports" element={role === 'admin' ? <ReportsPage /> : <Navigate to="/login" replace />} />
-              <Route path="/resources" element={role === 'admin' ? <ResourcesPage /> : <Navigate to="/login" replace />} />
-              <Route path="/technicians" element={role === 'admin' ? <TechniciansPage /> : <Navigate to="/login" replace />} />
-              <Route path="/admin/lists" element={role === 'admin' ? <AdminListsPage /> : <Navigate to="/login" replace />} />
+              <Route path="/test-log-entry" element={hasAdminAccess(role) ? <TestLogEntryPage /> : <Navigate to="/login" replace />} />
+              <Route path="/valve-card-ticket" element={hasAdminAccess(role) ? <ValveCardTicketPage /> : <Navigate to="/login" replace />} />
+              <Route path="/traveler/:valveId" element={hasAdminAccess(role) ? <TravelerPage /> : <Navigate to="/login" replace />} />
+              <Route path="/reports" element={hasAdminAccess(role) ? <ReportsPage /> : <Navigate to="/login" replace />} />
+              <Route path="/resources" element={hasAdminAccess(role) ? <ResourcesPage /> : <Navigate to="/login" replace />} />
+              <Route path="/technicians" element={hasAdminAccess(role) ? <TechniciansPage /> : <Navigate to="/login" replace />} />
+              <Route path="/admin/lists" element={hasAdminAccess(role) ? <AdminListsPage /> : <Navigate to="/login" replace />} />
             </Routes>
           )}
         </main>

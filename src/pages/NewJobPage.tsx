@@ -5,6 +5,7 @@ import { JOB_TYPES, isValveRelatedJobType, normalizeJobType } from '../constants
 import { LOOKUP_CATEGORY_DEFS, type LookupCategory } from '../constants/lookupCategories'
 import { STATUS_ORDER } from '../constants/statuses'
 import { loadLookupOptionsMap } from '../lib/lookupValues'
+import { hasAdminAccess } from '../lib/roles'
 import { supabase } from '../lib/supabase'
 import type { UserRole } from './LoginPage'
 
@@ -153,7 +154,7 @@ export function NewJobPage({ role }: NewJobPageProps) {
       <section className="dashboard-panel">
         <h3>Create {normalizeJobType(jobType)} Job</h3>
         <p className="placeholder-copy">Adds a new valve to the board. Valve ID must be unique.</p>
-        {role === 'admin' ? (
+        {hasAdminAccess(role) ? (
           <p className="new-job-hint">
             Customer list management moved to{' '}
             <Link to="/admin/lists" className="new-job-inline-link">

@@ -1,6 +1,7 @@
 import { useEffect, useId, useRef, useState, type ReactNode } from 'react'
 import { NavLink, useLocation } from 'react-router-dom'
 import type { UserRole } from '../pages/LoginPage'
+import { hasAdminAccess } from '../lib/roles'
 import logo from '../assets/js-logo.png'
 
 interface NavBarProps {
@@ -96,7 +97,7 @@ export function NavBar({ role, username, onLogout }: NavBarProps) {
           <span>JS Valve Job Board</span>
         </div>
         <nav className="nav-main-links" aria-label="Main">
-          {role === 'admin' ? (
+          {hasAdminAccess(role) ? (
             <>
               <NavLink to="/dashboard" className={navLinkClass}>
                 Dashboard
@@ -122,7 +123,7 @@ export function NavBar({ role, username, onLogout }: NavBarProps) {
                 ]}
               />
             </>
-          ) : role === 'manager' || role === 'supervisor' ? (
+          ) : role === 'supervisor' ? (
             <>
               <NavLink to="/supervisor-dashboard" className={navLinkClass}>
                 Supervisor dashboard
@@ -130,11 +131,6 @@ export function NavBar({ role, username, onLogout }: NavBarProps) {
               <NavLink to="/job-board" className={navLinkClass}>
                 Status board
               </NavLink>
-              {role === 'manager' ? (
-                <NavLink to="/technicians" className={navLinkClass}>
-                  Technicians
-                </NavLink>
-              ) : null}
             </>
           ) : role === 'sales' ? (
             <NavLink to="/job-board" className={navLinkClass}>

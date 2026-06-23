@@ -37,6 +37,7 @@ import {
 import { recordDueDateChange, resolveChangedByName } from '../lib/dueDateChanges'
 import { isEligiblePriorityValve, syncPriorityQueueWithValves } from '../lib/priorityQueue'
 import { supabase } from '../lib/supabase'
+import { hasAdminAccess } from '../lib/roles'
 import { VALVE_LIST_SELECT } from '../lib/valveSelect'
 import type { Technician, Valve } from '../types'
 import type { UserRole } from './LoginPage'
@@ -855,7 +856,7 @@ export function JobBoardPage({ role, username }: { role?: UserRole; username?: s
         <div className="page-header">
           <h2>Job Board</h2>
           <div className="page-header-actions">
-            {role === 'admin' ? (
+            {hasAdminAccess(role) ? (
               <Link to="/new-job" className="button-primary job-board-new-job-link">
                 New job <kbd className="job-board-shortcut-kbd">N</kbd>
               </Link>
