@@ -4,6 +4,7 @@ import { RoleBadge } from '../components/RoleBadge'
 import { useToast } from '../components/ToastNotification'
 import { TERMINAL_STATUSES } from '../constants/statuses'
 import { supabase } from '../lib/supabase'
+import { ensureShopLogin } from '../lib/shopAuth'
 import type { Technician } from '../types'
 
 type Draft = {
@@ -26,7 +27,11 @@ const normalizeUsername = (value: string) => value.trim().toLowerCase()
 
 const usernameToLoginEmail = (username: string) => `${username}@${LOGIN_EMAIL_DOMAIN}`
 
-const appLoginUrl = () => `${window.location.origin}/login`
+const PUBLIC_APP_URL =
+  String(import.meta.env.VITE_APP_PUBLIC_URL ?? 'https://jsjobboard.vercel.app').trim().replace(/\/$/, '') ||
+  'https://jsjobboard.vercel.app'
+
+const appLoginUrl = () => `${PUBLIC_APP_URL}/login`
 
 function buildLoginWelcomeEmail(name: string, username: string, password: string): string {
   const greeting = name.trim() ? `Hi ${name.trim()},` : 'Hi,'
@@ -259,24 +264,40 @@ export function TechniciansPage() {
         showToast('Temporary password is required when creating login')
         return
       }
-      const adminCreate = await supabase.auth.admin.createUser({
+      const existingForAuth = editingId != null ? rows.find((r) => r.id === editingId) : null
+      const shopAuth = await ensureShopLogin({
         email: loginEmail,
-        password: draft.temp_password,
-        user_metadata: { role: draft.role, name },
-        email_confirm: true,
+        password: draft.temp_password.trim(),
+        name,
+        appRole: draft.role,
+        userId: existingForAuth?.user_id,
       })
-      if (!adminCreate.error && adminCreate.data.user) {
-        authUserId = adminCreate.data.user.id
-      } else {
-        const adminMsg = adminCreate.error?.message || 'unknown error'
-        if (/bearer token|not allowed|insufficient|admin/i.test(adminMsg)) {
-          loginCreateWarning =
-            'Technician was saved, but login was not auto-created from browser client. Create this user in Supabase Auth > Users.'
+      if (shopAuth.ok && shopAuth.userId) {
+        authUserId = shopAuth.userId
+      } else if (shopAuth.needsDeploy) {
+        const adminCreate = await supabase.auth.admin.createUser({
+          email: loginEmail,
+          password: draft.temp_password,
+          user_metadata: { role: draft.role, name },
+          email_confirm: true,
+        })
+        if (!adminCreate.error && adminCreate.data.user) {
+          authUserId = adminCreate.data.user.id
         } else {
-          setSaving(false)
-          showToast(`Could not create login: ${adminMsg}`)
-          return
+          const adminMsg = adminCreate.error?.message || shopAuth.error || 'unknown error'
+          if (/bearer token|not allowed|insufficient|admin/i.test(adminMsg)) {
+            loginCreateWarning =
+              'Technician was saved, but login was not created. Use Reset password on their row after deploying shop-auth (see supabase/setup-shop-auth-function.md), or create the user in Supabase Auth > Users.'
+          } else {
+            setSaving(false)
+            showToast(`Could not create login: ${adminMsg}`)
+            return
+          }
         }
+      } else {
+        setSaving(false)
+        showToast(`Could not create login: ${shopAuth.error}`)
+        return
       }
     }
     const q =
@@ -337,6 +358,15 @@ export function TechniciansPage() {
     void load()
   }
 
+  const copyLoginEmailText = async (name: string, username: string, password: string) => {
+    try {
+      await navigator.clipboard.writeText(buildLoginWelcomeEmail(name, username, password))
+      showToast('Login email copied to clipboard — paste into your email app')
+    } catch {
+      showToast('Could not copy — check browser clipboard permissions')
+    }
+  }
+
   const copyLoginEmail = async () => {
     const username = normalizeUsername(draft.username)
     const password = draft.temp_password.trim()
@@ -348,39 +378,68 @@ export function TechniciansPage() {
       showToast('Enter a temporary password first')
       return
     }
-    try {
-      await navigator.clipboard.writeText(buildLoginWelcomeEmail(draft.name, username, password))
-      showToast('Login email copied to clipboard')
-    } catch {
-      showToast('Could not copy — check browser clipboard permissions')
+    await copyLoginEmailText(draft.name, username, password)
+  }
+
+  const copyLoginEmailForRow = async (t: Technician) => {
+    const username = normalizeUsername(t.login_username ?? '')
+    if (!username) {
+      showToast(`${t.name} has no username — edit their record and add one first`)
+      return
     }
+    const password = window.prompt(`Temporary password for ${t.name}'s login email`)
+    if (!password?.trim()) return
+    await copyLoginEmailText(t.name, username, password.trim())
   }
 
   const resetPassword = async (t: Technician) => {
-    const email = t.login_email?.trim() || ''
-    if (!t.user_id && !email) {
-      showToast('Technician has no linked login/email')
+    const username = normalizeUsername(t.login_username ?? '')
+    const email =
+      t.login_email?.trim() || (username ? usernameToLoginEmail(username) : '')
+    if (!email) {
+      showToast('Technician has no username — edit their record and add one first')
       return
     }
     const nextPassword = window.prompt(`Set temporary password for ${t.name}`)
-    if (!nextPassword || !nextPassword.trim()) return
-    if (t.user_id) {
-      const { error } = await supabase.auth.admin.updateUserById(t.user_id, { password: nextPassword.trim() })
-      if (!error) {
-        showToast('Temporary password updated')
-        return
+    if (!nextPassword?.trim()) return
+    const password = nextPassword.trim()
+
+    const shopAuth = await ensureShopLogin({
+      email,
+      password,
+      name: t.name,
+      appRole: t.role ?? 'technician',
+      userId: t.user_id,
+    })
+    if (shopAuth.ok && shopAuth.userId) {
+      if (shopAuth.userId !== t.user_id) {
+        const { error: linkErr } = await supabase
+          .from('technicians')
+          .update({ user_id: shopAuth.userId })
+          .eq('id', t.id)
+        if (linkErr) {
+          showToast('Password set, but could not link login to technician record')
+        } else {
+          void load()
+        }
       }
-    }
-    if (!email) {
-      showToast('Could not reset password from browser client; no email available for reset link')
+      showToast(shopAuth.created ? 'Login created — they can sign in now' : 'Temporary password updated')
       return
     }
-    const { error: resetErr } = await supabase.auth.resetPasswordForEmail(email)
-    if (resetErr) {
-      showToast(`Could not reset password: ${resetErr.message}`)
+    if (shopAuth.needsDeploy) {
+      if (t.user_id) {
+        const { error } = await supabase.auth.admin.updateUserById(t.user_id, { password })
+        if (!error) {
+          showToast('Temporary password updated')
+          return
+        }
+      }
+      showToast(
+        'Could not set password from the browser. Deploy shop-auth (see supabase/setup-shop-auth-function.md) or create the user in Supabase Dashboard > Authentication > Users.',
+      )
       return
     }
-    showToast('Password reset email sent')
+    showToast(`Could not reset password: ${shopAuth.error}`)
   }
 
   return (
@@ -473,6 +532,15 @@ export function TechniciansPage() {
                     </button>
                     <button type="button" className="button-secondary admin-list-btn" onClick={() => void resetPassword(t)}>
                       Reset password
+                    </button>
+                    <button
+                      type="button"
+                      className="button-secondary admin-list-btn"
+                      onClick={() => void copyLoginEmailForRow(t)}
+                      disabled={!t.login_username?.trim()}
+                      title={t.login_username?.trim() ? 'Copy welcome email to send to this person' : 'Add a username first'}
+                    >
+                      Copy login email
                     </button>
                     <button type="button" className="button-secondary admin-list-btn danger" onClick={() => void remove(t)}>
                       Delete

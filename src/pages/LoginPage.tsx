@@ -40,7 +40,7 @@ export function LoginPage({ onLogin }: LoginPageProps) {
     setSaving(true)
     const { data: technicianRow, error: technicianLookupError } = await supabase
       .from('technicians')
-      .select('login_email')
+      .select('login_email,user_id')
       .eq('login_username', normalizedUsername)
       .eq('active', true)
       .maybeSingle()
@@ -66,7 +66,13 @@ export function LoginPage({ onLogin }: LoginPageProps) {
     })
     setSaving(false)
     if (signInError) {
-      setError(signInError.message || 'Sign in failed')
+      if (!technicianRow?.user_id) {
+        setError(
+          'Sign-in failed. Your username is on file, but login access has not been set up yet. Ask an admin to click Reset password on your Technicians row.',
+        )
+      } else {
+        setError('Invalid login credentials. Check your password or ask an admin to reset it.')
+      }
       return
     }
     const { data: me, error: meError } = await supabase.auth.getUser()
