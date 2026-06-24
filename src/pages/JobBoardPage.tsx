@@ -37,6 +37,7 @@ import {
 import { recordDueDateChange, resolveChangedByName } from '../lib/dueDateChanges'
 import { isEligiblePriorityValve, syncPriorityQueueWithValves } from '../lib/priorityQueue'
 import { supabase } from '../lib/supabase'
+import type { JobCardSaveFields } from '../lib/jobCardSave'
 import { hasAdminAccess } from '../lib/roles'
 import { VALVE_LIST_SELECT } from '../lib/valveSelect'
 import type { Technician, Valve } from '../types'
@@ -639,38 +640,59 @@ export function JobBoardPage({ role, username }: { role?: UserRole; username?: s
     return () => window.removeEventListener('keydown', onKey)
   }, [activeValve, closeModal])
 
-  const saveModalChanges = async (
-    description: string,
-    notes: string,
-    bowlType: string | null,
-    valveType: string | null,
-    isTurnaround: boolean,
-    assignedTechnicianId: number | null,
-    pressureClass: string | null,
-    bodyMaterial: string | null,
-  ) => {
+  const saveModalChanges = async (fields: JobCardSaveFields) => {
     if (!activeValve || !selectedStatus) return
     const patch: Partial<Valve> = {
-      description: description.trim() || null,
-      notes: notes.trim() || null,
-      bowl_type: bowlType?.trim() || null,
-      valve_type: valveType?.trim() || null,
-      is_turnaround: isTurnaround,
-      assigned_technician_id: assignedTechnicianId,
-      pressure_class: pressureClass,
-      body_material: bodyMaterial,
+      description: fields.description.trim() || null,
+      notes: fields.notes.trim() || null,
+      bowl_type: fields.bowlType?.trim() || null,
+      valve_type: fields.valveType?.trim() || null,
+      is_turnaround: fields.isTurnaround,
+      assigned_technician_id: fields.assignedTechnicianId,
+      pressure_class: fields.pressureClass,
+      body_material: fields.bodyMaterial,
+      customer: fields.customer,
+      cell: fields.cell,
+      size: fields.size,
+      job_type: fields.jobType,
+      order_type: fields.orderType,
+      due_date: fields.dueDate,
+      test_type: fields.testType,
+      material_spec: fields.materialSpec,
+      drawing_po_number: fields.drawingPoNumber,
     }
     if (selectedStatus !== activeValve.status) {
       Object.assign(patch, valveStatusPatch(selectedStatus))
     }
 
+    const previousDueDate = dueDateLabel(activeValve.due_date)
+    const nextDueDate = fields.dueDate?.trim() || null
+    const dueDateChanged = (previousDueDate ?? null) !== nextDueDate
+
     setIsSaving(true)
     const { error } = await supabase.from('valves').update(patch).eq('id', activeValve.id)
-    setIsSaving(false)
     if (error) {
+      setIsSaving(false)
       showToast(`Could not save changes: ${error.message}`)
       return
     }
+
+    if (dueDateChanged) {
+      const changedByName = await resolveChangedByName(username ?? 'Unknown')
+      const { error: logError } = await recordDueDateChange({
+        valveRowId: activeValve.id,
+        valveId: activeValve.valve_id,
+        previousDueDate,
+        newDueDate: nextDueDate,
+        reason: 'Updated from job card',
+        changedByName,
+      })
+      if (logError) {
+        showToast(`Saved, but due date change log failed: ${logError.message}`)
+      }
+    }
+
+    setIsSaving(false)
     setValves((prev) => prev.map((v) => (v.id === activeValve.id ? { ...v, ...patch } : v)))
     setActiveValve((prev) => (prev && prev.id === activeValve.id ? { ...prev, ...patch } : prev))
     showToast('Saved')
@@ -893,7 +915,9 @@ export function JobBoardPage({ role, username }: { role?: UserRole; username?: s
 
       {!isDedicatedDetailRoute && tab === 'kanban' ? (
         <>
-        <p className="kanban-reorder-hint">Use ↑ ↓ on each card to set priority within a column. Order is saved on this device.</p>
+        <p className="kanban-reorder-hint">
+          Click a card to open and edit job details. Use ↑ ↓ on each card to set priority within a column.
+        </p>
         <div className="kanban-grid">
           {PHASES.map((phase) => {
             const items = itemsForPhase(phase.key)
@@ -1088,6 +1112,7 @@ export function JobBoardPage({ role, username }: { role?: UserRole; username?: s
           onOpenItp={() => navigate(`/itp/${activeValve.id}`)}
           onOpenFullPage={() => navigate(`/jobs/${activeValve.id}`)}
           forceMaximized={isDedicatedDetailRoute}
+          canEditJobDetails={hasAdminAccess(role)}
         />
       ) : null}
     </section>

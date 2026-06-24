@@ -1,11 +1,13 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
+import { JOB_TYPES, isValveRelatedJobType, normalizeJobType } from '../constants/jobTypes'
 import { STATUS_ORDER } from '../constants/statuses'
 import { ITP_BOWL_TYPE_OPTIONS, itpTemplateLabel } from '../constants/itpTemplates'
 import { VALVE_TYPE_EDIT_PIN } from '../constants/valveTypeEditGate'
 import { useToast } from './ToastNotification'
 import { loadLookupOptionsMap } from '../lib/lookupValues'
 import { buildTestLogEntryHref } from '../lib/testLogEntryPrefill'
+import { type JobCardSaveFields, toDateInputValue } from '../lib/jobCardSave'
 import { supabase } from '../lib/supabase'
 import type { Technician, TestLogEntry, Valve } from '../types'
 import { ValveAttachmentsPanel } from './ValveAttachmentsPanel'
@@ -77,16 +79,8 @@ interface StatusChangeModalProps {
   onTogglePriority: () => void
   onCancel: () => void
   isSaving: boolean
-  onSaveAll: (
-    description: string,
-    notes: string,
-    bowlType: string | null,
-    valveType: string | null,
-    isTurnaround: boolean,
-    assignedTechnicianId: number | null,
-    pressureClass: string | null,
-    bodyMaterial: string | null,
-  ) => void | Promise<void>
+  onSaveAll: (fields: JobCardSaveFields) => void | Promise<void>
+  canEditJobDetails?: boolean
   assignedTechnicianIds: number[]
   assignedTechnicianId?: number | null
   onAssignmentsChanged?: () => void
@@ -112,6 +106,7 @@ export function StatusChangeModal({
   onOpenItp,
   onOpenFullPage,
   forceMaximized = false,
+  canEditJobDetails = true,
 }: StatusChangeModalProps) {
   const navigate = useNavigate()
   const [activeTab, setActiveTab] = useState<JobCardTab>('summary')
@@ -138,6 +133,20 @@ export function StatusChangeModal({
   const [savingAssignments, setSavingAssignments] = useState(false)
   const [assignedTechSingleDraft, setAssignedTechSingleDraft] = useState<number | null>(assignedTechnicianId)
   const [technicians, setTechnicians] = useState<Technician[]>([])
+  const [customerDraft, setCustomerDraft] = useState(valve.customer ?? '')
+  const [cellDraft, setCellDraft] = useState(valve.cell ?? '')
+  const [sizeDraft, setSizeDraft] = useState(valve.size ?? '')
+  const [jobTypeDraft, setJobTypeDraft] = useState(valve.job_type ?? 'Valve Repair')
+  const [orderTypeDraft, setOrderTypeDraft] = useState(valve.order_type ?? '')
+  const [dueDateDraft, setDueDateDraft] = useState(toDateInputValue(valve.due_date))
+  const [testTypeDraft, setTestTypeDraft] = useState(valve.test_type ?? '')
+  const [materialSpecDraft, setMaterialSpecDraft] = useState(valve.material_spec ?? '')
+  const [drawingPoNumberDraft, setDrawingPoNumberDraft] = useState(valve.drawing_po_number ?? '')
+  const [finishCellOptions, setFinishCellOptions] = useState<string[]>([])
+  const [sizeOptions, setSizeOptions] = useState<string[]>([])
+  const [orderTypeOptions, setOrderTypeOptions] = useState<string[]>([])
+  const [testTypeOptions, setTestTypeOptions] = useState<string[]>([])
+  const [customers, setCustomers] = useState<{ id: number; name: string }[]>([])
   const { showToast } = useToast()
   const travelerValveId = (valve.valve_id ?? '').trim()
   const assignedTechKey = useMemo(() => assignedTechnicianIds.slice().sort((a, b) => a - b).join(','), [assignedTechnicianIds])
@@ -174,7 +183,23 @@ export function StatusChangeModal({
       setValveTypeOptions(map.valve_type ?? [])
       setPressureClassOptions(map.pressure_class ?? [])
       setBodyMaterialOptions(map.body_material ?? [])
+      setFinishCellOptions(map.finish_cell ?? [])
+      setSizeOptions(map.valve_size ?? [])
+      setOrderTypeOptions(map.order_type ?? [])
+      setTestTypeOptions(map.test_type ?? [])
     })
+  }, [])
+
+  useEffect(() => {
+    let cancelled = false
+    void (async () => {
+      const { data, error } = await supabase.from('customers').select('id,name').order('name')
+      if (cancelled || error) return
+      setCustomers((data ?? []) as { id: number; name: string }[])
+    })()
+    return () => {
+      cancelled = true
+    }
   }, [])
 
   useEffect(() => {
@@ -215,7 +240,32 @@ export function StatusChangeModal({
     setBowlTypeDraft(valve.bowl_type ?? '')
     setPressureClassDraft(valve.pressure_class ?? '')
     setBodyMaterialDraft(valve.body_material ?? '')
-  }, [valve.id, valve.description, valve.notes, valve.bowl_type, valve.pressure_class, valve.body_material])
+    setCustomerDraft(valve.customer ?? '')
+    setCellDraft(valve.cell ?? '')
+    setSizeDraft(valve.size ?? '')
+    setJobTypeDraft(valve.job_type ?? 'Valve Repair')
+    setOrderTypeDraft(valve.order_type ?? '')
+    setDueDateDraft(toDateInputValue(valve.due_date))
+    setTestTypeDraft(valve.test_type ?? '')
+    setMaterialSpecDraft(valve.material_spec ?? '')
+    setDrawingPoNumberDraft(valve.drawing_po_number ?? '')
+  }, [
+    valve.id,
+    valve.description,
+    valve.notes,
+    valve.bowl_type,
+    valve.pressure_class,
+    valve.body_material,
+    valve.customer,
+    valve.cell,
+    valve.size,
+    valve.job_type,
+    valve.order_type,
+    valve.due_date,
+    valve.test_type,
+    valve.material_spec,
+    valve.drawing_po_number,
+  ])
 
   useEffect(() => {
     setValveTypeDraft(valve.valve_type ?? '')
@@ -334,17 +384,38 @@ export function StatusChangeModal({
     setValveTypeDraft(valve.valve_type ?? '')
   }
 
-  const save = () =>
-    void onSaveAll(
+  const save = () => {
+    if (!canEditJobDetails) {
+      showToast('You do not have permission to edit this job card')
+      return
+    }
+    const normalizedJobType = normalizeJobType(jobTypeDraft)
+    const valveRelated = isValveRelatedJobType(normalizedJobType)
+    void onSaveAll({
       description,
       notes,
-      bowlTypeDraft.trim() || null,
-      valveTypeDraft.trim() || null,
-      turnaroundDraft,
-      assignedTechSingleDraft,
-      pressureClassDraft.trim() || null,
-      bodyMaterialDraft.trim() || null,
-    )
+      bowlType: bowlTypeDraft.trim() || null,
+      valveType: valveTypeDraft.trim() || null,
+      isTurnaround: turnaroundDraft,
+      assignedTechnicianId: assignedTechSingleDraft,
+      pressureClass: pressureClassDraft.trim() || null,
+      bodyMaterial: bodyMaterialDraft.trim() || null,
+      customer: customerDraft.trim() || null,
+      cell: cellDraft.trim() || null,
+      size: sizeDraft.trim() || null,
+      jobType: normalizedJobType,
+      orderType: orderTypeDraft.trim() || null,
+      dueDate: dueDateDraft.trim() || null,
+      testType: valveRelated ? testTypeDraft.trim() || null : null,
+      materialSpec: valveRelated ? null : materialSpecDraft.trim() || null,
+      drawingPoNumber: valveRelated ? null : drawingPoNumberDraft.trim() || null,
+    })
+  }
+
+  const normalizedJobType = normalizeJobType(jobTypeDraft)
+  const valveRelatedJob = isValveRelatedJobType(normalizedJobType)
+  const allowNaSizeAndClass =
+    !valveRelatedJob || (valveRelatedJob && /actuator/i.test((valveTypeDraft ?? '').trim()))
 
   const renderValveTypeEditor = (inPanel?: boolean) => (
     <div className={inPanel ? 'job-card-panel-body' : ''}>
@@ -493,7 +564,7 @@ export function StatusChangeModal({
                     type="checkbox"
                     checked={turnaroundDraft}
                     onChange={(e) => setTurnaroundDraft(e.target.checked)}
-                    disabled={isSaving}
+                    disabled={isSaving || !canEditJobDetails}
                   />
                   <span>Turnaround</span>
                 </label>
@@ -505,7 +576,7 @@ export function StatusChangeModal({
                     className="job-card-status-select"
                     value={selectedStatus}
                     onChange={(e) => onSelectStatus(e.target.value)}
-                    disabled={isSaving}
+                    disabled={isSaving || !canEditJobDetails}
                     aria-labelledby="job-card-status-label"
                   >
                     {STATUS_ORDER.map((status) => (
@@ -780,6 +851,184 @@ export function StatusChangeModal({
 
           {activeTab === 'details' ? (
             <div className="job-card-tab-pad">
+              {canEditJobDetails ? (
+                <>
+                  <h3 className="job-card-section-title">Job info</h3>
+                  <p className="modal-save-hint-subtle">Edit the same fields as when creating a new job. Click Save changes when done.</p>
+
+                  <label className="modal-label" htmlFor="modal-job-type">
+                    Job type
+                  </label>
+                  <select
+                    id="modal-job-type"
+                    className="modal-status-select"
+                    value={jobTypeDraft}
+                    onChange={(e) => setJobTypeDraft(e.target.value)}
+                    disabled={isSaving}
+                  >
+                    {JOB_TYPES.map((jt) => (
+                      <option key={jt} value={jt}>
+                        {jt}
+                      </option>
+                    ))}
+                  </select>
+
+                  <label className="modal-label" htmlFor="modal-customer">
+                    Customer
+                  </label>
+                  <select
+                    id="modal-customer"
+                    className="modal-status-select"
+                    value={customerDraft}
+                    onChange={(e) => setCustomerDraft(e.target.value)}
+                    disabled={isSaving}
+                  >
+                    <option value="">— Select customer —</option>
+                    {customers.map((c) => (
+                      <option key={c.id} value={c.name}>
+                        {c.name}
+                      </option>
+                    ))}
+                  </select>
+
+                  <label className="modal-label" htmlFor="modal-cell">
+                    Finish cell
+                  </label>
+                  <select
+                    id="modal-cell"
+                    className="modal-status-select"
+                    value={cellDraft}
+                    onChange={(e) => setCellDraft(e.target.value)}
+                    disabled={isSaving}
+                  >
+                    <option value="">— Select finish cell —</option>
+                    {finishCellOptions.map((c) => (
+                      <option key={c} value={c}>
+                        {c}
+                      </option>
+                    ))}
+                  </select>
+
+                  <label className="modal-label" htmlFor="modal-size">
+                    Size
+                  </label>
+                  <select
+                    id="modal-size"
+                    className="modal-status-select"
+                    value={sizeDraft}
+                    onChange={(e) => setSizeDraft(e.target.value)}
+                    disabled={isSaving}
+                  >
+                    <option value="">— Select size —</option>
+                    {allowNaSizeAndClass ? <option value="N/A">N/A</option> : null}
+                    {sizeOptions.map((s) => (
+                      <option key={s} value={s}>
+                        {s}
+                      </option>
+                    ))}
+                  </select>
+
+                  <label className="modal-label" htmlFor="modal-order-type">
+                    Order type
+                  </label>
+                  <select
+                    id="modal-order-type"
+                    className="modal-status-select"
+                    value={orderTypeDraft}
+                    onChange={(e) => setOrderTypeDraft(e.target.value)}
+                    disabled={isSaving}
+                  >
+                    <option value="">— Select order type —</option>
+                    {orderTypeOptions.map((ot) => (
+                      <option key={ot} value={ot}>
+                        {ot}
+                      </option>
+                    ))}
+                  </select>
+
+                  <label className="modal-label" htmlFor="modal-due-date">
+                    Due date
+                  </label>
+                  <input
+                    id="modal-due-date"
+                    type="date"
+                    className="modal-status-select"
+                    value={dueDateDraft}
+                    onChange={(e) => setDueDateDraft(e.target.value)}
+                    disabled={isSaving}
+                  />
+
+                  {valveRelatedJob ? (
+                    <>
+                      <label className="modal-label" htmlFor="modal-valve-type-details">
+                        Valve type
+                      </label>
+                      <input
+                        id="modal-valve-type-details"
+                        type="text"
+                        className="modal-status-select"
+                        list={`job-modal-valve-type-dl-details-${valve.id}`}
+                        value={valveTypeDraft}
+                        onChange={(e) => setValveTypeDraft(e.target.value)}
+                        disabled={isSaving}
+                        placeholder="Choose from list or type…"
+                      />
+                      <datalist id={`job-modal-valve-type-dl-details-${valve.id}`}>
+                        {valveTypeSelectOptions.map((v) => (
+                          <option key={v} value={v} />
+                        ))}
+                      </datalist>
+
+                      <label className="modal-label" htmlFor="modal-test-type">
+                        Test type
+                      </label>
+                      <select
+                        id="modal-test-type"
+                        className="modal-status-select"
+                        value={testTypeDraft}
+                        onChange={(e) => setTestTypeDraft(e.target.value)}
+                        disabled={isSaving}
+                      >
+                        <option value="">— Select test type —</option>
+                        {testTypeOptions.map((tt) => (
+                          <option key={tt} value={tt}>
+                            {tt}
+                          </option>
+                        ))}
+                      </select>
+                    </>
+                  ) : (
+                    <>
+                      <label className="modal-label" htmlFor="modal-material-spec">
+                        Material / spec
+                      </label>
+                      <input
+                        id="modal-material-spec"
+                        type="text"
+                        className="modal-status-select"
+                        value={materialSpecDraft}
+                        onChange={(e) => setMaterialSpecDraft(e.target.value)}
+                        disabled={isSaving}
+                      />
+
+                      <label className="modal-label" htmlFor="modal-drawing-po">
+                        Drawing / PO number
+                      </label>
+                      <input
+                        id="modal-drawing-po"
+                        type="text"
+                        className="modal-status-select"
+                        value={drawingPoNumberDraft}
+                        onChange={(e) => setDrawingPoNumberDraft(e.target.value)}
+                        disabled={isSaving}
+                      />
+                    </>
+                  )}
+                </>
+              ) : (
+                <p className="modal-save-hint-subtle">You can view this card but not edit job details.</p>
+              )}
+
               <label className="modal-label" htmlFor="modal-bowl-type">
                 Bowl type (ITP checklist)
               </label>
@@ -788,7 +1037,7 @@ export function StatusChangeModal({
                 className="modal-status-select"
                 value={bowlTypeDraft}
                 onChange={(e) => setBowlTypeDraft(e.target.value)}
-                disabled={isSaving}
+                disabled={isSaving || !canEditJobDetails}
               >
                 <option value="">Auto (from valve type)</option>
                 {ITP_BOWL_TYPE_OPTIONS.map((o) => (
@@ -809,9 +1058,10 @@ export function StatusChangeModal({
                 className="modal-status-select"
                 value={pressureClassDraft}
                 onChange={(e) => setPressureClassDraft(e.target.value)}
-                disabled={isSaving}
+                disabled={isSaving || !canEditJobDetails}
               >
                 <option value="">— Select pressure class —</option>
+                {allowNaSizeAndClass ? <option value="N/A">N/A</option> : null}
                 {pressureClassOptions.map((pc) => (
                   <option key={pc} value={pc}>{pc}</option>
                 ))}
@@ -825,7 +1075,7 @@ export function StatusChangeModal({
                 className="modal-status-select"
                 value={bodyMaterialDraft}
                 onChange={(e) => setBodyMaterialDraft(e.target.value)}
-                disabled={isSaving}
+                disabled={isSaving || !canEditJobDetails}
               >
                 <option value="">— Select body material —</option>
                 {bodyMaterialOptions.map((m) => (
@@ -840,12 +1090,12 @@ export function StatusChangeModal({
                 onChange={(e) => setDescription(e.target.value)}
                 placeholder="Job or valve description"
                 rows={4}
-                disabled={isSaving}
+                disabled={isSaving || !canEditJobDetails}
               />
 
               <p className="modal-save-hint">
-                Status and turnaround are in the header. Use <strong>Save changes</strong> below for description, notes,
-                bowl type, and valve type (when unlocked).
+                Status and turnaround are in the header. Use <strong>Save changes</strong> below for job info, description,
+                notes, bowl type, and valve type.
               </p>
             </div>
           ) : null}
@@ -885,7 +1135,7 @@ export function StatusChangeModal({
                 onChange={(e) => setNotes(e.target.value)}
                 placeholder="Internal notes, follow-ups, etc."
                 rows={12}
-                disabled={isSaving}
+                disabled={isSaving || !canEditJobDetails}
               />
               <p className="modal-save-hint-subtle">Saved with the rest of the card when you click Save changes.</p>
             </div>
@@ -897,7 +1147,7 @@ export function StatusChangeModal({
             Cancel
           </button>
           <div className="job-card-footer-right">
-            <button type="button" className="button-primary" disabled={isSaving} onClick={save}>
+            <button type="button" className="button-primary" disabled={isSaving || !canEditJobDetails} onClick={save}>
               {isSaving ? 'Saving…' : 'Save changes'}
             </button>
             <button type="button" className="button-primary job-card-footer-itp" onClick={onOpenItp} disabled={isSaving}>
