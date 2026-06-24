@@ -20,6 +20,7 @@ import { ItpPage } from './pages/ItpPage'
 import { CustomerLogin } from './pages/CustomerLogin'
 import { CustomerPortal } from './pages/CustomerPortal'
 import { CustomerTravelerView } from './pages/CustomerTravelerView'
+import { FeedbackInboxPage } from './pages/FeedbackInboxPage'
 import { supabase } from './lib/supabase'
 import { defaultHomePath, hasAdminAccess } from './lib/roles'
 import type { User } from '@supabase/supabase-js'
@@ -201,6 +202,7 @@ function App() {
               <Route path="/resources" element={hasAdminAccess(role) ? <ResourcesPage /> : <Navigate to="/login" replace />} />
               <Route path="/technicians" element={hasAdminAccess(role) ? <TechniciansPage /> : <Navigate to="/login" replace />} />
               <Route path="/admin/lists" element={hasAdminAccess(role) ? <AdminListsPage /> : <Navigate to="/login" replace />} />
+              <Route path="/admin/feedback" element={role === 'admin' ? <FeedbackInboxPage /> : <Navigate to="/login" replace />} />
             </Routes>
           )}
         </main>

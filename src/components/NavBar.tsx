@@ -2,6 +2,8 @@ import { useEffect, useId, useRef, useState, type ReactNode } from 'react'
 import { NavLink, useLocation } from 'react-router-dom'
 import type { UserRole } from '../pages/LoginPage'
 import { hasAdminAccess } from '../lib/roles'
+import { isFeedbackEnabled } from '../lib/feedbackEnabled'
+import { FeedbackButton } from './FeedbackButton'
 import logo from '../assets/js-logo.png'
 
 interface NavBarProps {
@@ -120,6 +122,9 @@ export function NavBar({ role, username, onLogout }: NavBarProps) {
                   { to: '/resources', label: 'Resources' },
                   { to: '/technicians', label: 'Technicians' },
                   { to: '/admin/lists', label: 'Manage lists' },
+                  ...(isFeedbackEnabled()
+                    ? [{ to: '/admin/feedback', label: 'Feedback inbox' }]
+                    : []),
                 ]}
               />
             </>
@@ -143,6 +148,7 @@ export function NavBar({ role, username, onLogout }: NavBarProps) {
           )}
         </nav>
         <div className="nav-session">
+          <FeedbackButton username={username} role={role} />
           <span className="username-pill">{username}</span>
           <span className="role-pill">{role.charAt(0).toUpperCase() + role.slice(1)}</span>
           <button className="logout-button" type="button" onClick={onLogout}>
