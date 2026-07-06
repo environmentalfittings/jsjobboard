@@ -16,7 +16,7 @@ import {
 } from '../constants/statuses'
 import { parseAssignedTechnicianIds } from '../lib/valveTechnicianIds'
 import { fetchAllValves } from '../lib/fetchAllValves'
-import { displayJobStatus, isActiveOrderType } from '../lib/jobDisplayStatus'
+import { displayJobStatus, isActiveOrderType, isClosedWorkOrder } from '../lib/jobDisplayStatus'
 import { valveStatusPatch } from '../lib/valveStatusPatch'
 import {
   compareValveIdSequential,
@@ -505,7 +505,7 @@ export function JobBoardPage({ role, username }: { role?: UserRole; username?: s
 
   const doneLimited = useMemo(() => {
     return valves
-      .filter((v) => DONE_STATUSES.has(v.status) || v.order_type === 'Completed')
+      .filter((v) => DONE_STATUSES.has(displayJobStatus(v)))
       .sort((a, b) => {
         const ad = a.date_closed ? new Date(a.date_closed).getTime() : 0
         const bd = b.date_closed ? new Date(b.date_closed).getTime() : 0
@@ -517,13 +517,16 @@ export function JobBoardPage({ role, username }: { role?: UserRole; username?: s
   const activeNonTerminal = useMemo(
     () =>
       valves.filter(
-        (v) => isActiveOrderType(v.order_type) && !TERMINAL_STATUSES.has(v.status),
+        (v) =>
+          !TERMINAL_STATUSES.has(v.status) &&
+          !isClosedWorkOrder(v) &&
+          (isActiveOrderType(v.order_type) || v.order_type === 'Completed'),
       ),
     [valves],
   )
 
   const closedWorkOrders = useMemo(
-    () => valves.filter((v) => v.order_type === 'Completed'),
+    () => valves.filter((v) => isClosedWorkOrder(v)),
     [valves],
   )
 
@@ -662,7 +665,7 @@ export function JobBoardPage({ role, username }: { role?: UserRole; username?: s
       drawing_po_number: fields.drawingPoNumber,
     }
     if (selectedStatus !== activeValve.status) {
-      Object.assign(patch, valveStatusPatch(selectedStatus))
+      Object.assign(patch, valveStatusPatch(selectedStatus, activeValve))
     }
 
     const previousDueDate = dueDateLabel(activeValve.due_date)
@@ -814,7 +817,7 @@ export function JobBoardPage({ role, username }: { role?: UserRole; username?: s
   const moveValveToStatus = async (valve: Valve, nextStatus: string) => {
     if (!nextStatus || valve.status === nextStatus) return
     const previous = { ...valve }
-    const patch = valveStatusPatch(nextStatus)
+    const patch = valveStatusPatch(nextStatus, valve)
 
     setValves((prev) => prev.map((v) => (v.id === valve.id ? { ...v, ...patch } : v)))
     const { error } = await supabase.from('valves').update(patch).eq('id', valve.id)

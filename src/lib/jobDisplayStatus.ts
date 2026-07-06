@@ -5,7 +5,7 @@ const ACTIVE_ORDER_TYPES = new Set(['In-Process Order', 'On-Hold', 'Waiting on A
 /** Shop-facing status label (order type wins over legacy shop status on closed rows). */
 export function displayJobStatus(valve: Valve | null | undefined): string {
   if (!valve) return '-'
-  if (valve.order_type === 'Completed') return 'Completed'
+  if (valve.order_type === 'Completed' && valve.status === 'Completed') return 'Completed'
   if (valve.order_type === 'On-Hold') return 'On Hold'
   if (valve.order_type === 'Waiting on Arrival') return 'Waiting on Arrival'
   return valve.status
@@ -16,7 +16,7 @@ export function isActiveOrderType(orderType: string | null | undefined): boolean
 }
 
 export function isClosedWorkOrder(valve: Valve): boolean {
-  return valve.order_type === 'Completed'
+  return valve.order_type === 'Completed' && valve.status === 'Completed'
 }
 
 export function completionDateForValve(valve: Valve): Date | null {
