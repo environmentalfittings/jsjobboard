@@ -155,7 +155,7 @@ export function SupervisorDashboardPage({ user, appRole, onLogout }: SupervisorD
           {myJobs.map((job) => (
             <TechJobCard key={job.id} job={job} onStatusChange={async (v, next) => {
               if (v.status === next) return
-              const patch = valveStatusPatch(next)
+              const patch = valveStatusPatch(next, v)
               const { error } = await supabase.from('valves').update(patch).eq('id', v.id)
               if (error) showToast('Could not update status')
               else setMyJobs((prev) => prev.map((row) => (row.id === v.id ? { ...row, ...patch } : row)))

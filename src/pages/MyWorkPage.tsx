@@ -83,7 +83,7 @@ export function MyWorkPage({ user, onLogout }: MyWorkPageProps) {
 
   const updateMyJobStatus = async (job: Valve, nextStatus: string) => {
     if (job.status === nextStatus) return
-    const patch = valveStatusPatch(nextStatus)
+    const patch = valveStatusPatch(nextStatus, job)
     const { error } = await supabase.from('valves').update(patch).eq('id', job.id)
     if (error) {
       showToast('Could not update status')

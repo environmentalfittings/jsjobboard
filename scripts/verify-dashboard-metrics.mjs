@@ -26,7 +26,7 @@ function loadEnv() {
 }
 
 function isClosedWorkOrder(v) {
-  return v.order_type === 'Completed'
+  return v.order_type === 'Completed' && v.status === 'Completed'
 }
 
 function completionDateForValve(v) {
