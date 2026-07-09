@@ -12,6 +12,9 @@
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.101.1",
+    "@thermal-label/brother-ql-core": "^0.6.1",
+    "@thermal-label/brother-ql-web": "^0.6.1",
+    "jspdf": "^4.2.1",
     "react": "^19.2.4",
     "react-dom": "^19.2.4",
     "react-router-dom": "^7.13.2"

@@ -16,6 +16,22 @@ export const TEST_TYPES = [
   'PRV Water',
 ] as const
 
+/** Test log per-test media dropdown (editable under Admin → Manage lists). */
+export const TEST_MEDIA = ['Air', 'Water', 'Methane', 'Helium', 'Mineral Oil', 'Diesel'] as const
+
+/** Test requirement / procedure options (editable under Admin → Manage lists). */
+export const TEST_PROCEDURE_REQUIREMENTS = [
+  'API 598 Test',
+  'API 6D Test',
+  'MSS SP 160 Test',
+  'ASME B16.34',
+  '4-Hour Chart Test',
+  'Helium Test',
+] as const
+
+/** Chart recorder IDs for 4-hour shell tests (editable under Admin → Manage lists). */
+export const CHART_RECORDERS: readonly string[] = []
+
 export const VALVE_SIZES = [
   '0.5',
   '0.75',
@@ -78,6 +94,18 @@ export const VALVE_TYPES = [
   'Twinseal',
 ] as const
 
+/** Canonical valve types for test log entry (dropdown). */
+export const TEST_LOG_VALVE_TYPES = [
+  'Ball',
+  'Gate',
+  'Globe',
+  'Check',
+  'Plug',
+  'Butterfly',
+  'Needle',
+  'Diaphragm',
+] as const
+
 /** Finish cells (work cell dropdown). */
 export const FINISH_CELLS = [
   'Actuation',
@@ -102,5 +130,5 @@ export const PRESSURE_CLASSES = ['150', '300', '400', '600', '800', '900', '1500
 export const BODY_MATERIALS = [
   'WCB', 'WC1', 'F11', 'F22', 'C5', 'C9', 'P91',
   '304 SS', '309 SS', '316 SS', '347 SS',
-  'Monel', 'Hastelloy',
+  'Monel', 'Hastelloy', 'Alloy 400', 'Alloy C276',
 ] as const

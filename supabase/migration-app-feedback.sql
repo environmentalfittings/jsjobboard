@@ -8,7 +8,9 @@ create table if not exists public.app_feedback (
   user_role text,
   status text not null default 'open' check (status in ('open', 'resolved')),
   created_at timestamptz not null default now(),
-  resolved_at timestamptz
+  resolved_at timestamptz,
+  resolution_notes text,
+  resolution_images jsonb not null default '[]'::jsonb
 );
 
 create index if not exists idx_app_feedback_status_created

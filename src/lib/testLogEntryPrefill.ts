@@ -2,6 +2,7 @@
 export const TEST_LOG_PREFILL_KEYS = {
   valveId: 'valveId',
   size: 'size',
+  pressure: 'pressure',
   valveType: 'valveType',
   testType: 'testType',
   customer: 'customer',
@@ -13,6 +14,7 @@ export const TEST_LOG_PREFILL_KEYS = {
 export type JobCardTestLogPrefill = {
   valveId: string
   size?: string | null
+  pressure?: string | null
   valveType?: string | null
   testType?: string | null
   customer?: string | null
@@ -31,6 +33,9 @@ export function buildTestLogEntryHref(p: JobCardTestLogPrefill): string {
 
   const sz = (p.size ?? '').trim()
   if (sz) params.set(TEST_LOG_PREFILL_KEYS.size, sz)
+
+  const pr = (p.pressure ?? '').trim()
+  if (pr) params.set(TEST_LOG_PREFILL_KEYS.pressure, pr)
 
   const vt = (p.valveType ?? '').trim()
   if (vt) params.set(TEST_LOG_PREFILL_KEYS.valveType, vt)

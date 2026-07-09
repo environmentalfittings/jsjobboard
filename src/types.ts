@@ -85,6 +85,8 @@ export interface TestLogEntry {
   action_taken: string | null
   tester: string | null
   created_at: string
+  /** Structured testing form (procedure, pressure tests, chart recorder, etc.). */
+  testing_details?: unknown | null
 }
 
 export interface DueDateChangeRecord {

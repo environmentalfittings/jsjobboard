@@ -1,6 +1,33 @@
 import { supabase } from '../lib/supabase'
 import type { Traveler, TravelerBasicInfo, TravelerSectionStatus } from '../types/traveler'
 
+export async function prefillTravelerBasicInfoFromValve(travelerId: string, valveIdText: string): Promise<void> {
+  const { data: existing } = await supabase
+    .from('traveler_basic_info')
+    .select('id')
+    .eq('traveler_id', travelerId)
+    .maybeSingle()
+  if (existing) return
+
+  const { data: valve } = await supabase
+    .from('valves')
+    .select('customer,size,pressure_class,due_date,valve_type,description')
+    .eq('valve_id', valveIdText.trim())
+    .maybeSingle()
+
+  if (!valve) return
+
+  await supabase.from('traveler_basic_info').insert({
+    traveler_id: travelerId,
+    valve_id: valveIdText.trim(),
+    customer: valve.customer,
+    size: valve.size,
+    pressure: valve.pressure_class,
+    due_date: valve.due_date,
+    notes: valve.description,
+  })
+}
+
 export async function getOrCreateTraveler(valveId: string): Promise<Traveler> {
   const normalizedValveId = valveId.trim()
 

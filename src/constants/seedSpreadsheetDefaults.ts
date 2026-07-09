@@ -6,9 +6,12 @@ import type { LookupCategory } from './lookupCategories'
 import { LOOKUP_CATEGORY_DEFS } from './lookupCategories'
 import {
   BODY_MATERIALS,
+  CHART_RECORDERS,
   FINISH_CELLS,
   ORDER_TYPES,
   PRESSURE_CLASSES,
+  TEST_MEDIA,
+  TEST_PROCEDURE_REQUIREMENTS,
   TEST_TYPES,
   VALVE_SIZES,
   VALVE_TYPES,
@@ -16,6 +19,9 @@ import {
 
 const BY_CATEGORY: Record<LookupCategory, readonly string[]> = {
   test_type: TEST_TYPES,
+  test_media: TEST_MEDIA,
+  test_procedure: TEST_PROCEDURE_REQUIREMENTS,
+  chart_recorder: CHART_RECORDERS,
   valve_size: VALVE_SIZES,
   valve_type: VALVE_TYPES,
   pressure_class: PRESSURE_CLASSES,

@@ -1,37 +1,16 @@
-import { Fragment, useEffect, useMemo, useState } from 'react'
-import { useSearchParams } from 'react-router-dom'
-import { useToast } from '../components/ToastNotification'
+import { Fragment, useEffect, useState } from 'react'
+import { TestLogEntryForm } from '../components/testLog/TestLogEntryForm'
+import { TestLogReportsSection } from '../components/testLog/TestLogReportsSection'
+import { normalizeValveId } from '../lib/valveId'
 import { supabase } from '../lib/supabase'
-import { TEST_LOG_PREFILL_KEYS } from '../lib/testLogEntryPrefill'
+import { formatTestProceduresSummary, parseTestLogTestingDetails, resolveTestMedia } from '../types/testLog'
+import { formatCheckedStandardsSummary, formatTestPressuresSummary } from '../lib/testStandardParams'
 import type { TestLogEntry } from '../types'
 
-function todayIso() {
-  return new Date().toISOString().slice(0, 10)
-}
-
-function normalizeValveId(input: string) {
-  const trimmed = input.trim()
-  return trimmed.replace(/^R(?=\d)/i, '')
-}
-
-function isPassing(passFail: string) {
-  return passFail.trim().toUpperCase().includes('PASS')
-}
+const TEST_LOG_SELECT =
+  'id,tested_on,valve_id,size,pressure,manufacturer,valve_type,test_type,worked,pass_fail,action_taken,tester,testing_details,created_at'
 
 export function TestLogEntryPage() {
-  const [searchParams, setSearchParams] = useSearchParams()
-  const [testedOn, setTestedOn] = useState(todayIso())
-  const [valveId, setValveId] = useState('')
-  const [size, setSize] = useState('')
-  const [pressure, setPressure] = useState('')
-  const [manufacturer, setManufacturer] = useState('')
-  const [valveType, setValveType] = useState('')
-  const [testType, setTestType] = useState('')
-  const [worked, setWorked] = useState('')
-  const [passFail, setPassFail] = useState('PASS')
-  const [actionTaken, setActionTaken] = useState('')
-  const [tester, setTester] = useState('')
-  const [saving, setSaving] = useState(false)
   const [rows, setRows] = useState<TestLogEntry[]>([])
   const [valveSearch, setValveSearch] = useState('')
   const [filterStartDate, setFilterStartDate] = useState('')
@@ -39,26 +18,12 @@ export function TestLogEntryPage() {
   const [searchOptions, setSearchOptions] = useState<string[]>([])
   const [loadingRows, setLoadingRows] = useState(false)
   const [expandedRowId, setExpandedRowId] = useState<number | null>(null)
-  const { showToast } = useToast()
-
-  const canSubmit = useMemo(() => valveId.trim().length > 0 && testedOn.trim().length > 0, [valveId, testedOn])
-
-  const jobCardPrefillBanner = useMemo(() => {
-    const cust = searchParams.get(TEST_LOG_PREFILL_KEYS.customer)
-    const cell = searchParams.get(TEST_LOG_PREFILL_KEYS.cell)
-    const desc = searchParams.get(TEST_LOG_PREFILL_KEYS.description)
-    const st = searchParams.get(TEST_LOG_PREFILL_KEYS.jobStatus)
-    if (!cust && !cell && !desc && !st) return null
-    return { customer: cust, cell, description: desc, jobStatus: st }
-  }, [searchParams])
 
   const loadRows = async (searchOverride?: string) => {
     setLoadingRows(true)
     let query = supabase
       .from('test_logs')
-      .select(
-        'id,tested_on,valve_id,size,pressure,manufacturer,valve_type,test_type,worked,pass_fail,action_taken,tester,created_at',
-      )
+      .select(TEST_LOG_SELECT)
       .order('tested_on', { ascending: false })
       .order('created_at', { ascending: false })
       .limit(300)
@@ -75,34 +40,14 @@ export function TestLogEntryPage() {
   }
 
   useEffect(() => {
-    loadRows()
+    void loadRows()
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
   useEffect(() => {
-    const vid = searchParams.get(TEST_LOG_PREFILL_KEYS.valveId)?.trim()
-    if (!vid) return
-
-    setValveId(vid)
-    setValveSearch(vid)
-
-    const sz = searchParams.get(TEST_LOG_PREFILL_KEYS.size)
-    if (sz) setSize(sz)
-
-    const vt = searchParams.get(TEST_LOG_PREFILL_KEYS.valveType)
-    if (vt) setValveType(vt)
-
-    const tt = searchParams.get(TEST_LOG_PREFILL_KEYS.testType)
-    if (tt) setTestType(tt)
-
-    void loadRows(vid)
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [searchParams.toString()])
-
-  useEffect(() => {
     const run = async () => {
       const normalizedSearch = normalizeValveId(valveSearch)
-      if (!normalizedSearch || normalizedSearch.length < 1) {
+      if (!normalizedSearch) {
         setSearchOptions([])
         return
       }
@@ -111,67 +56,10 @@ export function TestLogEntryPage() {
         .select('valve_id')
         .ilike('valve_id', `%${normalizedSearch}%`)
         .limit(12)
-      const options = Array.from(new Set((data ?? []).map((row: { valve_id: string }) => row.valve_id)))
-      setSearchOptions(options)
+      setSearchOptions(Array.from(new Set((data ?? []).map((row: { valve_id: string }) => row.valve_id))))
     }
     void run()
   }, [valveSearch])
-
-  const submit = async () => {
-    if (!canSubmit) return
-    const normalizedValveId = normalizeValveId(valveId)
-    const payload = {
-      tested_on: testedOn,
-      valve_id: normalizedValveId,
-      size: size || null,
-      pressure: pressure || null,
-      manufacturer: manufacturer || null,
-      valve_type: valveType || null,
-      test_type: testType || null,
-      worked: worked || null,
-      pass_fail: passFail || null,
-      action_taken: actionTaken || null,
-      tester: tester || null,
-    }
-
-    setSaving(true)
-    const { error } = await supabase.from('test_logs').insert(payload)
-    if (error) {
-      setSaving(false)
-      showToast('Could not save test log entry')
-      return
-    }
-
-    if (isPassing(passFail)) {
-      const { data: valve } = await supabase
-        .from('valves')
-        .select('id,status')
-        .or(`valve_id.eq.${normalizedValveId},valve_id.eq.${valveId.trim()}`)
-        .order('id', { ascending: false })
-        .limit(1)
-        .maybeSingle()
-
-      if (valve?.id) {
-        const nextStatus = valve.status === 'Completed' ? 'Completed' : 'Warehouse RTS'
-        await supabase.from('valves').update({ date_tested: testedOn, status: nextStatus }).eq('id', valve.id)
-      }
-    }
-
-    setSaving(false)
-    setValveId('')
-    setSize('')
-    setPressure('')
-    setManufacturer('')
-    setValveType('')
-    setTestType('')
-    setWorked('')
-    setPassFail('PASS')
-    setActionTaken('')
-    setTester('')
-    setSearchParams({}, { replace: true })
-    showToast(`Test log saved for ${normalizedValveId}`)
-    await loadRows()
-  }
 
   return (
     <section className="dashboard-page">
@@ -179,89 +67,7 @@ export function TestLogEntryPage() {
         <h2 className="dashboard-title">Test log entry</h2>
       </div>
 
-      <section className="dashboard-panel">
-        <h3>Enter tested valve</h3>
-        {jobCardPrefillBanner ? (
-          <div className="test-log-prefill-banner" role="status">
-            <div className="test-log-prefill-banner-title">Prefilled from job card</div>
-            {jobCardPrefillBanner.jobStatus ? (
-              <p className="test-log-prefill-line">
-                <span className="test-log-prefill-k">Shop status</span> {jobCardPrefillBanner.jobStatus}
-              </p>
-            ) : null}
-            {jobCardPrefillBanner.customer || jobCardPrefillBanner.cell ? (
-              <p className="test-log-prefill-line">
-                {jobCardPrefillBanner.customer ? (
-                  <>
-                    <span className="test-log-prefill-k">Customer</span> {jobCardPrefillBanner.customer}
-                  </>
-                ) : null}
-                {jobCardPrefillBanner.customer && jobCardPrefillBanner.cell ? ' · ' : null}
-                {jobCardPrefillBanner.cell ? (
-                  <>
-                    <span className="test-log-prefill-k">Cell</span> {jobCardPrefillBanner.cell}
-                  </>
-                ) : null}
-              </p>
-            ) : null}
-            {jobCardPrefillBanner.description ? (
-              <p className="test-log-prefill-desc">{jobCardPrefillBanner.description}</p>
-            ) : null}
-          </div>
-        ) : null}
-        <div className="report-filters">
-          <label>
-            Date
-            <input type="date" value={testedOn} onChange={(e) => setTestedOn(e.target.value)} />
-          </label>
-          <label>
-            Valve ID / W.O. #
-            <input type="text" value={valveId} onChange={(e) => setValveId(e.target.value)} placeholder="e.g. 5792-1" />
-          </label>
-          <label>
-            Size
-            <input type="text" value={size} onChange={(e) => setSize(e.target.value)} />
-          </label>
-          <label>
-            Pressure
-            <input type="text" value={pressure} onChange={(e) => setPressure(e.target.value)} />
-          </label>
-          <label>
-            Manufacturer
-            <input type="text" value={manufacturer} onChange={(e) => setManufacturer(e.target.value)} />
-          </label>
-          <label>
-            Type
-            <input type="text" value={valveType} onChange={(e) => setValveType(e.target.value)} />
-          </label>
-          <label>
-            Test type
-            <input type="text" value={testType} onChange={(e) => setTestType(e.target.value)} />
-          </label>
-          <label>
-            Worked
-            <input type="text" value={worked} onChange={(e) => setWorked(e.target.value)} />
-          </label>
-          <label>
-            Pass / Fail
-            <select value={passFail} onChange={(e) => setPassFail(e.target.value)}>
-              <option value="PASS">PASS</option>
-              <option value="FAIL">FAIL</option>
-            </select>
-          </label>
-          <label>
-            Action taken
-            <input type="text" value={actionTaken} onChange={(e) => setActionTaken(e.target.value)} />
-          </label>
-          <label>
-            Tester
-            <input type="text" value={tester} onChange={(e) => setTester(e.target.value)} />
-          </label>
-          <button type="button" className="button-primary" disabled={!canSubmit || saving} onClick={submit}>
-            {saving ? 'Saving...' : 'Save entry'}
-          </button>
-        </div>
-      </section>
+      <TestLogEntryForm onSaved={() => void loadRows()} />
 
       <section className="dashboard-panel">
         <h3>Recent test log entries</h3>
@@ -290,7 +96,7 @@ export function TestLogEntryPage() {
             <input type="date" value={filterEndDate} onChange={(e) => setFilterEndDate(e.target.value)} />
           </label>
           <button type="button" className="button-primary" onClick={() => void loadRows()} disabled={loadingRows}>
-            {loadingRows ? 'Filtering...' : 'Apply filters'}
+            {loadingRows ? 'Filtering…' : 'Apply filters'}
           </button>
           <button
             type="button"
@@ -299,7 +105,7 @@ export function TestLogEntryPage() {
               setValveSearch('')
               setFilterStartDate('')
               setFilterEndDate('')
-              void loadRows()
+              void loadRows('')
             }}
           >
             Clear
@@ -312,7 +118,9 @@ export function TestLogEntryPage() {
               <tr>
                 <th>Date</th>
                 <th>Valve ID</th>
-                <th>Test type</th>
+                <th>Standard</th>
+                <th>Test pressures</th>
+                <th>Test medium</th>
                 <th>Pass/Fail</th>
                 <th>Tester</th>
                 <th>Action</th>
@@ -321,6 +129,7 @@ export function TestLogEntryPage() {
             <tbody>
               {rows.map((row) => {
                 const isExpanded = expandedRowId === row.id
+                const details = parseTestLogTestingDetails(row.testing_details)
                 return (
                   <Fragment key={row.id}>
                     <tr
@@ -343,6 +152,20 @@ export function TestLogEntryPage() {
                         {row.tested_on}
                       </td>
                       <td>{row.valve_id}</td>
+                      <td>
+                        {details?.testStandardParams?.checkedStandards?.length
+                          ? formatCheckedStandardsSummary(details.testStandardParams.checkedStandards)
+                          : '—'}
+                      </td>
+                      <td>
+                        {details?.testStandardParams
+                          ? formatTestPressuresSummary({
+                              shellPressure: details.testStandardParams.shellPressure,
+                              hpSeatPressure: details.testStandardParams.hpSeatPressure,
+                              lpSeatPressure: details.testStandardParams.lpSeatPressure,
+                            })
+                          : '—'}
+                      </td>
                       <td>{row.test_type ?? '-'}</td>
                       <td>{row.pass_fail ?? '-'}</td>
                       <td>{row.tester ?? '-'}</td>
@@ -350,7 +173,7 @@ export function TestLogEntryPage() {
                     </tr>
                     {isExpanded ? (
                       <tr className="test-log-detail-row">
-                        <td colSpan={6}>
+                        <td colSpan={8}>
                           <div className="test-log-detail-panel">
                             <div className="test-log-detail-grid">
                               <div className="test-log-detail-item">
@@ -370,19 +193,7 @@ export function TestLogEntryPage() {
                                 </span>
                               </div>
                               <div className="test-log-detail-item">
-                                <span className="test-log-detail-label">Manufacturer</span>
-                                <span
-                                  className={
-                                    row.manufacturer
-                                      ? 'test-log-detail-value'
-                                      : 'test-log-detail-value test-log-detail-empty'
-                                  }
-                                >
-                                  {row.manufacturer ?? '—'}
-                                </span>
-                              </div>
-                              <div className="test-log-detail-item">
-                                <span className="test-log-detail-label">Valve type</span>
+                                <span className="test-log-detail-label">Type</span>
                                 <span
                                   className={
                                     row.valve_type ? 'test-log-detail-value' : 'test-log-detail-value test-log-detail-empty'
@@ -392,12 +203,101 @@ export function TestLogEntryPage() {
                                 </span>
                               </div>
                               <div className="test-log-detail-item">
-                                <span className="test-log-detail-label">Worked</span>
-                                <span className={row.worked ? 'test-log-detail-value' : 'test-log-detail-value test-log-detail-empty'}>
-                                  {row.worked ?? '—'}
+                                <span className="test-log-detail-label">Test requirements</span>
+                                <span
+                                  className={
+                                    details && formatTestProceduresSummary(details)
+                                      ? 'test-log-detail-value'
+                                      : 'test-log-detail-value test-log-detail-empty'
+                                  }
+                                >
+                                  {(details && formatTestProceduresSummary(details)) || row.worked || '—'}
                                 </span>
                               </div>
                             </div>
+
+                            {details ? (
+                              <>
+                                <div className="test-log-detail-pressure-grid">
+                                  {(
+                                    [
+                                      ['Low', details.lowTest],
+                                      ['High', details.highTest],
+                                      ['Shell', details.shellTest],
+                                    ] as const
+                                  ).map(([label, block]) => (
+                                  <div key={label} className="test-log-detail-pressure-card">
+                                    <div className="test-log-detail-pressure-title">{label} pressure</div>
+                                    <div>Media: {resolveTestMedia(block) || '—'}</div>
+                                    <div>Gauge: {block.gauge || '—'}</div>
+                                      <div>Pressure: {block.pressure || '—'}</div>
+                                    <div>Time: {block.time || '—'}</div>
+                                    {label === 'Shell' && block.chartRecorderNumber ? (
+                                      <div>Chart recorder: {block.chartRecorderNumber}</div>
+                                    ) : null}
+                                    <div>Result: {block.result ? block.result.toUpperCase() : '—'}</div>
+                                      {block.reason ? <div>Reason: {block.reason}</div> : null}
+                                    </div>
+                                  ))}
+                                </div>
+
+                                {details.heliumTest.enabled ? (
+                                  <div className="test-log-detail-additional-block">
+                                    <div className="test-log-detail-pressure-title">Helium test</div>
+                                    <div>Media: {resolveTestMedia(details.heliumTest) || '—'}</div>
+                                    <div>Gauge: {details.heliumTest.gauge || '—'}</div>
+                                    <div>Pressure: {details.heliumTest.pressure || '—'}</div>
+                                    <div>Time: {details.heliumTest.time || '—'}</div>
+                                    <div>Ambient: {details.heliumTest.ambient || '—'}</div>
+                                    <div>Stem: {details.heliumTest.stem || '—'}</div>
+                                    <div>Bonnet: {details.heliumTest.bonnet || '—'}</div>
+                                    <div>Body: {details.heliumTest.body || '—'}</div>
+                                    <div>
+                                      Result: {details.heliumTest.result ? details.heliumTest.result.toUpperCase() : '—'}
+                                    </div>
+                                  </div>
+                                ) : null}
+
+                                {details.cavityReliefTest.enabled ? (
+                                  <div className="test-log-detail-additional-block">
+                                    <div className="test-log-detail-pressure-title">Cavity relief test</div>
+                                    <div>Media: {resolveTestMedia(details.cavityReliefTest) || '—'}</div>
+                                    <div>MAWP @ 100°F: {details.cavityReliefTest.mawp100F || '—'}</div>
+                                    <div>Seat A: {details.cavityReliefTest.seatA || '—'}</div>
+                                    <div>Seat B: {details.cavityReliefTest.seatB || '—'}</div>
+                                    <div>
+                                      Result:{' '}
+                                      {details.cavityReliefTest.result ? details.cavityReliefTest.result.toUpperCase() : '—'}
+                                    </div>
+                                  </div>
+                                ) : null}
+                              </>
+                            ) : null}
+
+                            {details?.additionalNotes ? (
+                              <p className="test-log-detail-additional">
+                                <span className="test-log-detail-label">Other notes</span> {details.additionalNotes}
+                              </p>
+                            ) : null}
+
+                            {details ? (
+                              <TestLogReportsSection
+                                mode="saved"
+                                testLogId={row.id}
+                                reportData={{
+                                  tested_on: row.tested_on,
+                                  valve_id: row.valve_id,
+                                  size: row.size,
+                                  pressure: row.pressure,
+                                  valve_type: row.valve_type,
+                                  manufacturer: row.manufacturer,
+                                  tester: row.tester,
+                                  pass_fail: row.pass_fail,
+                                  action_taken: row.action_taken,
+                                  testing_details: details,
+                                }}
+                              />
+                            ) : null}
                           </div>
                         </td>
                       </tr>

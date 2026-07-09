@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { useToast } from '../components/ToastNotification'
 import { ValveTypeProceduresPanel } from '../components/ValveTypeProceduresPanel'
+import { TestGaugesPanel } from '../components/TestGaugesPanel'
 import { JOB_TYPES, normalizeJobType } from '../constants/jobTypes'
 import { LOOKUP_CATEGORY_DEFS, type LookupCategory } from '../constants/lookupCategories'
 import {
@@ -29,7 +30,7 @@ import {
 import type { LookupValueRow } from '../lib/lookupValues'
 import { supabase } from '../lib/supabase'
 
-type Tab = 'lookups' | 'customers' | 'itpTemplates' | 'valveTypes' | 'flangeThickness' | 'b1610' | 'b1634'
+type Tab = 'lookups' | 'customers' | 'itpTemplates' | 'valveTypes' | 'testGauges' | 'flangeThickness' | 'b1610' | 'b1634'
 
 type CustomerRow = { id: number; name: string }
 type ItpTemplateRow = {
@@ -954,6 +955,15 @@ export function AdminListsPage() {
         <button
           type="button"
           role="tab"
+          aria-selected={tab === 'testGauges'}
+          className={`admin-lists-tab ${tab === 'testGauges' ? 'active' : ''}`}
+          onClick={() => setTab('testGauges')}
+        >
+          Test gauges
+        </button>
+        <button
+          type="button"
+          role="tab"
           aria-selected={tab === 'flangeThickness'}
           className={`admin-lists-tab ${tab === 'flangeThickness' ? 'active' : ''}`}
           onClick={() => setTab('flangeThickness')}
@@ -1369,6 +1379,8 @@ export function AdminListsPage() {
           <ValveTypeProceduresPanel key={valveTypeReloadTick} variant="page" />
         </section>
       )}
+
+      {tab === 'testGauges' && <TestGaugesPanel />}
 
       {tab === 'flangeThickness' && (
         <section className="dashboard-panel admin-lists-panel">

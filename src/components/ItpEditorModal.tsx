@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useToast } from './ToastNotification'
 import { supabase } from '../lib/supabase'
+import { buildItpDataForSave, extractInspectionFromItpData } from '../lib/valveItpStorage'
 import { ItpItemGlyph, ItpOverallTabIcon } from './itpItemGlyphs'
 import { ValveTypeProceduresPanel } from './ValveTypeProceduresPanel'
 import {
@@ -426,7 +427,11 @@ export function ItpEditorModal({ valve, onClose }: ItpEditorModalProps) {
       }
 
       const row = data as { content?: string; itp_data?: unknown } | null
-      const merged = mergeItpPayload(row?.itp_data, row?.content ?? '', templateId)
+      const merged = mergeItpPayload(
+        extractInspectionFromItpData(row?.itp_data),
+        row?.content ?? '',
+        templateId,
+      )
       setPayload(merged)
       const firstTab = merged.tabs[0]
       setActiveTabId(firstTab?.id ?? 'body')
@@ -592,10 +597,20 @@ export function ItpEditorModal({ valve, onClose }: ItpEditorModalProps) {
     }
 
     setSaving(true)
+    const { data: existingRow } = await supabase
+      .from('valve_itp')
+      .select('itp_data')
+      .eq('valve_row_id', valve.id)
+      .maybeSingle()
+
+    const itp_data = buildItpDataForSave({
+      existing: existingRow?.itp_data,
+      inspection: payload,
+    })
     const withJsonb = {
       valve_row_id: valve.id,
       content: payload.generalNotes,
-      itp_data: payload as unknown as Record<string, unknown>,
+      itp_data,
     }
     let { error } = await supabase.from('valve_itp').upsert(withJsonb, { onConflict: 'valve_row_id' })
 

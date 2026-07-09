@@ -341,6 +341,7 @@ export function StatusChangeModal({
       buildTestLogEntryHref({
         valveId: valve.valve_id,
         size: valve.size,
+        pressure: valve.pressure_class,
         valveType: (valveTypeUnlocked ? valveTypeDraft : (valve.valve_type ?? '')).trim() || null,
         testType: valve.test_type,
         customer: valve.customer,
@@ -351,6 +352,7 @@ export function StatusChangeModal({
     [
       valve.valve_id,
       valve.size,
+      valve.pressure_class,
       valve.test_type,
       valve.customer,
       valve.cell,
@@ -1030,7 +1032,7 @@ export function StatusChangeModal({
               )}
 
               <label className="modal-label" htmlFor="modal-bowl-type">
-                Bowl type (ITP checklist)
+                Bowl type (inspection checklist)
               </label>
               <select
                 id="modal-bowl-type"
@@ -1047,7 +1049,7 @@ export function StatusChangeModal({
                 ))}
               </select>
               <p className="modal-save-hint-subtle">
-                Sets inspection sections in ITP. Leave Auto to infer from valve type when possible.
+                Sets inspection sections on the Traveler inspection checklist. Leave Auto to infer from valve type when possible.
               </p>
 
               <label className="modal-label" htmlFor="modal-pressure-class">

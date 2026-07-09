@@ -5,6 +5,12 @@ import { ValveAttachmentsPanel } from '../components/ValveAttachmentsPanel'
 import { isValveRelatedJobType, normalizeJobType } from '../constants/jobTypes'
 import { technicianIdsForValve } from '../lib/valveTechnicianIds'
 import { fetchAllValves } from '../lib/fetchAllValves'
+import {
+  downloadValveTicketPdf,
+  openValveTicketPdfForPrint,
+  openValveTicketPrintPreview,
+} from '../lib/valveTicketPrint'
+import { printValveTicketToBrotherUsb } from '../lib/brotherQlValveTicket'
 import { supabase } from '../lib/supabase'
 import type { Technician, Valve } from '../types'
 import { useToast } from '../components/ToastNotification'
@@ -14,19 +20,6 @@ function formatDate(value: string | null) {
   const parsed = new Date(value)
   if (Number.isNaN(parsed.getTime())) return value
   return parsed.toLocaleDateString()
-}
-
-function escapeHtml(s: string) {
-  return s
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-}
-
-function formatMultilineHtml(s: string | null) {
-  if (!s || !s.trim()) return '-'
-  return escapeHtml(s).replace(/\n/g, '<br/>')
 }
 
 type ItpTemplateStep = {
@@ -48,57 +41,6 @@ type JobItpItem = {
   sort_order: number
 }
 
-function buildPrintHtml(valve: Valve) {
-  const jobType = normalizeJobType(valve.job_type)
-  const valveRelated = isValveRelatedJobType(jobType)
-  return `<!doctype html>
-<html>
-  <head>
-    <meta charset="utf-8" />
-    <title>Valve Ticket ${escapeHtml(valve.valve_id)}</title>
-    <style>
-      @page { margin: 8mm; }
-      body { font-family: Arial, sans-serif; margin: 0; color: #111; }
-      .ticket { border: 2px solid #111; border-radius: 8px; padding: 10px; width: 100%; box-sizing: border-box; }
-      .title { font-weight: 700; font-size: 18px; margin-bottom: 8px; }
-      .id { font-size: 24px; font-weight: 700; margin-bottom: 8px; }
-      .row { display: flex; gap: 8px; margin-bottom: 4px; }
-      .label { min-width: 100px; font-weight: 700; }
-      .value { flex: 1; }
-      .multiline { white-space: normal; }
-      .status { margin-top: 8px; padding: 6px 8px; border: 1px solid #111; border-radius: 6px; font-weight: 700; text-align: center; }
-      .foot { margin-top: 10px; font-size: 12px; color: #444; }
-    </style>
-  </head>
-  <body>
-    <div class="ticket">
-      <div class="title">Valve Card / Ticket</div>
-      <div class="id">${escapeHtml(valve.valve_id)}</div>
-      <div class="row"><div class="label">Customer:</div><div class="value">${escapeHtml(valve.customer ?? '-')}</div></div>
-      <div class="row"><div class="label">Work Cell:</div><div class="value">${escapeHtml(valve.cell ?? '-')}</div></div>
-      <div class="row"><div class="label">Size:</div><div class="value">${escapeHtml(valve.size ?? '-')}</div></div>
-      <div class="row"><div class="label">Pressure class:</div><div class="value">${escapeHtml(valve.pressure_class ?? '-')}</div></div>
-      <div class="row"><div class="label">Body material:</div><div class="value">${escapeHtml(valve.body_material ?? '-')}</div></div>
-      <div class="row"><div class="label">Job type:</div><div class="value">${escapeHtml(jobType)}</div></div>
-      ${
-        valveRelated
-          ? `<div class="row"><div class="label">Valve type:</div><div class="value">${escapeHtml(valve.valve_type ?? '-')}</div></div>
-      <div class="row"><div class="label">Test type:</div><div class="value">${escapeHtml(valve.test_type ?? '-')}</div></div>`
-          : `<div class="row"><div class="label">Material / spec:</div><div class="value">${escapeHtml(valve.material_spec ?? '-')}</div></div>
-      <div class="row"><div class="label">Drawing / PO #:</div><div class="value">${escapeHtml(valve.drawing_po_number ?? '-')}</div></div>`
-      }
-      <div class="row"><div class="label">Order type:</div><div class="value">${escapeHtml(valve.order_type ?? '-')}</div></div>
-      <div class="row"><div class="label">Due Date:</div><div class="value">${formatDate(valve.due_date)}</div></div>
-      <div class="row"><div class="label">Description:</div><div class="value multiline">${formatMultilineHtml(valve.description)}</div></div>
-      <div class="row"><div class="label">Notes:</div><div class="value multiline">${formatMultilineHtml(valve.notes)}</div></div>
-      <div class="status">Status: ${escapeHtml(valve.status)}</div>
-      <div class="foot">Printed ${new Date().toLocaleString()}</div>
-    </div>
-    <script>window.onload = () => window.print();</script>
-  </body>
-</html>`
-}
-
 export function ValveCardTicketPage() {
   const navigate = useNavigate()
   const [technicians, setTechnicians] = useState<Technician[]>([])
@@ -114,7 +56,47 @@ export function ValveCardTicketPage() {
   const [assignedTechnicianIdDraft, setAssignedTechnicianIdDraft] = useState<number | null>(null)
   const [itpItems, setItpItems] = useState<JobItpItem[]>([])
   const [loadingItp, setLoadingItp] = useState(false)
+  const [printingBrother, setPrintingBrother] = useState(false)
   const { showToast } = useToast()
+
+  const valveForPrint = (valve: Valve): Valve => ({
+    ...valve,
+    description: valve.id === selected?.id ? descDraft.trim() || null : valve.description,
+    notes: valve.id === selected?.id ? notesDraft.trim() || null : valve.notes,
+  })
+
+  const printPreview = (valve: Valve) => {
+    try {
+      openValveTicketPrintPreview(valveForPrint(valve))
+    } catch (error) {
+      showToast(error instanceof Error ? error.message : 'Could not open print preview')
+    }
+  }
+
+  const downloadPdf = (valve: Valve) => {
+    downloadValveTicketPdf(valveForPrint(valve))
+    showToast('PDF downloaded — open it and print to your Brother QL-810W')
+  }
+
+  const printPdf = (valve: Valve) => {
+    try {
+      openValveTicketPdfForPrint(valveForPrint(valve))
+    } catch (error) {
+      showToast(error instanceof Error ? error.message : 'Could not open PDF for printing')
+    }
+  }
+
+  const printBrotherUsb = async (valve: Valve) => {
+    setPrintingBrother(true)
+    try {
+      await printValveTicketToBrotherUsb(valveForPrint(valve))
+      showToast('Sent to Brother label printer')
+    } catch (error) {
+      showToast(error instanceof Error ? error.message : 'Brother print failed')
+    } finally {
+      setPrintingBrother(false)
+    }
+  }
 
   const techniciansById = useMemo(() => new Map(technicians.map((t) => [t.id, t])), [technicians])
 
@@ -296,22 +278,7 @@ export function ValveCardTicketPage() {
   }
 
   const printTicket = (valve: Valve) => {
-    const popup = window.open('', '_blank', 'width=420,height=620')
-    if (!popup) {
-      showToast('Popup blocked. Allow popups to print labels.')
-      return
-    }
-    popup.document.write(buildPrintHtml(valve))
-    popup.document.close()
-  }
-
-  const printWithDrafts = () => {
-    if (!selected) return
-    printTicket({
-      ...selected,
-      description: descDraft.trim() || null,
-      notes: notesDraft.trim() || null,
-    })
+    printPreview(valve)
   }
 
   const copySelectedLink = async () => {
@@ -535,7 +502,7 @@ export function ValveCardTicketPage() {
                 )}
               </section>
 
-              <div className="ticket-preview-actions">
+              <div className="ticket-preview-actions ticket-print-actions">
                 <button
                   type="button"
                   className="button-primary"
@@ -546,12 +513,37 @@ export function ValveCardTicketPage() {
                 <button type="button" className="button-secondary" disabled={savingCard} onClick={saveCardText}>
                   {savingCard ? 'Saving…' : 'Save description & notes'}
                 </button>
-                <button type="button" className="button-primary" onClick={printWithDrafts}>
-                  Print ticket
+                <button type="button" className="button-primary" onClick={() => printPdf(selected)}>
+                  Print production card
+                </button>
+                <button
+                  type="button"
+                  className="button-secondary"
+                  onClick={() => downloadPdf(selected)}
+                >
+                  Download PDF
+                </button>
+                <button
+                  type="button"
+                  className="button-secondary"
+                  disabled={printingBrother}
+                  onClick={() => void printBrotherUsb(selected)}
+                >
+                  {printingBrother ? 'Printing…' : 'Brother USB print'}
+                </button>
+                <button type="button" className="button-secondary" onClick={() => printPreview(selected)}>
+                  Browser print preview
                 </button>
               </div>
+              <p className="status-breakdown-note ticket-print-hint">
+                <strong>Recommended for QL-810W:</strong> use <strong>Print production card</strong> or{' '}
+                <strong>Download PDF</strong>, then pick your Brother printer with <strong>62&nbsp;mm (2.4&quot;)</strong>{' '}
+                continuous tape at <strong>99&nbsp;mm</strong> length — same as Excel. Browser print often defaults to
+                1.1&quot;&nbsp;x&nbsp;3.5&quot; die-cut labels and will not match your roll.
+              </p>
               <p className="status-breakdown-note">
-                Tip: double-click a valve in the left list to print saved data immediately.
+                <strong>Brother USB print</strong> sends the label directly over USB (Chrome/Edge, printer plugged in).
+                Double-click a valve in the left list for a quick browser print preview.
               </p>
                   </>
                 )

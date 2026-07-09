@@ -11,6 +11,8 @@ import {
 } from '../lib/dashboardMetrics'
 import { fetchAllValves } from '../lib/fetchAllValves'
 import { displayJobStatus } from '../lib/jobDisplayStatus'
+import { isGaugeCalibrationCriticallyOverdue, loadActiveTestGauges } from '../lib/testGaugeRegistry'
+import type { TestGauge } from '../types/testGauge'
 import { isEligiblePriorityValve, syncPriorityQueueWithValves } from '../lib/priorityQueue'
 import { supabase } from '../lib/supabase'
 import type { Valve } from '../types'
@@ -30,6 +32,7 @@ export function DashboardPage() {
   const [valves, setValves] = useState<Valve[]>([])
   const [recentTested, setRecentTested] = useState<RecentTestedRow[]>([])
   const [priorityQueueIds, setPriorityQueueIds] = useState<string[]>([])
+  const [criticalGauges, setCriticalGauges] = useState<TestGauge[]>([])
   const [loading, setLoading] = useState(true)
   const [lastRefreshed, setLastRefreshed] = useState<Date | null>(null)
   const [refreshTick, setRefreshTick] = useState(0)
@@ -77,6 +80,14 @@ export function DashboardPage() {
       const eligiblePriority = await syncPriorityQueueWithValves(valvesData)
       setPriorityQueueIds(eligiblePriority)
     }
+
+    try {
+      const gauges = await loadActiveTestGauges()
+      setCriticalGauges(gauges.filter((gauge) => isGaugeCalibrationCriticallyOverdue(gauge)))
+    } catch {
+      setCriticalGauges([])
+    }
+
     setLastRefreshed(new Date())
     setLoading(false)
   }, [showToast])
@@ -190,6 +201,29 @@ export function DashboardPage() {
           </button>
         </div>
       </div>
+
+      {!loading && criticalGauges.length > 0 ? (
+        <div className="dashboard-gauge-cal-alert" role="alert">
+          <div className="dashboard-gauge-cal-alert-title">Test gauge calibration alert</div>
+          <p>
+            {criticalGauges.length === 1 ? (
+              <>
+                Gauge <strong>{criticalGauges[0].gauge_number}</strong> is more than 30 days past its calibration due
+                date ({criticalGauges[0].next_calibration_date}). Do not use until recalibrated.
+              </>
+            ) : (
+              <>
+                <strong>{criticalGauges.length} gauges</strong> are more than 30 days past calibration:{' '}
+                {criticalGauges.map((g) => g.gauge_number).join(', ')}. Update calibration dates in Admin → Test
+                gauges.
+              </>
+            )}
+          </p>
+          <Link className="dashboard-gauge-cal-alert-link" to="/admin/lists">
+            Open test gauges
+          </Link>
+        </div>
+      ) : null}
 
       {loading ? <div className="loading">Loading dashboard...</div> : null}
 

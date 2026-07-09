@@ -1,4 +1,5 @@
 import { TERMINAL_STATUSES, WAITING_STATUSES } from '../constants/statuses'
+import { compareValveIdSequential } from './valveWorkOrderSearch'
 import type { Valve } from '../types'
 import { supabase } from './supabase'
 
@@ -31,4 +32,19 @@ export async function syncPriorityQueueWithValves(valves: Valve[]): Promise<stri
   }
 
   return eligible
+}
+
+/** Lower rank sorts first; non-priority valves follow in valve-id order. */
+export function compareValvesWithPriorityOrder(
+  a: Valve,
+  b: Valve,
+  priorityQueueIds: readonly string[],
+): number {
+  const rank = new Map(priorityQueueIds.map((valveId, index) => [valveId, index]))
+  const aRank = rank.get(a.valve_id)
+  const bRank = rank.get(b.valve_id)
+  if (aRank != null && bRank != null) return aRank - bRank
+  if (aRank != null) return -1
+  if (bRank != null) return 1
+  return compareValveIdSequential(a.valve_id, b.valve_id)
 }

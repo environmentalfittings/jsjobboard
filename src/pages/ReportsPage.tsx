@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
-import { useSearchParams } from 'react-router-dom'
+import { Link, useSearchParams } from 'react-router-dom'
 import { useToast } from '../components/ToastNotification'
 import { JOB_TYPES, normalizeJobType } from '../constants/jobTypes'
 import { TERMINAL_STATUSES } from '../constants/statuses'
@@ -573,6 +573,7 @@ export function ReportsPage() {
                 <th>Date closed</th>
                 <th>Description</th>
                 <th>Notes</th>
+                <th className="report-table-action-header" aria-label="Actions" />
               </tr>
             </thead>
             <tbody>
@@ -588,6 +589,14 @@ export function ReportsPage() {
                   <td>{row.date_closed ?? '-'}</td>
                   <td className="table-cell-clamp">{row.description ?? '-'}</td>
                   <td className="table-cell-clamp">{row.notes ?? '-'}</td>
+                  <td className="report-table-action">
+                    <Link
+                      className="button-secondary report-table-open-link"
+                      to={`/job-board?open=${row.id}`}
+                    >
+                      Open card
+                    </Link>
+                  </td>
                 </tr>
               ))}
             </tbody>

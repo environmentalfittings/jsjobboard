@@ -19,7 +19,6 @@ import { fetchAllValves } from '../lib/fetchAllValves'
 import { displayJobStatus, isActiveOrderType } from '../lib/jobDisplayStatus'
 import { valveStatusPatch } from '../lib/valveStatusPatch'
 import {
-  compareValveIdSequential,
   compareValvesBySort,
   valveMatchesWorkOrderFilter,
   type ValveListSort,
@@ -35,7 +34,7 @@ import {
   type ColumnFilterState,
 } from '../lib/jobBoardListColumns'
 import { recordDueDateChange, resolveChangedByName } from '../lib/dueDateChanges'
-import { isEligiblePriorityValve, syncPriorityQueueWithValves } from '../lib/priorityQueue'
+import { isEligiblePriorityValve, syncPriorityQueueWithValves, compareValvesWithPriorityOrder } from '../lib/priorityQueue'
 import { supabase } from '../lib/supabase'
 import type { JobCardSaveFields } from '../lib/jobCardSave'
 import { hasAdminAccess } from '../lib/roles'
@@ -284,7 +283,8 @@ export function JobBoardPage({ role, username }: { role?: UserRole; username?: s
 
   const [tab, setTab] = useState<BoardTab>(initialTab)
   const [valves, setValves] = useState<Valve[]>([])
-  const [priorityIds, setPriorityIds] = useState<Set<string>>(new Set())
+  const [priorityQueueIds, setPriorityQueueIds] = useState<string[]>([])
+  const priorityIds = useMemo(() => new Set(priorityQueueIds), [priorityQueueIds])
   const [loading, setLoading] = useState(true)
   const [activeValve, setActiveValve] = useState<Valve | null>(null)
   const [selectedStatus, setSelectedStatus] = useState('')
@@ -296,6 +296,7 @@ export function JobBoardPage({ role, username }: { role?: UserRole; username?: s
   const [columnFilters, setColumnFilters] = useState(emptyColumnFilters)
   const [listColumnSort, setListColumnSort] = useState<ListSortState>({ column: 'default', direction: 'asc' })
   const [scopeFilter, setScopeFilter] = useState<ScopeFilter>(initialScope)
+  const viewingCompletedValves = scopeFilter === 'closed'
   const [technicians, setTechnicians] = useState<Technician[]>([])
   const [jobTechnicianIdsByValve, setJobTechnicianIdsByValve] = useState<Record<number, number[]>>({})
   const [dueDateEditValve, setDueDateEditValve] = useState<Valve | null>(null)
@@ -320,13 +321,8 @@ export function JobBoardPage({ role, username }: { role?: UserRole; username?: s
 
   const techniciansById = useMemo(() => new Map(technicians.map((t) => [t.id, t])), [technicians])
   const compareValvesForDisplay = useCallback(
-    (a: Valve, b: Valve) => {
-      const aPriority = priorityIds.has(a.valve_id) ? 1 : 0
-      const bPriority = priorityIds.has(b.valve_id) ? 1 : 0
-      if (aPriority !== bPriority) return bPriority - aPriority
-      return compareValveIdSequential(a.valve_id, b.valve_id)
-    },
-    [priorityIds],
+    (a: Valve, b: Valve) => compareValvesWithPriorityOrder(a, b, priorityQueueIds),
+    [priorityQueueIds],
   )
   const technicianIdsForValve = useCallback(
     (valve: Valve) => jobTechnicianIdsByValve[valve.id] ?? parseAssignedTechnicianIds(valve.assigned_technician_ids),
@@ -407,7 +403,7 @@ export function JobBoardPage({ role, username }: { role?: UserRole; username?: s
     } else {
       setValves(data)
       const eligiblePriority = await syncPriorityQueueWithValves(data)
-      setPriorityIds(new Set(eligiblePriority))
+      setPriorityQueueIds(eligiblePriority)
     }
     setLoading(false)
     void loadAttachmentCounts()
@@ -523,9 +519,36 @@ export function JobBoardPage({ role, username }: { role?: UserRole; username?: s
   )
 
   const closedWorkOrders = useMemo(
-    () => valves.filter((v) => v.order_type === 'Completed'),
+    () =>
+      valves
+        .filter((v) => v.order_type === 'Completed')
+        .sort((a, b) => (b.date_closed ?? '').localeCompare(a.date_closed ?? '')),
     [valves],
   )
+
+  const setListScope = useCallback(
+    (next: ScopeFilter) => {
+      setScopeFilter(next)
+      setSearchParams(
+        (prev) => {
+          const params = new URLSearchParams(prev)
+          params.set('view', 'list')
+          if (next === 'all') {
+            params.delete('scope')
+          } else {
+            params.set('scope', next)
+          }
+          return params
+        },
+        { replace: true },
+      )
+    },
+    [setSearchParams],
+  )
+
+  const toggleCompletedValvesView = useCallback(() => {
+    setListScope(viewingCompletedValves ? 'all' : 'closed')
+  }, [setListScope, viewingCompletedValves])
 
   const scopeBaseValves = useMemo(() => {
     const base = scopeFilter === 'closed' ? closedWorkOrders : activeNonTerminal
@@ -662,7 +685,7 @@ export function JobBoardPage({ role, username }: { role?: UserRole; username?: s
       drawing_po_number: fields.drawingPoNumber,
     }
     if (selectedStatus !== activeValve.status) {
-      Object.assign(patch, valveStatusPatch(selectedStatus))
+      Object.assign(patch, valveStatusPatch(selectedStatus, activeValve))
     }
 
     const previousDueDate = dueDateLabel(activeValve.due_date)
@@ -706,11 +729,7 @@ export function JobBoardPage({ role, username }: { role?: UserRole; username?: s
         showToast(`Could not remove ${valve.valve_id} from priority`)
         return
       }
-      setPriorityIds((prev) => {
-        const next = new Set(prev)
-        next.delete(valve.valve_id)
-        return next
-      })
+      setPriorityQueueIds((prev) => prev.filter((id) => id !== valve.valve_id))
       showToast(`${valve.valve_id} removed from priority`)
       return
     }
@@ -725,7 +744,7 @@ export function JobBoardPage({ role, username }: { role?: UserRole; username?: s
       showToast(`Could not add ${valve.valve_id} to priority`)
       return
     }
-    setPriorityIds((prev) => new Set(prev).add(valve.valve_id))
+    setPriorityQueueIds((prev) => [...prev, valve.valve_id])
     showToast(`${valve.valve_id} added to priority`)
   }
 
@@ -814,7 +833,7 @@ export function JobBoardPage({ role, username }: { role?: UserRole; username?: s
   const moveValveToStatus = async (valve: Valve, nextStatus: string) => {
     if (!nextStatus || valve.status === nextStatus) return
     const previous = { ...valve }
-    const patch = valveStatusPatch(nextStatus)
+    const patch = valveStatusPatch(nextStatus, valve)
 
     setValves((prev) => prev.map((v) => (v.id === valve.id ? { ...v, ...patch } : v)))
     const { error } = await supabase.from('valves').update(patch).eq('id', valve.id)
@@ -834,10 +853,8 @@ export function JobBoardPage({ role, username }: { role?: UserRole; username?: s
   }
 
   useEffect(() => {
-    window.localStorage.setItem(ORDER_STORAGE_KEY, JSON.stringify(phaseOrder))
-  }, [phaseOrder])
+    if (loading || valves.length === 0) return
 
-  useEffect(() => {
     setPhaseOrder((prev) => {
       const next: PhaseOrder = {
         incoming: [],
@@ -870,7 +887,12 @@ export function JobBoardPage({ role, username }: { role?: UserRole; username?: s
 
       return changed ? next : prev
     })
-  }, [valves, baseItemsForPhase, compareValvesForDisplay])
+  }, [valves, baseItemsForPhase, compareValvesForDisplay, loading])
+
+  useEffect(() => {
+    if (loading) return
+    window.localStorage.setItem(ORDER_STORAGE_KEY, JSON.stringify(phaseOrder))
+  }, [phaseOrder, loading])
 
   return (
     <section className="job-board-page">
@@ -956,16 +978,19 @@ export function JobBoardPage({ role, username }: { role?: UserRole; username?: s
       ) : !isDedicatedDetailRoute ? (
         <div className="list-view">
           <div className="filters list-view-scope">
-            <select value={scopeFilter} onChange={(e) => setScopeFilter(e.target.value as ScopeFilter)}>
-              <option value="all">All active work</option>
-              <option value="on-order">On order (all active)</option>
-              <option value="in-process">In process</option>
-              <option value="on-hold">On hold</option>
-              <option value="waiting-on-arrival">Waiting on arrival</option>
-              <option value="closed">Closed work orders</option>
-              <option value="ready-to-ship">Ready to ship</option>
-              <option value="not-arrived">Not arrived (shop status)</option>
-            </select>
+            {viewingCompletedValves ? (
+              <span className="list-view-scope-label">Completed valves</span>
+            ) : (
+              <select value={scopeFilter} onChange={(e) => setListScope(e.target.value as ScopeFilter)}>
+                <option value="all">All active work</option>
+                <option value="on-order">On order (all active)</option>
+                <option value="in-process">In process</option>
+                <option value="on-hold">On hold</option>
+                <option value="waiting-on-arrival">Waiting on arrival</option>
+                <option value="ready-to-ship">Ready to ship</option>
+                <option value="not-arrived">Not arrived (shop status)</option>
+              </select>
+            )}
             <button
               type="button"
               className="button-secondary list-clear-filters"
@@ -979,10 +1004,23 @@ export function JobBoardPage({ role, username }: { role?: UserRole; username?: s
                 ? `Clear ${activeColumnFilterCount} filter${activeColumnFilterCount === 1 ? '' : 's'}`
                 : 'Clear filters'}
             </button>
+            <span className="list-view-scope-spacer" aria-hidden="true" />
             <span className="list-view-count">
               {tableRows.length} row{tableRows.length === 1 ? '' : 's'}
             </span>
+            <button
+              type="button"
+              className={`button-secondary list-view-completed-toggle ${viewingCompletedValves ? 'active' : ''}`}
+              onClick={toggleCompletedValvesView}
+            >
+              {viewingCompletedValves ? 'Active valves' : 'Completed valves'}
+            </button>
           </div>
+          {viewingCompletedValves ? (
+            <p className="list-view-completed-hint">
+              Click a row or Open card to edit a completed job and move it back into active work.
+            </p>
+          ) : null}
           <div className="table-wrap list-table-wrap">
             <table className="list-view-table">
               <thead>
@@ -998,7 +1036,9 @@ export function JobBoardPage({ role, username }: { role?: UserRole; username?: s
                           onClick={() => toggleColumnSort(key)}
                           aria-label={`Sort by ${label}`}
                         >
-                          <span className="list-col-label">{label}</span>
+                          <span className="list-col-label">
+                            {key === 'due_date' && viewingCompletedValves ? 'Date closed' : label}
+                          </span>
                           <span className="list-col-sort-indicator" aria-hidden="true">
                             {listColumnSort.column === key
                               ? listColumnSort.direction === 'asc'
@@ -1040,28 +1080,43 @@ export function JobBoardPage({ role, username }: { role?: UserRole; username?: s
                       )}
                     </td>
                     <td>
-                      <button
-                        type="button"
-                        className="job-list-due-date-button"
-                        onClick={(e) => {
-                          e.stopPropagation()
-                          openDueDateEditor(valve)
-                        }}
-                      >
-                        {dueDateLabel(valve.due_date) ? (
-                          <span className={isDueDateOverdue(valve.due_date) ? 'due-date-overdue' : 'due-date-ok'}>
-                            {dueDateLabel(valve.due_date)}
-                            {isDueDateOverdue(valve.due_date) ? ' (Overdue)' : ''}
-                          </span>
-                        ) : (
-                          <span className="job-card-due-date-empty">Set due date</span>
-                        )}
-                      </button>
+                      {viewingCompletedValves ? (
+                        valve.date_closed ?? '—'
+                      ) : (
+                        <button
+                          type="button"
+                          className="job-list-due-date-button"
+                          onClick={(e) => {
+                            e.stopPropagation()
+                            openDueDateEditor(valve)
+                          }}
+                        >
+                          {dueDateLabel(valve.due_date) ? (
+                            <span className={isDueDateOverdue(valve.due_date) ? 'due-date-overdue' : 'due-date-ok'}>
+                              {dueDateLabel(valve.due_date)}
+                              {isDueDateOverdue(valve.due_date) ? ' (Overdue)' : ''}
+                            </span>
+                          ) : (
+                            <span className="job-card-due-date-empty">Set due date</span>
+                          )}
+                        </button>
+                      )}
                     </td>
                     <td className="table-cell-clamp">{valve.description ?? '-'}</td>
                     <td className="table-cell-clamp">{valve.notes ?? '-'}</td>
                     <td>
-                      {valve.status === 'Not Arrived' ? (
+                      {viewingCompletedValves ? (
+                        <button
+                          type="button"
+                          className="job-list-quick-action"
+                          onClick={(e) => {
+                            e.stopPropagation()
+                            openModal(valve)
+                          }}
+                        >
+                          Open card
+                        </button>
+                      ) : valve.status === 'Not Arrived' ? (
                         <button
                           type="button"
                           className="job-list-quick-action"

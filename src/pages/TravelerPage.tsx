@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
-import { useParams } from 'react-router-dom'
+import { Link, useParams } from 'react-router-dom'
 import { BasicInfoSection } from '../components/traveler/BasicInfoSection'
 import { OtherPartsSection } from '../components/traveler/OtherPartsSection'
 import { PartsOrderedSection } from '../components/traveler/PartsOrderedSection'
@@ -8,7 +8,7 @@ import { ValveSelectionSection } from '../components/traveler/ValveSelectionSect
 import { ValveSpecsSection } from '../components/traveler/ValveSpecsSection'
 import { WeldingSection } from '../components/traveler/WeldingSection'
 import { useToast } from '../components/ToastNotification'
-import { getOrCreateTraveler, getTravelerBasicInfo, getTravelerSections } from '../hooks/useTraveler'
+import { getOrCreateTraveler, getTravelerBasicInfo, getTravelerSections, prefillTravelerBasicInfoFromValve } from '../hooks/useTraveler'
 import type { Traveler, TravelerBasicInfo, TravelerSectionStatus } from '../types/traveler'
 
 type TravelerSectionDef = {
@@ -81,6 +81,7 @@ export function TravelerPage() {
         if (cancelled) return
         setTraveler(row)
         try {
+          await prefillTravelerBasicInfoFromValve(row.id, normalizedValveId)
           await refreshSections(row.id)
         } catch (error) {
           if (!cancelled) {
@@ -193,6 +194,12 @@ export function TravelerPage() {
       <div className="dashboard-title-row">
         <h2 className="dashboard-title">{`Traveler — ${valveId} — ${customerName}`}</h2>
         <div className="traveler-page-actions">
+          <Link
+            to={`/traveler/${encodeURIComponent(valveId)}/inspection`}
+            className="button-primary"
+          >
+            Inspection checklist
+          </Link>
           <button type="button" className="button-secondary" onClick={() => showToast('Generate PDF coming soon')}>
             Generate PDF
           </button>

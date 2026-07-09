@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
-import { ItpEditorModal } from '../components/ItpEditorModal'
+import { ItpPlanEditor } from '../components/ItpPlanEditor'
 import { supabase } from '../lib/supabase'
 import { VALVE_LIST_SELECT } from '../lib/valveSelect'
 import type { Valve } from '../types'
@@ -63,5 +63,5 @@ export function ItpPage() {
     )
   }
 
-  return <ItpEditorModal valve={valve} onClose={closeItp} />
+  return <ItpPlanEditor valve={valve} onClose={closeItp} />
 }

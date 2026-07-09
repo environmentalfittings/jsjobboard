@@ -20,6 +20,7 @@ import { ItpPage } from './pages/ItpPage'
 import { CustomerLogin } from './pages/CustomerLogin'
 import { CustomerPortal } from './pages/CustomerPortal'
 import { CustomerTravelerView } from './pages/CustomerTravelerView'
+import { TravelerInspectionPage } from './pages/TravelerInspectionPage'
 import { FeedbackInboxPage } from './pages/FeedbackInboxPage'
 import { supabase } from './lib/supabase'
 import { defaultHomePath, hasAdminAccess } from './lib/roles'
@@ -197,6 +198,10 @@ function App() {
               <Route path="/itp/:id" element={role === 'admin' || role === 'manager' || role === 'supervisor' ? <ItpPage /> : <Navigate to="/login" replace />} />
               <Route path="/test-log-entry" element={hasAdminAccess(role) ? <TestLogEntryPage /> : <Navigate to="/login" replace />} />
               <Route path="/valve-card-ticket" element={hasAdminAccess(role) ? <ValveCardTicketPage /> : <Navigate to="/login" replace />} />
+              <Route
+                path="/traveler/:valveId/inspection"
+                element={hasAdminAccess(role) ? <TravelerInspectionPage /> : <Navigate to="/login" replace />}
+              />
               <Route path="/traveler/:valveId" element={hasAdminAccess(role) ? <TravelerPage /> : <Navigate to="/login" replace />} />
               <Route path="/reports" element={hasAdminAccess(role) ? <ReportsPage /> : <Navigate to="/login" replace />} />
               <Route path="/resources" element={hasAdminAccess(role) ? <ResourcesPage /> : <Navigate to="/login" replace />} />
