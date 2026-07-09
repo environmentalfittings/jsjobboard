@@ -1,17 +1,31 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { useToast } from '../components/ToastNotification'
-import {
-  createEmployeeAccount,
-  deactivateEmployeeAccount,
-  loadEmployeeAccountStatus,
-  resetEmployeePassword,
-} from '../lib/employeeAccounts'
 import { validateEmployeePassword } from '../lib/auth'
+import { supabase } from '../lib/supabase'
 import { useEmployees } from '../hooks/useEmployees'
 import type { Employee, EmployeeAccountStatus, EmployeeAuthStatus } from '../types/employees'
 
 type StatusFilter = 'all' | 'no_account' | 'active'
+
+type ManageEmployeeAccountPayload = {
+  error?: string
+  success?: boolean
+  user_id?: string
+  rows?: EmployeeAccountStatus[]
+}
+
+function isDeployError(message: string) {
+  return /failed to fetch|404|not found|function/i.test(message)
+}
+
+async function invokeManageEmployeeAccount(body: Record<string, unknown>) {
+  const { data, error } = await supabase.functions.invoke('manage-employee-account', { body })
+  if (error) throw error
+  const payload = (data ?? {}) as ManageEmployeeAccountPayload
+  if (payload.error) throw new Error(payload.error)
+  return payload
+}
 
 function formatDateTime(value: string | null | undefined) {
   if (!value) return '—'
@@ -59,11 +73,22 @@ export function AdminEmployeesPage() {
   const loadStatus = useCallback(async (rows: Employee[]) => {
     setStatusLoading(true)
     const withAccounts = rows.filter((row) => row.auth_user_id)
-    const details = await loadEmployeeAccountStatus(withAccounts.map((row) => row.id))
+    const employeeIds = withAccounts.map((row) => row.id)
     const map: Record<string, EmployeeAccountStatus> = {}
-    for (const row of details) {
-      map[row.employee_id] = row
+
+    if (employeeIds.length) {
+      try {
+        const payload = await invokeManageEmployeeAccount({ action: 'status', employee_ids: employeeIds })
+        for (const row of payload.rows ?? []) {
+          map[row.employee_id] = row
+        }
+      } catch {
+        for (const id of employeeIds) {
+          map[id] = { employee_id: id, last_sign_in_at: null }
+        }
+      }
     }
+
     setAccountStatus(map)
     setStatusLoading(false)
   }, [])
@@ -105,24 +130,25 @@ export function AdminEmployeesPage() {
     }
 
     setBusy(true)
-    const result = await createEmployeeAccount({
-      employee_id: createTarget.id,
-      username: createTarget.username,
-      password: createPassword,
-      full_name: createTarget.full_name,
-    })
-    setBusy(false)
-
-    if (!result.ok) {
-      showToast(result.needsDeploy ? 'Deploy manage-employee-account in Supabase first' : result.error)
-      return
+    try {
+      await invokeManageEmployeeAccount({
+        action: 'create',
+        employee_id: createTarget.id,
+        username: createTarget.username,
+        password: createPassword,
+        full_name: createTarget.full_name,
+      })
+      showToast(`Account created for ${createTarget.full_name} — login: ${createTarget.username}`)
+      setCreateTarget(null)
+      setCreatePassword('')
+      setCreateConfirm('')
+      await refreshAll()
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Could not create account'
+      showToast(isDeployError(message) ? 'Deploy manage-employee-account in Supabase first' : message)
+    } finally {
+      setBusy(false)
     }
-
-    showToast(`Account created for ${createTarget.full_name} — login: ${createTarget.username}`)
-    setCreateTarget(null)
-    setCreatePassword('')
-    setCreateConfirm('')
-    await refreshAll()
   }
 
   const handleReset = async () => {
@@ -134,37 +160,41 @@ export function AdminEmployeesPage() {
     }
 
     setBusy(true)
-    const result = await resetEmployeePassword({
-      employee_id: resetTarget.id,
-      new_password: resetPassword,
-    })
-    setBusy(false)
-
-    if (!result.ok) {
-      showToast(result.needsDeploy ? 'Deploy manage-employee-account in Supabase first' : result.error)
-      return
+    try {
+      await invokeManageEmployeeAccount({
+        action: 'reset_password',
+        employee_id: resetTarget.id,
+        new_password: resetPassword,
+      })
+      showToast(`Password reset for ${resetTarget.full_name}`)
+      setResetTarget(null)
+      setResetPassword('')
+      setResetConfirm('')
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Could not reset password'
+      showToast(isDeployError(message) ? 'Deploy manage-employee-account in Supabase first' : message)
+    } finally {
+      setBusy(false)
     }
-
-    showToast(`Password reset for ${resetTarget.full_name}`)
-    setResetTarget(null)
-    setResetPassword('')
-    setResetConfirm('')
   }
 
   const handleDeactivate = async () => {
     if (!deactivateTarget) return
     setBusy(true)
-    const result = await deactivateEmployeeAccount(deactivateTarget.id)
-    setBusy(false)
-
-    if (!result.ok) {
-      showToast(result.needsDeploy ? 'Deploy manage-employee-account in Supabase first' : result.error)
-      return
+    try {
+      await invokeManageEmployeeAccount({
+        action: 'deactivate',
+        employee_id: deactivateTarget.id,
+      })
+      showToast(`${deactivateTarget.full_name} deactivated`)
+      setDeactivateTarget(null)
+      await refreshAll()
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Could not deactivate employee'
+      showToast(isDeployError(message) ? 'Deploy manage-employee-account in Supabase first' : message)
+    } finally {
+      setBusy(false)
     }
-
-    showToast(`${deactivateTarget.full_name} deactivated`)
-    setDeactivateTarget(null)
-    await refreshAll()
   }
 
   const handleBulkCreate = async () => {
@@ -184,13 +214,18 @@ export function AdminEmployeesPage() {
 
     for (let i = 0; i < missingAccounts.length; i += 1) {
       const employee = missingAccounts[i]
-      const result = await createEmployeeAccount({
-        employee_id: employee.id,
-        username: employee.username,
-        password: bulkPassword,
-        full_name: employee.full_name,
-      })
-      if (result.ok) created += 1
+      try {
+        await invokeManageEmployeeAccount({
+          action: 'create',
+          employee_id: employee.id,
+          username: employee.username,
+          password: bulkPassword,
+          full_name: employee.full_name,
+        })
+        created += 1
+      } catch {
+        // continue with remaining employees
+      }
       setBulkProgress({ done: i + 1, total: missingAccounts.length })
     }
 
