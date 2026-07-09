@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import type { User } from '@supabase/supabase-js'
 import { TechJobCard } from '../components/TechJobCard'
 import { useToast } from '../components/ToastNotification'
+import { resolveTechnicianForUser } from '../lib/resolveTechnicianForUser'
 import { supabase } from '../lib/supabase'
 import { valveStatusPatch } from '../lib/valveStatusPatch'
 import type { Technician, Valve } from '../types'
@@ -13,7 +14,8 @@ interface MyWorkPageProps {
 
 export function MyWorkPage({ user, onLogout }: MyWorkPageProps) {
   const { showToast } = useToast()
-  const [technician, setTechnician] = useState<Technician | null>(null)
+  const [displayName, setDisplayName] = useState('Technician')
+  const [profileLinked, setProfileLinked] = useState(true)
   const [assignedJobs, setAssignedJobs] = useState<Valve[]>([])
   const [cellPriorityJobs, setCellPriorityJobs] = useState<Valve[]>([])
   const [techById, setTechById] = useState<Map<number, Technician>>(new Map())
@@ -25,17 +27,19 @@ export function MyWorkPage({ user, onLogout }: MyWorkPageProps) {
 
   const loadData = async () => {
     if (!user) return
-    const { data: tech, error: techError } = await supabase
-      .from('technicians')
-      .select('id,name,employee_id,work_cell_specialties,group_team,active,user_id,login_email,created_at,updated_at')
-      .eq('user_id', user.id)
-      .maybeSingle()
-    if (techError || !tech) {
-      showToast('Could not load technician profile')
+
+    const resolved = await resolveTechnicianForUser(user)
+    setDisplayName(resolved.displayName)
+    setProfileLinked(Boolean(resolved.technician))
+
+    if (!resolved.technician) {
+      setAssignedJobs([])
+      setCellPriorityJobs([])
+      setTechById(new Map())
       return
     }
-    setTechnician(tech as Technician)
 
+    const tech = resolved.technician
     const { data: mine, error: mineError } = await supabase
       .from('valves')
       .select('*')
@@ -105,7 +109,7 @@ export function MyWorkPage({ user, onLogout }: MyWorkPageProps) {
   return (
     <section className="dashboard-page">
       <div className="dashboard-title-row">
-        <h2 className="dashboard-title">Good morning, {technician?.name ?? user?.email ?? 'Technician'}</h2>
+        <h2 className="dashboard-title">Good morning, {displayName}</h2>
         <div className="technicians-page-actions">
           <span className="dashboard-refresh-hint">{todayLabel}</span>
           <button type="button" className="button-secondary" onClick={onLogout}>
@@ -113,6 +117,13 @@ export function MyWorkPage({ user, onLogout }: MyWorkPageProps) {
           </button>
         </div>
       </div>
+
+      {!profileLinked ? (
+        <p className="placeholder-copy">
+          Your shop login is active, but your technician profile is not linked yet. You can still use the status board.
+          Ask Mike to link your account so assigned jobs appear here.
+        </p>
+      ) : null}
 
       <section className="dashboard-panel">
         <h3>My Assigned Jobs</h3>

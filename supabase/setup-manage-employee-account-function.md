@@ -36,3 +36,5 @@ Employees sign in with **username + password** only. The app maps `ghensley` →
 ## Bulk SQL alternative
 
 To create many accounts at once without the Edge Function, run `supabase/bulk-create-employee-accounts.sql` in the SQL Editor. It creates auth users, links `employees`, and inserts `technicians` rows for login lookup. Safe to re-run (skips existing emails). Default password: `JSValve2026!`
+
+**After bulk create**, run `supabase/migration-fix-employee-shop-login.sql` so SQL-created auth users can sign in through GoTrue.

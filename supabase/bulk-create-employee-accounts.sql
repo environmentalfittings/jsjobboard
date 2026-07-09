@@ -129,6 +129,11 @@ BEGIN
       ''
     );
 
+    UPDATE auth.users
+    SET
+      email_change_token_current = coalesce(email_change_token_current, '')
+    WHERE id = v_id;
+
     INSERT INTO auth.identities (
       provider_id,
       user_id,
@@ -143,7 +148,7 @@ BEGIN
       jsonb_build_object(
         'sub',            v_id::text,
         'email',          r.username || '@jsvalve.com',
-        'email_verified', false,
+        'email_verified', true,
         'phone_verified', false
       ),
       'email',

@@ -1,7 +1,7 @@
 import { useEffect, useId, useRef, useState, type ReactNode } from 'react'
 import { NavLink, useLocation } from 'react-router-dom'
 import type { UserRole } from '../pages/LoginPage'
-import { hasAdminAccess, canAccessTestLog } from '../lib/roles'
+import { hasAdminAccess, canAccessTestLog, formatRolePillLabel } from '../lib/roles'
 import { isFeedbackEnabled } from '../lib/feedbackEnabled'
 import { FeedbackButton } from './FeedbackButton'
 import { NavMessagesMenu } from './NavMessagesMenu'
@@ -152,6 +152,12 @@ export function NavBar({ role, username, userId, onLogout }: NavBarProps) {
               <NavLink to="/my-work" className={navLinkClass}>
                 My Work
               </NavLink>
+              <NavLink to="/job-board" className={navLinkClass}>
+                Status board
+              </NavLink>
+              <NavLink to="/admin/employees" className={navLinkClass}>
+                Employees
+              </NavLink>
               {canAccessTestLog(role) ? (
                 <NavLink to="/test-log-entry" className={navLinkClass}>
                   Test log entry
@@ -164,7 +170,7 @@ export function NavBar({ role, username, userId, onLogout }: NavBarProps) {
           <FeedbackButton username={username} role={role} />
           {userId ? <NavMessagesMenu userId={userId} username={username} /> : null}
           <span className="username-pill">{username}</span>
-          <span className="role-pill">{role.charAt(0).toUpperCase() + role.slice(1)}</span>
+          <span className="role-pill">{formatRolePillLabel(role)}</span>
           <button className="logout-button" type="button" onClick={onLogout}>
             Logout
           </button>

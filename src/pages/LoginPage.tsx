@@ -1,6 +1,6 @@
 import { useEffect, useState, type FormEvent } from 'react'
 import logo from '../assets/js-logo.png'
-import { getCurrentUserRole, signInWithUsername } from '../lib/auth'
+import { getCurrentUserRole, getShopLoginStatus, signInWithUsername } from '../lib/auth'
 import { supabase } from '../lib/supabase'
 
 export type UserRole = 'admin' | 'manager' | 'supervisor' | 'technician' | 'sales'
@@ -18,7 +18,7 @@ export function LoginPage({ onLogin }: LoginPageProps) {
   const [forgotOpen, setForgotOpen] = useState(false)
   const [forgotLinkHovered, setForgotLinkHovered] = useState(false)
 
-  const displayUsername = username.trim().toLowerCase() || 'ghensley'
+  const displayUsername = username.trim().toLowerCase()
 
   useEffect(() => {
     if (!forgotOpen) return
@@ -53,59 +53,71 @@ export function LoginPage({ onLogin }: LoginPageProps) {
 
     setSaving(true)
 
-    const { data: employeeRow, error: employeeLookupError } = await supabase
-      .from('employees')
-      .select('username,auth_user_id,is_active')
-      .eq('username', normalizedUsername)
+    const { error: employeeSignInError } = await signInWithUsername(supabase, normalizedUsername, password)
+    if (!employeeSignInError) {
+      const { data: me, error: meError } = await supabase.auth.getUser()
+      if (meError || !me.user) {
+        setSaving(false)
+        setError('Signed in, but could not load user profile')
+        return
+      }
+
+      const { data: employeeRow } = await supabase
+        .from('employees')
+        .select('is_active')
+        .eq('auth_user_id', me.user.id)
+        .maybeSingle()
+
+      if (employeeRow && !employeeRow.is_active) {
+        await supabase.auth.signOut()
+        setSaving(false)
+        setError('Incorrect username or password')
+        return
+      }
+
+      let role = String(me.user.user_metadata?.role ?? me.user.app_metadata?.role ?? '').toLowerCase()
+      if (!role) {
+        const profileRole = await getCurrentUserRole(me.user.id)
+        if (profileRole === 'admin') role = 'admin'
+      }
+      if (!['admin', 'manager', 'supervisor', 'technician', 'tech', 'sales'].includes(role)) {
+        await supabase.auth.signOut()
+        setSaving(false)
+        setError('Account has no app role. Ask an admin to verify your employee profile.')
+        return
+      }
+
+      setSaving(false)
+      await onLogin()
+      return
+    }
+
+    const { data: technicianRow, error: technicianLookupError } = await supabase
+      .from('technicians')
+      .select('login_email,user_id')
+      .eq('login_username', normalizedUsername)
+      .eq('active', true)
       .maybeSingle()
 
-    if (employeeLookupError && !/employees/i.test(employeeLookupError.message)) {
+    if (technicianLookupError || !technicianRow?.login_email) {
       setSaving(false)
+      const loginStatus = await getShopLoginStatus(supabase, normalizedUsername)
+      if (loginStatus === 'no_account') {
+        setError('Your account has not been created yet. Ask Mike to set up your login.')
+        return
+      }
       setError('Incorrect username or password')
       return
     }
 
-    if (employeeRow) {
-      if (!employeeRow.is_active) {
-        setSaving(false)
-        setError('Incorrect username or password')
-        return
-      }
-      if (!employeeRow.auth_user_id) {
-        setSaving(false)
-        setError('Your account has not been created yet. Ask Mike to set up your login.')
-        return
-      }
-
-      const { error: signInError } = await signInWithUsername(supabase, normalizedUsername, password)
-      setSaving(false)
-      if (signInError) {
-        setError('Incorrect username or password')
-        return
-      }
-    } else {
-      const { data: technicianRow, error: technicianLookupError } = await supabase
-        .from('technicians')
-        .select('login_email,user_id')
-        .eq('login_username', normalizedUsername)
-        .eq('active', true)
-        .maybeSingle()
-
-      if (technicianLookupError || !technicianRow?.login_email) {
-        setSaving(false)
-        setError('Incorrect username or password')
-        return
-      }
-
-      const { error: signInError } = await supabase.auth.signInWithPassword({
-        email: technicianRow.login_email,
-        password,
-      })
-      setSaving(false)
-      if (signInError) {
-        setError('Incorrect username or password')
-        return
-      }
+    const { error: signInError } = await supabase.auth.signInWithPassword({
+      email: technicianRow.login_email,
+      password,
+    })
+    setSaving(false)
+    if (signInError) {
+      setError('Incorrect username or password')
+      return
     }
 
     const { data: me, error: meError } = await supabase.auth.getUser()
@@ -142,7 +154,7 @@ export function LoginPage({ onLogin }: LoginPageProps) {
             setUsername(event.target.value)
             setError('')
           }}
-          placeholder="e.g. ghensley"
+          placeholder="Shop username"
           autoComplete="username"
         />
         <label htmlFor="password-input">Password</label>
@@ -163,6 +175,7 @@ export function LoginPage({ onLogin }: LoginPageProps) {
             className="password-toggle-btn"
             onClick={() => setShowPassword((value) => !value)}
             aria-label={showPassword ? 'Hide password' : 'Show password'}
+            tabIndex={-1}
           >
             {showPassword ? '🙈' : '👁'}
           </button>
@@ -210,7 +223,13 @@ export function LoginPage({ onLogin }: LoginPageProps) {
               Mike can reset it immediately from the Admin panel.
             </p>
             <p style={{ margin: 0, color: '#334155', lineHeight: 1.5 }}>
-              Your username is: <strong>{displayUsername}</strong>
+              {displayUsername ? (
+                <>
+                  Your username is: <strong>{displayUsername}</strong>
+                </>
+              ) : (
+                <>Enter your shop username on the sign-in form before opening this help.</>
+              )}
             </p>
             <button type="button" className="button-primary" onClick={() => setForgotOpen(false)}>
               Close

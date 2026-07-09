@@ -46,7 +46,7 @@ function statusLabel(status: EmployeeAuthStatus) {
   return '⭕ No Account'
 }
 
-export function AdminEmployeesPage() {
+export function AdminEmployeesPage({ isAdmin }: { isAdmin: boolean }) {
   const { showToast } = useToast()
   const { employees, loading, error, reload } = useEmployees()
   const [accountStatus, setAccountStatus] = useState<Record<string, EmployeeAccountStatus>>({})
@@ -250,20 +250,23 @@ export function AdminEmployeesPage() {
           <Link to="/admin/employees/print-usernames" className="button-secondary" target="_blank">
             Print usernames
           </Link>
-          <button
-            type="button"
-            className="button-primary"
-            disabled={busy || missingAccounts.length === 0}
-            onClick={() => setBulkOpen(true)}
-          >
-            Create All Missing Accounts
-          </button>
+          {isAdmin ? (
+            <button
+              type="button"
+              className="button-primary"
+              disabled={busy || missingAccounts.length === 0}
+              onClick={() => setBulkOpen(true)}
+            >
+              Create All Missing Accounts
+            </button>
+          ) : null}
         </div>
       </div>
 
       <p className="placeholder-copy">
-        Create shop logins for J-S Machine &amp; Valve staff. Employees sign in with their username and password only.
-        Mike can reset passwords at any time.
+        {isAdmin
+          ? 'Create shop logins for J-S Machine & Valve staff. Employees sign in with their username and password only. Mike can reset passwords at any time.'
+          : 'Shop employee roster and login status. Contact an admin if you need a new account or a password reset.'}
       </p>
 
       {error ? <p className="admin-employees-error">{error}</p> : null}
@@ -345,7 +348,7 @@ export function AdminEmployeesPage() {
                       <td>{statusLoading && employee.auth_user_id ? '…' : formatDateTime(lastSignIn)}</td>
                       <td>
                         <div className="admin-employees-actions">
-                          {status === 'no_account' ? (
+                          {isAdmin && status === 'no_account' ? (
                             <button
                               type="button"
                               className="button-secondary admin-employees-action"
@@ -358,7 +361,7 @@ export function AdminEmployeesPage() {
                             >
                               Create Account
                             </button>
-                          ) : status === 'active' ? (
+                          ) : isAdmin && status === 'active' ? (
                             <>
                               <button
                                 type="button"
@@ -395,7 +398,7 @@ export function AdminEmployeesPage() {
         </div>
       </section>
 
-      {createTarget ? (
+      {isAdmin && createTarget ? (
         <div className="modal-overlay" role="presentation" onClick={() => !busy && setCreateTarget(null)}>
           <div className="modal-card" role="dialog" aria-modal="true" onClick={(e) => e.stopPropagation()}>
             <div className="technician-modal-head">
@@ -436,7 +439,7 @@ export function AdminEmployeesPage() {
         </div>
       ) : null}
 
-      {resetTarget ? (
+      {isAdmin && resetTarget ? (
         <div className="modal-overlay" role="presentation" onClick={() => !busy && setResetTarget(null)}>
           <div className="modal-card" role="dialog" aria-modal="true" onClick={(e) => e.stopPropagation()}>
             <div className="technician-modal-head">
@@ -473,7 +476,7 @@ export function AdminEmployeesPage() {
         </div>
       ) : null}
 
-      {deactivateTarget ? (
+      {isAdmin && deactivateTarget ? (
         <div className="modal-overlay" role="presentation" onClick={() => !busy && setDeactivateTarget(null)}>
           <div className="modal-card" role="dialog" aria-modal="true" onClick={(e) => e.stopPropagation()}>
             <div className="technician-modal-head">
@@ -501,7 +504,7 @@ export function AdminEmployeesPage() {
         </div>
       ) : null}
 
-      {bulkOpen ? (
+      {isAdmin && bulkOpen ? (
         <div className="modal-overlay" role="presentation" onClick={() => !busy && setBulkOpen(false)}>
           <div className="modal-card modal-card-wide" role="dialog" aria-modal="true" onClick={(e) => e.stopPropagation()}>
             <div className="technician-modal-head">

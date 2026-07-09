@@ -1,10 +1,11 @@
 import { Navigate, Route, Routes, useNavigate } from 'react-router-dom'
 import { NavBar } from './components/NavBar'
 import { ToastProvider } from './components/ToastNotification'
+import { AuthProvider, useAuth } from './contexts/AuthContext'
 import { DashboardPage } from './pages/DashboardPage'
 import { JobBoardPage } from './pages/JobBoardPage'
-import { LoginPage, type UserRole } from './pages/LoginPage'
-import { useEffect, useState } from 'react'
+import { LoginPage } from './pages/LoginPage'
+import { useEffect } from 'react'
 import { ReportsPage } from './pages/ReportsPage'
 import { TestLogEntryPage } from './pages/TestLogEntryPage'
 import { ValveCardTicketPage } from './pages/ValveCardTicketPage'
@@ -25,99 +26,11 @@ import { CustomerTravelerView } from './pages/CustomerTravelerView'
 import { TravelerInspectionPage } from './pages/TravelerInspectionPage'
 import { FeedbackInboxPage } from './pages/FeedbackInboxPage'
 import { MessagesPage } from './pages/MessagesPage'
-import { supabase } from './lib/supabase'
-import { getCurrentUserRole } from './lib/auth'
-import { defaultHomePath, hasAdminAccess, canAccessTestLog } from './lib/roles'
-import type { User } from '@supabase/supabase-js'
+import { canAccessEmployeesPage, canAccessTestLog, defaultHomePath, hasAdminAccess } from './lib/roles'
 
-const LOCAL_DEV_AUTH_KEY = 'js-job-board-local-dev-auth'
-
-function App() {
+function AppRoutes() {
   const navigate = useNavigate()
-  const [role, setRole] = useState<UserRole | null>(null)
-  const [username, setUsername] = useState<string>('')
-  const [loadingAuth, setLoadingAuth] = useState(true)
-  const [user, setUser] = useState<User | null>(null)
-
-  const refreshAuth = async () => {
-    const localDevAuthEnabled = import.meta.env.VITE_ENABLE_GENERIC_ADMIN_LOGIN === 'true'
-    const localAuthRaw = localDevAuthEnabled ? window.localStorage.getItem(LOCAL_DEV_AUTH_KEY) : null
-    if (localAuthRaw === 'admin') {
-      setUser(null)
-      setRole('admin')
-      setUsername('Generic Admin')
-      setLoadingAuth(false)
-      return
-    }
-
-    const { data, error } = await supabase.auth.getUser()
-    if (error || !data.user) {
-      setUser(null)
-      setRole(null)
-      setUsername('')
-      setLoadingAuth(false)
-      return
-    }
-    const nextUser = data.user
-    setUser(nextUser)
-    const metaRole = String(nextUser.user_metadata?.role ?? nextUser.app_metadata?.role ?? '').toLowerCase()
-    let resolvedRole: UserRole | null =
-      metaRole === 'admin'
-        ? 'admin'
-        : metaRole === 'manager'
-          ? 'manager'
-          : metaRole === 'supervisor'
-            ? 'supervisor'
-            : metaRole === 'technician' || metaRole === 'tech'
-              ? 'technician'
-              : metaRole === 'sales'
-                ? 'sales'
-                : null
-
-    if (!resolvedRole) {
-      const profileRole = await getCurrentUserRole(nextUser.id)
-      if (profileRole === 'admin') resolvedRole = 'admin'
-    }
-
-    setRole(resolvedRole)
-    setUsername(
-      (nextUser.user_metadata?.name as string | undefined) ||
-        (nextUser.user_metadata?.full_name as string | undefined) ||
-        nextUser.email ||
-        '',
-    )
-    setLoadingAuth(false)
-  }
-
-  useEffect(() => {
-    void refreshAuth()
-    const { data: sub } = supabase.auth.onAuthStateChange(() => {
-      void refreshAuth()
-    })
-    return () => sub.subscription.unsubscribe()
-  }, [])
-
-  const handleLogin = async (options?: { localRole?: UserRole; username?: string }) => {
-    if (options?.localRole === 'admin') {
-      await supabase.auth.signOut()
-      window.localStorage.setItem(LOCAL_DEV_AUTH_KEY, 'admin')
-      setUser(null)
-      setRole('admin')
-      setUsername(options.username ?? 'Generic Admin')
-      setLoadingAuth(false)
-      return
-    }
-    await refreshAuth()
-  }
-
-  const handleLogout = async () => {
-    window.localStorage.removeItem(LOCAL_DEV_AUTH_KEY)
-    await supabase.auth.signOut()
-    setUser(null)
-    setRole(null)
-    setUsername('')
-    navigate('/login', { replace: true })
-  }
+  const { user, username, role, isAdmin, loading, handleLogin, handleLogout } = useAuth()
 
   useEffect(() => {
     if (!hasAdminAccess(role)) return
@@ -136,111 +49,152 @@ function App() {
   }, [role, navigate])
 
   return (
+    <div className="app-shell">
+      {loading ? null : role ? (
+        <NavBar role={role} username={username} userId={user?.id ?? null} onLogout={() => void handleLogout()} />
+      ) : null}
+      <main className="page-content">
+        {loading ? (
+          <div className="loading">Checking login…</div>
+        ) : (
+          <Routes>
+            <Route
+              path="/login"
+              element={role ? <Navigate to={defaultHomePath(role)} replace /> : <LoginPage onLogin={handleLogin} />}
+            />
+            <Route
+              path="/"
+              element={<Navigate to={role ? defaultHomePath(role) : user ? '/customer-portal' : '/login'} replace />}
+            />
+            <Route path="/customer-login" element={<CustomerLogin />} />
+            <Route path="/customer-portal" element={user ? <CustomerPortal /> : <Navigate to="/customer-login" replace />} />
+            <Route
+              path="/customer-portal/traveler/:valveId"
+              element={user ? <CustomerTravelerView /> : <Navigate to="/customer-login" replace />}
+            />
+            <Route
+              path="/my-work"
+              element={
+                role === 'technician' ? (
+                  <MyWorkPage user={user} onLogout={() => void handleLogout()} />
+                ) : role ? (
+                  <Navigate to={defaultHomePath(role)} replace />
+                ) : (
+                  <Navigate to="/login" replace />
+                )
+              }
+            />
+            <Route
+              path="/supervisor-dashboard"
+              element={
+                role === 'supervisor' ? (
+                  <SupervisorDashboardPage user={user} appRole={role} onLogout={() => void handleLogout()} />
+                ) : role ? (
+                  <Navigate to={defaultHomePath(role)} replace />
+                ) : (
+                  <Navigate to="/login" replace />
+                )
+              }
+            />
+            <Route
+              path="/dashboard"
+              element={
+                hasAdminAccess(role) ? (
+                  <DashboardPage />
+                ) : role ? (
+                  <Navigate to={defaultHomePath(role)} replace />
+                ) : (
+                  <Navigate to="/login" replace />
+                )
+              }
+            />
+            <Route path="/received-valves" element={hasAdminAccess(role) ? <ReceivedValvesPage /> : <Navigate to="/login" replace />} />
+            <Route
+              path="/new-job"
+              element={hasAdminAccess(role) ? <NewJobPage role={role!} /> : <Navigate to="/login" replace />}
+            />
+            <Route
+              path="/job-board"
+              element={
+                role === 'admin' || role === 'manager' || role === 'supervisor' || role === 'sales' || role === 'technician' ? (
+                  <JobBoardPage role={role ?? undefined} username={username} />
+                ) : (
+                  <Navigate to="/login" replace />
+                )
+              }
+            />
+            <Route
+              path="/jobs/:id"
+              element={
+                role === 'admin' || role === 'manager' || role === 'supervisor' || role === 'sales' || role === 'technician' ? (
+                  <JobBoardPage role={role ?? undefined} username={username} />
+                ) : (
+                  <Navigate to="/login" replace />
+                )
+              }
+            />
+            <Route
+              path="/itp/:id"
+              element={role === 'admin' || role === 'manager' || role === 'supervisor' ? <ItpPage /> : <Navigate to="/login" replace />}
+            />
+            <Route
+              path="/test-log-entry"
+              element={
+                canAccessTestLog(role) ? <TestLogEntryPage /> : role ? <Navigate to={defaultHomePath(role)} replace /> : <Navigate to="/login" replace />
+              }
+            />
+            <Route path="/valve-card-ticket" element={hasAdminAccess(role) ? <ValveCardTicketPage /> : <Navigate to="/login" replace />} />
+            <Route
+              path="/traveler/:valveId/inspection"
+              element={hasAdminAccess(role) ? <TravelerInspectionPage /> : <Navigate to="/login" replace />}
+            />
+            <Route path="/traveler/:valveId" element={hasAdminAccess(role) ? <TravelerPage /> : <Navigate to="/login" replace />} />
+            <Route path="/reports" element={hasAdminAccess(role) ? <ReportsPage /> : <Navigate to="/login" replace />} />
+            <Route path="/resources" element={hasAdminAccess(role) ? <ResourcesPage /> : <Navigate to="/login" replace />} />
+            <Route path="/technicians" element={hasAdminAccess(role) ? <TechniciansPage /> : <Navigate to="/login" replace />} />
+            <Route path="/admin/lists" element={hasAdminAccess(role) ? <AdminListsPage /> : <Navigate to="/login" replace />} />
+            <Route
+              path="/admin/employees"
+              element={
+                canAccessEmployeesPage(role) ? (
+                  <AdminEmployeesPage isAdmin={isAdmin} />
+                ) : role ? (
+                  <Navigate to={defaultHomePath(role)} replace />
+                ) : (
+                  <Navigate to="/login" replace />
+                )
+              }
+            />
+            <Route
+              path="/admin/employees/print-usernames"
+              element={hasAdminAccess(role) ? <AdminEmployeesPrintPage /> : <Navigate to="/login" replace />}
+            />
+            <Route
+              path="/messages"
+              element={
+                user && role ? (
+                  <MessagesPage userId={user.id} username={username} homePath={defaultHomePath(role)} />
+                ) : role ? (
+                  <Navigate to={defaultHomePath(role)} replace />
+                ) : (
+                  <Navigate to="/login" replace />
+                )
+              }
+            />
+            <Route path="/admin/feedback" element={role === 'admin' ? <FeedbackInboxPage /> : <Navigate to="/login" replace />} />
+          </Routes>
+        )}
+      </main>
+    </div>
+  )
+}
+
+function App() {
+  return (
     <ToastProvider>
-      <div className="app-shell">
-        {loadingAuth ? null : role ? (
-          <NavBar role={role} username={username} userId={user?.id ?? null} onLogout={() => void handleLogout()} />
-        ) : null}
-        <main className="page-content">
-          {loadingAuth ? (
-            <div className="loading">Checking login…</div>
-          ) : (
-            <Routes>
-              <Route
-                path="/login"
-                element={role ? <Navigate to={defaultHomePath(role)} replace /> : <LoginPage onLogin={handleLogin} />}
-              />
-              <Route
-                path="/"
-                element={<Navigate to={role ? defaultHomePath(role) : user ? '/customer-portal' : '/login'} replace />}
-              />
-              <Route path="/customer-login" element={<CustomerLogin />} />
-              <Route path="/customer-portal" element={user ? <CustomerPortal /> : <Navigate to="/customer-login" replace />} />
-              <Route
-                path="/customer-portal/traveler/:valveId"
-                element={user ? <CustomerTravelerView /> : <Navigate to="/customer-login" replace />}
-              />
-              <Route
-                path="/my-work"
-                element={
-                  role === 'technician' ? (
-                    <MyWorkPage user={user} onLogout={() => void handleLogout()} />
-                  ) : role ? (
-                    <Navigate to={defaultHomePath(role)} replace />
-                  ) : (
-                    <Navigate to="/login" replace />
-                  )
-                }
-              />
-              <Route
-                path="/supervisor-dashboard"
-                element={
-                  role === 'supervisor' ? (
-                    <SupervisorDashboardPage
-                      user={user}
-                      appRole={role}
-                      onLogout={() => void handleLogout()}
-                    />
-                  ) : role ? (
-                    <Navigate to={defaultHomePath(role)} replace />
-                  ) : (
-                    <Navigate to="/login" replace />
-                  )
-                }
-              />
-              <Route
-                path="/dashboard"
-                element={
-                  hasAdminAccess(role) ? (
-                    <DashboardPage />
-                  ) : role ? (
-                    <Navigate to={defaultHomePath(role)} replace />
-                  ) : (
-                    <Navigate to="/login" replace />
-                  )
-                }
-              />
-              <Route path="/received-valves" element={hasAdminAccess(role) ? <ReceivedValvesPage /> : <Navigate to="/login" replace />} />
-              <Route
-                path="/new-job"
-                element={hasAdminAccess(role) ? <NewJobPage role={role!} /> : <Navigate to="/login" replace />}
-              />
-              <Route path="/job-board" element={role === 'admin' || role === 'manager' || role === 'supervisor' || role === 'sales' ? <JobBoardPage role={role ?? undefined} username={username} /> : <Navigate to="/login" replace />} />
-              <Route path="/jobs/:id" element={role === 'admin' || role === 'manager' || role === 'supervisor' || role === 'sales' ? <JobBoardPage role={role ?? undefined} username={username} /> : <Navigate to="/login" replace />} />
-              <Route path="/itp/:id" element={role === 'admin' || role === 'manager' || role === 'supervisor' ? <ItpPage /> : <Navigate to="/login" replace />} />
-              <Route path="/test-log-entry" element={canAccessTestLog(role) ? <TestLogEntryPage /> : role ? <Navigate to={defaultHomePath(role)} replace /> : <Navigate to="/login" replace />} />
-              <Route path="/valve-card-ticket" element={hasAdminAccess(role) ? <ValveCardTicketPage /> : <Navigate to="/login" replace />} />
-              <Route
-                path="/traveler/:valveId/inspection"
-                element={hasAdminAccess(role) ? <TravelerInspectionPage /> : <Navigate to="/login" replace />}
-              />
-              <Route path="/traveler/:valveId" element={hasAdminAccess(role) ? <TravelerPage /> : <Navigate to="/login" replace />} />
-              <Route path="/reports" element={hasAdminAccess(role) ? <ReportsPage /> : <Navigate to="/login" replace />} />
-              <Route path="/resources" element={hasAdminAccess(role) ? <ResourcesPage /> : <Navigate to="/login" replace />} />
-              <Route path="/technicians" element={hasAdminAccess(role) ? <TechniciansPage /> : <Navigate to="/login" replace />} />
-              <Route path="/admin/lists" element={hasAdminAccess(role) ? <AdminListsPage /> : <Navigate to="/login" replace />} />
-              <Route path="/admin/employees" element={hasAdminAccess(role) ? <AdminEmployeesPage /> : <Navigate to="/login" replace />} />
-              <Route
-                path="/admin/employees/print-usernames"
-                element={hasAdminAccess(role) ? <AdminEmployeesPrintPage /> : <Navigate to="/login" replace />}
-              />
-              <Route
-                path="/messages"
-                element={
-                  user && role ? (
-                    <MessagesPage userId={user.id} username={username} homePath={defaultHomePath(role)} />
-                  ) : role ? (
-                    <Navigate to={defaultHomePath(role)} replace />
-                  ) : (
-                    <Navigate to="/login" replace />
-                  )
-                }
-              />
-              <Route path="/admin/feedback" element={role === 'admin' ? <FeedbackInboxPage /> : <Navigate to="/login" replace />} />
-            </Routes>
-          )}
-        </main>
-      </div>
+      <AuthProvider>
+        <AppRoutes />
+      </AuthProvider>
     </ToastProvider>
   )
 }
