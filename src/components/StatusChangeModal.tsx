@@ -87,6 +87,7 @@ interface StatusChangeModalProps {
   onAttachmentsChanged?: () => void
   onOpenItp: () => void
   onOpenFullPage?: () => void
+  onCopy?: () => void
   forceMaximized?: boolean
 }
 
@@ -105,6 +106,7 @@ export function StatusChangeModal({
   onAttachmentsChanged,
   onOpenItp,
   onOpenFullPage,
+  onCopy,
   forceMaximized = false,
   canEditJobDetails = true,
 }: StatusChangeModalProps) {
@@ -599,6 +601,16 @@ export function StatusChangeModal({
               >
                 Cancel
               </button>
+              {onCopy ? (
+                <button
+                  type="button"
+                  className="button-secondary job-card-header-btn"
+                  onClick={onCopy}
+                  disabled={isSaving}
+                >
+                  Copy job
+                </button>
+              ) : null}
               <button
                 type="button"
                 className="button-primary job-card-header-btn"

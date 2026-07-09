@@ -24,6 +24,7 @@ import { CustomerPortal } from './pages/CustomerPortal'
 import { CustomerTravelerView } from './pages/CustomerTravelerView'
 import { TravelerInspectionPage } from './pages/TravelerInspectionPage'
 import { FeedbackInboxPage } from './pages/FeedbackInboxPage'
+import { MessagesPage } from './pages/MessagesPage'
 import { supabase } from './lib/supabase'
 import { getCurrentUserRole } from './lib/auth'
 import { defaultHomePath, hasAdminAccess, canAccessTestLog } from './lib/roles'
@@ -137,7 +138,9 @@ function App() {
   return (
     <ToastProvider>
       <div className="app-shell">
-        {loadingAuth ? null : role ? <NavBar role={role} username={username} onLogout={() => void handleLogout()} /> : null}
+        {loadingAuth ? null : role ? (
+          <NavBar role={role} username={username} userId={user?.id ?? null} onLogout={() => void handleLogout()} />
+        ) : null}
         <main className="page-content">
           {loadingAuth ? (
             <div className="loading">Checking login…</div>
@@ -220,6 +223,18 @@ function App() {
               <Route
                 path="/admin/employees/print-usernames"
                 element={hasAdminAccess(role) ? <AdminEmployeesPrintPage /> : <Navigate to="/login" replace />}
+              />
+              <Route
+                path="/messages"
+                element={
+                  user && role ? (
+                    <MessagesPage userId={user.id} username={username} homePath={defaultHomePath(role)} />
+                  ) : role ? (
+                    <Navigate to={defaultHomePath(role)} replace />
+                  ) : (
+                    <Navigate to="/login" replace />
+                  )
+                }
               />
               <Route path="/admin/feedback" element={role === 'admin' ? <FeedbackInboxPage /> : <Navigate to="/login" replace />} />
             </Routes>

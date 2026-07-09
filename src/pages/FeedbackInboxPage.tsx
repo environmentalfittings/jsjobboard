@@ -11,6 +11,17 @@ import {
   type FeedbackResolutionImage,
 } from '../lib/feedbackResolutionPhotos'
 import { supabase } from '../lib/supabase'
+import { createFeedbackResolvedNotification } from '../lib/messages'
+import type { User } from '@supabase/supabase-js'
+
+function usernameFromUser(user: User) {
+  return (
+    (user.user_metadata?.name as string | undefined) ||
+    (user.user_metadata?.full_name as string | undefined) ||
+    user.email ||
+    null
+  )
+}
 
 type FeedbackRow = {
   id: number
@@ -23,6 +34,10 @@ type FeedbackRow = {
   resolved_at: string | null
   resolution_notes: string | null
   resolution_images: FeedbackResolutionImage[]
+  submission_images: FeedbackResolutionImage[]
+  submitted_by_user_id: string | null
+  resolution_notified_at: string | null
+  submitter_seen_at: string | null
 }
 
 type PhotoDraft = {
@@ -31,10 +46,61 @@ type PhotoDraft = {
   previewUrl: string
 }
 
-function ResolutionPhotoGallery({ images }: { images: FeedbackResolutionImage[] }) {
+function FeedbackNotifyFlag({ row }: { row: FeedbackRow }) {
+  if (row.status === 'resolved') {
+    if (row.resolution_notified_at) {
+      return (
+        <span
+          className="feedback-notify-flag feedback-notify-flag--sent"
+          title={`Notification sent ${new Date(row.resolution_notified_at).toLocaleString()}${
+            row.submitter_seen_at ? ' · Seen by user' : ' · Not yet opened'
+          }`}
+        >
+          Notified
+        </span>
+      )
+    }
+    if (row.submitted_by_user_id) {
+      return (
+        <span className="feedback-notify-flag feedback-notify-flag--missed" title="Resolved without sending a message">
+          Not notified
+        </span>
+      )
+    }
+    return (
+      <span className="feedback-notify-flag feedback-notify-flag--none" title="Submitter has no linked login account">
+        No account
+      </span>
+    )
+  }
+
+  if (row.submitted_by_user_id) {
+    return (
+      <span className="feedback-notify-flag feedback-notify-flag--pending" title="User will get a Messages notification when resolved">
+        Will notify
+      </span>
+    )
+  }
+
+  return (
+    <span className="feedback-notify-flag feedback-notify-flag--none" title="Submitter has no linked login account">
+      No account
+    </span>
+  )
+}
+
+function FeedbackPhotoGallery({
+  images,
+  label,
+  className = 'feedback-inbox-resolution-photos',
+}: {
+  images: FeedbackResolutionImage[]
+  label: string
+  className?: string
+}) {
   if (!images.length) return null
   return (
-    <div className="feedback-inbox-resolution-photos" aria-label="Resolution photos">
+    <div className={className} aria-label={label}>
       {images.map((image) => (
         <a
           key={image.storage_path}
@@ -78,7 +144,7 @@ export function FeedbackInboxPage() {
     const { data, error } = await supabase
       .from('app_feedback')
       .select(
-        'id,message,page_url,user_name,user_role,status,created_at,resolved_at,resolution_notes,resolution_images',
+        'id,message,page_url,user_name,user_role,status,created_at,resolved_at,resolution_notes,resolution_images,submission_images,submitted_by_user_id,resolution_notified_at,submitter_seen_at',
       )
       .order('created_at', { ascending: false })
       .limit(200)
@@ -93,12 +159,16 @@ export function FeedbackInboxPage() {
       return
     }
     setRows(
-      ((data ?? []) as Array<Omit<FeedbackRow, 'resolution_images'> & { resolution_images?: unknown }>).map(
-        (row) => ({
-          ...row,
-          resolution_images: parseFeedbackResolutionImages(row.resolution_images),
-        }),
-      ),
+      ((data ?? []) as Array<
+        Omit<FeedbackRow, 'resolution_images' | 'submission_images'> & {
+          resolution_images?: unknown
+          submission_images?: unknown
+        }
+      >).map((row) => ({
+        ...row,
+        resolution_images: parseFeedbackResolutionImages(row.resolution_images),
+        submission_images: parseFeedbackResolutionImages(row.submission_images),
+      })),
     )
   }, [showToast])
 
@@ -195,6 +265,7 @@ export function FeedbackInboxPage() {
         resolved_at: new Date().toISOString(),
         resolution_notes: resolutionNotes,
         resolution_images: uploaded,
+        submitter_seen_at: null,
       })
       .eq('id', row.id)
 
@@ -207,6 +278,33 @@ export function FeedbackInboxPage() {
         showToast(`Could not update: ${error.message}`)
       }
       return
+    }
+
+    if (row.submitted_by_user_id) {
+      const {
+        data: { user },
+      } = await supabase.auth.getUser()
+      if (user) {
+        const notifyError = await createFeedbackResolvedNotification({
+          feedbackId: row.id,
+          recipientUserId: row.submitted_by_user_id,
+          senderUserId: user.id,
+          senderName: usernameFromUser(user) ?? 'JS Valve Admin',
+          feedbackMessage: row.message,
+          resolutionNotes,
+        })
+        if (notifyError) {
+          showToast(`Resolved, but notification failed: ${notifyError}`)
+        } else {
+          const { error: notifyFlagError } = await supabase
+            .from('app_feedback')
+            .update({ resolution_notified_at: new Date().toISOString() })
+            .eq('id', row.id)
+          if (notifyFlagError && !/resolution_notified_at|column.*does not exist/i.test(notifyFlagError.message)) {
+            showToast(`Resolved and notified, but could not save notification flag: ${notifyFlagError.message}`)
+          }
+        }
+      }
     }
 
     setSavingId(null)
@@ -236,6 +334,8 @@ export function FeedbackInboxPage() {
         resolved_at: null,
         resolution_notes: null,
         resolution_images: [],
+        submitter_seen_at: null,
+        resolution_notified_at: null,
       })
       .eq('id', row.id)
     setSavingId(null)
@@ -300,11 +400,18 @@ export function FeedbackInboxPage() {
               <article key={row.id} className={`feedback-inbox-card feedback-inbox-card--${row.status}`}>
                 <header className="feedback-inbox-card-head">
                   <span className={`feedback-status-pill feedback-status-pill--${row.status}`}>{row.status}</span>
+                  <FeedbackNotifyFlag row={row} />
                   <time className="feedback-inbox-time" dateTime={row.created_at}>
                     {new Date(row.created_at).toLocaleString()}
                   </time>
                 </header>
                 <p className="feedback-inbox-message">{row.message}</p>
+                {row.submission_images.length > 0 ? (
+                  <div className="feedback-inbox-submission-photos">
+                    <div className="feedback-inbox-submission-photos-label">User screenshots</div>
+                    <FeedbackPhotoGallery images={row.submission_images} label="User screenshots" />
+                  </div>
+                ) : null}
                 <div className="feedback-inbox-meta">
                   {row.user_name ? <span>{row.user_name}</span> : null}
                   {row.user_role ? <span className="role-pill">{row.user_role}</span> : null}
@@ -318,7 +425,7 @@ export function FeedbackInboxPage() {
                   <div className="feedback-inbox-resolution">
                     <div className="feedback-inbox-resolution-label">Fix applied</div>
                     <p className="feedback-inbox-resolution-text">{row.resolution_notes}</p>
-                    <ResolutionPhotoGallery images={row.resolution_images} />
+                    <FeedbackPhotoGallery images={row.resolution_images} label="Resolution photos" />
                   </div>
                 ) : null}
                 <div className="feedback-inbox-actions">

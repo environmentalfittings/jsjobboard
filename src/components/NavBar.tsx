@@ -4,11 +4,13 @@ import type { UserRole } from '../pages/LoginPage'
 import { hasAdminAccess, canAccessTestLog } from '../lib/roles'
 import { isFeedbackEnabled } from '../lib/feedbackEnabled'
 import { FeedbackButton } from './FeedbackButton'
+import { NavMessagesMenu } from './NavMessagesMenu'
 import logo from '../assets/js-logo.png'
 
 interface NavBarProps {
   role: UserRole
   username: string
+  userId?: string | null
   onLogout: () => void
 }
 
@@ -90,7 +92,7 @@ function navLinkClass({ isActive }: { isActive: boolean }) {
   return `nav-link ${isActive ? 'active' : ''}`
 }
 
-export function NavBar({ role, username, onLogout }: NavBarProps) {
+export function NavBar({ role, username, userId, onLogout }: NavBarProps) {
   return (
     <header className="navbar">
       <div className="navbar-inner">
@@ -160,6 +162,7 @@ export function NavBar({ role, username, onLogout }: NavBarProps) {
         </nav>
         <div className="nav-session">
           <FeedbackButton username={username} role={role} />
+          {userId ? <NavMessagesMenu userId={userId} username={username} /> : null}
           <span className="username-pill">{username}</span>
           <span className="role-pill">{role.charAt(0).toUpperCase() + role.slice(1)}</span>
           <button className="logout-button" type="button" onClick={onLogout}>

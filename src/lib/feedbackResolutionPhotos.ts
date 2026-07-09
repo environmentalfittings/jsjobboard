@@ -2,6 +2,7 @@ import { supabase } from './supabase'
 import { VALVE_ATTACHMENTS_BUCKET } from './valveAttachments'
 
 export const MAX_FEEDBACK_RESOLUTION_PHOTOS = 3
+export const MAX_FEEDBACK_SUBMISSION_PHOTOS = 3
 const MAX_BYTES = 10 * 1024 * 1024
 
 export type FeedbackResolutionImage = {

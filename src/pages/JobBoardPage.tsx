@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom'
+import { CopyJobModal } from '../components/CopyJobModal'
 import { DueDateChangeModal } from '../components/DueDateChangeModal'
 import { StatusBadge } from '../components/StatusBadge'
 import { TechnicianAvatars } from '../components/TechnicianAvatars'
@@ -109,10 +110,14 @@ interface KanbanJobCardProps {
   onStatusChange: (v: Valve, nextStatus: string) => void | Promise<void>
   onEditDueDate: (v: Valve) => void
   onQuickReceive: (v: Valve) => void | Promise<void>
+  canMoveToTop: boolean
   canMoveUp: boolean
   canMoveDown: boolean
+  onMoveToTop: () => void
   onMoveUp: () => void
   onMoveDown: () => void
+  canCopy?: boolean
+  onCopy?: (v: Valve) => void
 }
 
 function KanbanJobCard({
@@ -126,10 +131,14 @@ function KanbanJobCard({
   onStatusChange,
   onEditDueDate,
   onQuickReceive,
+  canMoveToTop,
   canMoveUp,
   canMoveDown,
+  onMoveToTop,
   onMoveUp,
   onMoveDown,
+  canCopy = false,
+  onCopy,
 }: KanbanJobCardProps) {
   const assignedName = valve.assigned_technician_id ? techniciansById.get(valve.assigned_technician_id)?.name : null
   const urgencyClass =
@@ -144,6 +153,16 @@ function KanbanJobCard({
     <div className={`job-card${urgencyClass} ${priorityIds.has(valve.valve_id) ? 'priority' : ''}`}>
       <div className="job-card-reorder-bar" onMouseDown={(e) => e.stopPropagation()}>
         <div className="job-card-reorder-buttons">
+          <button
+            type="button"
+            className="job-card-reorder-btn job-card-reorder-btn--top"
+            disabled={!canMoveToTop}
+            title="Move to top"
+            aria-label={`Move ${valve.valve_id} to top of column`}
+            onClick={onMoveToTop}
+          >
+            ⇈
+          </button>
           <button
             type="button"
             className="job-card-reorder-btn"
@@ -164,6 +183,20 @@ function KanbanJobCard({
           >
             ↓
           </button>
+          {canCopy && onCopy ? (
+            <button
+              type="button"
+              className="job-card-reorder-btn job-card-copy-btn"
+              title="Copy job card"
+              aria-label={`Copy ${valve.valve_id}`}
+              onClick={(e) => {
+                e.stopPropagation()
+                onCopy(valve)
+              }}
+            >
+              ⧉
+            </button>
+          ) : null}
         </div>
       </div>
       <div className="job-card-click-area" onClick={() => onOpen(valve)} role="presentation">
@@ -297,9 +330,11 @@ export function JobBoardPage({ role, username }: { role?: UserRole; username?: s
   const [listColumnSort, setListColumnSort] = useState<ListSortState>({ column: 'default', direction: 'asc' })
   const [scopeFilter, setScopeFilter] = useState<ScopeFilter>(initialScope)
   const viewingCompletedValves = scopeFilter === 'closed'
+  const canCopyJobs = hasAdminAccess(role)
   const [technicians, setTechnicians] = useState<Technician[]>([])
   const [jobTechnicianIdsByValve, setJobTechnicianIdsByValve] = useState<Record<number, number[]>>({})
   const [dueDateEditValve, setDueDateEditValve] = useState<Valve | null>(null)
+  const [copySourceValve, setCopySourceValve] = useState<Valve | null>(null)
   const [savingDueDate, setSavingDueDate] = useState(false)
   const [phaseOrder, setPhaseOrder] = useState<PhaseOrder>(() => {
     try {
@@ -812,10 +847,16 @@ export function JobBoardPage({ role, username }: { role?: UserRole; username?: s
   )
 
   const moveCardInPhase = useCallback(
-    (phaseKey: PhaseKey, valveId: number, direction: 'up' | 'down') => {
+    (phaseKey: PhaseKey, valveId: number, direction: 'top' | 'up' | 'down') => {
       const items = itemsForPhase(phaseKey)
       const index = items.findIndex((item) => item.id === valveId)
       if (index < 0) return
+
+      if (direction === 'top') {
+        if (index === 0) return
+        placeInPhaseOrder(phaseKey, valveId, items[0].id)
+        return
+      }
 
       if (direction === 'up') {
         if (index === 0) return
@@ -938,7 +979,8 @@ export function JobBoardPage({ role, username }: { role?: UserRole; username?: s
       {!isDedicatedDetailRoute && tab === 'kanban' ? (
         <>
         <p className="kanban-reorder-hint">
-          Click a card to open and edit job details. Use ↑ ↓ on each card to set priority within a column.
+          Click a card to open and edit job details. Use ⇈ ↑ ↓ on each card to set priority within a column.
+          {canCopyJobs ? ' Use ⧉ to copy a card to a new job.' : ''}
         </p>
         <div className="kanban-grid">
           {PHASES.map((phase) => {
@@ -963,10 +1005,14 @@ export function JobBoardPage({ role, username }: { role?: UserRole; username?: s
                       onStatusChange={moveValveToStatus}
                       onEditDueDate={openDueDateEditor}
                       onQuickReceive={quickMarkArrived}
+                      canMoveToTop={index > 0}
                       canMoveUp={index > 0}
                       canMoveDown={index < items.length - 1}
+                      onMoveToTop={() => moveCardInPhase(phase.key, valve.id, 'top')}
                       onMoveUp={() => moveCardInPhase(phase.key, valve.id, 'up')}
                       onMoveDown={() => moveCardInPhase(phase.key, valve.id, 'down')}
+                      canCopy={canCopyJobs}
+                      onCopy={setCopySourceValve}
                     />
                   ))}
                 </div>
@@ -1166,8 +1212,20 @@ export function JobBoardPage({ role, username }: { role?: UserRole; username?: s
           onAttachmentsChanged={loadAttachmentCounts}
           onOpenItp={() => navigate(`/itp/${activeValve.id}`)}
           onOpenFullPage={() => navigate(`/jobs/${activeValve.id}`)}
+          onCopy={canCopyJobs ? () => setCopySourceValve(activeValve) : undefined}
           forceMaximized={isDedicatedDetailRoute}
           canEditJobDetails={hasAdminAccess(role)}
+        />
+      ) : null}
+
+      {copySourceValve ? (
+        <CopyJobModal
+          source={copySourceValve}
+          onCancel={() => setCopySourceValve(null)}
+          onCreated={() => {
+            setCopySourceValve(null)
+            void fetchValves()
+          }}
         />
       ) : null}
     </section>

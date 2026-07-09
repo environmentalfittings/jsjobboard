@@ -32,3 +32,7 @@ Employees sign in with **username + password** only. The app maps `ghensley` →
 1. Open **Admin → Employees** (`/admin/employees`)
 2. Create accounts or use **Create All Missing Accounts**
 3. Print usernames from **Print usernames** (`/admin/employees/print-usernames`)
+
+## Bulk SQL alternative
+
+To create many accounts at once without the Edge Function, run `supabase/bulk-create-employee-accounts.sql` in the SQL Editor. It creates auth users, links `employees`, and inserts `technicians` rows for login lookup. Safe to re-run (skips existing emails). Default password: `JSValve2026!`

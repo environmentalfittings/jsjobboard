@@ -98,7 +98,7 @@ Deno.serve(async (req) => {
 
   const { data: employeeRow, error: employeeError } = await adminClient
     .from('employees')
-    .select('id,username,full_name,auth_user_id')
+    .select('id,employee_no,username,full_name,auth_user_id')
     .eq('id', employee_id)
     .maybeSingle()
 
@@ -133,6 +133,28 @@ Deno.serve(async (req) => {
       full_name,
       role: 'admin',
     })
+
+    const { data: existingTechnician } = await adminClient
+      .from('technicians')
+      .select('id')
+      .eq('login_username', username)
+      .maybeSingle()
+
+    const technicianRow = {
+      name: full_name,
+      employee_id: employeeRow.employee_no,
+      login_username: username,
+      login_email: email,
+      user_id: data.user.id,
+      active: true,
+      role: 'admin',
+    }
+
+    if (existingTechnician?.id) {
+      await adminClient.from('technicians').update(technicianRow).eq('id', existingTechnician.id)
+    } else {
+      await adminClient.from('technicians').insert(technicianRow)
+    }
 
     return json({ success: true, user_id: data.user.id })
   }

@@ -10,7 +10,11 @@ create table if not exists public.app_feedback (
   created_at timestamptz not null default now(),
   resolved_at timestamptz,
   resolution_notes text,
-  resolution_images jsonb not null default '[]'::jsonb
+  resolution_images jsonb not null default '[]'::jsonb,
+  submission_images jsonb not null default '[]'::jsonb,
+  submitted_by_user_id uuid references auth.users (id) on delete set null,
+  submitter_seen_at timestamptz,
+  resolution_notified_at timestamptz
 );
 
 create index if not exists idx_app_feedback_status_created
@@ -39,6 +43,9 @@ for select
 to authenticated
 using (
   coalesce(auth.jwt() -> 'app_metadata' ->> 'role', auth.jwt() -> 'user_metadata' ->> 'role') = 'admin'
+  or exists (
+    select 1 from public.profiles p where p.id = auth.uid() and p.role = 'admin'
+  )
 );
 
 drop policy if exists "feedback_admin_update" on public.app_feedback;
@@ -48,7 +55,13 @@ for update
 to authenticated
 using (
   coalesce(auth.jwt() -> 'app_metadata' ->> 'role', auth.jwt() -> 'user_metadata' ->> 'role') = 'admin'
+  or exists (
+    select 1 from public.profiles p where p.id = auth.uid() and p.role = 'admin'
+  )
 )
 with check (
   coalesce(auth.jwt() -> 'app_metadata' ->> 'role', auth.jwt() -> 'user_metadata' ->> 'role') = 'admin'
+  or exists (
+    select 1 from public.profiles p where p.id = auth.uid() and p.role = 'admin'
+  )
 );

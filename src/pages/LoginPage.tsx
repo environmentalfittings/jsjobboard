@@ -1,4 +1,4 @@
-import { useState, type FormEvent } from 'react'
+import { useEffect, useState, type FormEvent } from 'react'
 import logo from '../assets/js-logo.png'
 import { getCurrentUserRole, signInWithUsername } from '../lib/auth'
 import { supabase } from '../lib/supabase'
@@ -15,6 +15,19 @@ export function LoginPage({ onLogin }: LoginPageProps) {
   const [showPassword, setShowPassword] = useState(false)
   const [error, setError] = useState('')
   const [saving, setSaving] = useState(false)
+  const [forgotOpen, setForgotOpen] = useState(false)
+  const [forgotLinkHovered, setForgotLinkHovered] = useState(false)
+
+  const displayUsername = username.trim().toLowerCase() || 'ghensley'
+
+  useEffect(() => {
+    if (!forgotOpen) return
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setForgotOpen(false)
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [forgotOpen])
 
   const submit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault()
@@ -158,7 +171,53 @@ export function LoginPage({ onLogin }: LoginPageProps) {
         <button className="button-primary" type="submit" disabled={saving}>
           {saving ? 'Signing in…' : 'Sign in'}
         </button>
+        <button
+          type="button"
+          style={{
+            alignSelf: 'center',
+            marginTop: 2,
+            border: 0,
+            background: 'transparent',
+            color: '#64748b',
+            fontSize: 13,
+            cursor: 'pointer',
+            textDecoration: forgotLinkHovered ? 'underline' : 'none',
+            textUnderlineOffset: 2,
+          }}
+          onMouseEnter={() => setForgotLinkHovered(true)}
+          onMouseLeave={() => setForgotLinkHovered(false)}
+          onClick={() => setForgotOpen(true)}
+        >
+          Forgot your password?
+        </button>
       </form>
+
+      {forgotOpen ? (
+        <div
+          className="modal-overlay"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="login-forgot-title"
+        >
+          <div className="login-card" style={{ width: 'min(420px, 100%)' }}>
+            <h2 id="login-forgot-title" style={{ margin: 0, fontSize: 20 }}>
+              Forgot Your Password?
+            </h2>
+            <p style={{ margin: 0, color: '#64748b', lineHeight: 1.5 }}>
+              To reset your password, contact the administrator.
+            </p>
+            <p style={{ margin: 0, color: '#64748b', lineHeight: 1.5 }}>
+              Mike can reset it immediately from the Admin panel.
+            </p>
+            <p style={{ margin: 0, color: '#334155', lineHeight: 1.5 }}>
+              Your username is: <strong>{displayUsername}</strong>
+            </p>
+            <button type="button" className="button-primary" onClick={() => setForgotOpen(false)}>
+              Close
+            </button>
+          </div>
+        </div>
+      ) : null}
     </section>
   )
 }

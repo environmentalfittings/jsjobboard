@@ -352,36 +352,110 @@ export function DashboardPage() {
                 <div className="kpi-label">Completed this year</div>
               </Link>
               <Link className="kpi-card kpi-link" to="/job-board?view=list&scope=closed">
+                <div className="kpi-number slate">{completedMetrics.lastYearSamePeriodCount}</div>
+                <div className="kpi-label">Same period last year</div>
+                <div className="kpi-sublabel">{completedMetrics.samePeriodLabel}</div>
+              </Link>
+              <Link className="kpi-card kpi-link" to="/job-board?view=list&scope=closed">
                 <div className="kpi-number amber">{completedMetrics.lastYearCount}</div>
                 <div className="kpi-label">Completed last year</div>
               </Link>
             </div>
             <div
               className="completed-monthly-chart"
-              role="img"
-              aria-label="Completed jobs by month for the last twelve months"
+              role="region"
+              aria-label="Completed jobs by month for the last twelve months compared to the same month last year"
             >
-              <div className="completed-monthly-bars">
-                {completedMonthly.bars.map((bar) => (
-                  <div
-                    key={bar.key}
-                    className={`completed-monthly-bar-col${bar.isCurrentMonth ? ' current' : ''}`}
-                  >
-                    <div className="completed-monthly-bar-value">{bar.count > 0 ? bar.count : ''}</div>
-                    <div className="completed-monthly-bar-track">
+              <div className="completed-monthly-legend" aria-hidden="true">
+                <span className="completed-monthly-legend-item">
+                  <span className="completed-monthly-legend-swatch completed-monthly-legend-swatch--current" />
+                  This year
+                </span>
+                <span className="completed-monthly-legend-item">
+                  <span className="completed-monthly-legend-swatch completed-monthly-legend-swatch--prior" />
+                  Same month last year
+                </span>
+              </div>
+              <div className="completed-monthly-chart-scroll">
+                <div className="completed-monthly-bars">
+                  {completedMonthly.bars.map((bar) => {
+                    const currentHeight =
+                      bar.count > 0 ? Math.max(8, (bar.count / completedMonthly.maxCount) * 100) : 0
+                    const priorHeight =
+                      bar.priorYearCount > 0
+                        ? Math.max(8, (bar.priorYearCount / completedMonthly.maxCount) * 100)
+                        : 0
+                    return (
                       <div
-                        className="completed-monthly-bar-fill"
-                        style={{
-                          height: `${bar.count > 0 ? Math.max(6, (bar.count / completedMonthly.maxCount) * 100) : 0}%`,
-                        }}
-                      />
-                    </div>
-                    <div className="completed-monthly-bar-label">{bar.label}</div>
-                  </div>
-                ))}
+                        key={bar.key}
+                        className={`completed-monthly-bar-col${bar.isCurrentMonth ? ' current' : ''}`}
+                      >
+                        <div className="completed-monthly-bar-tracks">
+                          <div className="completed-monthly-bar-track" title={`${bar.label}: ${bar.count}`}>
+                            <div
+                              className="completed-monthly-bar-fill completed-monthly-bar-fill--current"
+                              style={{ height: `${currentHeight}%` }}
+                            >
+                              {currentHeight >= 22 ? <span>{bar.count}</span> : null}
+                            </div>
+                          </div>
+                          <div
+                            className="completed-monthly-bar-track"
+                            title={`${bar.priorYearLabel}: ${bar.priorYearCount}`}
+                          >
+                            <div
+                              className="completed-monthly-bar-fill completed-monthly-bar-fill--prior"
+                              style={{ height: `${priorHeight}%` }}
+                            >
+                              {priorHeight >= 22 ? <span>{bar.priorYearCount}</span> : null}
+                            </div>
+                          </div>
+                        </div>
+                        <div className="completed-monthly-bar-label">{bar.label}</div>
+                      </div>
+                    )
+                  })}
+                </div>
+              </div>
+              <div className="completed-monthly-table-wrap">
+                <table className="completed-monthly-table">
+                  <thead>
+                    <tr>
+                      <th scope="col">Month</th>
+                      <th scope="col">This year</th>
+                      <th scope="col">Last year</th>
+                      <th scope="col">Change</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {completedMonthly.bars.map((bar) => (
+                      <tr key={`${bar.key}-row`} className={bar.isCurrentMonth ? 'current' : undefined}>
+                        <th scope="row">{bar.label}</th>
+                        <td>{bar.count}</td>
+                        <td>{bar.priorYearCount}</td>
+                        <td
+                          className={
+                            bar.delta > 0
+                              ? 'completed-monthly-delta completed-monthly-delta--up'
+                              : bar.delta < 0
+                                ? 'completed-monthly-delta completed-monthly-delta--down'
+                                : 'completed-monthly-delta'
+                          }
+                        >
+                          {bar.delta > 0 ? `+${bar.delta}` : bar.delta}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
               </div>
             </div>
-            <p className="status-breakdown-note">By close date — last 12 months. Current month highlighted.</p>
+            <p className="status-breakdown-note">
+              By close date — completed jobs with a done shop status only. Last 12 months vs same month last year.
+              {completedMetrics.missingCloseDateCount > 0
+                ? ` ${completedMetrics.missingCloseDateCount.toLocaleString()} completed jobs have no close date and are not included.`
+                : ''}
+            </p>
           </section>
         </div>
 
