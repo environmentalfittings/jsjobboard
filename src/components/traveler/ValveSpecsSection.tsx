@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { supabase } from '../../lib/supabase'
+import { EmployeeInitialsInput } from '../EmployeeInitialsInput'
 import { useToast } from '../ToastNotification'
 
 type ValveSpecsSectionProps = {
@@ -475,15 +476,12 @@ export function ValveSpecsSection({ travelerId, valveId, valveTypeId, onComplete
                     </div>
 
                     <div className="traveler-dims-save-row">
-                      <label className="traveler-tech-initials">
-                        Tech Initials [dims]
-                        <input
-                          value={techInitialsDims}
-                          maxLength={6}
-                          onChange={(e) => setTechInitialsDims(e.target.value.toUpperCase())}
-                          disabled={locked || saving || savingDims}
-                        />
-                      </label>
+                      <EmployeeInitialsInput
+                        label="Tech Initials [dims]"
+                        value={techInitialsDims}
+                        onChange={setTechInitialsDims}
+                        disabled={locked || saving || savingDims}
+                      />
                       <button type="button" className="button-secondary" onClick={() => void saveDimensions()} disabled={locked || saving || savingDims}>
                         {savingDims ? 'Saving...' : 'Save Dimensions'}
                       </button>
@@ -809,15 +807,12 @@ export function ValveSpecsSection({ travelerId, valveId, valveTypeId, onComplete
       </div>
 
       <div className="traveler-basic-card traveler-basic-submit-row">
-        <label className="traveler-tech-initials">
-          Tech Initials [assembly]
-          <input
-            value={techInitialsAssembly}
-            maxLength={6}
-            onChange={(e) => setTechInitialsAssembly(e.target.value.toUpperCase())}
-            disabled={locked || saving}
-          />
-        </label>
+        <EmployeeInitialsInput
+          label="Tech Initials [assembly]"
+          value={techInitialsAssembly}
+          onChange={setTechInitialsAssembly}
+          disabled={locked || saving}
+        />
         <button type="button" className="button-primary" onClick={() => void submitSpecifications()} disabled={locked || saving}>
           {saving ? 'Submitting...' : 'Submit Specifications'}
         </button>

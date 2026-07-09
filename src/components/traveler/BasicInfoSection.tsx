@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
+import { EmployeeInitialsInput } from '../EmployeeInitialsInput'
 import { useToast } from '../ToastNotification'
 import { supabase } from '../../lib/supabase'
 import type { TravelerBasicInfo } from '../../types/traveler'
@@ -731,15 +732,11 @@ export function BasicInfoSection({ travelerId, valveId, valveTypeId, onComplete 
       </div>
 
       <div className="traveler-basic-card traveler-basic-submit-row">
-        <label className="traveler-tech-initials">
-          Tech Initials
-          <input
-            value={form.tech_initials}
-            maxLength={6}
-            onChange={(e) => setField('tech_initials', e.target.value.toUpperCase())}
-            disabled={locked || saving}
-          />
-        </label>
+        <EmployeeInitialsInput
+          value={form.tech_initials}
+          onChange={(value) => setField('tech_initials', value)}
+          disabled={locked || saving}
+        />
         <button type="button" className="button-primary" onClick={() => void submitPart1()} disabled={locked || saving}>
           {saving ? 'Submitting...' : 'Submit Part 1'}
         </button>

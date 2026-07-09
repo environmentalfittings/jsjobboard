@@ -5,6 +5,11 @@ export function hasAdminAccess(role: UserRole | null | undefined): boolean {
   return role === 'admin' || role === 'manager'
 }
 
+/** Test log entry — shop testing workflow (not limited to admin dashboard users). */
+export function canAccessTestLog(role: UserRole | null | undefined): boolean {
+  return hasAdminAccess(role) || role === 'supervisor' || role === 'technician'
+}
+
 export function defaultHomePath(role: UserRole | null | undefined): string {
   if (role === 'admin' || role === 'manager') return '/dashboard'
   if (role === 'technician') return '/my-work'

@@ -1,5 +1,6 @@
 import { useState, type FormEvent } from 'react'
 import logo from '../assets/js-logo.png'
+import { getCurrentUserRole, signInWithUsername } from '../lib/auth'
 import { supabase } from '../lib/supabase'
 
 export type UserRole = 'admin' | 'manager' | 'supervisor' | 'technician' | 'sales'
@@ -38,52 +39,76 @@ export function LoginPage({ onLogin }: LoginPageProps) {
     }
 
     setSaving(true)
-    const { data: technicianRow, error: technicianLookupError } = await supabase
-      .from('technicians')
-      .select('login_email,user_id')
-      .eq('login_username', normalizedUsername)
-      .eq('active', true)
+
+    const { data: employeeRow, error: employeeLookupError } = await supabase
+      .from('employees')
+      .select('username,auth_user_id,is_active')
+      .eq('username', normalizedUsername)
       .maybeSingle()
-    if (technicianLookupError) {
+
+    if (employeeLookupError && !/employees/i.test(employeeLookupError.message)) {
       setSaving(false)
-      setError(
-        /login_username/i.test(technicianLookupError.message)
-          ? 'Database update required: run migration-username-auth-admin-only.sql in Supabase SQL Editor.'
-          : technicianLookupError.message || 'Could not look up username',
-      )
-      return
-    }
-    const resolvedEmail = String(technicianRow?.login_email ?? '').trim()
-    if (!resolvedEmail) {
-      setSaving(false)
-      setError('Unknown username. Ask an admin to create or assign your login username.')
+      setError('Incorrect username or password')
       return
     }
 
-    const { error: signInError } = await supabase.auth.signInWithPassword({
-      email: resolvedEmail,
-      password,
-    })
-    setSaving(false)
-    if (signInError) {
-      if (!technicianRow?.user_id) {
-        setError(
-          'Sign-in failed. Your username is on file, but login access has not been set up yet. Ask an admin to click Reset password on your Technicians row.',
-        )
-      } else {
-        setError('Invalid login credentials. Check your password or ask an admin to reset it.')
+    if (employeeRow) {
+      if (!employeeRow.is_active) {
+        setSaving(false)
+        setError('Incorrect username or password')
+        return
       }
+      if (!employeeRow.auth_user_id) {
+        setSaving(false)
+        setError('Your account has not been created yet. Ask Mike to set up your login.')
+        return
+      }
+
+      const { error: signInError } = await signInWithUsername(supabase, normalizedUsername, password)
+      setSaving(false)
+      if (signInError) {
+        setError('Incorrect username or password')
+        return
+      }
+    } else {
+      const { data: technicianRow, error: technicianLookupError } = await supabase
+        .from('technicians')
+        .select('login_email,user_id')
+        .eq('login_username', normalizedUsername)
+        .eq('active', true)
+        .maybeSingle()
+
+      if (technicianLookupError || !technicianRow?.login_email) {
+        setSaving(false)
+        setError('Incorrect username or password')
+        return
+      }
+
+      const { error: signInError } = await supabase.auth.signInWithPassword({
+        email: technicianRow.login_email,
+        password,
+      })
+      setSaving(false)
+      if (signInError) {
+        setError('Incorrect username or password')
+        return
+      }
+    }
+
+    const { data: me, error: meError } = await supabase.auth.getUser()
+    if (meError || !me.user) {
+      setError('Signed in, but could not load user profile')
       return
     }
-    const { data: me, error: meError } = await supabase.auth.getUser()
-    const role = String(me.user?.user_metadata?.role ?? me.user?.app_metadata?.role ?? '').toLowerCase()
-    if (meError || !me.user) {
-      setError(meError?.message || 'Signed in, but could not load user profile')
-      return
+
+    let role = String(me.user.user_metadata?.role ?? me.user.app_metadata?.role ?? '').toLowerCase()
+    if (!role) {
+      const profileRole = await getCurrentUserRole(me.user.id)
+      if (profileRole === 'admin') role = 'admin'
     }
     if (!['admin', 'manager', 'supervisor', 'technician', 'tech', 'sales'].includes(role)) {
       await supabase.auth.signOut()
-      setError('Account has no app role. Set user metadata role to admin/manager/supervisor/technician/sales.')
+      setError('Account has no app role. Ask an admin to verify your employee profile.')
       return
     }
     await onLogin()
@@ -104,7 +129,7 @@ export function LoginPage({ onLogin }: LoginPageProps) {
             setUsername(event.target.value)
             setError('')
           }}
-          placeholder="shop username"
+          placeholder="e.g. ghensley"
           autoComplete="username"
         />
         <label htmlFor="password-input">Password</label>

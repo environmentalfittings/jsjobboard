@@ -18,6 +18,7 @@ import { canonicalizeValveType } from '../../lib/testLogValveType'
 import { supabase } from '../../lib/supabase'
 import { normalizeValveId } from '../../lib/valveId'
 import { uploadTestLogReport } from '../../lib/testLogReports'
+import { isMissingTestingDetailsError, TEST_LOG_DETAILS_MIGRATION } from '../../lib/testLogSchema'
 import { buildTestStandardParams, type TestPhaseResult } from '../../lib/testStandardParams'
 import {
   defaultSeatTypeForValve,
@@ -72,9 +73,10 @@ function applyValvePrefill(
 
 type TestLogEntryFormProps = {
   onSaved: (valveId: string) => void
+  detailsColumnReady?: boolean | null
 }
 
-export function TestLogEntryForm({ onSaved }: TestLogEntryFormProps) {
+export function TestLogEntryForm({ onSaved, detailsColumnReady = null }: TestLogEntryFormProps) {
   const [searchParams, setSearchParams] = useSearchParams()
   const [testedOn, setTestedOn] = useState(todayIso())
   const [valveId, setValveId] = useState('')
@@ -162,12 +164,18 @@ export function TestLogEntryForm({ onSaved }: TestLogEntryFormProps) {
 
   useEffect(() => {
     void (async () => {
-      const [map, gauges] = await Promise.all([loadLookupOptionsMap(), loadActiveTestGauges()])
+      const map = await loadLookupOptionsMap()
       setTestMediaOptions(map.test_media ?? [])
       setTestProcedureOptions(normalizeTestProcedures(map.test_procedure ?? []))
       setChartRecorderOptions(map.chart_recorder ?? [])
       setBodyMaterialOptions(map.body_material ?? [])
-      setGaugeOptions(gauges)
+
+      try {
+        const gauges = await loadActiveTestGauges()
+        setGaugeOptions(gauges)
+      } catch {
+        setGaugeOptions([])
+      }
     })()
   }, [])
 
@@ -296,6 +304,10 @@ export function TestLogEntryForm({ onSaved }: TestLogEntryFormProps) {
 
   const submit = async () => {
     if (!canSubmit) return
+    if (detailsColumnReady === false) {
+      showToast(`Run ${TEST_LOG_DETAILS_MIGRATION} in Supabase before saving`)
+      return
+    }
     const normalizedValveId = normalizeValveId(valveId)
     const passFail = overallPassFail || null
     const payload = {
@@ -317,7 +329,11 @@ export function TestLogEntryForm({ onSaved }: TestLogEntryFormProps) {
     const { data: savedRow, error } = await supabase.from('test_logs').insert(payload).select('id').single()
     if (error || !savedRow?.id) {
       setSaving(false)
-      showToast(error?.message.includes('testing_details') ? 'Run migration-test-log-testing-details.sql in Supabase' : 'Could not save test log entry')
+      showToast(
+        isMissingTestingDetailsError(error?.message)
+          ? `Run ${TEST_LOG_DETAILS_MIGRATION} in Supabase`
+          : 'Could not save test log entry',
+      )
       return
     }
 
@@ -645,7 +661,12 @@ export function TestLogEntryForm({ onSaved }: TestLogEntryFormProps) {
               {overallPassFail || '— set Pass/Fail on each test'}
             </strong>
           </div>
-          <button type="button" className="button-primary" disabled={!canSubmit || saving} onClick={() => void submit()}>
+          <button
+            type="button"
+            className="button-primary"
+            disabled={!canSubmit || saving || detailsColumnReady === false}
+            onClick={() => void submit()}
+          >
             {saving ? 'Saving…' : 'Save entry'}
           </button>
         </div>

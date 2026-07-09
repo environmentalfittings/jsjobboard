@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { supabase } from '../../lib/supabase'
+import { EmployeeInitialsInput } from '../EmployeeInitialsInput'
 import { useToast } from '../ToastNotification'
 
 type TestingQCSectionProps = {
@@ -269,15 +270,11 @@ export function TestingQCSection({ travelerId, valveId, onComplete }: TestingQCS
           />
         </label>
         <div className="traveler-basic-submit-row">
-          <label className="traveler-tech-initials">
-            Tech Initials
-            <input
-              value={testing.initials}
-              maxLength={6}
-              onChange={(e) => setTesting((prev) => ({ ...prev, initials: e.target.value.toUpperCase() }))}
-              disabled={Boolean(testing.completedAt) || Boolean(savingStage)}
-            />
-          </label>
+          <EmployeeInitialsInput
+            value={testing.initials}
+            onChange={(value) => setTesting((prev) => ({ ...prev, initials: value }))}
+            disabled={Boolean(testing.completedAt) || Boolean(savingStage)}
+          />
           <button
             type="button"
             className="button-primary"
@@ -305,15 +302,11 @@ export function TestingQCSection({ travelerId, valveId, onComplete }: TestingQCS
           />
         </label>
         <div className="traveler-basic-submit-row">
-          <label className="traveler-tech-initials">
-            Tech Initials
-            <input
-              value={qa.initials}
-              maxLength={6}
-              onChange={(e) => setQa((prev) => ({ ...prev, initials: e.target.value.toUpperCase() }))}
-              disabled={locked.qa || Boolean(qa.completedAt) || Boolean(savingStage)}
-            />
-          </label>
+          <EmployeeInitialsInput
+            value={qa.initials}
+            onChange={(value) => setQa((prev) => ({ ...prev, initials: value }))}
+            disabled={locked.qa || Boolean(qa.completedAt) || Boolean(savingStage)}
+          />
           <button
             type="button"
             className="button-primary"
@@ -341,15 +334,11 @@ export function TestingQCSection({ travelerId, valveId, onComplete }: TestingQCS
           />
         </label>
         <div className="traveler-basic-submit-row">
-          <label className="traveler-tech-initials">
-            Tech Initials
-            <input
-              value={shipping.initials}
-              maxLength={6}
-              onChange={(e) => setShipping((prev) => ({ ...prev, initials: e.target.value.toUpperCase() }))}
-              disabled={locked.shipping || Boolean(shipping.completedAt) || Boolean(savingStage)}
-            />
-          </label>
+          <EmployeeInitialsInput
+            value={shipping.initials}
+            onChange={(value) => setShipping((prev) => ({ ...prev, initials: value }))}
+            disabled={locked.shipping || Boolean(shipping.completedAt) || Boolean(savingStage)}
+          />
           <button
             type="button"
             className="button-primary"
@@ -381,15 +370,11 @@ export function TestingQCSection({ travelerId, valveId, onComplete }: TestingQCS
           />
         </label>
         <div className="traveler-basic-submit-row">
-          <label className="traveler-tech-initials">
-            Tech Initials
-            <input
-              value={finalInspection.initials}
-              maxLength={6}
-              onChange={(e) => setFinalInspection((prev) => ({ ...prev, initials: e.target.value.toUpperCase() }))}
-              disabled={locked.final || Boolean(finalInspection.completedAt) || Boolean(savingStage)}
-            />
-          </label>
+          <EmployeeInitialsInput
+            value={finalInspection.initials}
+            onChange={(value) => setFinalInspection((prev) => ({ ...prev, initials: value }))}
+            disabled={locked.final || Boolean(finalInspection.completedAt) || Boolean(savingStage)}
+          />
           <button
             type="button"
             className="button-primary"

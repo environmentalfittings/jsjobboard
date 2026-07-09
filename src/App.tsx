@@ -10,6 +10,8 @@ import { TestLogEntryPage } from './pages/TestLogEntryPage'
 import { ValveCardTicketPage } from './pages/ValveCardTicketPage'
 import { NewJobPage } from './pages/NewJobPage'
 import { AdminListsPage } from './pages/AdminListsPage'
+import { AdminEmployeesPage } from './pages/AdminEmployeesPage'
+import { AdminEmployeesPrintPage } from './pages/AdminEmployeesPrintPage'
 import { ResourcesPage } from './pages/ResourcesPage'
 import { TechniciansPage } from './pages/TechniciansPage'
 import { MyWorkPage } from './pages/MyWorkPage'
@@ -23,7 +25,8 @@ import { CustomerTravelerView } from './pages/CustomerTravelerView'
 import { TravelerInspectionPage } from './pages/TravelerInspectionPage'
 import { FeedbackInboxPage } from './pages/FeedbackInboxPage'
 import { supabase } from './lib/supabase'
-import { defaultHomePath, hasAdminAccess } from './lib/roles'
+import { getCurrentUserRole } from './lib/auth'
+import { defaultHomePath, hasAdminAccess, canAccessTestLog } from './lib/roles'
 import type { User } from '@supabase/supabase-js'
 
 const LOCAL_DEV_AUTH_KEY = 'js-job-board-local-dev-auth'
@@ -57,7 +60,7 @@ function App() {
     const nextUser = data.user
     setUser(nextUser)
     const metaRole = String(nextUser.user_metadata?.role ?? nextUser.app_metadata?.role ?? '').toLowerCase()
-    const resolvedRole: UserRole | null =
+    let resolvedRole: UserRole | null =
       metaRole === 'admin'
         ? 'admin'
         : metaRole === 'manager'
@@ -69,6 +72,12 @@ function App() {
               : metaRole === 'sales'
                 ? 'sales'
                 : null
+
+    if (!resolvedRole) {
+      const profileRole = await getCurrentUserRole(nextUser.id)
+      if (profileRole === 'admin') resolvedRole = 'admin'
+    }
+
     setRole(resolvedRole)
     setUsername(
       (nextUser.user_metadata?.name as string | undefined) ||
@@ -196,7 +205,7 @@ function App() {
               <Route path="/job-board" element={role === 'admin' || role === 'manager' || role === 'supervisor' || role === 'sales' ? <JobBoardPage role={role ?? undefined} username={username} /> : <Navigate to="/login" replace />} />
               <Route path="/jobs/:id" element={role === 'admin' || role === 'manager' || role === 'supervisor' || role === 'sales' ? <JobBoardPage role={role ?? undefined} username={username} /> : <Navigate to="/login" replace />} />
               <Route path="/itp/:id" element={role === 'admin' || role === 'manager' || role === 'supervisor' ? <ItpPage /> : <Navigate to="/login" replace />} />
-              <Route path="/test-log-entry" element={hasAdminAccess(role) ? <TestLogEntryPage /> : <Navigate to="/login" replace />} />
+              <Route path="/test-log-entry" element={canAccessTestLog(role) ? <TestLogEntryPage /> : role ? <Navigate to={defaultHomePath(role)} replace /> : <Navigate to="/login" replace />} />
               <Route path="/valve-card-ticket" element={hasAdminAccess(role) ? <ValveCardTicketPage /> : <Navigate to="/login" replace />} />
               <Route
                 path="/traveler/:valveId/inspection"
@@ -207,6 +216,11 @@ function App() {
               <Route path="/resources" element={hasAdminAccess(role) ? <ResourcesPage /> : <Navigate to="/login" replace />} />
               <Route path="/technicians" element={hasAdminAccess(role) ? <TechniciansPage /> : <Navigate to="/login" replace />} />
               <Route path="/admin/lists" element={hasAdminAccess(role) ? <AdminListsPage /> : <Navigate to="/login" replace />} />
+              <Route path="/admin/employees" element={hasAdminAccess(role) ? <AdminEmployeesPage /> : <Navigate to="/login" replace />} />
+              <Route
+                path="/admin/employees/print-usernames"
+                element={hasAdminAccess(role) ? <AdminEmployeesPrintPage /> : <Navigate to="/login" replace />}
+              />
               <Route path="/admin/feedback" element={role === 'admin' ? <FeedbackInboxPage /> : <Navigate to="/login" replace />} />
             </Routes>
           )}

@@ -1,7 +1,7 @@
 import { useEffect, useId, useRef, useState, type ReactNode } from 'react'
 import { NavLink, useLocation } from 'react-router-dom'
 import type { UserRole } from '../pages/LoginPage'
-import { hasAdminAccess } from '../lib/roles'
+import { hasAdminAccess, canAccessTestLog } from '../lib/roles'
 import { isFeedbackEnabled } from '../lib/feedbackEnabled'
 import { FeedbackButton } from './FeedbackButton'
 import logo from '../assets/js-logo.png'
@@ -121,6 +121,7 @@ export function NavBar({ role, username, onLogout }: NavBarProps) {
                   { to: '/reports', label: 'Reports' },
                   { to: '/resources', label: 'Resources' },
                   { to: '/technicians', label: 'Technicians' },
+                  { to: '/admin/employees', label: 'Employees' },
                   { to: '/admin/lists', label: 'Manage lists' },
                   ...(isFeedbackEnabled()
                     ? [{ to: '/admin/feedback', label: 'Feedback inbox' }]
@@ -136,15 +137,25 @@ export function NavBar({ role, username, onLogout }: NavBarProps) {
               <NavLink to="/job-board" className={navLinkClass}>
                 Status board
               </NavLink>
+              <NavLink to="/test-log-entry" className={navLinkClass}>
+                Test log entry
+              </NavLink>
             </>
           ) : role === 'sales' ? (
             <NavLink to="/job-board" className={navLinkClass}>
               Status board
             </NavLink>
           ) : (
-            <NavLink to="/my-work" className={navLinkClass}>
-              My Work
-            </NavLink>
+            <>
+              <NavLink to="/my-work" className={navLinkClass}>
+                My Work
+              </NavLink>
+              {canAccessTestLog(role) ? (
+                <NavLink to="/test-log-entry" className={navLinkClass}>
+                  Test log entry
+                </NavLink>
+              ) : null}
+            </>
           )}
         </nav>
         <div className="nav-session">

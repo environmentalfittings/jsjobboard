@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { supabase } from '../../lib/supabase'
+import { EmployeeInitialsInput } from '../EmployeeInitialsInput'
 import { useToast } from '../ToastNotification'
 
 type WeldingSectionProps = {
@@ -206,10 +207,7 @@ export function WeldingSection({ travelerId, valveId, onComplete }: WeldingSecti
       </div>
 
       <div className="traveler-basic-card traveler-basic-submit-row">
-        <label className="traveler-tech-initials">
-          Tech Initials
-          <input value={techInitials} maxLength={6} onChange={(e) => setTechInitials(e.target.value.toUpperCase())} disabled={locked || saving} />
-        </label>
+        <EmployeeInitialsInput value={techInitials} onChange={setTechInitials} disabled={locked || saving} />
         <button type="button" className="button-primary" onClick={() => void submit()} disabled={locked || saving}>
           {saving ? 'Submitting...' : 'Submit Welding'}
         </button>

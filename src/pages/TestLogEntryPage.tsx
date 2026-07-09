@@ -3,12 +3,10 @@ import { TestLogEntryForm } from '../components/testLog/TestLogEntryForm'
 import { TestLogReportsSection } from '../components/testLog/TestLogReportsSection'
 import { normalizeValveId } from '../lib/valveId'
 import { supabase } from '../lib/supabase'
+import { TEST_LOG_DETAILS_MIGRATION, testLogHasDetailsColumn, testLogSelectColumns } from '../lib/testLogSchema'
 import { formatTestProceduresSummary, parseTestLogTestingDetails, resolveTestMedia } from '../types/testLog'
 import { formatCheckedStandardsSummary, formatTestPressuresSummary } from '../lib/testStandardParams'
 import type { TestLogEntry } from '../types'
-
-const TEST_LOG_SELECT =
-  'id,tested_on,valve_id,size,pressure,manufacturer,valve_type,test_type,worked,pass_fail,action_taken,tester,testing_details,created_at'
 
 export function TestLogEntryPage() {
   const [rows, setRows] = useState<TestLogEntry[]>([])
@@ -18,12 +16,14 @@ export function TestLogEntryPage() {
   const [searchOptions, setSearchOptions] = useState<string[]>([])
   const [loadingRows, setLoadingRows] = useState(false)
   const [expandedRowId, setExpandedRowId] = useState<number | null>(null)
+  const [detailsColumnReady, setDetailsColumnReady] = useState<boolean | null>(null)
 
   const loadRows = async (searchOverride?: string) => {
     setLoadingRows(true)
+    const selectColumns = await testLogSelectColumns()
     let query = supabase
       .from('test_logs')
-      .select(TEST_LOG_SELECT)
+      .select(selectColumns)
       .order('tested_on', { ascending: false })
       .order('created_at', { ascending: false })
       .limit(300)
@@ -35,11 +35,12 @@ export function TestLogEntryPage() {
     if (filterEndDate) query = query.lte('tested_on', filterEndDate)
 
     const { data } = await query
-    setRows((data as TestLogEntry[]) ?? [])
+    setRows((data as unknown as TestLogEntry[]) ?? [])
     setLoadingRows(false)
   }
 
   useEffect(() => {
+    void testLogHasDetailsColumn().then(setDetailsColumnReady)
     void loadRows()
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
@@ -67,7 +68,14 @@ export function TestLogEntryPage() {
         <h2 className="dashboard-title">Test log entry</h2>
       </div>
 
-      <TestLogEntryForm onSaved={() => void loadRows()} />
+      {detailsColumnReady === false ? (
+        <p className="status-breakdown-note test-log-schema-warning" role="status">
+          Database update required: run <code>{TEST_LOG_DETAILS_MIGRATION}</code> in the Supabase SQL Editor before
+          saving new test log entries. Recent entries will show without structured testing details until then.
+        </p>
+      ) : null}
+
+      <TestLogEntryForm detailsColumnReady={detailsColumnReady} onSaved={() => void loadRows()} />
 
       <section className="dashboard-panel">
         <h3>Recent test log entries</h3>
