@@ -110,7 +110,21 @@ export function NewJobPage({ role }: NewJobPageProps) {
 
     if (error) {
       if (error.message.includes('duplicate') || error.code === '23505') {
-        showToast('That Valve ID already exists')
+        const { data: existing } = await supabase
+          .from('valves')
+          .select('id,valve_id,status,order_type,customer')
+          .eq('valve_id', id)
+          .maybeSingle()
+        if (existing?.id) {
+          showToast(
+            `Job ${existing.valve_id} already exists (${existing.status}${
+              existing.customer ? ` · ${existing.customer}` : ''
+            }). Opening it — don’t create a (1) copy.`,
+          )
+          navigate(`/job-board?open=${existing.id}`)
+        } else {
+          showToast('That Valve ID already exists')
+        }
       } else {
         showToast(`Could not create job: ${error.message}`)
       }

@@ -23,6 +23,12 @@ export function valveStatusPatch(
     return patch
   }
 
+  // Keep Junked / Replaced sortable and visible in Done / closed lists.
+  if (nextStatus === 'Junked' || nextStatus === 'Replaced') {
+    patch.date_closed = today
+    return patch
+  }
+
   const previousStatus = previousValve?.status
   const movingFromDoneStatus =
     previousStatus != null && DONE_STATUSES.has(previousStatus) && !DONE_STATUSES.has(nextStatus)

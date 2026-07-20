@@ -13,11 +13,10 @@ import {
   DONE_STATUSES,
   PHASES,
   STATUS_ORDER,
-  TERMINAL_STATUSES,
 } from '../constants/statuses'
 import { parseAssignedTechnicianIds } from '../lib/valveTechnicianIds'
 import { fetchAllValves } from '../lib/fetchAllValves'
-import { displayJobStatus, isActiveOrderType } from '../lib/jobDisplayStatus'
+import { displayJobStatus, isActiveOrderType, isActiveShopWork, isClosedWorkOrder } from '../lib/jobDisplayStatus'
 import { valveStatusPatch } from '../lib/valveStatusPatch'
 import {
   compareValvesBySort,
@@ -535,29 +534,37 @@ export function JobBoardPage({ role, username }: { role?: UserRole; username?: s
   }, [])
 
   const doneLimited = useMemo(() => {
-    return valves
-      .filter((v) => DONE_STATUSES.has(v.status) || v.order_type === 'Completed')
-      .sort((a, b) => {
-        const ad = a.date_closed ? new Date(a.date_closed).getTime() : 0
-        const bd = b.date_closed ? new Date(b.date_closed).getTime() : 0
-        return bd - ad
-      })
+    const byClosedDesc = (a: Valve, b: Valve) => {
+      const ad = a.date_closed ? new Date(a.date_closed).getTime() : 0
+      const bd = b.date_closed ? new Date(b.date_closed).getTime() : 0
+      if (bd !== ad) return bd - ad
+      return b.valve_id.localeCompare(a.valve_id)
+    }
+    // Only true done statuses — do not pull in mis-tagged Completed + still-in-shop rows.
+    const done = valves.filter((v) => DONE_STATUSES.has(v.status))
+    // Always keep Junked (and Replaced) visible so accidental moves can be fixed.
+    const recoverable = done.filter((v) => v.status === 'Junked' || v.status === 'Replaced').sort(byClosedDesc)
+    const recoverableIds = new Set(recoverable.map((v) => v.id))
+    const recentOther = done
+      .filter((v) => !recoverableIds.has(v.id))
+      .sort(byClosedDesc)
       .slice(0, 20)
+    return [...recoverable, ...recentOther]
   }, [valves])
 
-  const activeNonTerminal = useMemo(
-    () =>
-      valves.filter(
-        (v) => isActiveOrderType(v.order_type) && !TERMINAL_STATUSES.has(v.status),
-      ),
-    [valves],
-  )
+  const activeNonTerminal = useMemo(() => valves.filter((v) => isActiveShopWork(v)), [valves])
 
   const closedWorkOrders = useMemo(
     () =>
       valves
-        .filter((v) => v.order_type === 'Completed')
-        .sort((a, b) => (b.date_closed ?? '').localeCompare(a.date_closed ?? '')),
+        .filter((v) => isClosedWorkOrder(v))
+        .sort((a, b) => {
+          const rank = (v: Valve) =>
+            v.status === 'Junked' ? 0 : v.status === 'Replaced' ? 1 : 2
+          const rankDiff = rank(a) - rank(b)
+          if (rankDiff !== 0) return rankDiff
+          return (b.date_closed ?? '').localeCompare(a.date_closed ?? '')
+        }),
     [valves],
   )
 
@@ -587,7 +594,7 @@ export function JobBoardPage({ role, username }: { role?: UserRole; username?: s
 
   const scopeBaseValves = useMemo(() => {
     const base = scopeFilter === 'closed' ? closedWorkOrders : activeNonTerminal
-    return base.filter((v) => {
+    const scoped = base.filter((v) => {
       const matchesScope =
         scopeFilter === 'all' ||
         scopeFilter === 'closed' ||
@@ -599,7 +606,35 @@ export function JobBoardPage({ role, username }: { role?: UserRole; username?: s
         (scopeFilter === 'not-arrived' && v.status === 'Not Arrived')
       return matchesScope
     })
-  }, [activeNonTerminal, closedWorkOrders, scopeFilter])
+
+    // When searching by WO # or Valve ID, include matching closed jobs so older WOs remain findable.
+    if (scopeFilter === 'closed') return scoped
+
+    const woColumn = columnFilters.valve_id
+    const hasWoColumnSearch = Boolean(woColumn.selected || woColumn.query.trim())
+    const hasTopWoSearch = Boolean(selectedWorkOrder || workOrderQuery.trim())
+    if (!hasWoColumnSearch && !hasTopWoSearch) return scoped
+
+    const known = new Set(scoped.map((v) => v.id))
+    const closedMatches = closedWorkOrders.filter((v) => {
+      if (known.has(v.id)) return false
+      if (hasTopWoSearch && valveMatchesWorkOrderFilter(v, workOrderQuery, selectedWorkOrder)) {
+        return true
+      }
+      if (hasWoColumnSearch && valveMatchesWorkOrderFilter(v, woColumn.query, woColumn.selected)) {
+        return true
+      }
+      return false
+    })
+    return closedMatches.length ? [...scoped, ...closedMatches] : scoped
+  }, [
+    activeNonTerminal,
+    closedWorkOrders,
+    scopeFilter,
+    columnFilters.valve_id,
+    selectedWorkOrder,
+    workOrderQuery,
+  ])
 
   const sortValves = useCallback(
     (items: Valve[]) => {
@@ -614,10 +649,19 @@ export function JobBoardPage({ role, username }: { role?: UserRole; username?: s
   const tableRows = useMemo(() => {
     return scopeBaseValves
       .filter((v) => valveMatchesAllColumnFilters(v, columnFilters, listColumnContext))
+      .filter((v) => valveMatchesWorkOrderFilter(v, workOrderQuery, selectedWorkOrder))
       .sort((a, b) =>
         compareValvesByListColumn(a, b, listColumnSort, listColumnContext, compareValvesForDisplay),
       )
-  }, [scopeBaseValves, columnFilters, listColumnSort, listColumnContext, compareValvesForDisplay])
+  }, [
+    scopeBaseValves,
+    columnFilters,
+    listColumnSort,
+    listColumnContext,
+    compareValvesForDisplay,
+    workOrderQuery,
+    selectedWorkOrder,
+  ])
 
   const openModal = (valve: Valve) => {
     setActiveValve(valve)
@@ -790,13 +834,43 @@ export function JobBoardPage({ role, username }: { role?: UserRole; username?: s
     return phase ? phase.statuses.has(status) : false
   }
 
+  const hasWorkOrderSearch = Boolean(selectedWorkOrder || workOrderQuery.trim())
+
+  const workOrderSearchMatches = useMemo(() => {
+    if (!hasWorkOrderSearch) return [] as Valve[]
+    return valves.filter((valve) =>
+      valveMatchesWorkOrderFilter(valve, workOrderQuery, selectedWorkOrder),
+    )
+  }, [hasWorkOrderSearch, valves, workOrderQuery, selectedWorkOrder])
+
+  const workOrderSearchStatus = useMemo(() => {
+    if (!hasWorkOrderSearch) return null
+    const total = workOrderSearchMatches.length
+    if (total === 0) {
+      return `No jobs match “${selectedWorkOrder || workOrderQuery.trim()}”.`
+    }
+    const closedCount = workOrderSearchMatches.filter((v) => isClosedWorkOrder(v)).length
+    if (closedCount === total) {
+      return `Found ${total} closed job${total === 1 ? '' : 's'} — shown in the Done column (or open the card from search).`
+    }
+    if (closedCount > 0) {
+      return `Found ${total} job${total === 1 ? '' : 's'} (${closedCount} closed). Closed matches appear in Done.`
+    }
+    return `Found ${total} active job${total === 1 ? '' : 's'}.`
+  }, [hasWorkOrderSearch, workOrderSearchMatches, selectedWorkOrder, workOrderQuery])
+
   const baseItemsForPhase = useCallback(
     (phaseKey: PhaseKey) => {
-      return phaseKey === 'done'
-        ? doneLimited
-        : activeNonTerminal.filter((valve) => isValveInPhase(valve, phaseKey))
+      if (phaseKey !== 'done') {
+        return activeNonTerminal.filter((valve) => isValveInPhase(valve, phaseKey))
+      }
+      // WO search: include older closed jobs, not only the recent Done slice.
+      if (hasWorkOrderSearch) {
+        return valves.filter((v) => isClosedWorkOrder(v) || DONE_STATUSES.has(v.status))
+      }
+      return doneLimited
     },
-    [activeNonTerminal, doneLimited],
+    [activeNonTerminal, doneLimited, hasWorkOrderSearch, valves],
   )
 
   const itemsForPhase = useCallback(
@@ -960,16 +1034,21 @@ export function JobBoardPage({ role, username }: { role?: UserRole; username?: s
 
       {loading ? <div className="loading">Loading valves...</div> : null}
 
-      {!isDedicatedDetailRoute && !loading && tab === 'kanban' ? (
+      {!isDedicatedDetailRoute && !loading ? (
         <WorkOrderFilterBar
-          valves={scopeBaseValves}
+          valves={valves}
           query={workOrderQuery}
           selectedValveId={selectedWorkOrder}
           sort={listSort}
+          statusMessage={tab === 'kanban' ? workOrderSearchStatus : null}
           onQueryChange={setWorkOrderQuery}
           onSelect={(valve) => {
             setSelectedWorkOrder(valve.valve_id)
             setWorkOrderQuery(valve.valve_id)
+            openModal(valve)
+            if (isClosedWorkOrder(valve) && tab === 'list' && scopeFilter !== 'closed') {
+              setListScope('closed')
+            }
           }}
           onClear={() => setSelectedWorkOrder('')}
           onSortChange={setListSort}
@@ -1025,7 +1104,7 @@ export function JobBoardPage({ role, username }: { role?: UserRole; username?: s
         <div className="list-view">
           <div className="filters list-view-scope">
             {viewingCompletedValves ? (
-              <span className="list-view-scope-label">Completed valves</span>
+              <span className="list-view-scope-label">Closed valves</span>
             ) : (
               <select value={scopeFilter} onChange={(e) => setListScope(e.target.value as ScopeFilter)}>
                 <option value="all">All active work</option>
@@ -1059,12 +1138,12 @@ export function JobBoardPage({ role, username }: { role?: UserRole; username?: s
               className={`button-secondary list-view-completed-toggle ${viewingCompletedValves ? 'active' : ''}`}
               onClick={toggleCompletedValvesView}
             >
-              {viewingCompletedValves ? 'Active valves' : 'Completed valves'}
+              {viewingCompletedValves ? 'Active valves' : 'Closed valves'}
             </button>
           </div>
           {viewingCompletedValves ? (
             <p className="list-view-completed-hint">
-              Click a row or Open card to edit a completed job and move it back into active work.
+              Includes Completed, Junked, and Replaced. Open a card to change status if one was marked by mistake.
             </p>
           ) : null}
           <div className="table-wrap list-table-wrap">
@@ -1096,7 +1175,7 @@ export function JobBoardPage({ role, username }: { role?: UserRole; username?: s
                         <ColumnFilterCombobox
                           column={key}
                           label={label}
-                          valves={scopeBaseValves}
+                          valves={key === 'valve_id' ? valves : scopeBaseValves}
                           filter={columnFilters[key]}
                           context={listColumnContext}
                           onChange={(next) => setColumnFilter(key, next)}

@@ -4632,6 +4632,31 @@ a.test-log-reports-item-name:hover {
   margin-bottom: 12px;
 }
 
+.job-board-wo-filter-wrap {
+  margin-bottom: 4px;
+}
+
+.job-board-wo-status {
+  margin: 0 0 10px;
+  font-size: 0.92rem;
+  color: #3d4f63;
+}
+
+.job-board-wo-empty {
+  position: absolute;
+  z-index: 20;
+  left: 0;
+  right: 0;
+  top: calc(100% + 4px);
+  padding: 10px 12px;
+  border: 1px solid #d5dee8;
+  border-radius: 8px;
+  background: #fff;
+  box-shadow: 0 8px 20px rgba(15, 23, 42, 0.12);
+  font-size: 0.88rem;
+  color: #4b5c6e;
+}
+
 .job-board-wo-filter-field {
   display: flex;
   flex-direction: column;
