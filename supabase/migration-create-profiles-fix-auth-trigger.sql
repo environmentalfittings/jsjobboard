@@ -75,7 +75,10 @@ begin
   insert into public.profiles (id, role, full_name)
   values (
     new.id,
-    'admin',
+    case
+      when lower(coalesce(new.raw_user_meta_data->>'role', '')) = 'admin' then 'admin'
+      else 'viewer'
+    end,
     coalesce(
       new.raw_user_meta_data->>'full_name',
       new.raw_user_meta_data->>'name',

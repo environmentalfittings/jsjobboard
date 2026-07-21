@@ -65,10 +65,38 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const nextProfileRole = await getProfileRole(nextUser.id)
     const metadataRole = String(nextUser.user_metadata?.role ?? nextUser.app_metadata?.role ?? '')
 
-    const [{ data: employeeRow }, { data: technicianRow }] = await Promise.all([
+    const [{ data: employeeRow }, { data: technicianByUserId }] = await Promise.all([
       supabase.from('employees').select('full_name,username').eq('auth_user_id', nextUser.id).maybeSingle(),
       supabase.from('technicians').select('role,name,login_username').eq('user_id', nextUser.id).maybeSingle(),
     ])
+
+    let technicianRow = technicianByUserId
+    if (!technicianRow) {
+      const emailLocal = nextUser.email?.split('@')[0]?.trim().toLowerCase() ?? ''
+      const metadataUsername =
+        typeof nextUser.user_metadata?.username === 'string'
+          ? normalizeEmployeeUsername(nextUser.user_metadata.username)
+          : ''
+      const usernameCandidates = [
+        ...new Set(
+          [employeeRow?.username, metadataUsername, emailLocal]
+            .map((value) => normalizeEmployeeUsername(String(value ?? '')))
+            .filter(Boolean),
+        ),
+      ]
+      for (const username of usernameCandidates) {
+        const { data: byUsername } = await supabase
+          .from('technicians')
+          .select('role,name,login_username')
+          .eq('login_username', username)
+          .eq('active', true)
+          .maybeSingle()
+        if (byUsername) {
+          technicianRow = byUsername
+          break
+        }
+      }
+    }
 
     const metadataUsername =
       typeof nextUser.user_metadata?.username === 'string'
@@ -76,8 +104,23 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         : ''
     const resolvedUsername = employeeRow?.username ?? technicianRow?.login_username ?? metadataUsername
 
+    // Keep profiles.role in sync with technicians.role (shop source of truth).
+    if (technicianRow?.role && nextUser.id) {
+      const shopRole = String(technicianRow.role).trim().toLowerCase()
+      const desiredProfileRole = shopRole === 'admin' ? 'admin' : 'viewer'
+      if (nextProfileRole !== desiredProfileRole) {
+        await supabase.from('profiles').update({ role: desiredProfileRole }).eq('id', nextUser.id)
+      }
+    }
+
     setUser(nextUser)
-    setProfileRole(nextProfileRole)
+    setProfileRole(
+      technicianRow?.role
+        ? String(technicianRow.role).trim().toLowerCase() === 'admin'
+          ? 'admin'
+          : 'viewer'
+        : nextProfileRole,
+    )
     setRole(resolveAppRole(nextProfileRole, metadataRole, technicianRow?.role))
     setUsername(
       technicianRow?.name?.trim() ||
