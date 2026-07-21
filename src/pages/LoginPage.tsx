@@ -1,12 +1,43 @@
 import { useEffect, useState, type FormEvent } from 'react'
 import logo from '../assets/js-logo.png'
-import { getCurrentUserRole, getShopLoginStatus, signInWithUsername } from '../lib/auth'
+import { getProfileRole, getShopLoginStatus, resolveAppRole, signInWithUsername } from '../lib/auth'
+import { isShopRole } from '../lib/roles'
 import { supabase } from '../lib/supabase'
 
 export type UserRole = 'admin' | 'manager' | 'technician'
 
 interface LoginPageProps {
   onLogin: (options?: { localRole?: UserRole; username?: string }) => void | Promise<void>
+}
+
+async function resolveShopRoleAfterSignIn(userId: string, usernameHint: string): Promise<UserRole> {
+  const [{ data: authData }, profileRole] = await Promise.all([
+    supabase.auth.getUser(),
+    getProfileRole(userId),
+  ])
+  const metadataRole = String(
+    authData.user?.user_metadata?.role ?? authData.user?.app_metadata?.role ?? '',
+  )
+
+  let technicianRole: string | null = null
+  const { data: byUserId } = await supabase
+    .from('technicians')
+    .select('role')
+    .eq('user_id', userId)
+    .maybeSingle()
+  if (byUserId?.role) {
+    technicianRole = String(byUserId.role)
+  } else if (usernameHint) {
+    const { data: byUsername } = await supabase
+      .from('technicians')
+      .select('role')
+      .eq('login_username', usernameHint)
+      .eq('active', true)
+      .maybeSingle()
+    technicianRole = byUsername?.role ? String(byUsername.role) : null
+  }
+
+  return resolveAppRole(profileRole, metadataRole, technicianRole)
 }
 
 export function LoginPage({ onLogin }: LoginPageProps) {
@@ -83,12 +114,8 @@ export function LoginPage({ onLogin }: LoginPageProps) {
         return
       }
 
-      let role = String(me.user.user_metadata?.role ?? me.user.app_metadata?.role ?? '').toLowerCase()
-      if (!role) {
-        const profileRole = await getCurrentUserRole(me.user.id)
-        if (profileRole === 'admin') role = 'admin'
-      }
-      if (!['admin', 'manager', 'supervisor', 'technician', 'tech', 'sales'].includes(role)) {
+      let role = await resolveShopRoleAfterSignIn(me.user.id, normalizedUsername)
+      if (!isShopRole(role)) {
         await supabase.auth.signOut()
         setSaving(false)
         setError('Account has no app role. Ask an admin to verify your employee profile.')
@@ -102,7 +129,7 @@ export function LoginPage({ onLogin }: LoginPageProps) {
 
     const { data: technicianRow, error: technicianLookupError } = await supabase
       .from('technicians')
-      .select('login_email,user_id')
+      .select('login_email,user_id,role')
       .eq('login_username', normalizedUsername)
       .eq('active', true)
       .maybeSingle()
@@ -139,12 +166,11 @@ export function LoginPage({ onLogin }: LoginPageProps) {
       return
     }
 
-    let role = String(me.user.user_metadata?.role ?? me.user.app_metadata?.role ?? '').toLowerCase()
-    if (!role) {
-      const profileRole = await getCurrentUserRole(me.user.id)
-      if (profileRole === 'admin') role = 'admin'
+    let role = await resolveShopRoleAfterSignIn(me.user.id, normalizedUsername)
+    if (!isShopRole(role) && technicianRow.role) {
+      role = resolveAppRole(null, '', technicianRow.role)
     }
-    if (!['admin', 'manager', 'supervisor', 'technician', 'tech', 'sales'].includes(role)) {
+    if (!isShopRole(role)) {
       await supabase.auth.signOut()
       setError('Account has no app role. Ask an admin to verify your employee profile.')
       return

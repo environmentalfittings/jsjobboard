@@ -157,8 +157,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         return
       }
       await refreshAuth()
+      navigate('/dashboard', { replace: true })
     },
-    [refreshAuth],
+    [refreshAuth, navigate],
   )
 
   const handleLogout = useCallback(async () => {
