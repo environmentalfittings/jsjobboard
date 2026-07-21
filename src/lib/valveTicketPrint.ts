@@ -3,12 +3,19 @@ import type { Valve } from '../types'
 
 /**
  * Shop production card — matches the blue grid card used on the floor.
- * (4" × 3" card stock; not the narrow 2.4" Brother list label.)
+ * (3.5" × 3" card stock; not the narrow 2.4" Brother list label.)
  */
-export const VALVE_TICKET_CARD_WIDTH_IN = 4
+export const VALVE_TICKET_CARD_WIDTH_IN = 3.5
 export const VALVE_TICKET_CARD_HEIGHT_IN = 3
-export const VALVE_TICKET_CARD_WIDTH_MM = 101.6
+export const VALVE_TICKET_CARD_WIDTH_MM = 88.9
 export const VALVE_TICKET_CARD_HEIGHT_MM = 76.2
+
+/** Inset so borders are not clipped by printer non-printable area. */
+const CARD_PRINT_INSET_MM = 4.5
+const CARD_PRINT_INSET_IN = 0.15
+/** Content area inside page margins (avoids transform:scale print clipping). */
+const CARD_CONTENT_WIDTH_IN = VALVE_TICKET_CARD_WIDTH_IN - CARD_PRINT_INSET_IN * 2
+const CARD_CONTENT_HEIGHT_IN = VALVE_TICKET_CARD_HEIGHT_IN - CARD_PRINT_INSET_IN * 2
 
 /** Brother QL-810W continuous tape (optional USB path). */
 export const VALVE_TICKET_LABEL_WIDTH_IN = 2.4
@@ -20,6 +27,8 @@ export type ValveTicketCardModel = {
   valveId: string
   description: string
   dueLabel: string
+  size: string
+  pressureClass: string
   workCell: string
   customer: string
 }
@@ -58,6 +67,8 @@ export function buildValveTicketCardModel(valve: Valve): ValveTicketCardModel {
     valveId: valve.valve_id,
     description: formatDescription(valve),
     dueLabel: formatDate(valve.due_date),
+    size: displayValue(valve.size),
+    pressureClass: displayValue(valve.pressure_class),
     workCell: displayValue(valve.cell),
     customer: displayValue(valve.customer),
   }
@@ -77,8 +88,10 @@ export function buildValveTicketLines(valve: Valve): string[] {
   const card = buildValveTicketCardModel(valve)
   return [
     card.valveId,
-    card.description,
     `Due: ${card.dueLabel}`,
+    `Size: ${card.size}`,
+    `Pressure: ${card.pressureClass}`,
+    card.description,
     `Work Cell: ${card.workCell}`,
     card.customer,
   ]
@@ -89,63 +102,91 @@ function wrapPdfText(doc: jsPDF, text: string, maxWidth: number, fontSize: numbe
   return doc.splitTextToSize(text, maxWidth) as string[]
 }
 
+function woFontSizePt(valveId: string): number {
+  const len = valveId.length
+  if (len <= 7) return 26
+  if (len <= 9) return 23
+  if (len <= 11) return 20
+  return 17
+}
+
+function fitPdfFontSize(doc: jsPDF, text: string, maxWidth: number, maxPt: number, minPt: number): number {
+  let size = maxPt
+  while (size > minPt) {
+    doc.setFontSize(size)
+    if (doc.getTextWidth(text) <= maxWidth) return size
+    size -= 0.5
+  }
+  return minPt
+}
+
+function scaledRowTops(heightMm: number, insetMm: number): number[] {
+  const innerH = heightMm - insetMm * 2
+  const fractions = [0, 0.17, 0.28, 0.39, 0.5, 0.61]
+  return fractions.map((f) => insetMm + innerH * f)
+}
+
 function drawPdfCard(doc: jsPDF, valve: Valve) {
   const card = buildValveTicketCardModel(valve)
   const W = VALVE_TICKET_CARD_WIDTH_MM
   const H = VALVE_TICKET_CARD_HEIGHT_MM
+  const inset = CARD_PRINT_INSET_MM
+  const innerW = W - inset * 2
+  const innerH = H - inset * 2
   const pad = 2
-  const halfW = W / 2
-
-  const rowHeights = [24, 20, 16, H - 24 - 20 - 16]
-  const rowTops = [
-    0,
-    rowHeights[0],
-    rowHeights[0] + rowHeights[1],
-    rowHeights[0] + rowHeights[1] + rowHeights[2],
-  ]
+  const halfW = inset + innerW / 2
+  const rowTops = scaledRowTops(H, inset)
 
   doc.setDrawColor(0)
   doc.setLineWidth(0.35)
-  doc.rect(0, 0, W, H)
+  doc.rect(inset, inset, innerW, innerH)
 
-  // Row dividers
   for (let i = 1; i < rowTops.length; i += 1) {
-    doc.line(0, rowTops[i], W, rowTops[i])
+    doc.line(inset, rowTops[i], inset + innerW, rowTops[i])
   }
-  // Top row + work cell vertical split
-  doc.line(halfW, 0, halfW, rowTops[1])
-  doc.line(halfW, rowTops[2], halfW, rowTops[3])
+  doc.line(halfW, inset, halfW, rowTops[1])
+  doc.line(halfW, rowTops[1], halfW, rowTops[3])
+  doc.line(halfW, rowTops[4], halfW, rowTops[5])
 
-  // WO #
+  const textLeft = inset + pad
+  const valueLeft = halfW + pad
+  const textWidth = halfW - inset - pad * 2
+  const fullWidth = innerW - pad * 2
+
   doc.setFont('helvetica', 'bold')
-  doc.setFontSize(22)
-  const woLines = wrapPdfText(doc, card.valveId, halfW - pad * 2, 22)
-  doc.text(woLines, pad, rowTops[0] + 8)
+  const woSize = fitPdfFontSize(doc, card.valveId, textWidth, woFontSizePt(card.valveId), 13)
+  doc.setFontSize(woSize)
+  doc.text(card.valveId, textLeft, rowTops[0] + 5)
 
-  // Due
   doc.setFontSize(11)
-  doc.text('Due:', halfW + pad, rowTops[0] + 7)
+  doc.text('Due:', valueLeft, rowTops[0] + 4)
   doc.setFontSize(13)
-  doc.text(card.dueLabel, halfW + pad, rowTops[0] + 14)
+  doc.text(card.dueLabel, valueLeft, rowTops[0] + 10)
 
-  // Description
-  doc.setFont('helvetica', 'normal')
   doc.setFontSize(11)
-  const descLines = wrapPdfText(doc, card.description, W - pad * 2, 11)
-  doc.text(descLines.slice(0, 2), pad, rowTops[1] + 7)
-
-  // Work cell
-  doc.setFontSize(10)
-  doc.text('Work Cell:', pad, rowTops[2] + 7)
   doc.setFont('helvetica', 'bold')
-  doc.setFontSize(11)
-  const cellLines = wrapPdfText(doc, card.workCell, halfW - pad * 2, 11)
-  doc.text(cellLines.slice(0, 2), halfW + pad, rowTops[2] + 7)
+  doc.text('Size:', textLeft, rowTops[1] + 4)
+  doc.setFont('helvetica', 'normal')
+  doc.text(wrapPdfText(doc, card.size, textWidth, 11).slice(0, 1), valueLeft, rowTops[1] + 4)
 
-  // Customer
-  doc.setFontSize(16)
-  const customerLines = wrapPdfText(doc, card.customer, W - pad * 2, 16)
-  doc.text(customerLines.slice(0, 2), pad, rowTops[3] + 10)
+  doc.setFont('helvetica', 'bold')
+  doc.text('Pressure:', textLeft, rowTops[2] + 4)
+  doc.setFont('helvetica', 'normal')
+  doc.text(wrapPdfText(doc, card.pressureClass, textWidth, 11).slice(0, 1), valueLeft, rowTops[2] + 4)
+
+  doc.setFont('helvetica', 'normal')
+  doc.setFontSize(12)
+  doc.text(wrapPdfText(doc, card.description, fullWidth, 12).slice(0, 2), textLeft, rowTops[3] + 4)
+
+  doc.setFontSize(11)
+  doc.setFont('helvetica', 'bold')
+  doc.text('Work Cell:', textLeft, rowTops[4] + 4)
+  doc.setFont('helvetica', 'normal')
+  doc.text(wrapPdfText(doc, card.workCell, textWidth, 11).slice(0, 1), valueLeft, rowTops[4] + 4)
+
+  doc.setFont('helvetica', 'bold')
+  doc.setFontSize(14)
+  doc.text(wrapPdfText(doc, card.customer, fullWidth, 14).slice(0, 2), textLeft, rowTops[5] + 4)
 }
 
 function createValveTicketPdf(valve: Valve) {
@@ -163,22 +204,11 @@ export function downloadValveTicketPdf(valve: Valve) {
 }
 
 export function openValveTicketPdfForPrint(valve: Valve) {
-  const doc = createValveTicketPdf(valve)
-  const blob = doc.output('blob')
-  const url = URL.createObjectURL(blob)
-  const popup = window.open(url, '_blank', 'noopener,noreferrer')
-  if (!popup) {
-    URL.revokeObjectURL(url)
-    throw new Error('Popup blocked. Allow popups to print the PDF.')
-  }
-  popup.addEventListener('load', () => {
-    popup.focus()
-    popup.print()
-  })
-  window.setTimeout(() => URL.revokeObjectURL(url), 60_000)
+  openValveTicketPrintPreview(valve, { autoPrint: true })
 }
 
-export function buildValveTicketPrintHtml(valve: Valve) {
+export function buildValveTicketPrintHtml(valve: Valve, options?: { autoPrint?: boolean }) {
+  const autoPrint = options?.autoPrint ?? false
   const card = buildValveTicketCardModel(valve)
 
   return `<!doctype html>
@@ -197,6 +227,8 @@ export function buildValveTicketPrintHtml(valve: Valve) {
       html, body {
         margin: 0;
         padding: 0;
+        width: ${VALVE_TICKET_CARD_WIDTH_IN}in;
+        height: ${VALVE_TICKET_CARD_HEIGHT_IN}in;
       }
 
       body {
@@ -233,85 +265,119 @@ export function buildValveTicketPrintHtml(valve: Valve) {
       }
 
       .preview-wrap {
-        display: flex;
-        justify-content: flex-start;
+        width: ${VALVE_TICKET_CARD_WIDTH_IN}in;
+        height: ${VALVE_TICKET_CARD_HEIGHT_IN}in;
+        padding: ${CARD_PRINT_INSET_IN}in;
+      }
+
+      .card-shell {
+        width: 100%;
+        height: 100%;
       }
 
       .card {
-        width: ${VALVE_TICKET_CARD_WIDTH_IN}in;
-        height: ${VALVE_TICKET_CARD_HEIGHT_IN}in;
+        width: 100%;
+        height: 100%;
         border: 2px solid #111;
-        border-collapse: collapse;
-        table-layout: fixed;
         background: #fff;
+        display: grid;
+        grid-template-rows: 1.05fr 0.55fr 0.55fr 0.75fr 0.55fr 0.95fr;
+        grid-template-columns: 48% 52%;
       }
 
-      .card td {
+      .card > * {
         border: 1px solid #111;
-        padding: 0.12in 0.14in;
-        vertical-align: top;
+        padding: 0.03in 0.07in;
         overflow: hidden;
         word-break: break-word;
         overflow-wrap: anywhere;
+        min-height: 0;
       }
 
       .wo {
-        width: 55%;
-        font-size: 28pt;
+        grid-column: 1;
+        grid-row: 1;
+        font-size: ${woFontSizePt(card.valveId)}pt;
         font-weight: 700;
         line-height: 1.05;
+        white-space: nowrap;
+        word-break: normal;
+        overflow-wrap: normal;
       }
 
       .due {
-        width: 45%;
+        grid-column: 2;
+        grid-row: 1;
         font-size: 13pt;
-        line-height: 1.25;
+        line-height: 1.2;
       }
 
       .due-label {
-        font-size: 11pt;
+        font-size: 12pt;
         font-weight: 700;
       }
 
       .desc {
+        grid-column: 1 / -1;
+        grid-row: 4;
         font-size: 12pt;
-        line-height: 1.25;
-        height: 0.75in;
+        line-height: 1.15;
       }
 
       .cell-label {
-        width: 38%;
         font-size: 11pt;
         font-weight: 700;
-        vertical-align: middle;
+        display: flex;
+        align-items: center;
       }
 
       .cell-value {
-        width: 62%;
-        font-size: 13pt;
+        font-size: 12pt;
         font-weight: 700;
-        vertical-align: middle;
+        display: flex;
+        align-items: center;
       }
 
+      .size-label { grid-column: 1; grid-row: 2; }
+      .size-value { grid-column: 2; grid-row: 2; }
+      .pressure-label { grid-column: 1; grid-row: 3; }
+      .pressure-value { grid-column: 2; grid-row: 3; }
+      .cell-label.work-cell { grid-column: 1; grid-row: 5; }
+      .cell-value.work-cell { grid-column: 2; grid-row: 5; }
+
       .customer {
-        font-size: 18pt;
+        grid-column: 1 / -1;
+        grid-row: 6;
+        font-size: 16pt;
         font-weight: 700;
-        line-height: 1.15;
-        height: 0.85in;
-        vertical-align: middle;
+        line-height: 1.1;
+        display: flex;
+        align-items: center;
       }
 
       @media screen {
+        html, body {
+          width: auto;
+          height: auto;
+        }
+
         body {
           background: #e5e7eb;
+          min-height: 100vh;
           padding: 16px;
         }
 
         .preview-wrap {
+          width: auto;
+          height: auto;
+          padding: 12px;
+          display: flex;
           justify-content: center;
         }
 
-        .card {
+        .card-shell {
+          width: ${CARD_CONTENT_WIDTH_IN}in;
+          height: ${CARD_CONTENT_HEIGHT_IN}in;
           box-shadow: 0 8px 24px rgba(15, 23, 42, 0.18);
         }
       }
@@ -324,54 +390,47 @@ export function buildValveTicketPrintHtml(valve: Valve) {
 
         body {
           background: #fff;
-          padding: 0;
-        }
-
-        .preview-wrap {
-          justify-content: flex-start;
-        }
-
-        .card {
-          box-shadow: none;
         }
       }
     </style>
   </head>
-  <body>
+  <body${autoPrint ? ' onload="window.focus(); window.print()"' : ''}>
     <div class="toolbar">
       <button type="button" onclick="window.print()">Print</button>
     </div>
     <p class="hint">
-      Production card layout for ${VALVE_TICKET_CARD_WIDTH_IN}&Prime;&nbsp;&times;&nbsp;${VALVE_TICKET_CARD_HEIGHT_IN}&Prime; blue card stock.
-      Use <strong>Print production card</strong> or <strong>Download PDF</strong>, then print at 100% scale (no fit-to-page).
+      Production card for ${VALVE_TICKET_CARD_WIDTH_IN}&Prime;&nbsp;&times;&nbsp;${VALVE_TICKET_CARD_HEIGHT_IN}&Prime; card stock.
+      In the print dialog choose paper size <strong>${VALVE_TICKET_CARD_WIDTH_IN}&Prime;&nbsp;&times;&nbsp;${VALVE_TICKET_CARD_HEIGHT_IN}&Prime;</strong>
+      (or closest custom size) and scale <strong>100%</strong> — do not use fit-to-page.
     </p>
     <div class="preview-wrap">
-      <table class="card" role="presentation">
-        <tr>
-          <td class="wo">${escapeHtml(card.valveId)}</td>
-          <td class="due"><span class="due-label">Due:</span><br />${escapeHtml(card.dueLabel)}</td>
-        </tr>
-        <tr>
-          <td class="desc" colspan="2">${escapeHtml(card.description)}</td>
-        </tr>
-        <tr>
-          <td class="cell-label">Work Cell:</td>
-          <td class="cell-value">${escapeHtml(card.workCell)}</td>
-        </tr>
-        <tr>
-          <td class="customer" colspan="2">${escapeHtml(card.customer)}</td>
-        </tr>
-      </table>
+      <div class="card-shell">
+      <div class="card" role="presentation">
+        <div class="wo">${escapeHtml(card.valveId)}</div>
+        <div class="due"><span class="due-label">Due:</span><br />${escapeHtml(card.dueLabel)}</div>
+        <div class="cell-label size-label">Size:</div>
+        <div class="cell-value size-value">${escapeHtml(card.size)}</div>
+        <div class="cell-label pressure-label">Pressure:</div>
+        <div class="cell-value pressure-value">${escapeHtml(card.pressureClass)}</div>
+        <div class="desc">${escapeHtml(card.description)}</div>
+        <div class="cell-label work-cell">Work Cell:</div>
+        <div class="cell-value work-cell">${escapeHtml(card.workCell)}</div>
+        <div class="customer">${escapeHtml(card.customer)}</div>
+      </div>
+      </div>
     </div>
   </body>
 </html>`
 }
 
-export function openValveTicketPrintPreview(valve: Valve) {
-  const popup = window.open('', '_blank', 'noopener,noreferrer,width=640,height=520')
+export function openValveTicketPrintPreview(valve: Valve, options?: { autoPrint?: boolean }) {
+  const html = buildValveTicketPrintHtml(valve, options)
+  const blob = new Blob([html], { type: 'text/html;charset=utf-8' })
+  const url = URL.createObjectURL(blob)
+  const popup = window.open(url, '_blank', 'noopener,noreferrer,width=640,height=520')
   if (!popup) {
+    URL.revokeObjectURL(url)
     throw new Error('Popup blocked. Allow popups to print production cards.')
   }
-  popup.document.write(buildValveTicketPrintHtml(valve))
-  popup.document.close()
+  window.setTimeout(() => URL.revokeObjectURL(url), 60_000)
 }

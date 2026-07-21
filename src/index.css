@@ -4049,6 +4049,23 @@ a.test-log-reports-item-name:hover {
   margin-bottom: 8px;
 }
 
+.ticket-valve-id-field {
+  display: block;
+  margin-bottom: 8px;
+}
+
+.ticket-valve-id-field > span {
+  display: block;
+  font-size: 12px;
+  font-weight: 600;
+  color: #334155;
+  margin-bottom: 4px;
+}
+
+.ticket-valve-id-combobox input {
+  margin-bottom: 0;
+}
+
 .ticket-list {
   max-height: 560px;
   overflow: auto;
@@ -4097,6 +4114,13 @@ a.test-log-reports-item-name:hover {
   justify-content: space-between;
   gap: 10px;
   margin-bottom: 8px;
+}
+
+.ticket-preview-head-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
 }
 
 .ticket-copy-link-btn {

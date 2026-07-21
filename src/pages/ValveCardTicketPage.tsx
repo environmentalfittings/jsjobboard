@@ -1,16 +1,12 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useId, useMemo, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { TechnicianAvatars } from '../components/TechnicianAvatars'
 import { ValveAttachmentsPanel } from '../components/ValveAttachmentsPanel'
 import { isValveRelatedJobType, normalizeJobType } from '../constants/jobTypes'
 import { technicianIdsForValve } from '../lib/valveTechnicianIds'
 import { fetchAllValves } from '../lib/fetchAllValves'
-import {
-  downloadValveTicketPdf,
-  openValveTicketPdfForPrint,
-  openValveTicketPrintPreview,
-} from '../lib/valveTicketPrint'
-import { printValveTicketToBrotherUsb } from '../lib/brotherQlValveTicket'
+import { downloadValveTicketPdf, openValveTicketPdfForPrint } from '../lib/valveTicketPrint'
+import { valveMatchesWorkOrderFilter, suggestWorkOrders } from '../lib/valveWorkOrderSearch'
 import { supabase } from '../lib/supabase'
 import type { Technician, Valve } from '../types'
 import { useToast } from '../components/ToastNotification'
@@ -46,7 +42,11 @@ export function ValveCardTicketPage() {
   const [technicians, setTechnicians] = useState<Technician[]>([])
   const [valves, setValves] = useState<Valve[]>([])
   const [search, setSearch] = useState('')
-  const [valveIdFilter, setValveIdFilter] = useState('')
+  const [valveIdQuery, setValveIdQuery] = useState('')
+  const [valveIdSelected, setValveIdSelected] = useState('')
+  const [valveIdOpen, setValveIdOpen] = useState(false)
+  const valveIdListId = useId()
+  const valveIdRootRef = useRef<HTMLDivElement>(null)
   const [customerFilter, setCustomerFilter] = useState('')
   const [cellFilter, setCellFilter] = useState('')
   const [selectedId, setSelectedId] = useState<number | null>(null)
@@ -56,7 +56,6 @@ export function ValveCardTicketPage() {
   const [assignedTechnicianIdDraft, setAssignedTechnicianIdDraft] = useState<number | null>(null)
   const [itpItems, setItpItems] = useState<JobItpItem[]>([])
   const [loadingItp, setLoadingItp] = useState(false)
-  const [printingBrother, setPrintingBrother] = useState(false)
   const { showToast } = useToast()
 
   const valveForPrint = (valve: Valve): Valve => ({
@@ -65,17 +64,9 @@ export function ValveCardTicketPage() {
     notes: valve.id === selected?.id ? notesDraft.trim() || null : valve.notes,
   })
 
-  const printPreview = (valve: Valve) => {
-    try {
-      openValveTicketPrintPreview(valveForPrint(valve))
-    } catch (error) {
-      showToast(error instanceof Error ? error.message : 'Could not open print preview')
-    }
-  }
-
   const downloadPdf = (valve: Valve) => {
     downloadValveTicketPdf(valveForPrint(valve))
-    showToast('PDF downloaded — open it and print to your Brother QL-810W')
+    showToast('PDF downloaded')
   }
 
   const printPdf = (valve: Valve) => {
@@ -83,18 +74,6 @@ export function ValveCardTicketPage() {
       openValveTicketPdfForPrint(valveForPrint(valve))
     } catch (error) {
       showToast(error instanceof Error ? error.message : 'Could not open PDF for printing')
-    }
-  }
-
-  const printBrotherUsb = async (valve: Valve) => {
-    setPrintingBrother(true)
-    try {
-      await printValveTicketToBrotherUsb(valveForPrint(valve))
-      showToast('Sent to Brother label printer')
-    } catch (error) {
-      showToast(error instanceof Error ? error.message : 'Brother print failed')
-    } finally {
-      setPrintingBrother(false)
     }
   }
 
@@ -128,10 +107,26 @@ export function ValveCardTicketPage() {
     }
   }, [])
 
+  useEffect(() => {
+    if (!valveIdOpen) return
+    const onPointerDown = (event: MouseEvent) => {
+      if (!valveIdRootRef.current?.contains(event.target as Node)) setValveIdOpen(false)
+    }
+    document.addEventListener('mousedown', onPointerDown)
+    return () => document.removeEventListener('mousedown', onPointerDown)
+  }, [valveIdOpen])
+
+  const valveIdSuggestions = useMemo(
+    () => suggestWorkOrders(valves, valveIdQuery, 20),
+    [valves, valveIdQuery],
+  )
+
   const filtered = useMemo(() => {
     const text = search.trim().toLowerCase()
     let base = valves
-    if (valveIdFilter) base = base.filter((v) => v.valve_id === valveIdFilter)
+    if (valveIdQuery.trim() || valveIdSelected) {
+      base = base.filter((v) => valveMatchesWorkOrderFilter(v, valveIdQuery, valveIdSelected))
+    }
     if (customerFilter) base = base.filter((v) => (v.customer ?? '') === customerFilter)
     if (cellFilter) base = base.filter((v) => (v.cell ?? '') === cellFilter)
     if (!text) return base.slice(0, 200)
@@ -145,9 +140,8 @@ export function ValveCardTicketPage() {
           (v.notes ?? '').toLowerCase().includes(text),
       )
       .slice(0, 200)
-  }, [valves, search, valveIdFilter, customerFilter, cellFilter])
+  }, [valves, search, valveIdQuery, valveIdSelected, customerFilter, cellFilter])
 
-  const valveIdOptions = useMemo(() => Array.from(new Set(valves.map((v) => v.valve_id))).sort(), [valves])
   const customerOptions = useMemo(
     () => Array.from(new Set(valves.map((v) => v.customer).filter((v): v is string => Boolean(v)))).sort(),
     [valves],
@@ -278,7 +272,7 @@ export function ValveCardTicketPage() {
   }
 
   const printTicket = (valve: Valve) => {
-    printPreview(valve)
+    printPdf(valve)
   }
 
   const copySelectedLink = async () => {
@@ -301,14 +295,82 @@ export function ValveCardTicketPage() {
       <section className="dashboard-panel ticket-layout">
         <div className="ticket-list-pane">
           <div className="ticket-tools">
-            <select value={valveIdFilter} onChange={(e) => setValveIdFilter(e.target.value)}>
-              <option value="">All Valve IDs</option>
-              {valveIdOptions.map((value) => (
-                <option key={value} value={value}>
-                  {value}
-                </option>
-              ))}
-            </select>
+            <div className="ticket-valve-id-field" ref={valveIdRootRef}>
+              <label>
+                <span>Valve ID</span>
+                <div className="job-board-wo-combobox ticket-valve-id-combobox">
+                <input
+                  type="text"
+                  role="combobox"
+                  aria-expanded={valveIdOpen}
+                  aria-controls={valveIdListId}
+                  aria-autocomplete="list"
+                  placeholder="Type to search valve ID…"
+                  value={valveIdSelected || valveIdQuery}
+                  onChange={(event) => {
+                    setValveIdSelected('')
+                    setValveIdQuery(event.target.value)
+                    setValveIdOpen(true)
+                  }}
+                  onFocus={() => setValveIdOpen(true)}
+                  onKeyDown={(event) => {
+                    if (event.key === 'Escape') {
+                      setValveIdOpen(false)
+                      return
+                    }
+                    if (event.key === 'Enter' && valveIdSuggestions[0]) {
+                      event.preventDefault()
+                      const valve = valveIdSuggestions[0]
+                      setValveIdSelected(valve.valve_id)
+                      setValveIdQuery(valve.valve_id)
+                      setSelectedId(valve.id)
+                      setValveIdOpen(false)
+                    }
+                  }}
+                />
+                {valveIdSelected || valveIdQuery ? (
+                  <button
+                    type="button"
+                    className="job-board-wo-clear"
+                    onClick={() => {
+                      setValveIdSelected('')
+                      setValveIdQuery('')
+                      setValveIdOpen(false)
+                    }}
+                    aria-label="Clear valve ID filter"
+                  >
+                    ×
+                  </button>
+                ) : null}
+                {valveIdOpen && valveIdQuery.trim() && !valveIdSelected && valveIdSuggestions.length > 0 ? (
+                  <ul className="job-board-wo-suggestions" id={valveIdListId} role="listbox">
+                    {valveIdSuggestions.map((valve) => (
+                      <li key={valve.id} role="none">
+                        <button
+                          type="button"
+                          role="option"
+                          className="job-board-wo-suggestion"
+                          onMouseDown={(event) => event.preventDefault()}
+                          onClick={() => {
+                            setValveIdSelected(valve.valve_id)
+                            setValveIdQuery(valve.valve_id)
+                            setSelectedId(valve.id)
+                            setValveIdOpen(false)
+                          }}
+                        >
+                          <strong>{valve.valve_id}</strong>
+                          <span>{valve.customer ?? 'Unknown customer'}</span>
+                          {valve.status ? (
+                            <span className="job-board-wo-suggestion-status">{valve.status}</span>
+                          ) : null}
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+                ) : null}
+              </div>
+              </label>
+            </div>
             <select value={customerFilter} onChange={(e) => setCustomerFilter(e.target.value)}>
               <option value="">All Customers</option>
               {customerOptions.map((value) => (
@@ -358,9 +420,14 @@ export function ValveCardTicketPage() {
                   <>
               <div className="ticket-preview-head">
                 <h3>{selected.valve_id}</h3>
-                <button type="button" className="button-secondary ticket-copy-link-btn" onClick={() => void copySelectedLink()}>
-                  <span aria-hidden>📋</span> Copy link
-                </button>
+                <div className="ticket-preview-head-actions">
+                  <button type="button" className="button-primary" onClick={() => printPdf(selected)}>
+                    Print production card
+                  </button>
+                  <button type="button" className="button-secondary ticket-copy-link-btn" onClick={() => void copySelectedLink()}>
+                    <span aria-hidden>📋</span> Copy link
+                  </button>
+                </div>
               </div>
               <p>
                 <strong>Job type:</strong> {jobType}
@@ -523,26 +590,12 @@ export function ValveCardTicketPage() {
                 >
                   Download PDF
                 </button>
-                <button
-                  type="button"
-                  className="button-secondary"
-                  disabled={printingBrother}
-                  onClick={() => void printBrotherUsb(selected)}
-                >
-                  {printingBrother ? 'Printing…' : 'Brother USB print'}
-                </button>
-                <button type="button" className="button-secondary" onClick={() => printPreview(selected)}>
-                  Browser print preview
-                </button>
               </div>
               <p className="status-breakdown-note ticket-print-hint">
                 <strong>Recommended:</strong> use <strong>Print production card</strong> or{' '}
-                <strong>Download PDF</strong> on 4&quot;&nbsp;&times;&nbsp;3&quot; card stock (matches the blue grid
-                card). Print at <strong>100% scale</strong> — do not shrink to fit.
-              </p>
-              <p className="status-breakdown-note">
-                <strong>Brother USB print</strong> uses the same grid layout on 62&nbsp;mm tape (narrower). For full-size
-                blue cards, use PDF or browser print preview.
+                <strong>Download PDF</strong> on 3.5&quot;&nbsp;&times;&nbsp;3&quot; card stock. In the print dialog,
+                pick that paper size (or a custom size) and print at <strong>100% scale</strong> — do not shrink to fit.
+                A label printer (e.g. Brother QL tape) is narrower than the card and will clip the layout.
               </p>
                   </>
                 )

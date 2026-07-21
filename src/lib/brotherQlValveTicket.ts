@@ -52,7 +52,7 @@ function estimateCanvasHeightPx(valve: Valve, widthPx: number): number {
   const maxWidth = widthPx - 16
   let y = 52
   ctx.font = '18px Arial'
-  y = wrapText(ctx, card.description, left, y, maxWidth, 20) + 36
+  y = wrapText(ctx, card.description, left, y, maxWidth, 20) + 48
   ctx.font = 'bold 20px Arial'
   y = wrapText(ctx, card.customer, left, y, maxWidth, 24) + 12
   return Math.max(minHeight, y)
@@ -67,9 +67,11 @@ function renderValveTicketCanvas(valve: Valve, widthPx: number, heightPx: number
 
   const card = buildValveTicketCardModel(valve)
   const half = Math.floor(widthPx / 2)
-  const row1 = Math.round(heightPx * 0.28)
-  const row2 = Math.round(heightPx * 0.24)
-  const row3 = Math.round(heightPx * 0.2)
+  const row1 = Math.round(heightPx * 0.24)
+  const row2 = Math.round(heightPx * 0.18)
+  const row3 = Math.round(heightPx * 0.12)
+  const row4 = Math.round(heightPx * 0.12)
+  const row5 = Math.round(heightPx * 0.12)
 
   ctx.fillStyle = '#ffffff'
   ctx.fillRect(0, 0, widthPx, heightPx)
@@ -79,14 +81,19 @@ function renderValveTicketCanvas(valve: Valve, widthPx: number, heightPx: number
 
   const y1 = row1
   const y2 = row1 + row2
-  const y3 = row1 + row2 + row3
+  const y3 = y2 + row3
+  const y4 = y3 + row4
+  const y5 = y4 + row5
 
   ctx.lineWidth = 1
   drawGridLine(ctx, 0, y1, widthPx, y1)
   drawGridLine(ctx, 0, y2, widthPx, y2)
   drawGridLine(ctx, 0, y3, widthPx, y3)
+  drawGridLine(ctx, 0, y4, widthPx, y4)
+  drawGridLine(ctx, 0, y5, widthPx, y5)
   drawGridLine(ctx, half, 0, half, y1)
-  drawGridLine(ctx, half, y2, half, y3)
+  drawGridLine(ctx, half, y1, half, y3)
+  drawGridLine(ctx, half, y4, half, y5)
 
   ctx.fillStyle = '#000000'
   ctx.textBaseline = 'top'
@@ -99,16 +106,26 @@ function renderValveTicketCanvas(valve: Valve, widthPx: number, heightPx: number
   ctx.font = '16px Arial'
   ctx.fillText(card.dueLabel, half + 8, 28)
 
-  ctx.font = '16px Arial'
-  wrapText(ctx, card.description, 8, y1 + 8, widthPx - 16, 18)
+  ctx.font = 'bold 14px Arial'
+  ctx.fillText('Size:', 8, y1 + 8)
+  ctx.font = 'bold 16px Arial'
+  wrapText(ctx, card.size, half + 8, y1 + 8, half - 12, 18)
 
   ctx.font = 'bold 14px Arial'
-  ctx.fillText('Work Cell:', 8, y2 + 10)
+  ctx.fillText('Pressure:', 8, y2 + 8)
   ctx.font = 'bold 16px Arial'
-  wrapText(ctx, card.workCell, half + 8, y2 + 10, half - 12, 18)
+  wrapText(ctx, card.pressureClass, half + 8, y2 + 8, half - 12, 18)
+
+  ctx.font = '16px Arial'
+  wrapText(ctx, card.description, 8, y3 + 8, widthPx - 16, 18)
+
+  ctx.font = 'bold 14px Arial'
+  ctx.fillText('Work Cell:', 8, y4 + 8)
+  ctx.font = 'bold 16px Arial'
+  wrapText(ctx, card.workCell, half + 8, y4 + 8, half - 12, 18)
 
   ctx.font = 'bold 22px Arial'
-  wrapText(ctx, card.customer, 8, y3 + 10, widthPx - 16, 24)
+  wrapText(ctx, card.customer, 8, y5 + 8, widthPx - 16, 24)
 
   return canvas
 }
