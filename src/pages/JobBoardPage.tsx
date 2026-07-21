@@ -66,6 +66,13 @@ function dueDateLabel(raw: string | null): string | null {
   return trimmed
 }
 
+function formatShortDate(raw: string | null | undefined): string | null {
+  const value = String(raw ?? '').trim().slice(0, 10)
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return null
+  const [, month, day] = value.split('-')
+  return `${month}/${day}`
+}
+
 function isDueDateOverdue(raw: string | null): boolean {
   const label = dueDateLabel(raw)
   if (!label) return false
@@ -150,8 +157,13 @@ function KanbanJobCard({
         : isDueSoon(valve.due_date)
           ? ' job-card-urgency-soon'
           : ''
+  const isInTesting = valve.status === 'Testing'
+  const testedDateLabel = formatShortDate(valve.date_tested)
+  const showTestedBadge = Boolean(testedDateLabel) && !isInTesting
   return (
-    <div className={`job-card${urgencyClass} ${priorityIds.has(valve.valve_id) ? 'priority' : ''}`}>
+    <div
+      className={`job-card${urgencyClass}${isInTesting ? ' job-card-in-testing' : ''}${showTestedBadge ? ' job-card-was-tested' : ''} ${priorityIds.has(valve.valve_id) ? 'priority' : ''}`}
+    >
       <div className="job-card-reorder-bar" onMouseDown={(e) => e.stopPropagation()}>
         <div className="job-card-reorder-buttons">
           <button
@@ -205,6 +217,21 @@ function KanbanJobCard({
           <div className="job-card-turnaround-flag">Turnaround</div>
         ) : null}
         <div className="job-card-job-type-badge">{normalizeJobType(valve.job_type)}</div>
+        {isInTesting || showTestedBadge ? (
+          <div className="job-card-test-flags">
+            {isInTesting ? (
+              <span className="job-card-testing-badge" title="Currently in the test area">
+                In testing
+                {testedDateLabel ? ` · ${testedDateLabel}` : ''}
+              </span>
+            ) : null}
+            {showTestedBadge ? (
+              <span className="job-card-tested-badge" title={`Shop date tested: ${valve.date_tested}`}>
+                Tested {testedDateLabel}
+              </span>
+            ) : null}
+          </div>
+        ) : null}
         <div className="job-id">{valve.valve_id}</div>
         <div className="job-muted truncate">{valve.customer ?? 'Unknown customer'}</div>
         <div className="job-muted small">{valve.cell ?? 'No cell'}</div>
@@ -1231,7 +1258,16 @@ export function JobBoardPage({ role, username }: { role?: UserRole; username?: s
                     <td>{valve.size ?? '-'}</td>
                     <td>{isTurnaroundValve(valve) ? 'Yes' : '—'}</td>
                     <td>
-                      <StatusBadge status={valve.status} />
+                      <div className="list-status-cell">
+                        <StatusBadge status={valve.status} />
+                        {valve.status === 'Testing' ? (
+                          <span className="job-card-testing-badge">In testing</span>
+                        ) : valve.date_tested ? (
+                          <span className="job-card-tested-badge" title={`Shop date tested: ${valve.date_tested}`}>
+                            Tested {formatShortDate(valve.date_tested) ?? valve.date_tested}
+                          </span>
+                        ) : null}
+                      </div>
                     </td>
                     <td>
                       {technicianIdsForValve(valve).length > 0 ? (

@@ -17,9 +17,19 @@ function isOverdue(raw: string | null): boolean {
 }
 
 export function TechJobCard({ job, readOnly = false, onStatusChange }: TechJobCardProps) {
+  const inTesting = job.status === 'Testing'
+  const testedOn = job.date_tested?.trim() || null
   return (
-    <article className="dashboard-panel">
+    <article className={`dashboard-panel${inTesting ? ' tech-job-card-in-testing' : ''}`}>
       <h4>{job.valve_id}</h4>
+      {inTesting || testedOn ? (
+        <p className="tech-job-card-test-flags">
+          {inTesting ? <span className="job-card-testing-badge">In testing</span> : null}
+          {!inTesting && testedOn ? (
+            <span className="job-card-tested-badge">Tested {testedOn.slice(0, 10)}</span>
+          ) : null}
+        </p>
+      ) : null}
       <p>
         <strong>Customer:</strong> {job.customer ?? '—'}
       </p>
