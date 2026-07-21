@@ -197,19 +197,6 @@ export function LoginPage({ onLogin }: LoginPageProps) {
         <button className="button-primary" type="submit" disabled={saving}>
           {saving ? 'Signing in…' : 'Sign in'}
         </button>
-        {import.meta.env.DEV || import.meta.env.VITE_ENABLE_GENERIC_ADMIN_LOGIN === 'true' ? (
-          <button
-            type="button"
-            className="button-secondary"
-            style={{ marginTop: 8 }}
-            disabled={saving}
-            onClick={() => {
-              void onLogin({ localRole: 'admin', username: 'Generic Admin' })
-            }}
-          >
-            Continue as Admin (local)
-          </button>
-        ) : null}
         <button
           type="button"
           style={{

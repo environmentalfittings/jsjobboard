@@ -5,7 +5,7 @@ import { JOB_TYPES, isValveRelatedJobType, normalizeJobType } from '../constants
 import { LOOKUP_CATEGORY_DEFS, type LookupCategory } from '../constants/lookupCategories'
 import { STATUS_ORDER } from '../constants/statuses'
 import { loadLookupOptionsMap } from '../lib/lookupValues'
-import { can, hasAdminAccess } from '../lib/roles'
+import { hasAdminAccess } from '../lib/roles'
 import { TEST_PROCEDURE_OTHER } from '../lib/testLogProcedure'
 import { openValveTicketPdfForPrint } from '../lib/valveTicketPrint'
 import { supabase } from '../lib/supabase'
