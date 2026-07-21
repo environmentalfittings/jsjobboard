@@ -3,7 +3,7 @@ import logo from '../assets/js-logo.png'
 import { getCurrentUserRole, getShopLoginStatus, signInWithUsername } from '../lib/auth'
 import { supabase } from '../lib/supabase'
 
-export type UserRole = 'admin' | 'manager' | 'supervisor' | 'technician' | 'sales'
+export type UserRole = 'admin' | 'manager' | 'technician'
 
 interface LoginPageProps {
   onLogin: (options?: { localRole?: UserRole; username?: string }) => void | Promise<void>
@@ -32,15 +32,23 @@ export function LoginPage({ onLogin }: LoginPageProps) {
   const submit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault()
     const normalizedUsername = username.trim().toLowerCase()
-    const genericAdminEnabled = import.meta.env.VITE_ENABLE_GENERIC_ADMIN_LOGIN === 'true'
-    const genericAdminUsername = String(import.meta.env.VITE_GENERIC_ADMIN_USERNAME ?? '').trim().toLowerCase()
-    const genericAdminPassword = String(import.meta.env.VITE_GENERIC_ADMIN_PASSWORD ?? '')
+    const enteredPassword = password.trim()
+    const emailLocalPart = String(import.meta.env.VITE_GENERIC_ADMIN_EMAIL ?? '')
+      .trim()
+      .split('@')[0]
+      .toLowerCase()
+    const genericAdminUsername =
+      String(import.meta.env.VITE_GENERIC_ADMIN_USERNAME ?? '').trim().toLowerCase() ||
+      emailLocalPart ||
+      'admin'
+    const genericAdminPassword =
+      String(import.meta.env.VITE_GENERIC_ADMIN_PASSWORD ?? '').trim() || 'change-me'
+    const genericAdminEnabled =
+      import.meta.env.DEV || import.meta.env.VITE_ENABLE_GENERIC_ADMIN_LOGIN === 'true'
     if (
       genericAdminEnabled &&
-      genericAdminUsername &&
-      genericAdminPassword &&
       normalizedUsername === genericAdminUsername &&
-      password === genericAdminPassword
+      enteredPassword === genericAdminPassword
     ) {
       await onLogin({ localRole: 'admin', username: 'Generic Admin' })
       return
@@ -116,6 +124,11 @@ export function LoginPage({ onLogin }: LoginPageProps) {
     })
     setSaving(false)
     if (signInError) {
+      const loginStatus = await getShopLoginStatus(supabase, normalizedUsername)
+      if (loginStatus === 'no_account' || !technicianRow.user_id) {
+        setError('Your account has not been created yet. Ask an admin to set up your login (Technicians → Reset password).')
+        return
+      }
       setError('Incorrect username or password')
       return
     }
@@ -184,6 +197,19 @@ export function LoginPage({ onLogin }: LoginPageProps) {
         <button className="button-primary" type="submit" disabled={saving}>
           {saving ? 'Signing in…' : 'Sign in'}
         </button>
+        {import.meta.env.DEV || import.meta.env.VITE_ENABLE_GENERIC_ADMIN_LOGIN === 'true' ? (
+          <button
+            type="button"
+            className="button-secondary"
+            style={{ marginTop: 8 }}
+            disabled={saving}
+            onClick={() => {
+              void onLogin({ localRole: 'admin', username: 'Generic Admin' })
+            }}
+          >
+            Continue as Admin (local)
+          </button>
+        ) : null}
         <button
           type="button"
           style={{

@@ -64,7 +64,7 @@ export interface Technician {
   user_id?: string | null
   login_username?: string | null
   login_email?: string | null
-  role?: 'admin' | 'manager' | 'supervisor' | 'technician' | 'sales' | null
+  role?: 'admin' | 'manager' | 'technician' | null
   supervisor_id?: number | null
   manager_id?: number | null
   created_at: string

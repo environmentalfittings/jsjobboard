@@ -134,7 +134,7 @@ VALUES
   ('000942', 'Randy',       'Wolf',         'Randy Wolf',         'rwolf',         'RW'),
   ('000891', 'Joel',        'Owens Jr.',    'Joel Owens',         'jowens',        'JO'),
   ('000847', 'Coy',         'Belden',       'Coy Belden',         'cbelden',       'COB'),
-  ('000899', 'Brian M.',    'Dunn',         'Brian Dunn',         'bdunn',         'BD'),
+  ('000899', 'Mike',        'Dunn',         'Mike Dunn',          'mdunn',         'MD'),
   ('000901', 'David L.',    'Hughes',       'David Hughes',       'dhughes',       'DH'),
   ('000894', 'Nicholas D.', 'Hughes',       'Nicholas Hughes',    'nhughes',       'NHU'),
   ('000908', 'Brayden K.',  'Humphries',    'Brayden Humphries',  'bhumphries',    'BH'),

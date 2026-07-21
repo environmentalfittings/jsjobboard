@@ -441,8 +441,12 @@ export function TestLogEntryForm({ onSaved, detailsColumnReady = null }: TestLog
     <section className="dashboard-panel test-log-entry-panel">
       {!entryStarted ? (
         <div className="test-log-entry-start">
-          <h3 className="test-log-entry-start-title">Enter test valve</h3>
-          <p className="test-log-entry-start-note">Enter the valve ID or work order number, then open the test form.</p>
+          <div className="test-log-entry-start-copy">
+            <h3 className="test-log-entry-start-title">Enter test valve</h3>
+            <p className="test-log-entry-start-note">
+              Enter the valve ID or work order number, then open the test form.
+            </p>
+          </div>
           <div className="test-log-entry-start-row">
             <label className="test-log-entry-start-field">
               Valve ID / W.O. #

@@ -8,7 +8,9 @@ import { ValveSelectionSection } from '../components/traveler/ValveSelectionSect
 import { ValveSpecsSection } from '../components/traveler/ValveSpecsSection'
 import { WeldingSection } from '../components/traveler/WeldingSection'
 import { useToast } from '../components/ToastNotification'
+import { useAuth } from '../contexts/AuthContext'
 import { getOrCreateTraveler, getTravelerBasicInfo, getTravelerSections, prefillTravelerBasicInfoFromValve } from '../hooks/useTraveler'
+import { canWriteShop } from '../lib/roles'
 import type { Traveler, TravelerBasicInfo, TravelerSectionStatus } from '../types/traveler'
 
 type TravelerSectionDef = {
@@ -46,6 +48,8 @@ function statusMeta(section: TravelerSectionStatus | undefined) {
 export function TravelerPage() {
   const { valveId } = useParams<{ valveId: string }>()
   const { showToast } = useToast()
+  const { role } = useAuth()
+  const canWrite = canWriteShop(role)
   const [loading, setLoading] = useState(true)
   const [traveler, setTraveler] = useState<Traveler | null>(null)
   const [basicInfo, setBasicInfo] = useState<TravelerBasicInfo | null>(null)
@@ -213,6 +217,9 @@ export function TravelerPage() {
         {traveler?.is_complete ? (
           <div className="traveler-overall-complete-banner">{`✅ Traveler Complete${travelerCompleteLabel ? ` — ${travelerCompleteLabel}` : ''}`}</div>
         ) : null}
+        {!canWrite ? (
+          <p className="placeholder-copy">View only — ask an Admin or Manager to change traveler data.</p>
+        ) : null}
         <div className="traveler-breadcrumb">{`Dashboard > Valve card / ticket > Traveler ${valveId}`}</div>
         <h3 className="traveler-valve-id">{valveId}</h3>
 
@@ -243,7 +250,13 @@ export function TravelerPage() {
                 </button>
                 {openSections[section.key] ? (
                   <div className="traveler-accordion-content">
-                    {renderSectionContent(section.key)}
+                    {canWrite ? (
+                      renderSectionContent(section.key)
+                    ) : (
+                      <fieldset disabled className="shop-view-only-fieldset">
+                        {renderSectionContent(section.key)}
+                      </fieldset>
+                    )}
                   </div>
                 ) : null}
               </article>

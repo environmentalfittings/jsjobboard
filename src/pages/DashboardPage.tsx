@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { DashboardNotesPanel } from '../components/DashboardNotesPanel'
 import { useToast } from '../components/ToastNotification'
+import { useAuth } from '../contexts/AuthContext'
 import {
   calcActiveJobsByCell,
   calcActiveStatusBreakdown,
@@ -14,6 +15,7 @@ import { displayJobStatus } from '../lib/jobDisplayStatus'
 import { isGaugeCalibrationCriticallyOverdue, loadActiveTestGauges } from '../lib/testGaugeRegistry'
 import type { TestGauge } from '../types/testGauge'
 import { isEligiblePriorityValve, syncPriorityQueueWithValves } from '../lib/priorityQueue'
+import { canWriteShop, permissionDeniedReason } from '../lib/roles'
 import { supabase } from '../lib/supabase'
 import type { Valve } from '../types'
 import logo from '../assets/js-logo.png'
@@ -29,6 +31,8 @@ type RecentTestedRow = {
 
 export function DashboardPage() {
   const navigate = useNavigate()
+  const { role } = useAuth()
+  const canWrite = canWriteShop(role)
   const [valves, setValves] = useState<Valve[]>([])
   const [recentTested, setRecentTested] = useState<RecentTestedRow[]>([])
   const [priorityQueueIds, setPriorityQueueIds] = useState<string[]>([])
@@ -137,6 +141,10 @@ export function DashboardPage() {
   }, [priorityQueueIds, valves])
 
   const persistPriorityOrder = async (nextOrder: string[]) => {
+    if (!canWrite) {
+      showToast(permissionDeniedReason('shopWrite'))
+      return
+    }
     const unique = Array.from(new Set(nextOrder))
     const previous = priorityQueueIds
     setPriorityQueueIds(unique)
@@ -468,11 +476,18 @@ export function DashboardPage() {
                 <article
                   key={row.id}
                   className={`priority-row ${dragPriorityId === row.valve_id ? 'dragging' : ''}`}
-                  draggable
-                  onDragStart={() => setDragPriorityId(row.valve_id)}
+                  draggable={canWrite}
+                  onDragStart={() => {
+                    if (!canWrite) return
+                    setDragPriorityId(row.valve_id)
+                  }}
                   onDragEnd={() => setDragPriorityId(null)}
-                  onDragOver={(event) => event.preventDefault()}
+                  onDragOver={(event) => {
+                    if (!canWrite) return
+                    event.preventDefault()
+                  }}
                   onDrop={async (event) => {
+                    if (!canWrite) return
                     event.preventDefault()
                     const draggedId = dragPriorityId
                     setDragPriorityId(null)
@@ -534,7 +549,7 @@ export function DashboardPage() {
             Manage priorities on Job Board
           </Link>
           </section>
-          <DashboardNotesPanel />
+          <DashboardNotesPanel readOnly={!canWrite} />
         </aside>
       </div>
       <div className="dashboard-actions">

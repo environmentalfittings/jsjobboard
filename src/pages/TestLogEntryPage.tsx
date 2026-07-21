@@ -1,14 +1,29 @@
 import { Fragment, useEffect, useState } from 'react'
 import { TestLogEntryForm } from '../components/testLog/TestLogEntryForm'
 import { TestLogReportsSection } from '../components/testLog/TestLogReportsSection'
+import { useAuth } from '../contexts/AuthContext'
+import { canWriteShop } from '../lib/roles'
 import { normalizeValveId } from '../lib/valveId'
 import { supabase } from '../lib/supabase'
-import { TEST_LOG_DETAILS_MIGRATION, testLogHasDetailsColumn, testLogSelectColumns } from '../lib/testLogSchema'
+import { testLogHasDetailsColumn, testLogSelectColumns } from '../lib/testLogSchema'
 import { formatTestProceduresSummary, parseTestLogTestingDetails, resolveTestMedia } from '../types/testLog'
 import { formatCheckedStandardsSummary, formatTestPressuresSummary } from '../lib/testStandardParams'
 import type { TestLogEntry } from '../types'
 
+const TEST_LOG_DETAILS_SQL = `alter table public.test_logs
+  add column if not exists testing_details jsonb;`
+
+function supabaseSqlEditorUrl() {
+  const url = import.meta.env.VITE_SUPABASE_URL as string | undefined
+  const projectRef = url?.match(/^https:\/\/([^.]+)\.supabase\.co/i)?.[1]
+  return projectRef
+    ? `https://supabase.com/dashboard/project/${projectRef}/sql/new`
+    : 'https://supabase.com/dashboard'
+}
+
 export function TestLogEntryPage() {
+  const { role } = useAuth()
+  const canWrite = canWriteShop(role)
   const [rows, setRows] = useState<TestLogEntry[]>([])
   const [valveSearch, setValveSearch] = useState('')
   const [filterStartDate, setFilterStartDate] = useState('')
@@ -69,18 +84,32 @@ export function TestLogEntryPage() {
       </div>
 
       {detailsColumnReady === false ? (
-        <p className="status-breakdown-note test-log-schema-warning" role="status">
-          Database update required: run <code>{TEST_LOG_DETAILS_MIGRATION}</code> in the Supabase SQL Editor before
-          saving new test log entries. Recent entries will show without structured testing details until then.
-        </p>
+        <div className="status-breakdown-note test-log-schema-warning" role="status">
+          <p>
+            <strong>Database update required</strong> before saving full test log details. Open the{' '}
+            <a href={supabaseSqlEditorUrl()} target="_blank" rel="noreferrer">
+              Supabase SQL Editor
+            </a>
+            , paste this, and click <strong>Run</strong>:
+          </p>
+          <pre className="test-log-schema-sql">{TEST_LOG_DETAILS_SQL}</pre>
+          <p>Then refresh this page — the warning should disappear.</p>
+        </div>
       ) : null}
 
-      <TestLogEntryForm detailsColumnReady={detailsColumnReady} onSaved={() => void loadRows()} />
+      {canWrite ? (
+        <TestLogEntryForm detailsColumnReady={detailsColumnReady} onSaved={() => void loadRows()} />
+      ) : (
+        <p className="placeholder-copy">View only — ask an Admin or Manager to enter or change test logs.</p>
+      )}
 
-      <section className="dashboard-panel">
-        <h3>Recent test log entries</h3>
-        <div className="report-filters">
-          <label>
+      <section className="dashboard-panel test-log-recent-panel">
+        <div className="test-log-recent-header">
+          <h3>Recent test log entries</h3>
+          <p className="test-log-recent-meta">Showing up to 300 rows · click a row for details</p>
+        </div>
+        <div className="report-filters test-log-recent-filters">
+          <label className="test-log-recent-search">
             Search valve ID
             <input
               type="text"
@@ -96,38 +125,37 @@ export function TestLogEntryPage() {
             </datalist>
           </label>
           <label>
-            From date (optional)
+            From date
             <input type="date" value={filterStartDate} onChange={(e) => setFilterStartDate(e.target.value)} />
           </label>
           <label>
-            To date (optional)
+            To date
             <input type="date" value={filterEndDate} onChange={(e) => setFilterEndDate(e.target.value)} />
           </label>
-          <button type="button" className="button-primary" onClick={() => void loadRows()} disabled={loadingRows}>
-            {loadingRows ? 'Filtering…' : 'Apply filters'}
-          </button>
-          <button
-            type="button"
-            className="button-secondary"
-            onClick={() => {
-              setValveSearch('')
-              setFilterStartDate('')
-              setFilterEndDate('')
-              void loadRows('')
-            }}
-          >
-            Clear
-          </button>
+          <div className="test-log-recent-filter-actions">
+            <button type="button" className="button-primary" onClick={() => void loadRows()} disabled={loadingRows}>
+              {loadingRows ? 'Filtering…' : 'Apply filters'}
+            </button>
+            <button
+              type="button"
+              className="button-secondary"
+              onClick={() => {
+                setValveSearch('')
+                setFilterStartDate('')
+                setFilterEndDate('')
+                void loadRows('')
+              }}
+            >
+              Clear
+            </button>
+          </div>
         </div>
-        <p className="status-breakdown-note">Showing up to 300 rows.</p>
         <div className="dashboard-table-wrap">
-          <table className="dashboard-table">
+          <table className="dashboard-table test-log-recent-table">
             <thead>
               <tr>
                 <th>Date</th>
                 <th>Valve ID</th>
-                <th>Standard</th>
-                <th>Test pressures</th>
                 <th>Test medium</th>
                 <th>Pass/Fail</th>
                 <th>Tester</th>
@@ -160,20 +188,6 @@ export function TestLogEntryPage() {
                         {row.tested_on}
                       </td>
                       <td>{row.valve_id}</td>
-                      <td>
-                        {details?.testStandardParams?.checkedStandards?.length
-                          ? formatCheckedStandardsSummary(details.testStandardParams.checkedStandards)
-                          : '—'}
-                      </td>
-                      <td>
-                        {details?.testStandardParams
-                          ? formatTestPressuresSummary({
-                              shellPressure: details.testStandardParams.shellPressure,
-                              hpSeatPressure: details.testStandardParams.hpSeatPressure,
-                              lpSeatPressure: details.testStandardParams.lpSeatPressure,
-                            })
-                          : '—'}
-                      </td>
                       <td>{row.test_type ?? '-'}</td>
                       <td>{row.pass_fail ?? '-'}</td>
                       <td>{row.tester ?? '-'}</td>
@@ -181,7 +195,7 @@ export function TestLogEntryPage() {
                     </tr>
                     {isExpanded ? (
                       <tr className="test-log-detail-row">
-                        <td colSpan={8}>
+                        <td colSpan={6}>
                           <div className="test-log-detail-panel">
                             <div className="test-log-detail-grid">
                               <div className="test-log-detail-item">
@@ -198,6 +212,38 @@ export function TestLogEntryPage() {
                                   }
                                 >
                                   {row.pressure ?? '—'}
+                                </span>
+                              </div>
+                              <div className="test-log-detail-item">
+                                <span className="test-log-detail-label">Standard</span>
+                                <span
+                                  className={
+                                    details?.testStandardParams?.checkedStandards?.length
+                                      ? 'test-log-detail-value'
+                                      : 'test-log-detail-value test-log-detail-empty'
+                                  }
+                                >
+                                  {details?.testStandardParams?.checkedStandards?.length
+                                    ? formatCheckedStandardsSummary(details.testStandardParams.checkedStandards)
+                                    : '—'}
+                                </span>
+                              </div>
+                              <div className="test-log-detail-item">
+                                <span className="test-log-detail-label">Test pressures</span>
+                                <span
+                                  className={
+                                    details?.testStandardParams
+                                      ? 'test-log-detail-value'
+                                      : 'test-log-detail-value test-log-detail-empty'
+                                  }
+                                >
+                                  {details?.testStandardParams
+                                    ? formatTestPressuresSummary({
+                                        shellPressure: details.testStandardParams.shellPressure,
+                                        hpSeatPressure: details.testStandardParams.hpSeatPressure,
+                                        lpSeatPressure: details.testStandardParams.lpSeatPressure,
+                                      })
+                                    : '—'}
                                 </span>
                               </div>
                               <div className="test-log-detail-item">

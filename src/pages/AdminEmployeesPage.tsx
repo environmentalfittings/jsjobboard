@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { useToast } from '../components/ToastNotification'
 import { validateEmployeePassword } from '../lib/auth'
+import { loadEmployeeAccountStatus } from '../lib/employeeAccounts'
 import { supabase } from '../lib/supabase'
 import { useEmployees } from '../hooks/useEmployees'
 import type { Employee, EmployeeAccountStatus, EmployeeAuthStatus } from '../types/employees'
@@ -77,14 +78,22 @@ export function AdminEmployeesPage({ isAdmin }: { isAdmin: boolean }) {
     const map: Record<string, EmployeeAccountStatus> = {}
 
     if (employeeIds.length) {
-      try {
-        const payload = await invokeManageEmployeeAccount({ action: 'status', employee_ids: employeeIds })
-        for (const row of payload.rows ?? []) {
-          map[row.employee_id] = row
-        }
-      } catch {
-        for (const id of employeeIds) {
-          map[id] = { employee_id: id, last_sign_in_at: null }
+      const statusRows = await loadEmployeeAccountStatus(employeeIds)
+      for (const row of statusRows) {
+        map[row.employee_id] = row
+      }
+    }
+
+    // Current session always has last_sign_in_at — fill it in even if RPC is missing.
+    const { data: me } = await supabase.auth.getUser()
+    const myId = me.user?.id
+    const myLastSignIn = me.user?.last_sign_in_at ?? null
+    if (myId && myLastSignIn) {
+      const mine = rows.find((row) => row.auth_user_id === myId)
+      if (mine) {
+        map[mine.id] = {
+          employee_id: mine.id,
+          last_sign_in_at: map[mine.id]?.last_sign_in_at || myLastSignIn,
         }
       }
     }
@@ -122,6 +131,10 @@ export function AdminEmployeesPage({ isAdmin }: { isAdmin: boolean }) {
   }
 
   const handleCreate = async () => {
+    if (!isAdmin) {
+      showToast('Only Admin can create employee accounts')
+      return
+    }
     if (!createTarget) return
     const validation = validateEmployeePassword(createPassword, createConfirm)
     if (validation) {
@@ -152,6 +165,10 @@ export function AdminEmployeesPage({ isAdmin }: { isAdmin: boolean }) {
   }
 
   const handleReset = async () => {
+    if (!isAdmin) {
+      showToast('Only Admin can reset passwords')
+      return
+    }
     if (!resetTarget) return
     const validation = validateEmployeePassword(resetPassword, resetConfirm)
     if (validation) {
@@ -179,6 +196,10 @@ export function AdminEmployeesPage({ isAdmin }: { isAdmin: boolean }) {
   }
 
   const handleDeactivate = async () => {
+    if (!isAdmin) {
+      showToast('Only Admin can deactivate employees')
+      return
+    }
     if (!deactivateTarget) return
     setBusy(true)
     try {
@@ -198,6 +219,10 @@ export function AdminEmployeesPage({ isAdmin }: { isAdmin: boolean }) {
   }
 
   const handleBulkCreate = async () => {
+    if (!isAdmin) {
+      showToast('Only Admin can create employee accounts')
+      return
+    }
     const validation = validateEmployeePassword(bulkPassword, bulkConfirm)
     if (validation) {
       showToast(validation)

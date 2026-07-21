@@ -1,12 +1,16 @@
 import { useEffect, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { ItpPlanEditor } from '../components/ItpPlanEditor'
+import { useAuth } from '../contexts/AuthContext'
+import { canWriteShop } from '../lib/roles'
 import { supabase } from '../lib/supabase'
 import { VALVE_LIST_SELECT } from '../lib/valveSelect'
 import type { Valve } from '../types'
 
 export function ItpPage() {
   const navigate = useNavigate()
+  const { role } = useAuth()
+  const canWrite = canWriteShop(role)
   const { id } = useParams<{ id: string }>()
   const [loading, setLoading] = useState(true)
   const [valve, setValve] = useState<Valve | null>(null)
@@ -63,5 +67,5 @@ export function ItpPage() {
     )
   }
 
-  return <ItpPlanEditor valve={valve} onClose={closeItp} />
+  return <ItpPlanEditor valve={valve} onClose={closeItp} readOnly={!canWrite} />
 }

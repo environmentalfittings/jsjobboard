@@ -47,6 +47,21 @@ Deno.serve(async (req) => {
 
   const adminClient = createClient(supabaseUrl, serviceRoleKey)
 
+  async function callerIsShopAdmin(userId: string) {
+    const jwtRole = String(
+      callerData.user?.app_metadata?.role ?? callerData.user?.user_metadata?.role ?? '',
+    ).toLowerCase()
+    if (jwtRole === 'admin') return true
+
+    const [{ data: profile }, { data: tech }] = await Promise.all([
+      adminClient.from('profiles').select('role').eq('id', userId).maybeSingle(),
+      adminClient.from('technicians').select('role').eq('user_id', userId).maybeSingle(),
+    ])
+    if (String(profile?.role ?? '').toLowerCase() === 'admin') return true
+    if (String(tech?.role ?? '').toLowerCase() === 'admin') return true
+    return false
+  }
+
   let body: {
     action?: string
     employee_id?: string
@@ -92,6 +107,13 @@ Deno.serve(async (req) => {
   const action = String(body.action ?? '')
   const employee_id = String(body.employee_id ?? '').trim()
 
+  if (action === 'create' || action === 'reset_password' || action === 'deactivate') {
+    const isAdmin = await callerIsShopAdmin(callerData.user.id)
+    if (!isAdmin) {
+      return json({ error: 'Only Admin can create accounts, reset passwords, or deactivate employees' }, 403)
+    }
+  }
+
   if (!employee_id) {
     return json({ error: 'employee_id is required' }, 400)
   }
@@ -120,7 +142,7 @@ Deno.serve(async (req) => {
       email,
       password,
       email_confirm: true,
-      user_metadata: { full_name, username, employee_id, role: 'admin' },
+      user_metadata: { full_name, username, employee_id, role: 'technician' },
     })
 
     if (error) return json({ error: error.message }, 400)
@@ -131,7 +153,7 @@ Deno.serve(async (req) => {
       id: data.user.id,
       employee_id,
       full_name,
-      role: 'admin',
+      role: 'technician',
     })
 
     const { data: existingTechnician } = await adminClient
@@ -140,6 +162,17 @@ Deno.serve(async (req) => {
       .eq('login_username', username)
       .maybeSingle()
 
+    // Prefer updating an existing name-matched row so we don't create duplicates.
+    const { data: nameMatch } = existingTechnician?.id
+      ? { data: null }
+      : await adminClient
+          .from('technicians')
+          .select('id')
+          .ilike('name', full_name)
+          .is('login_username', null)
+          .limit(1)
+          .maybeSingle()
+
     const technicianRow = {
       name: full_name,
       employee_id: employeeRow.employee_no,
@@ -147,11 +180,12 @@ Deno.serve(async (req) => {
       login_email: email,
       user_id: data.user.id,
       active: true,
-      role: 'admin',
+      role: 'technician',
     }
 
-    if (existingTechnician?.id) {
-      await adminClient.from('technicians').update(technicianRow).eq('id', existingTechnician.id)
+    const targetId = existingTechnician?.id ?? nameMatch?.id
+    if (targetId) {
+      await adminClient.from('technicians').update(technicianRow).eq('id', targetId)
     } else {
       await adminClient.from('technicians').insert(technicianRow)
     }

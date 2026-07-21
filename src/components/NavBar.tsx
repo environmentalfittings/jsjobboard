@@ -1,7 +1,7 @@
 import { useEffect, useId, useRef, useState, type ReactNode } from 'react'
 import { NavLink, useLocation } from 'react-router-dom'
 import type { UserRole } from '../pages/LoginPage'
-import { hasAdminAccess, canAccessTestLog, formatRolePillLabel } from '../lib/roles'
+import { can, formatRolePillLabel, permissionDeniedReason, type AppPermission } from '../lib/roles'
 import { isFeedbackEnabled } from '../lib/feedbackEnabled'
 import { FeedbackButton } from './FeedbackButton'
 import { NavMessagesMenu } from './NavMessagesMenu'
@@ -19,6 +19,8 @@ type NavDropdownItem = {
   label: string
   end?: boolean
   extra?: ReactNode
+  disabled?: boolean
+  disabledReason?: string
 }
 
 function NavDropdown({ label, items }: { label: string; items: NavDropdownItem[] }) {
@@ -28,6 +30,7 @@ function NavDropdown({ label, items }: { label: string; items: NavDropdownItem[]
   const location = useLocation()
 
   const isActive = items.some((item) => {
+    if (item.disabled) return false
     if (item.end) return location.pathname === item.to
     return location.pathname === item.to || location.pathname.startsWith(`${item.to}/`)
   })
@@ -69,19 +72,32 @@ function NavDropdown({ label, items }: { label: string; items: NavDropdownItem[]
       </button>
       {open ? (
         <div className="nav-dropdown-menu" id={menuId} role="menu">
-          {items.map((item) => (
-            <NavLink
-              key={item.to}
-              to={item.to}
-              end={item.end}
-              role="menuitem"
-              className={({ isActive: linkActive }) => `nav-dropdown-item ${linkActive ? 'active' : ''}`}
-              onClick={() => setOpen(false)}
-            >
-              <span>{item.label}</span>
-              {item.extra ?? null}
-            </NavLink>
-          ))}
+          {items.map((item) =>
+            item.disabled ? (
+              <span
+                key={item.to}
+                role="menuitem"
+                aria-disabled="true"
+                className="nav-dropdown-item nav-item-disabled"
+                title={item.disabledReason}
+              >
+                <span>{item.label}</span>
+                {item.extra ?? null}
+              </span>
+            ) : (
+              <NavLink
+                key={item.to}
+                to={item.to}
+                end={item.end}
+                role="menuitem"
+                className={({ isActive: linkActive }) => `nav-dropdown-item ${linkActive ? 'active' : ''}`}
+                onClick={() => setOpen(false)}
+              >
+                <span>{item.label}</span>
+                {item.extra ?? null}
+              </NavLink>
+            ),
+          )}
         </div>
       ) : null}
     </div>
@@ -92,7 +108,69 @@ function navLinkClass({ isActive }: { isActive: boolean }) {
   return `nav-link ${isActive ? 'active' : ''}`
 }
 
+function RestrictedNavLink({
+  to,
+  role,
+  permission,
+  children,
+}: {
+  to: string
+  role: UserRole
+  permission: AppPermission
+  children: ReactNode
+}) {
+  const allowed = can(role, permission)
+  if (!allowed) {
+    return (
+      <span className="nav-link nav-item-disabled" title={permissionDeniedReason(permission)} aria-disabled="true">
+        {children}
+      </span>
+    )
+  }
+  return (
+    <NavLink to={to} className={navLinkClass}>
+      {children}
+    </NavLink>
+  )
+}
+
 export function NavBar({ role, username, userId, onLogout }: NavBarProps) {
+  const adminItems: NavDropdownItem[] = [
+    {
+      to: '/reports',
+      label: 'Reports',
+      disabled: !can(role, 'viewReports'),
+      disabledReason: permissionDeniedReason('viewReports'),
+    },
+    { to: '/resources', label: 'Resources' },
+    {
+      to: '/technicians',
+      label: 'Technicians',
+      disabled: !can(role, 'manageTechnicians') && !can(role, 'openAdminTools'),
+      disabledReason: permissionDeniedReason('manageTechnicians'),
+    },
+    {
+      to: '/admin/employees',
+      label: 'Employees',
+    },
+    {
+      to: '/admin/lists',
+      label: 'Manage lists',
+      disabled: !can(role, 'manageLists'),
+      disabledReason: permissionDeniedReason('manageLists'),
+    },
+    ...(isFeedbackEnabled()
+      ? [
+          {
+            to: '/admin/feedback',
+            label: 'Feedback inbox',
+            disabled: !can(role, 'feedbackInbox'),
+            disabledReason: permissionDeniedReason('feedbackInbox'),
+          } satisfies NavDropdownItem,
+        ]
+      : []),
+  ]
+
   return (
     <header className="navbar">
       <div className="navbar-inner">
@@ -101,70 +179,24 @@ export function NavBar({ role, username, userId, onLogout }: NavBarProps) {
           <span>JS Valve Job Board</span>
         </div>
         <nav className="nav-main-links" aria-label="Main">
-          {hasAdminAccess(role) ? (
-            <>
-              <NavLink to="/dashboard" className={navLinkClass}>
-                Dashboard
-              </NavLink>
-              <NavLink to="/job-board" className={navLinkClass}>
-                Status board
-              </NavLink>
-              <NavDropdown
-                label="Valves"
-                items={[
-                  { to: '/received-valves', label: 'Received valves' },
-                  { to: '/test-log-entry', label: 'Test log entry' },
-                  { to: '/valve-card-ticket', label: 'Valve card / ticket' },
-                ]}
-              />
-              <NavDropdown
-                label="Admin"
-                items={[
-                  { to: '/reports', label: 'Reports' },
-                  { to: '/resources', label: 'Resources' },
-                  { to: '/technicians', label: 'Technicians' },
-                  { to: '/admin/employees', label: 'Employees' },
-                  { to: '/admin/lists', label: 'Manage lists' },
-                  ...(isFeedbackEnabled()
-                    ? [{ to: '/admin/feedback', label: 'Feedback inbox' }]
-                    : []),
-                ]}
-              />
-            </>
-          ) : role === 'supervisor' ? (
-            <>
-              <NavLink to="/supervisor-dashboard" className={navLinkClass}>
-                Supervisor dashboard
-              </NavLink>
-              <NavLink to="/job-board" className={navLinkClass}>
-                Status board
-              </NavLink>
-              <NavLink to="/test-log-entry" className={navLinkClass}>
-                Test log entry
-              </NavLink>
-            </>
-          ) : role === 'sales' ? (
-            <NavLink to="/job-board" className={navLinkClass}>
-              Status board
-            </NavLink>
-          ) : (
-            <>
-              <NavLink to="/my-work" className={navLinkClass}>
-                My Work
-              </NavLink>
-              <NavLink to="/job-board" className={navLinkClass}>
-                Status board
-              </NavLink>
-              <NavLink to="/admin/employees" className={navLinkClass}>
-                Employees
-              </NavLink>
-              {canAccessTestLog(role) ? (
-                <NavLink to="/test-log-entry" className={navLinkClass}>
-                  Test log entry
-                </NavLink>
-              ) : null}
-            </>
-          )}
+          <NavLink to="/dashboard" className={navLinkClass}>
+            Dashboard
+          </NavLink>
+          <NavLink to="/job-board" className={navLinkClass}>
+            Status board
+          </NavLink>
+          <RestrictedNavLink to="/new-job" role={role} permission="createJob">
+            New job
+          </RestrictedNavLink>
+          <NavDropdown
+            label="Valves"
+            items={[
+              { to: '/received-valves', label: 'Received valves' },
+              { to: '/test-log-entry', label: 'Test log entry' },
+              { to: '/valve-card-ticket', label: 'Valve card / ticket' },
+            ]}
+          />
+          <NavDropdown label="Admin" items={adminItems} />
         </nav>
         <div className="nav-session">
           <FeedbackButton username={username} role={role} />

@@ -293,6 +293,8 @@ export function StatusChangeModal({
   const activeTechnicians = useMemo(() => techniciansSorted.filter((t) => t.active), [techniciansSorted])
 
   const addTechnician = async () => {
+    if (!canEditJobDetails) return
+
     const techId = Number.parseInt(addingTechId, 10)
     if (!Number.isFinite(techId) || techId <= 0) return
     if (assignedTechDraft.includes(techId)) return
@@ -311,6 +313,8 @@ export function StatusChangeModal({
   }
 
   const removeTechnician = async (techId: number) => {
+    if (!canEditJobDetails) return
+
     setSavingAssignments(true)
     const { error } = await supabase
       .from('job_technicians')
@@ -707,7 +711,13 @@ export function StatusChangeModal({
                 </div>
                 <div className="job-card-panel-body job-card-priority-inline">
                   <span className="job-card-muted">Flag this job for the shop priority column.</span>
-                  <button type="button" className="button-secondary" onClick={onTogglePriority} disabled={isSaving}>
+                  <button
+                    type="button"
+                    className="button-secondary"
+                    onClick={onTogglePriority}
+                    disabled={isSaving || !canEditJobDetails}
+                    title={canEditJobDetails ? undefined : 'View only — ask an Admin or Manager to make changes'}
+                  >
                     {isPriority ? 'Remove from priority' : 'Add to priority'}
                   </button>
                 </div>
@@ -796,7 +806,7 @@ export function StatusChangeModal({
                               type="button"
                               className="job-card-tech-remove"
                               onClick={() => void removeTechnician(id)}
-                              disabled={isSaving || savingAssignments}
+                              disabled={isSaving || savingAssignments || !canEditJobDetails}
                               aria-label={`Remove ${t.name}`}
                             >
                               ×
@@ -814,7 +824,7 @@ export function StatusChangeModal({
                         type="button"
                         className="button-secondary admin-list-btn"
                         onClick={() => setPickerOpen((v) => !v)}
-                        disabled={isSaving || savingAssignments}
+                        disabled={isSaving || savingAssignments || !canEditJobDetails}
                       >
                         Add technician
                       </button>
@@ -1134,7 +1144,7 @@ export function StatusChangeModal({
             <div className="job-card-tab-pad">
               <ValveAttachmentsPanel
                 valveRowId={valve.id}
-                disabled={isSaving}
+                disabled={isSaving || !canEditJobDetails}
                 onListChange={onAttachmentsChanged}
               />
             </div>

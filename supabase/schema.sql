@@ -729,10 +729,7 @@ create policy "authenticated_read_technicians"
 on public.technicians
 for select
 to authenticated
-using (
-  coalesce(auth.jwt() -> 'app_metadata' ->> 'role', auth.jwt() -> 'user_metadata' ->> 'role') in ('admin','manager')
-  or user_id = auth.uid()
-);
+using (true);
 
 create policy "anon_insert_technicians"
 on public.technicians

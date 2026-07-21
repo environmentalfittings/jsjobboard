@@ -47,6 +47,7 @@ function repairActionLabel(f: FlangeFaceState): string {
 interface ItpEditorModalProps {
   valve: Valve
   onClose: () => void
+  readOnly?: boolean
 }
 
 const AUTH_USER_STORAGE_KEY = 'js-valve-auth-user-v1'
@@ -285,7 +286,7 @@ function updateTwinsealFlangeField(
   }
 }
 
-export function ItpEditorModal({ valve, onClose }: ItpEditorModalProps) {
+export function ItpEditorModal({ valve, onClose, readOnly = false }: ItpEditorModalProps) {
   const { showToast } = useToast()
   const templateId = useMemo(
     () => resolveItpTemplateIdFromValve(valve.bowl_type ?? null, valve.valve_type ?? null),
@@ -588,6 +589,8 @@ export function ItpEditorModal({ valve, onClose }: ItpEditorModalProps) {
   }
 
   const persist = async (message: string) => {
+    if (readOnly) return
+
     const repairedThreadedHoles = payload.tabs.some((tab) =>
       tab.items.some((item) => isThreadedHolesItem(tab.id, item.label) && conditionNeedsRepair(item.data.condition)),
     )
@@ -706,6 +709,11 @@ export function ItpEditorModal({ valve, onClose }: ItpEditorModalProps) {
         className={`modal-card itp-modal-card${isTwinsealUi ? ' itp-modal-card--twinseal' : ''}${isMaximized ? ' itp-modal-card--max' : ''}`}
       >
         <div className={`itp-surface-header${isTwinsealUi ? ' itp-surface-header--twinseal' : ''}`}>
+          {readOnly ? (
+            <p className="placeholder-copy" style={{ margin: '0 12px' }}>
+              View only — ask an Admin or Manager to change inspection data.
+            </p>
+          ) : null}
           {isTwinsealUi ? (
             <div className="itp-ts-header">
               <button

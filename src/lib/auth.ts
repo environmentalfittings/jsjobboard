@@ -18,16 +18,26 @@ export async function getProfileRole(userId: string): Promise<string | null> {
   return data?.role ?? null
 }
 
-export function resolveAppRole(profileRole: string | null, metadataRole: string): UserRole {
+export function resolveAppRole(
+  profileRole: string | null,
+  metadataRole: string,
+  technicianRole?: string | null,
+): UserRole {
+  // Technicians page is the shop source of truth when a linked row exists.
+  const tech = String(technicianRole ?? '')
+    .trim()
+    .toLowerCase()
+  if (tech === 'admin') return 'admin'
+  if (tech === 'manager' || tech === 'supervisor') return 'manager'
+  if (tech === 'technician' || tech === 'tech' || tech === 'sales') return 'technician'
+
   if (profileRole === 'admin') return 'admin'
   if (profileRole === 'technician') return 'technician'
 
   const meta = metadataRole.trim().toLowerCase()
   if (meta === 'admin') return 'admin'
-  if (meta === 'manager') return 'manager'
-  if (meta === 'supervisor') return 'supervisor'
-  if (meta === 'technician' || meta === 'tech') return 'technician'
-  if (meta === 'sales') return 'sales'
+  if (meta === 'manager' || meta === 'supervisor') return 'manager'
+  if (meta === 'technician' || meta === 'tech' || meta === 'sales') return 'technician'
 
   if (profileRole === 'viewer' || profileRole === 'customer' || !profileRole) {
     return 'technician'

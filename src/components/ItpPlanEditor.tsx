@@ -35,6 +35,7 @@ import type { Valve } from '../types'
 type ItpPlanEditorProps = {
   valve: Valve
   onClose: () => void
+  readOnly?: boolean
 }
 
 function SnapshotRow({ label, value }: { label: string; value: string | null | undefined }) {
@@ -46,7 +47,7 @@ function SnapshotRow({ label, value }: { label: string; value: string | null | u
   )
 }
 
-export function ItpPlanEditor({ valve, onClose }: ItpPlanEditorProps) {
+export function ItpPlanEditor({ valve, onClose, readOnly = false }: ItpPlanEditorProps) {
   const { showToast } = useToast()
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
@@ -249,7 +250,7 @@ export function ItpPlanEditor({ valve, onClose }: ItpPlanEditorProps) {
   }
 
   const save = async () => {
-    if (!plan) return
+    if (readOnly || !plan) return
     setSaving(true)
     try {
       await persistPlan(plan, 'ITP saved')
@@ -395,14 +396,25 @@ export function ItpPlanEditor({ valve, onClose }: ItpPlanEditorProps) {
           </p>
         </div>
         <div className="technicians-page-actions">
-          <button type="button" className="button-primary" onClick={() => void save()} disabled={saving || Boolean(signingKey)}>
-            {saving ? 'Saving…' : 'Save ITP'}
-          </button>
-          <button type="button" className="button-secondary" onClick={onClose} disabled={saving || Boolean(signingKey)}>
+          {!readOnly ? (
+            <button
+              type="button"
+              className="button-primary"
+              onClick={() => void save()}
+              disabled={saving || readOnly || Boolean(signingKey)}
+            >
+              {saving ? 'Saving…' : 'Save ITP'}
+            </button>
+          ) : null}
+          <button type="button" className="button-secondary" onClick={onClose} disabled={saving || readOnly || Boolean(signingKey)}>
             Close
           </button>
         </div>
       </div>
+
+      {readOnly ? (
+        <p className="placeholder-copy">View only — ask an Admin or Manager to change the ITP.</p>
+      ) : null}
 
       {hasLegacyInspection ? (
         <div className="itp-plan-legacy-banner">
@@ -421,10 +433,10 @@ export function ItpPlanEditor({ valve, onClose }: ItpPlanEditorProps) {
             </p>
           </div>
           <div className="itp-plan-steps-actions">
-            <button type="button" className="button-secondary admin-list-btn" onClick={selectAllOverall} disabled={saving}>
+            <button type="button" className="button-secondary admin-list-btn" onClick={selectAllOverall} disabled={saving || readOnly}>
               Select all
             </button>
-            <button type="button" className="button-secondary admin-list-btn" onClick={clearOverallSteps} disabled={saving}>
+            <button type="button" className="button-secondary admin-list-btn" onClick={clearOverallSteps} disabled={saving || readOnly}>
               Clear
             </button>
           </div>
@@ -437,7 +449,7 @@ export function ItpPlanEditor({ valve, onClose }: ItpPlanEditorProps) {
                 type="checkbox"
                 checked={selectedSet.has(step.id as ItpOverallStepId)}
                 onChange={() => toggleOverallStep(step.id as ItpOverallStepId)}
-                disabled={saving}
+                disabled={saving || readOnly}
               />
               <span>{step.label}</span>
             </label>
@@ -448,7 +460,7 @@ export function ItpPlanEditor({ valve, onClose }: ItpPlanEditorProps) {
                 type="checkbox"
                 checked={selectedCustomSet.has(step.id)}
                 onChange={() => toggleCustomOverallStep(step.id)}
-                disabled={saving}
+                disabled={saving || readOnly}
               />
               <span>{step.label}</span>
               <button
@@ -458,7 +470,7 @@ export function ItpPlanEditor({ valve, onClose }: ItpPlanEditorProps) {
                   e.preventDefault()
                   removeCustomOverallCondition(step.id)
                 }}
-                disabled={saving}
+                disabled={saving || readOnly}
                 title="Remove condition"
                 aria-label={`Remove ${step.label}`}
               >
@@ -474,7 +486,7 @@ export function ItpPlanEditor({ valve, onClose }: ItpPlanEditorProps) {
             value={newOverallCondition}
             onChange={(e) => setNewOverallCondition(e.target.value)}
             placeholder="Other condition (e.g. Actuator, Special handling)…"
-            disabled={saving}
+            disabled={saving || readOnly}
             onKeyDown={(e) => {
               if (e.key === 'Enter') {
                 e.preventDefault()
@@ -482,7 +494,7 @@ export function ItpPlanEditor({ valve, onClose }: ItpPlanEditorProps) {
               }
             }}
           />
-          <button type="button" className="button-secondary" onClick={addCustomOverallCondition} disabled={saving}>
+          <button type="button" className="button-secondary" onClick={addCustomOverallCondition} disabled={saving || readOnly}>
             + Add condition
           </button>
         </div>
@@ -538,7 +550,7 @@ export function ItpPlanEditor({ valve, onClose }: ItpPlanEditorProps) {
             value={newPartName}
             onChange={(e) => setNewPartName(e.target.value)}
             placeholder="Other part name…"
-            disabled={saving}
+            disabled={saving || readOnly}
             onKeyDown={(e) => {
               if (e.key === 'Enter') {
                 e.preventDefault()
@@ -546,7 +558,7 @@ export function ItpPlanEditor({ valve, onClose }: ItpPlanEditorProps) {
               }
             }}
           />
-          <button type="button" className="button-secondary" onClick={addCustomPart} disabled={saving}>
+          <button type="button" className="button-secondary" onClick={addCustomPart} disabled={saving || readOnly}>
             + Add part
           </button>
         </div>
@@ -616,7 +628,7 @@ export function ItpPlanEditor({ valve, onClose }: ItpPlanEditorProps) {
               value={plan.notes}
               onChange={(e) => setPlan((prev) => (prev ? { ...prev, notes: e.target.value } : prev))}
               placeholder="Special instructions, hold points, customer requirements…"
-              disabled={saving || Boolean(signingKey)}
+              disabled={saving || readOnly || Boolean(signingKey)}
             />
           </section>
         </section>

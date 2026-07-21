@@ -1,6 +1,8 @@
 import { useEffect, useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import { ItpEditorModal } from '../components/ItpEditorModal'
+import { useAuth } from '../contexts/AuthContext'
+import { canWriteShop } from '../lib/roles'
 import { supabase } from '../lib/supabase'
 import { VALVE_LIST_SELECT } from '../lib/valveSelect'
 import type { Valve } from '../types'
@@ -8,6 +10,8 @@ import type { Valve } from '../types'
 /** Detailed inspection checklist (former ITP editor) — now part of the Traveler workflow. */
 export function TravelerInspectionPage() {
   const navigate = useNavigate()
+  const { role } = useAuth()
+  const canWrite = canWriteShop(role)
   const { valveId } = useParams<{ valveId: string }>()
   const [loading, setLoading] = useState(true)
   const [valve, setValve] = useState<Valve | null>(null)
@@ -72,7 +76,7 @@ export function TravelerInspectionPage() {
           <Link to={`/itp/${valve.id}`}>Open ITP</Link>.
         </p>
       </div>
-      <ItpEditorModal valve={valve} onClose={close} />
+      <ItpEditorModal valve={valve} onClose={close} readOnly={!canWrite} />
     </>
   )
 }

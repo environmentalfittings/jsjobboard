@@ -2,14 +2,16 @@ import { useEffect, useId, useMemo, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { TechnicianAvatars } from '../components/TechnicianAvatars'
 import { ValveAttachmentsPanel } from '../components/ValveAttachmentsPanel'
+import { useToast } from '../components/ToastNotification'
+import { useAuth } from '../contexts/AuthContext'
 import { isValveRelatedJobType, normalizeJobType } from '../constants/jobTypes'
+import { canWriteShop, permissionDeniedReason } from '../lib/roles'
 import { technicianIdsForValve } from '../lib/valveTechnicianIds'
 import { fetchAllValves } from '../lib/fetchAllValves'
 import { downloadValveTicketPdf, openValveTicketPdfForPrint } from '../lib/valveTicketPrint'
 import { valveMatchesWorkOrderFilter, suggestWorkOrders } from '../lib/valveWorkOrderSearch'
 import { supabase } from '../lib/supabase'
 import type { Technician, Valve } from '../types'
-import { useToast } from '../components/ToastNotification'
 
 function formatDate(value: string | null) {
   if (!value) return '-'
@@ -39,6 +41,9 @@ type JobItpItem = {
 
 export function ValveCardTicketPage() {
   const navigate = useNavigate()
+  const { showToast } = useToast()
+  const { role } = useAuth()
+  const canWrite = canWriteShop(role)
   const [technicians, setTechnicians] = useState<Technician[]>([])
   const [valves, setValves] = useState<Valve[]>([])
   const [search, setSearch] = useState('')
@@ -56,7 +61,6 @@ export function ValveCardTicketPage() {
   const [assignedTechnicianIdDraft, setAssignedTechnicianIdDraft] = useState<number | null>(null)
   const [itpItems, setItpItems] = useState<JobItpItem[]>([])
   const [loadingItp, setLoadingItp] = useState(false)
-  const { showToast } = useToast()
 
   const valveForPrint = (valve: Valve): Valve => ({
     ...valve,
@@ -237,6 +241,10 @@ export function ValveCardTicketPage() {
   }, [selected?.id, selected?.job_type, selected?.valve_type, showToast])
 
   const toggleItpItem = async (item: JobItpItem) => {
+    if (!canWrite) {
+      showToast(permissionDeniedReason('shopWrite'))
+      return
+    }
     const nextChecked = !item.is_checked
     setItpItems((prev) => prev.map((row) => (row.id === item.id ? { ...row, is_checked: nextChecked } : row)))
     const { error } = await supabase.from('job_itp_items').update({ is_checked: nextChecked }).eq('id', item.id)
@@ -254,6 +262,10 @@ export function ValveCardTicketPage() {
   }, [selected?.status])
 
   const saveCardText = async () => {
+    if (!canWrite) {
+      showToast(permissionDeniedReason('shopWrite'))
+      return
+    }
     if (!selected) return
     const patch = {
       description: descDraft.trim() || null,
@@ -499,7 +511,7 @@ export function ValveCardTicketPage() {
                 className="modal-status-select"
                 value={assignedTechnicianIdDraft ?? ''}
                 onChange={(e) => setAssignedTechnicianIdDraft(e.target.value ? Number.parseInt(e.target.value, 10) : null)}
-                disabled={savingCard}
+                disabled={savingCard || !canWrite}
               >
                 <option value="">Unassigned</option>
                 {technicians
@@ -514,7 +526,7 @@ export function ValveCardTicketPage() {
                 <strong>Turnaround:</strong> {selected.is_turnaround === true ? 'Yes' : 'No'}
               </p>
 
-              <ValveAttachmentsPanel valveRowId={selected.id} />
+              <ValveAttachmentsPanel valveRowId={selected.id} disabled={!canWrite} />
 
               <label className="ticket-field-label">Description</label>
               <textarea
@@ -523,7 +535,7 @@ export function ValveCardTicketPage() {
                 onChange={(e) => setDescDraft(e.target.value)}
                 placeholder="Job or valve description"
                 rows={3}
-                disabled={savingCard}
+                disabled={savingCard || !canWrite}
               />
 
               <label className="ticket-field-label">Notes</label>
@@ -533,7 +545,7 @@ export function ValveCardTicketPage() {
                 onChange={(e) => setNotesDraft(e.target.value)}
                 placeholder="Internal notes"
                 rows={4}
-                disabled={savingCard}
+                disabled={savingCard || !canWrite}
               />
 
               <section className="ticket-itp-section">
@@ -577,7 +589,12 @@ export function ValveCardTicketPage() {
                 >
                   <span aria-hidden>📄</span> Open Traveler
                 </button>
-                <button type="button" className="button-secondary" disabled={savingCard} onClick={saveCardText}>
+                <button
+                  type="button"
+                  className="button-secondary"
+                  disabled={savingCard || !canWrite}
+                  onClick={() => void saveCardText()}
+                >
                   {savingCard ? 'Saving…' : 'Save description & notes'}
                 </button>
                 <button type="button" className="button-primary" onClick={() => printPdf(selected)}>

@@ -59,6 +59,21 @@ export async function deactivateEmployeeAccount(employee_id: string): Promise<Ac
 export async function loadEmployeeAccountStatus(employeeIds: string[]): Promise<EmployeeAccountStatus[]> {
   if (!employeeIds.length) return []
 
+  const { data: rpcRows, error: rpcError } = await supabase.rpc('employee_last_sign_ins', {
+    p_employee_ids: employeeIds,
+  })
+
+  if (!rpcError && Array.isArray(rpcRows)) {
+    const byId = new Map<string, string | null>()
+    for (const row of rpcRows as EmployeeAccountStatus[]) {
+      byId.set(row.employee_id, row.last_sign_in_at ?? null)
+    }
+    return employeeIds.map((employee_id) => ({
+      employee_id,
+      last_sign_in_at: byId.get(employee_id) ?? null,
+    }))
+  }
+
   const { data, error } = await supabase.functions.invoke('manage-employee-account', {
     body: { action: 'status', employee_ids: employeeIds },
   })
@@ -66,5 +81,10 @@ export async function loadEmployeeAccountStatus(employeeIds: string[]): Promise<
   if (error) return employeeIds.map((employee_id) => ({ employee_id, last_sign_in_at: null }))
 
   const payload = (data ?? {}) as { rows?: EmployeeAccountStatus[] }
-  return payload.rows ?? []
+  const edgeRows = payload.rows ?? []
+  const byId = new Map(edgeRows.map((row) => [row.employee_id, row.last_sign_in_at ?? null]))
+  return employeeIds.map((employee_id) => ({
+    employee_id,
+    last_sign_in_at: byId.get(employee_id) ?? null,
+  }))
 }

@@ -16,6 +16,20 @@ function callerRole(user: { user_metadata?: Record<string, unknown>; app_metadat
   return String(user.user_metadata?.role ?? user.app_metadata?.role ?? '').toLowerCase()
 }
 
+async function callerIsShopAdmin(
+  adminClient: ReturnType<typeof createClient>,
+  user: { id: string; user_metadata?: Record<string, unknown>; app_metadata?: Record<string, unknown> },
+) {
+  if (callerRole(user) === 'admin') return true
+  const [{ data: profile }, { data: tech }] = await Promise.all([
+    adminClient.from('profiles').select('role').eq('id', user.id).maybeSingle(),
+    adminClient.from('technicians').select('role').eq('user_id', user.id).maybeSingle(),
+  ])
+  if (String(profile?.role ?? '').toLowerCase() === 'admin') return true
+  if (String(tech?.role ?? '').toLowerCase() === 'admin') return true
+  return false
+}
+
 Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') {
     return new Response('ok', { headers: corsHeaders })
@@ -41,9 +55,10 @@ Deno.serve(async (req) => {
   if (callerError || !caller) {
     return json({ error: 'Unauthorized' }, 401)
   }
-  const role = callerRole(caller)
-  if (role !== 'admin' && role !== 'manager') {
-    return json({ error: 'Forbidden' }, 403)
+
+  const adminClient = createClient(supabaseUrl, serviceRoleKey)
+  if (!(await callerIsShopAdmin(adminClient, caller))) {
+    return json({ error: 'Only Admin can manage shop logins' }, 403)
   }
 
   let body: {
@@ -59,8 +74,6 @@ Deno.serve(async (req) => {
   } catch {
     return json({ error: 'Invalid JSON body' }, 400)
   }
-
-  const adminClient = createClient(supabaseUrl, serviceRoleKey)
 
   if (body.action === 'create') {
     const email = String(body.email ?? '').trim()

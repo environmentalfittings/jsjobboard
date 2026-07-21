@@ -39,7 +39,7 @@ function formatTimestamp(value: string | null): string {
   })
 }
 
-export function DashboardNotesPanel() {
+export function DashboardNotesPanel({ readOnly = false }: { readOnly?: boolean }) {
   const { showToast } = useToast()
   const [notes, setNotes] = useState<DailyNote[]>([])
   const [technicians, setTechnicians] = useState<TechnicianOption[]>([])
@@ -99,6 +99,8 @@ export function DashboardNotesPanel() {
   const completedNotes = useMemo(() => notes.filter((n) => n.is_done), [notes])
 
   const addNote = async () => {
+    if (readOnly) return
+
     const body = draft.trim()
     if (!body) return
     setSaving(true)
@@ -126,6 +128,8 @@ export function DashboardNotesPanel() {
   }
 
   const toggleDone = async (note: DailyNote) => {
+    if (readOnly) return
+
     const nextDone = !note.is_done
     const completed_at = nextDone ? new Date().toISOString() : null
     setNotes((prev) =>
@@ -159,6 +163,8 @@ export function DashboardNotesPanel() {
   }
 
   const saveEdit = async (note: DailyNote) => {
+    if (readOnly) return
+
     const body = editDraft.trim()
     setEditingId(null)
     if (!body || body === note.body) return
@@ -276,6 +282,7 @@ export function DashboardNotesPanel() {
 
       {!expanded ? openLargerViewButton : null}
 
+      {!readOnly ? (
       <form
         className="daily-note-add"
         onSubmit={(e) => {
@@ -316,6 +323,9 @@ export function DashboardNotesPanel() {
           </button>
         </div>
       </form>
+      ) : (
+        <p className="placeholder-copy">View only — ask an Admin or Manager to change notes.</p>
+      )}
 
       {setupRequired ? (
         <div className="daily-notes-empty">

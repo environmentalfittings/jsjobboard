@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { RoleBadge } from '../components/RoleBadge'
 import { useToast } from '../components/ToastNotification'
+import { useAuth } from '../contexts/AuthContext'
 import { TERMINAL_STATUSES } from '../constants/statuses'
+import { can } from '../lib/roles'
 import { supabase } from '../lib/supabase'
 import { ensureShopLogin } from '../lib/shopAuth'
 import type { Technician } from '../types'
@@ -13,7 +14,7 @@ type Draft = {
   work_cell_specialties: string
   group_team: string
   active: boolean
-  role: 'admin' | 'manager' | 'supervisor' | 'technician' | 'sales'
+  role: 'admin' | 'manager' | 'technician'
   supervisor_id: number | null
   manager_id: number | null
   create_login: boolean
@@ -26,30 +27,6 @@ const LOGIN_EMAIL_DOMAIN = String(import.meta.env.VITE_LOGIN_EMAIL_DOMAIN ?? 'us
 const normalizeUsername = (value: string) => value.trim().toLowerCase()
 
 const usernameToLoginEmail = (username: string) => `${username}@${LOGIN_EMAIL_DOMAIN}`
-
-const PUBLIC_APP_URL =
-  String(import.meta.env.VITE_APP_PUBLIC_URL ?? 'https://jsjobboard.vercel.app').trim().replace(/\/$/, '') ||
-  'https://jsjobboard.vercel.app'
-
-const appLoginUrl = () => `${PUBLIC_APP_URL}/login`
-
-function buildLoginWelcomeEmail(name: string, username: string, password: string): string {
-  const greeting = name.trim() ? `Hi ${name.trim()},` : 'Hi,'
-  return `Subject: JS Valve Job Board — your login
-
-${greeting}
-
-Your account has been set up for the JS Valve Job Board.
-
-App link: ${appLoginUrl()}
-Username: ${username}
-Password: ${password}
-
-Sign in with your username (not your email). Please change your password after your first login.
-
-Thanks,
-JS Valve`
-}
 
 const emptyDraft = (): Draft => ({
   name: '',
@@ -69,6 +46,8 @@ const cloneDraft = (draft: Draft): Draft => ({ ...draft })
 
 export function TechniciansPage() {
   const { showToast } = useToast()
+  const { role } = useAuth()
+  const canManage = can(role, 'manageTechnicians')
   const [rows, setRows] = useState<Technician[]>([])
   const [valves, setValves] = useState<{ id: number; valve_id: string; assigned_technician_id: number | null }[]>([])
   const [valvesLoading, setValvesLoading] = useState(false)
@@ -78,7 +57,59 @@ export function TechniciansPage() {
   const [draft, setDraft] = useState<Draft>(emptyDraft)
   const [modalBaseline, setModalBaseline] = useState<Draft>(emptyDraft)
   const [saving, setSaving] = useState(false)
+  const [roleSavingId, setRoleSavingId] = useState<number | null>(null)
   const [listFilter, setListFilter] = useState('')
+
+  type ShopRole = Draft['role']
+
+  const syncLinkedProfileRole = async (userId: string | null | undefined, role: ShopRole) => {
+    if (!userId) return
+    // profiles.role only allows admin | viewer | customer — map shop roles accordingly.
+    const profileRole = role === 'admin' ? 'admin' : 'viewer'
+    const { error } = await supabase.from('profiles').update({ role: profileRole }).eq('id', userId)
+    if (error) {
+      showToast(`Role saved on technician, but profile sync failed: ${error.message}`)
+    }
+  }
+
+  const changeRoleInline = async (t: Technician, nextRole: ShopRole) => {
+    if (!canManage) {
+      showToast('Only Admin can change roles')
+      return
+    }
+    const current = (t.role as ShopRole | null | undefined) ?? 'technician'
+    if (current === nextRole) return
+    setRoleSavingId(t.id)
+    const payload: {
+      role: ShopRole
+      supervisor_id?: number | null
+      manager_id?: number | null
+    } = { role: nextRole }
+    if (nextRole !== 'technician') {
+      payload.supervisor_id = null
+      payload.manager_id = null
+    }
+    const { error } = await supabase.from('technicians').update(payload).eq('id', t.id)
+    if (error) {
+      setRoleSavingId(null)
+      showToast(`Could not change role: ${error.message}`)
+      return
+    }
+    await syncLinkedProfileRole(t.user_id, nextRole)
+    setRows((prev) =>
+      prev.map((row) =>
+        row.id === t.id
+          ? {
+              ...row,
+              role: nextRole,
+              ...(nextRole !== 'technician' ? { supervisor_id: null, manager_id: null } : {}),
+            }
+          : row,
+      ),
+    )
+    setRoleSavingId(null)
+    showToast(`${t.name} is now ${nextRole === 'admin' ? 'Admin' : nextRole === 'manager' ? 'Manager' : 'Technician'}`)
+  }
 
   const filteredRows = useMemo(() => {
     const q = listFilter.trim().toLowerCase()
@@ -106,8 +137,7 @@ export function TechniciansPage() {
       .select(
         'id,name,employee_id,work_cell_specialties,group_team,active,user_id,login_username,login_email,role,supervisor_id,manager_id,created_at,updated_at',
       )
-      .order('group_team', { ascending: true, nullsFirst: false })
-      .order('name')
+      .order('name', { ascending: true })
     setLoading(false)
     if (error) {
       showToast(`Could not load technicians: ${error.message}`)
@@ -150,6 +180,10 @@ export function TechniciansPage() {
   }
 
   const openCreate = () => {
+    if (!canManage) {
+      showToast('Only Admin can add technicians')
+      return
+    }
     const next = emptyDraft()
     setEditingId(null)
     setDraft(next)
@@ -158,6 +192,10 @@ export function TechniciansPage() {
   }
 
   const openEdit = (t: Technician) => {
+    if (!canManage) {
+      showToast('Only Admin can edit technicians')
+      return
+    }
     const next: Draft = {
       name: t.name,
       employee_id: t.employee_id ?? '',
@@ -203,6 +241,10 @@ export function TechniciansPage() {
   }, [modalOpen, closeModal])
 
   const saveModal = async () => {
+    if (!canManage) {
+      showToast('Only Admin can manage technicians')
+      return
+    }
     const name = draft.name.trim()
     if (!name) {
       showToast('Name is required')
@@ -253,8 +295,8 @@ export function TechniciansPage() {
       login_username: normalizedUsername,
       login_email: loginEmail,
       role: draft.role,
-      supervisor_id: draft.role === 'technician' || draft.role === 'supervisor' ? draft.supervisor_id : null,
-      manager_id: draft.role === 'technician' || draft.role === 'supervisor' ? draft.manager_id : null,
+      supervisor_id: draft.role === 'technician' ? draft.supervisor_id : null,
+      manager_id: draft.role === 'technician' ? draft.manager_id : null,
     }
     let authUserId: string | null = null
     let loginCreateWarning: string | null = null
@@ -338,6 +380,11 @@ export function TechniciansPage() {
         }
       }
     }
+    const savedUserId =
+      authUserId ?? (editingId != null ? rows.find((r) => r.id === editingId)?.user_id : null) ?? null
+    if (savedUserId) {
+      await syncLinkedProfileRole(savedUserId, draft.role)
+    }
     if (loginCreateWarning) {
       showToast(loginCreateWarning)
     } else {
@@ -348,6 +395,10 @@ export function TechniciansPage() {
   }
 
   const remove = async (t: Technician) => {
+    if (!canManage) {
+      showToast('Only Admin can delete technicians')
+      return
+    }
     if (!window.confirm(`Delete technician “${t.name}”? Job cards will lose this id from assignments.`)) return
     const { error } = await supabase.from('technicians').delete().eq('id', t.id)
     if (error) {
@@ -358,41 +409,11 @@ export function TechniciansPage() {
     void load()
   }
 
-  const copyLoginEmailText = async (name: string, username: string, password: string) => {
-    try {
-      await navigator.clipboard.writeText(buildLoginWelcomeEmail(name, username, password))
-      showToast('Login email copied to clipboard — paste into your email app')
-    } catch {
-      showToast('Could not copy — check browser clipboard permissions')
-    }
-  }
-
-  const copyLoginEmail = async () => {
-    const username = normalizeUsername(draft.username)
-    const password = draft.temp_password.trim()
-    if (!username) {
-      showToast('Enter a username first')
-      return
-    }
-    if (!password) {
-      showToast('Enter a temporary password first')
-      return
-    }
-    await copyLoginEmailText(draft.name, username, password)
-  }
-
-  const copyLoginEmailForRow = async (t: Technician) => {
-    const username = normalizeUsername(t.login_username ?? '')
-    if (!username) {
-      showToast(`${t.name} has no username — edit their record and add one first`)
-      return
-    }
-    const password = window.prompt(`Temporary password for ${t.name}'s login email`)
-    if (!password?.trim()) return
-    await copyLoginEmailText(t.name, username, password.trim())
-  }
-
   const resetPassword = async (t: Technician) => {
+    if (!canManage) {
+      showToast('Only Admin can reset passwords')
+      return
+    }
     const username = normalizeUsername(t.login_username ?? '')
     const email =
       t.login_email?.trim() || (username ? usernameToLoginEmail(username) : '')
@@ -449,9 +470,11 @@ export function TechniciansPage() {
       <div className="dashboard-title-row">
         <h2 className="dashboard-title">Technicians</h2>
         <div className="technicians-page-actions">
-          <button type="button" className="button-primary" onClick={openCreate}>
-            Add technician
-          </button>
+          {canManage ? (
+            <button type="button" className="button-primary" onClick={openCreate}>
+              Add technician
+            </button>
+          ) : null}
           <Link to="/job-board" className="button-secondary">
             Back to board
           </Link>
@@ -459,7 +482,9 @@ export function TechniciansPage() {
       </div>
 
       <p className="placeholder-copy technicians-intro">
-        Maintain shop technicians here. Assign them to jobs from the job card (Status board → open a job).
+        {canManage
+          ? 'Maintain shop technicians here. Change Role in the table (Admin / Manager / Technician). Assign them to jobs from the job card (Status board → open a job).'
+          : 'View shop technicians here. Only Admin can add people, change roles, reset passwords, or delete.'}
       </p>
 
       {!loading && rows.length > 0 ? (
@@ -503,7 +528,28 @@ export function TechniciansPage() {
                   <td>{t.group_team?.trim() || '—'}</td>
                   <td>{t.active ? 'Yes' : 'No'}</td>
                   <td>
-                    <RoleBadge role={t.role} />
+                    {canManage ? (
+                      <select
+                        className="modal-status-select technicians-role-select"
+                        value={(t.role as ShopRole | null | undefined) ?? 'technician'}
+                        disabled={roleSavingId === t.id || saving}
+                        onChange={(e) => void changeRoleInline(t, e.target.value as ShopRole)}
+                        aria-label={`Change role for ${t.name}`}
+                        title="Change role"
+                      >
+                        <option value="technician">Technician</option>
+                        <option value="manager">Manager</option>
+                        <option value="admin">Admin</option>
+                      </select>
+                    ) : (
+                      <span className="technicians-role-readonly">
+                        {(t.role as ShopRole | null | undefined) === 'admin'
+                          ? 'Admin'
+                          : (t.role as ShopRole | null | undefined) === 'manager'
+                            ? 'Manager'
+                            : 'Technician'}
+                      </span>
+                    )}
                   </td>
                   <td>{rows.find((x) => x.id === t.supervisor_id)?.name ?? '—'}</td>
                   <td>{t.login_username?.trim() || 'No username'}</td>
@@ -529,24 +575,29 @@ export function TechniciansPage() {
                     })()}
                   </td>
                   <td className="technicians-table-actions">
-                    <button type="button" className="button-secondary admin-list-btn" onClick={() => openEdit(t)}>
-                      Edit
-                    </button>
-                    <button type="button" className="button-secondary admin-list-btn" onClick={() => void resetPassword(t)}>
-                      Reset password
-                    </button>
-                    <button
-                      type="button"
-                      className="button-secondary admin-list-btn"
-                      onClick={() => void copyLoginEmailForRow(t)}
-                      disabled={!t.login_username?.trim()}
-                      title={t.login_username?.trim() ? 'Copy welcome email to send to this person' : 'Add a username first'}
-                    >
-                      Copy login email
-                    </button>
-                    <button type="button" className="button-secondary admin-list-btn danger" onClick={() => void remove(t)}>
-                      Delete
-                    </button>
+                    {canManage ? (
+                      <>
+                        <button type="button" className="button-secondary admin-list-btn" onClick={() => openEdit(t)}>
+                          Edit
+                        </button>
+                        <button
+                          type="button"
+                          className="button-secondary admin-list-btn"
+                          onClick={() => void resetPassword(t)}
+                        >
+                          Reset password
+                        </button>
+                        <button
+                          type="button"
+                          className="button-secondary admin-list-btn danger"
+                          onClick={() => void remove(t)}
+                        >
+                          Delete
+                        </button>
+                      </>
+                    ) : (
+                      <span className="job-muted">—</span>
+                    )}
                   </td>
                 </tr>
               ))}
@@ -646,9 +697,7 @@ export function TechniciansPage() {
                 disabled={saving}
               >
                 <option value="technician">Technician</option>
-                <option value="supervisor">Supervisor</option>
                 <option value="manager">Manager</option>
-                <option value="sales">Sales</option>
                 <option value="admin">Admin</option>
               </select>
               <label className="modal-label" htmlFor="tech-username">
@@ -664,10 +713,10 @@ export function TechniciansPage() {
                 autoComplete="username"
                 placeholder="e.g. ghensley"
               />
-              {draft.role === 'technician' || draft.role === 'supervisor' ? (
+              {draft.role === 'technician' ? (
                 <>
                   <label className="modal-label" htmlFor="tech-supervisor-id">
-                    Reports To (Supervisor)
+                    Reports To (Manager)
                   </label>
                   <select
                     id="tech-supervisor-id"
@@ -680,7 +729,7 @@ export function TechniciansPage() {
                   >
                     <option value="">None</option>
                     {rows
-                      .filter((r) => r.active && (r.role === 'supervisor' || r.role === 'manager'))
+                      .filter((r) => r.active && (r.role === 'manager' || r.role === 'admin'))
                       .map((r) => (
                         <option key={r.id} value={r.id}>
                           {r.name}
@@ -734,14 +783,6 @@ export function TechniciansPage() {
                         onChange={(e) => setDraft((d) => ({ ...d, temp_password: e.target.value }))}
                         disabled={saving}
                       />
-                      <button
-                        type="button"
-                        className="button-secondary technician-copy-login-email"
-                        onClick={() => void copyLoginEmail()}
-                        disabled={saving || !draft.username.trim() || !draft.temp_password.trim()}
-                      >
-                        Copy login email
-                      </button>
                     </>
                   ) : null}
                 </>

@@ -9,6 +9,7 @@ import {
   uploadFeedbackResolutionPhoto,
   type FeedbackResolutionImage,
 } from '../lib/feedbackResolutionPhotos'
+import { canWriteShop } from '../lib/roles'
 import { supabase } from '../lib/supabase'
 import type { UserRole } from '../pages/LoginPage'
 
@@ -93,6 +94,10 @@ export function FeedbackButton({ username, role }: FeedbackButtonProps) {
   }
 
   const submit = async () => {
+    if (!canWriteShop(role)) {
+      showToast('View only — ask an Admin or Manager to make changes')
+      return
+    }
     const text = message.trim()
     if (!text && photoDrafts.length === 0) {
       showToast('Please describe the issue or attach a screenshot')

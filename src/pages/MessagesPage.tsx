@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 import { useToast } from '../components/ToastNotification'
+import { useAuth } from '../contexts/AuthContext'
 import { useEmployees } from '../hooks/useEmployees'
 import { useInbox } from '../hooks/useInbox'
 import {
@@ -16,6 +17,7 @@ import {
   MAX_MESSAGE_ATTACHMENTS,
   type MessageAttachment,
 } from '../lib/messageAttachments'
+import { canWriteShop, permissionDeniedReason } from '../lib/roles'
 
 interface MessagesPageProps {
   userId: string
@@ -49,6 +51,8 @@ function isImageAttachment(attachment: MessageAttachment) {
 
 export function MessagesPage({ userId, username, homePath }: MessagesPageProps) {
   const { showToast } = useToast()
+  const { role } = useAuth()
+  const canWrite = canWriteShop(role)
   const { employees, loading: employeesLoading } = useEmployees()
   const { items, loading, refresh } = useInbox(userId)
   const [searchParams, setSearchParams] = useSearchParams()
@@ -174,6 +178,10 @@ export function MessagesPage({ userId, username, homePath }: MessagesPageProps) 
   }
 
   const sendMessage = async () => {
+    if (!canWrite) {
+      showToast(permissionDeniedReason('shopWrite'))
+      return
+    }
     if (!recipientUserId) {
       showToast('Choose who to send this to')
       return
@@ -234,17 +242,19 @@ export function MessagesPage({ userId, username, homePath }: MessagesPageProps) 
           <button type="button" className="button-secondary" onClick={() => void refresh()} disabled={loading}>
             Refresh
           </button>
-          <button
-            type="button"
-            className="button-primary"
-            onClick={() => {
-              setComposeOpen(true)
-              setSelectedKey(null)
-              clearSearchParams()
-            }}
-          >
-            New message
-          </button>
+          {canWrite ? (
+            <button
+              type="button"
+              className="button-primary"
+              onClick={() => {
+                setComposeOpen(true)
+                setSelectedKey(null)
+                clearSearchParams()
+              }}
+            >
+              New message
+            </button>
+          ) : null}
           <Link to={homePath} className="button-secondary">
             Back
           </Link>

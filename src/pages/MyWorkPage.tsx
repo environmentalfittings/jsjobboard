@@ -2,7 +2,9 @@ import { useEffect, useMemo, useState } from 'react'
 import type { User } from '@supabase/supabase-js'
 import { TechJobCard } from '../components/TechJobCard'
 import { useToast } from '../components/ToastNotification'
+import { useAuth } from '../contexts/AuthContext'
 import { resolveTechnicianForUser } from '../lib/resolveTechnicianForUser'
+import { canWriteShop, permissionDeniedReason } from '../lib/roles'
 import { supabase } from '../lib/supabase'
 import { valveStatusPatch } from '../lib/valveStatusPatch'
 import type { Technician, Valve } from '../types'
@@ -14,6 +16,8 @@ interface MyWorkPageProps {
 
 export function MyWorkPage({ user, onLogout }: MyWorkPageProps) {
   const { showToast } = useToast()
+  const { role } = useAuth()
+  const canWrite = canWriteShop(role)
   const [displayName, setDisplayName] = useState('Technician')
   const [profileLinked, setProfileLinked] = useState(true)
   const [assignedJobs, setAssignedJobs] = useState<Valve[]>([])
@@ -86,6 +90,10 @@ export function MyWorkPage({ user, onLogout }: MyWorkPageProps) {
   }, [user?.id])
 
   const updateMyJobStatus = async (job: Valve, nextStatus: string) => {
+    if (!canWrite) {
+      showToast(permissionDeniedReason('shopWrite'))
+      return
+    }
     if (job.status === nextStatus) return
     const patch = valveStatusPatch(nextStatus, job)
     const { error } = await supabase.from('valves').update(patch).eq('id', job.id)
@@ -97,6 +105,10 @@ export function MyWorkPage({ user, onLogout }: MyWorkPageProps) {
   }
 
   const flagForSupervisor = async (job: Valve) => {
+    if (!canWrite) {
+      showToast(permissionDeniedReason('shopWrite'))
+      return
+    }
     const { error } = await supabase.from('valves').update({ needs_attention: true }).eq('id', job.id)
     if (error) {
       showToast('Could not flag for supervisor')
@@ -132,19 +144,21 @@ export function MyWorkPage({ user, onLogout }: MyWorkPageProps) {
             const assignedByName = job.assigned_by ? techById.get(job.assigned_by)?.name ?? '—' : '—'
             return (
               <div key={job.id}>
-                <TechJobCard job={job} onStatusChange={updateMyJobStatus} />
+                <TechJobCard job={job} readOnly={!canWrite} onStatusChange={updateMyJobStatus} />
                 <p className="job-muted">
                   Assigned by: {assignedByName} {job.assigned_at ? `on ${new Date(job.assigned_at).toLocaleString()}` : ''}
                 </p>
                 <p className="job-muted">Assignment notes: {job.assignment_notes ?? '—'}</p>
-                <button
-                  type="button"
-                  className="button-secondary admin-list-btn"
-                  onClick={() => void flagForSupervisor(job)}
-                  disabled={job.needs_attention === true}
-                >
-                  {job.needs_attention ? 'Flagged' : 'Flag for supervisor'}
-                </button>
+                {canWrite ? (
+                  <button
+                    type="button"
+                    className="button-secondary admin-list-btn"
+                    onClick={() => void flagForSupervisor(job)}
+                    disabled={job.needs_attention === true}
+                  >
+                    {job.needs_attention ? 'Flagged' : 'Flag for supervisor'}
+                  </button>
+                ) : null}
               </div>
             )
           })}

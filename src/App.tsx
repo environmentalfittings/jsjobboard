@@ -16,7 +16,6 @@ import { AdminEmployeesPrintPage } from './pages/AdminEmployeesPrintPage'
 import { ResourcesPage } from './pages/ResourcesPage'
 import { TechniciansPage } from './pages/TechniciansPage'
 import { MyWorkPage } from './pages/MyWorkPage'
-import { SupervisorDashboardPage } from './pages/SupervisorDashboardPage'
 import { ReceivedValvesPage } from './pages/ReceivedValvesPage'
 import { TravelerPage } from './pages/TravelerPage'
 import { ItpPage } from './pages/ItpPage'
@@ -26,14 +25,21 @@ import { CustomerTravelerView } from './pages/CustomerTravelerView'
 import { TravelerInspectionPage } from './pages/TravelerInspectionPage'
 import { FeedbackInboxPage } from './pages/FeedbackInboxPage'
 import { MessagesPage } from './pages/MessagesPage'
-import { canAccessEmployeesPage, canAccessTestLog, defaultHomePath, hasAdminAccess } from './lib/roles'
+import { can, canAccessEmployeesPage, canAccessTestLog, defaultHomePath, isShopRole } from './lib/roles'
+
+function ShopRoute({ children }: { children: React.ReactNode }) {
+  const { role } = useAuth()
+  if (!role) return <Navigate to="/login" replace />
+  if (!isShopRole(role)) return <Navigate to="/login" replace />
+  return <>{children}</>
+}
 
 function AppRoutes() {
   const navigate = useNavigate()
-  const { user, username, role, isAdmin, loading, handleLogin, handleLogout } = useAuth()
+  const { user, username, role, loading, handleLogin, handleLogout } = useAuth()
 
   useEffect(() => {
-    if (!hasAdminAccess(role)) return
+    if (!can(role, 'createJob')) return
     const onKeyDown = (e: KeyboardEvent) => {
       if (!(e.key === 'n' || e.key === 'N')) return
       if (e.ctrlKey || e.metaKey || e.altKey) return
@@ -50,7 +56,7 @@ function AppRoutes() {
 
   return (
     <div className="app-shell">
-      {loading ? null : role ? (
+      {loading ? null : role && isShopRole(role) ? (
         <NavBar role={role} username={username} userId={user?.id ?? null} onLogout={() => void handleLogout()} />
       ) : null}
       <main className="page-content">
@@ -75,32 +81,36 @@ function AppRoutes() {
             <Route
               path="/my-work"
               element={
-                role === 'technician' ? (
+                <ShopRoute>
                   <MyWorkPage user={user} onLogout={() => void handleLogout()} />
-                ) : role ? (
-                  <Navigate to={defaultHomePath(role)} replace />
-                ) : (
-                  <Navigate to="/login" replace />
-                )
+                </ShopRoute>
               }
             />
             <Route
               path="/supervisor-dashboard"
-              element={
-                role === 'supervisor' ? (
-                  <SupervisorDashboardPage user={user} appRole={role} onLogout={() => void handleLogout()} />
-                ) : role ? (
-                  <Navigate to={defaultHomePath(role)} replace />
-                ) : (
-                  <Navigate to="/login" replace />
-                )
-              }
+              element={<Navigate to={role ? defaultHomePath(role) : '/login'} replace />}
             />
             <Route
               path="/dashboard"
               element={
-                hasAdminAccess(role) ? (
+                <ShopRoute>
                   <DashboardPage />
+                </ShopRoute>
+              }
+            />
+            <Route
+              path="/received-valves"
+              element={
+                <ShopRoute>
+                  <ReceivedValvesPage />
+                </ShopRoute>
+              }
+            />
+            <Route
+              path="/new-job"
+              element={
+                can(role, 'createJob') && role ? (
+                  <NewJobPage role={role} />
                 ) : role ? (
                   <Navigate to={defaultHomePath(role)} replace />
                 ) : (
@@ -108,56 +118,115 @@ function AppRoutes() {
                 )
               }
             />
-            <Route path="/received-valves" element={hasAdminAccess(role) ? <ReceivedValvesPage /> : <Navigate to="/login" replace />} />
-            <Route
-              path="/new-job"
-              element={hasAdminAccess(role) ? <NewJobPage role={role!} /> : <Navigate to="/login" replace />}
-            />
             <Route
               path="/job-board"
               element={
-                role === 'admin' || role === 'manager' || role === 'supervisor' || role === 'sales' || role === 'technician' ? (
+                <ShopRoute>
                   <JobBoardPage role={role ?? undefined} username={username} />
-                ) : (
-                  <Navigate to="/login" replace />
-                )
+                </ShopRoute>
               }
             />
             <Route
               path="/jobs/:id"
               element={
-                role === 'admin' || role === 'manager' || role === 'supervisor' || role === 'sales' || role === 'technician' ? (
+                <ShopRoute>
                   <JobBoardPage role={role ?? undefined} username={username} />
+                </ShopRoute>
+              }
+            />
+            <Route
+              path="/itp/:id"
+              element={
+                <ShopRoute>
+                  <ItpPage />
+                </ShopRoute>
+              }
+            />
+            <Route
+              path="/test-log-entry"
+              element={
+                canAccessTestLog(role) ? (
+                  <TestLogEntryPage />
+                ) : role ? (
+                  <Navigate to={defaultHomePath(role)} replace />
                 ) : (
                   <Navigate to="/login" replace />
                 )
               }
             />
             <Route
-              path="/itp/:id"
-              element={role === 'admin' || role === 'manager' || role === 'supervisor' ? <ItpPage /> : <Navigate to="/login" replace />}
-            />
-            <Route
-              path="/test-log-entry"
+              path="/valve-card-ticket"
               element={
-                canAccessTestLog(role) ? <TestLogEntryPage /> : role ? <Navigate to={defaultHomePath(role)} replace /> : <Navigate to="/login" replace />
+                <ShopRoute>
+                  <ValveCardTicketPage />
+                </ShopRoute>
               }
             />
-            <Route path="/valve-card-ticket" element={hasAdminAccess(role) ? <ValveCardTicketPage /> : <Navigate to="/login" replace />} />
             <Route
               path="/traveler/:valveId/inspection"
-              element={hasAdminAccess(role) ? <TravelerInspectionPage /> : <Navigate to="/login" replace />}
+              element={
+                <ShopRoute>
+                  <TravelerInspectionPage />
+                </ShopRoute>
+              }
             />
-            <Route path="/traveler/:valveId" element={hasAdminAccess(role) ? <TravelerPage /> : <Navigate to="/login" replace />} />
-            <Route path="/reports" element={hasAdminAccess(role) ? <ReportsPage /> : <Navigate to="/login" replace />} />
-            <Route path="/resources" element={hasAdminAccess(role) ? <ResourcesPage /> : <Navigate to="/login" replace />} />
-            <Route path="/technicians" element={hasAdminAccess(role) ? <TechniciansPage /> : <Navigate to="/login" replace />} />
-            <Route path="/admin/lists" element={hasAdminAccess(role) ? <AdminListsPage /> : <Navigate to="/login" replace />} />
+            <Route
+              path="/traveler/:valveId"
+              element={
+                <ShopRoute>
+                  <TravelerPage />
+                </ShopRoute>
+              }
+            />
+            <Route
+              path="/reports"
+              element={
+                can(role, 'viewReports') ? (
+                  <ReportsPage />
+                ) : role ? (
+                  <Navigate to={defaultHomePath(role)} replace />
+                ) : (
+                  <Navigate to="/login" replace />
+                )
+              }
+            />
+            <Route
+              path="/resources"
+              element={
+                <ShopRoute>
+                  <ResourcesPage />
+                </ShopRoute>
+              }
+            />
+            <Route
+              path="/technicians"
+              element={
+                can(role, 'manageTechnicians') || can(role, 'openAdminTools') ? (
+                  <TechniciansPage />
+                ) : role ? (
+                  <Navigate to={defaultHomePath(role)} replace />
+                ) : (
+                  <Navigate to="/login" replace />
+                )
+              }
+            />
+            <Route
+              path="/admin/lists"
+              element={
+                can(role, 'manageLists') ? (
+                  <AdminListsPage />
+                ) : role ? (
+                  <Navigate to={defaultHomePath(role)} replace />
+                ) : (
+                  <Navigate to="/login" replace />
+                )
+              }
+            />
             <Route
               path="/admin/employees"
               element={
                 canAccessEmployeesPage(role) ? (
-                  <AdminEmployeesPage isAdmin={isAdmin} />
+                  <AdminEmployeesPage isAdmin={can(role, 'manageEmployeeAccounts')} />
                 ) : role ? (
                   <Navigate to={defaultHomePath(role)} replace />
                 ) : (
@@ -167,7 +236,15 @@ function AppRoutes() {
             />
             <Route
               path="/admin/employees/print-usernames"
-              element={hasAdminAccess(role) ? <AdminEmployeesPrintPage /> : <Navigate to="/login" replace />}
+              element={
+                can(role, 'manageEmployeeAccounts') ? (
+                  <AdminEmployeesPrintPage />
+                ) : role ? (
+                  <Navigate to={defaultHomePath(role)} replace />
+                ) : (
+                  <Navigate to="/login" replace />
+                )
+              }
             />
             <Route
               path="/messages"
@@ -181,7 +258,18 @@ function AppRoutes() {
                 )
               }
             />
-            <Route path="/admin/feedback" element={role === 'admin' ? <FeedbackInboxPage /> : <Navigate to="/login" replace />} />
+            <Route
+              path="/admin/feedback"
+              element={
+                can(role, 'feedbackInbox') ? (
+                  <FeedbackInboxPage />
+                ) : role ? (
+                  <Navigate to={defaultHomePath(role)} replace />
+                ) : (
+                  <Navigate to="/login" replace />
+                )
+              }
+            />
           </Routes>
         )}
       </main>

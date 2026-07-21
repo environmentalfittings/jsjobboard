@@ -74,7 +74,7 @@ BEGIN
       ('rvalenzuela',  'Rene Valenzuela'),
       ('rwolf',        'Randy Wolf'),
       ('jowens',       'Joel Owens'),
-      ('bdunn',        'Brian Dunn'),
+      ('mdunn',        'Mike Dunn'),
       ('dhughes',      'David Hughes'),
       ('nhughes',      'Nicholas Hughes'),
       ('bhumphries',   'Brayden Humphries'),

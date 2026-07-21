@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { useToast } from '../components/ToastNotification'
+import { useAuth } from '../contexts/AuthContext'
 import {
   deleteResourceDocument,
   resourceDocumentPublicUrl,
@@ -16,6 +17,7 @@ import {
   WELD_PROCESSES,
   WPS_TYPES,
 } from '../lib/resourceDocuments'
+import { canWriteShop, permissionDeniedReason } from '../lib/roles'
 import { supabase } from '../lib/supabase'
 
 
@@ -27,6 +29,8 @@ const PROCEDURE_COMPANION_SELECT =
 
 export function ResourcesPage() {
   const { showToast } = useToast()
+  const { role } = useAuth()
+  const canWrite = canWriteShop(role)
 
   // ── Lookup lists for modal dropdowns ─────────────────────────────────────
   const [manufacturers, setManufacturers] = useState<string[]>([])
@@ -309,6 +313,10 @@ export function ResourcesPage() {
   }
 
   const openWeldUploadModal = () => {
+    if (!canWrite) {
+      showToast(permissionDeniedReason('shopWrite'))
+      return
+    }
     resetModalState()
     setModalMode('weld')
     setUploadCategory('weld_procedure')
@@ -316,6 +324,10 @@ export function ResourcesPage() {
   }
 
   const openSimpleUploadModal = (category: ResourceDocumentCategory) => {
+    if (!canWrite) {
+      showToast(permissionDeniedReason('shopWrite'))
+      return
+    }
     resetModalState()
     setModalMode('general')
     setUploadCategory(category)
@@ -355,6 +367,10 @@ export function ResourcesPage() {
   const onDragLeave = useCallback(() => setDragOver(false), [])
 
   const handleUpload = async () => {
+    if (!canWrite) {
+      showToast(permissionDeniedReason('shopWrite'))
+      return
+    }
     if (!uploadTitle.trim()) { showToast('Enter a document title'); return }
 
     setUploading(true)

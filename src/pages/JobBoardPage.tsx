@@ -37,7 +37,7 @@ import { recordDueDateChange, resolveChangedByName } from '../lib/dueDateChanges
 import { isEligiblePriorityValve, syncPriorityQueueWithValves, compareValvesWithPriorityOrder } from '../lib/priorityQueue'
 import { supabase } from '../lib/supabase'
 import type { JobCardSaveFields } from '../lib/jobCardSave'
-import { hasAdminAccess } from '../lib/roles'
+import { can, canWriteShop, permissionDeniedReason } from '../lib/roles'
 import { VALVE_LIST_SELECT } from '../lib/valveSelect'
 import type { Technician, Valve } from '../types'
 import type { UserRole } from './LoginPage'
@@ -117,6 +117,7 @@ interface KanbanJobCardProps {
   onMoveDown: () => void
   canCopy?: boolean
   onCopy?: (v: Valve) => void
+  canWrite?: boolean
 }
 
 function KanbanJobCard({
@@ -138,6 +139,7 @@ function KanbanJobCard({
   onMoveDown,
   canCopy = false,
   onCopy,
+  canWrite = true,
 }: KanbanJobCardProps) {
   const assignedName = valve.assigned_technician_id ? techniciansById.get(valve.assigned_technician_id)?.name : null
   const urgencyClass =
@@ -226,24 +228,30 @@ function KanbanJobCard({
             {(valve.notes ?? '').trim() || '—'}
           </span>
         </div>
-      <div className="job-card-due-date job-card-due-date--editable">
+      <div className={`job-card-due-date${canWrite ? ' job-card-due-date--editable' : ''}`}>
         <span className="job-card-detail-label">Due date</span>
-        <button
-          type="button"
-          className="job-card-due-date-button"
-          onClick={(e) => {
-            e.stopPropagation()
-            onEditDueDate(valve)
-          }}
-        >
-          {dueDateLabel(valve.due_date) ? (
-            <span className={isDueDateOverdue(valve.due_date) ? 'due-date-overdue' : 'due-date-ok'}>
-              {dueDateLabel(valve.due_date)}
-            </span>
-          ) : (
-            <span className="job-card-due-date-empty">Set due date</span>
-          )}
-        </button>
+        {canWrite ? (
+          <button
+            type="button"
+            className="job-card-due-date-button"
+            onClick={(e) => {
+              e.stopPropagation()
+              onEditDueDate(valve)
+            }}
+          >
+            {dueDateLabel(valve.due_date) ? (
+              <span className={isDueDateOverdue(valve.due_date) ? 'due-date-overdue' : 'due-date-ok'}>
+                {dueDateLabel(valve.due_date)}
+              </span>
+            ) : (
+              <span className="job-card-due-date-empty">Set due date</span>
+            )}
+          </button>
+        ) : (
+          <span className={isDueDateOverdue(valve.due_date) ? 'due-date-overdue' : 'due-date-ok'}>
+            {dueDateLabel(valve.due_date) || '—'}
+          </span>
+        )}
         {dueDateLabel(valve.due_date) && isDueDateOverdue(valve.due_date) ? (
           <span className="job-card-overdue-badge">Overdue</span>
         ) : null}
@@ -267,6 +275,8 @@ function KanbanJobCard({
           <select
             className="job-sub-status-select job-sub-status-select--compact job-card-kanban-status-select"
             value={valve.status}
+            disabled={!canWrite}
+            title={canWrite ? undefined : 'View only — ask an Admin or Manager to make changes'}
             onChange={(e) => void onStatusChange(valve, e.target.value)}
           >
             {STATUS_ORDER.map((status) => (
@@ -276,7 +286,7 @@ function KanbanJobCard({
             ))}
           </select>
         </label>
-        {phaseKey === 'incoming' && valve.status === 'Not Arrived' ? (
+        {canWrite && phaseKey === 'incoming' && valve.status === 'Not Arrived' ? (
           <button
             type="button"
             className="job-card-quick-action"
@@ -329,7 +339,8 @@ export function JobBoardPage({ role, username }: { role?: UserRole; username?: s
   const [listColumnSort, setListColumnSort] = useState<ListSortState>({ column: 'default', direction: 'asc' })
   const [scopeFilter, setScopeFilter] = useState<ScopeFilter>(initialScope)
   const viewingCompletedValves = scopeFilter === 'closed'
-  const canCopyJobs = hasAdminAccess(role)
+  const canCopyJobs = can(role, 'copyJob')
+  const canWrite = canWriteShop(role)
   const [technicians, setTechnicians] = useState<Technician[]>([])
   const [jobTechnicianIdsByValve, setJobTechnicianIdsByValve] = useState<Record<number, number[]>>({})
   const [dueDateEditValve, setDueDateEditValve] = useState<Valve | null>(null)
@@ -669,10 +680,18 @@ export function JobBoardPage({ role, username }: { role?: UserRole; username?: s
   }
 
   const openDueDateEditor = (valve: Valve) => {
+    if (!canWrite) {
+      showToast(permissionDeniedReason('shopWrite'))
+      return
+    }
     setDueDateEditValve(valve)
   }
 
   const saveDueDateChange = async (nextDueDate: string | null, reason: string) => {
+    if (!canWrite) {
+      showToast(permissionDeniedReason('shopWrite'))
+      return
+    }
     if (!dueDateEditValve) return
     const previousDueDate = dueDateLabel(dueDateEditValve.due_date)
     if ((previousDueDate ?? null) === nextDueDate) return
@@ -801,6 +820,10 @@ export function JobBoardPage({ role, username }: { role?: UserRole; username?: s
   }
 
   const togglePriority = async (valve: Valve) => {
+    if (!canWrite) {
+      showToast(permissionDeniedReason('shopWrite'))
+      return
+    }
     const currentlyPriority = priorityIds.has(valve.valve_id)
     if (currentlyPriority) {
       const { error } = await supabase.from('priority_queue').delete().eq('valve_id', valve.valve_id)
@@ -946,6 +969,10 @@ export function JobBoardPage({ role, username }: { role?: UserRole; username?: s
   )
 
   const moveValveToStatus = async (valve: Valve, nextStatus: string) => {
+    if (!canWrite) {
+      showToast(permissionDeniedReason('shopWrite'))
+      return
+    }
     if (!nextStatus || valve.status === nextStatus) return
     const previous = { ...valve }
     const patch = valveStatusPatch(nextStatus, valve)
@@ -963,6 +990,10 @@ export function JobBoardPage({ role, username }: { role?: UserRole; username?: s
   }
 
   const quickMarkArrived = async (valve: Valve) => {
+    if (!canWrite) {
+      showToast(permissionDeniedReason('shopWrite'))
+      return
+    }
     if (valve.status !== 'Not Arrived') return
     await moveValveToStatus(valve, 'Arrived - Not Started')
   }
@@ -1015,11 +1046,15 @@ export function JobBoardPage({ role, username }: { role?: UserRole; username?: s
         <div className="page-header">
           <h2>Job Board</h2>
           <div className="page-header-actions">
-            {hasAdminAccess(role) ? (
+            {can(role, 'createJob') ? (
               <Link to="/new-job" className="button-primary job-board-new-job-link">
                 New job <kbd className="job-board-shortcut-kbd">N</kbd>
               </Link>
-            ) : null}
+            ) : (
+              <span className="button-primary job-board-new-job-link nav-item-disabled" title="Only Admin and Manager can create jobs" aria-disabled="true">
+                New job
+              </span>
+            )}
             <div className="tabs">
               <button className={`tab ${tab === 'kanban' ? 'active' : ''}`} onClick={() => setTab('kanban')}>
                 Kanban board
@@ -1092,6 +1127,7 @@ export function JobBoardPage({ role, username }: { role?: UserRole; username?: s
                       onMoveDown={() => moveCardInPhase(phase.key, valve.id, 'down')}
                       canCopy={canCopyJobs}
                       onCopy={setCopySourceValve}
+                      canWrite={canWrite}
                     />
                   ))}
                 </div>
@@ -1207,7 +1243,7 @@ export function JobBoardPage({ role, username }: { role?: UserRole; username?: s
                     <td>
                       {viewingCompletedValves ? (
                         valve.date_closed ?? '—'
-                      ) : (
+                      ) : canWrite ? (
                         <button
                           type="button"
                           className="job-list-due-date-button"
@@ -1225,6 +1261,10 @@ export function JobBoardPage({ role, username }: { role?: UserRole; username?: s
                             <span className="job-card-due-date-empty">Set due date</span>
                           )}
                         </button>
+                      ) : (
+                        <span className={isDueDateOverdue(valve.due_date) ? 'due-date-overdue' : undefined}>
+                          {dueDateLabel(valve.due_date) || '—'}
+                        </span>
                       )}
                     </td>
                     <td className="table-cell-clamp">{valve.description ?? '-'}</td>
@@ -1293,7 +1333,7 @@ export function JobBoardPage({ role, username }: { role?: UserRole; username?: s
           onOpenFullPage={() => navigate(`/jobs/${activeValve.id}`)}
           onCopy={canCopyJobs ? () => setCopySourceValve(activeValve) : undefined}
           forceMaximized={isDedicatedDetailRoute}
-          canEditJobDetails={hasAdminAccess(role)}
+          canEditJobDetails={canWrite}
         />
       ) : null}
 

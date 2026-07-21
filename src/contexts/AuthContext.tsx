@@ -12,7 +12,6 @@ import type { User } from '@supabase/supabase-js'
 import type { UserRole } from '../pages/LoginPage'
 import { getProfileRole, resolveAppRole } from '../lib/auth'
 import { normalizeEmployeeUsername } from '../lib/employeeAuth'
-import { isProfileAdmin } from '../lib/roles'
 import { supabase } from '../lib/supabase'
 
 const LOCAL_DEV_AUTH_KEY = 'js-job-board-local-dev-auth'
@@ -40,7 +39,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [loading, setLoading] = useState(true)
 
   const refreshAuth = useCallback(async () => {
-    const localDevAuthEnabled = import.meta.env.VITE_ENABLE_GENERIC_ADMIN_LOGIN === 'true'
+    const localDevAuthEnabled =
+      import.meta.env.DEV || import.meta.env.VITE_ENABLE_GENERIC_ADMIN_LOGIN === 'true'
     const localAuthRaw = localDevAuthEnabled ? window.localStorage.getItem(LOCAL_DEV_AUTH_KEY) : null
     if (localAuthRaw === 'admin') {
       setUser(null)
@@ -65,23 +65,23 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const nextProfileRole = await getProfileRole(nextUser.id)
     const metadataRole = String(nextUser.user_metadata?.role ?? nextUser.app_metadata?.role ?? '')
 
-    const { data: employeeRow } = await supabase
-      .from('employees')
-      .select('full_name,username')
-      .eq('auth_user_id', nextUser.id)
-      .maybeSingle()
+    const [{ data: employeeRow }, { data: technicianRow }] = await Promise.all([
+      supabase.from('employees').select('full_name,username').eq('auth_user_id', nextUser.id).maybeSingle(),
+      supabase.from('technicians').select('role,name,login_username').eq('user_id', nextUser.id).maybeSingle(),
+    ])
 
     const metadataUsername =
       typeof nextUser.user_metadata?.username === 'string'
         ? normalizeEmployeeUsername(nextUser.user_metadata.username)
         : ''
-    const resolvedUsername = employeeRow?.username ?? metadataUsername
+    const resolvedUsername = employeeRow?.username ?? technicianRow?.login_username ?? metadataUsername
 
     setUser(nextUser)
     setProfileRole(nextProfileRole)
-    setRole(resolveAppRole(nextProfileRole, metadataRole))
+    setRole(resolveAppRole(nextProfileRole, metadataRole, technicianRow?.role))
     setUsername(
-      employeeRow?.full_name?.trim() ||
+      technicianRow?.name?.trim() ||
+        employeeRow?.full_name?.trim() ||
         (nextUser.user_metadata?.name as string | undefined) ||
         (nextUser.user_metadata?.full_name as string | undefined) ||
         resolvedUsername ||
@@ -102,13 +102,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const handleLogin = useCallback(
     async (options?: { localRole?: UserRole; username?: string }) => {
       if (options?.localRole === 'admin') {
-        await supabase.auth.signOut()
+        // Set local flag before signOut so onAuthStateChange/refreshAuth does not wipe Admin.
         window.localStorage.setItem(LOCAL_DEV_AUTH_KEY, 'admin')
+        await supabase.auth.signOut()
         setUser(null)
         setRole('admin')
         setProfileRole('admin')
         setUsername(options.username ?? 'Generic Admin')
         setLoading(false)
+        navigate('/dashboard', { replace: true })
         return
       }
       await refreshAuth()
@@ -132,7 +134,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       username,
       role,
       profileRole,
-      isAdmin: isProfileAdmin(profileRole),
+      // Shop Admin role (technicians / app role) — not profiles.role alone
+      // (profiles often defaulted to admin for new Auth users).
+      isAdmin: role === 'admin',
       loading,
       handleLogin,
       handleLogout,
