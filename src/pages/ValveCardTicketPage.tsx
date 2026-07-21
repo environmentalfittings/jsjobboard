@@ -536,14 +536,13 @@ export function ValveCardTicketPage() {
                 </button>
               </div>
               <p className="status-breakdown-note ticket-print-hint">
-                <strong>Recommended for QL-810W:</strong> use <strong>Print production card</strong> or{' '}
-                <strong>Download PDF</strong>, then pick your Brother printer with <strong>62&nbsp;mm (2.4&quot;)</strong>{' '}
-                continuous tape at <strong>99&nbsp;mm</strong> length — same as Excel. Browser print often defaults to
-                1.1&quot;&nbsp;x&nbsp;3.5&quot; die-cut labels and will not match your roll.
+                <strong>Recommended:</strong> use <strong>Print production card</strong> or{' '}
+                <strong>Download PDF</strong> on 4&quot;&nbsp;&times;&nbsp;3&quot; card stock (matches the blue grid
+                card). Print at <strong>100% scale</strong> — do not shrink to fit.
               </p>
               <p className="status-breakdown-note">
-                <strong>Brother USB print</strong> sends the label directly over USB (Chrome/Edge, printer plugged in).
-                Double-click a valve in the left list for a quick browser print preview.
+                <strong>Brother USB print</strong> uses the same grid layout on 62&nbsp;mm tape (narrower). For full-size
+                blue cards, use PDF or browser print preview.
               </p>
                   </>
                 )
