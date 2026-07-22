@@ -3360,6 +3360,90 @@ a.test-log-reports-item-name:hover {
   color: #b91c1c;
 }
 
+.status-priorities-page .dashboard-header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+  margin-bottom: 1rem;
+}
+
+.status-priorities-back {
+  margin: 0 0 0.35rem;
+  font-size: 0.875rem;
+}
+
+.status-priorities-back a {
+  color: #1d4ed8;
+  text-decoration: none;
+}
+
+.status-priorities-back a:hover {
+  text-decoration: underline;
+}
+
+.status-priorities-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 0.75rem;
+}
+
+.status-priorities-status-select {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  color: #475569;
+}
+
+.status-priorities-status-select select {
+  min-width: 12rem;
+  padding: 0.45rem 0.6rem;
+  border: 1px solid #cbd5e1;
+  border-radius: 8px;
+  font: inherit;
+  background: #fff;
+}
+
+.status-priorities-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.75rem;
+  margin-bottom: 0.75rem;
+  font-size: 0.9375rem;
+}
+
+.status-priorities-saving,
+.status-priorities-readonly {
+  color: #64748b;
+  font-size: 0.8125rem;
+}
+
+.status-priorities-rank {
+  font-weight: 700;
+  width: 2.5rem;
+}
+
+.status-priorities-desc {
+  max-width: 22rem;
+}
+
+.status-priorities-table .priority-move-buttons {
+  justify-content: flex-start;
+}
+
+.daily-priority-report-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 0.75rem;
+  margin-top: 0.75rem;
+}
+
 .dashboard-gauge-cal-alert {
   margin-bottom: 16px;
   padding: 14px 16px;

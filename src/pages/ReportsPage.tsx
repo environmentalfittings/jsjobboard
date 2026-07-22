@@ -2,7 +2,20 @@ import { useEffect, useMemo, useState } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 import { useToast } from '../components/ToastNotification'
 import { JOB_TYPES, normalizeJobType } from '../constants/jobTypes'
-import { TERMINAL_STATUSES } from '../constants/statuses'
+import { STATUS_ORDER, TERMINAL_STATUSES } from '../constants/statuses'
+import { openDailyPriorityReportPrint } from '../lib/dailyPriorityReportPrint'
+import { fetchAllValves } from '../lib/fetchAllValves'
+import { calcActiveJobsByCell, calcActiveStatusBreakdown } from '../lib/dashboardMetrics'
+import {
+  loadPriorityScopeOrder,
+  mergePriorityScopeOrder,
+  orderValvesByPriorityScope,
+  parsePriorityScopeKind,
+  scopeLabel,
+  valvesForPriorityScope,
+  type PriorityScope,
+  type PriorityScopeKind,
+} from '../lib/statusPriorityQueue'
 import { supabase } from '../lib/supabase'
 import { fetchDueDateChanges } from '../lib/dueDateChanges'
 import { VALVE_LIST_SELECT } from '../lib/valveSelect'
@@ -114,6 +127,77 @@ export function ReportsPage() {
   const [dueDateEnd, setDueDateEnd] = useState(defaultRange.end)
   const [dueDateChangeRows, setDueDateChangeRows] = useState<DueDateChangeRecord[]>([])
   const [dueDateChangeLoading, setDueDateChangeLoading] = useState(false)
+
+  const [priorityValves, setPriorityValves] = useState<Valve[]>([])
+  const [priorityLoading, setPriorityLoading] = useState(false)
+  const [priorityKind, setPriorityKind] = useState<PriorityScopeKind>('status')
+  const [priorityKey, setPriorityKey] = useState<string>('all')
+
+  const priorityStatusOptions = useMemo(() => {
+    const breakdown = calcActiveStatusBreakdown(priorityValves)
+    const withCounts = new Map(breakdown.rows.map((row) => [row.status, row.count]))
+    return STATUS_ORDER.filter((status) => (withCounts.get(status) ?? 0) > 0).map((status) => ({
+      key: status,
+      count: withCounts.get(status) ?? 0,
+    }))
+  }, [priorityValves])
+
+  const priorityCellOptions = useMemo(() => {
+    return calcActiveJobsByCell(priorityValves, 40).map((row) => ({
+      key: row.cell,
+      count: row.count,
+    }))
+  }, [priorityValves])
+
+  const priorityOptions = priorityKind === 'cell' ? priorityCellOptions : priorityStatusOptions
+
+  const loadPriorityValves = async () => {
+    setPriorityLoading(true)
+    const { data, error } = await fetchAllValves()
+    if (error) {
+      showToast(`Could not load valves: ${error.message}`)
+      setPriorityValves([])
+    } else {
+      setPriorityValves(data ?? [])
+    }
+    setPriorityLoading(false)
+  }
+
+  useEffect(() => {
+    void loadPriorityValves()
+  }, [])
+
+  const printDailyPriorityReport = async () => {
+    try {
+      const keys =
+        priorityKey === 'all' ? priorityOptions.map((row) => row.key) : [priorityKey]
+      if (!keys.length) {
+        showToast('No active departments to print')
+        return
+      }
+      const sections = []
+      for (const key of keys) {
+        const scope: PriorityScope = { kind: priorityKind, key }
+        const inScope = valvesForPriorityScope(priorityValves, scope)
+        const saved = await loadPriorityScopeOrder(scope)
+        const orderedIds = mergePriorityScopeOrder(saved, inScope)
+        sections.push({
+          shopStatus: scopeLabel(scope),
+          valves: orderValvesByPriorityScope(inScope, orderedIds),
+          kind: priorityKind,
+        })
+      }
+      openDailyPriorityReportPrint(sections, {
+        title:
+          priorityKey === 'all'
+            ? `Daily Priority Report — All ${priorityKind === 'cell' ? 'finish cells' : 'shop statuses'}`
+            : `Daily Priority Report — ${scopeLabel({ kind: priorityKind, key: priorityKey })}`,
+        autoPrint: true,
+      })
+    } catch (error) {
+      showToast(error instanceof Error ? error.message : 'Could not open print preview')
+    }
+  }
 
   const loadOtdData = async (year: number) => {
     setOtdLoading(true)
@@ -410,6 +494,75 @@ export function ReportsPage() {
       <div className="dashboard-title-row">
         <h2 className="dashboard-title">Reports</h2>
       </div>
+
+      <section className="dashboard-panel">
+        <h3>Daily Priority Report</h3>
+        <p className="placeholder-copy">
+          Print ordered handouts for shop leaders by shop status or finish cell. Set the order on the
+          priorities page, then print here for one department or all.
+        </p>
+        <div className="report-filters daily-priority-report-actions">
+          <label>
+            Department type
+            <select
+              value={priorityKind}
+              onChange={(e) => {
+                setPriorityKind(parsePriorityScopeKind(e.target.value))
+                setPriorityKey('all')
+              }}
+              disabled={priorityLoading}
+            >
+              <option value="status">Shop status</option>
+              <option value="cell">Finish cell</option>
+            </select>
+          </label>
+          <label>
+            Department
+            <select
+              value={priorityKey}
+              onChange={(e) => setPriorityKey(e.target.value)}
+              disabled={priorityLoading}
+            >
+              <option value="all">
+                All {priorityKind === 'cell' ? 'finish cells' : 'shop statuses'} (page break each)
+              </option>
+              {priorityOptions.map((row) => (
+                <option key={row.key} value={row.key}>
+                  {row.key} ({row.count})
+                </option>
+              ))}
+            </select>
+          </label>
+          <button
+            type="button"
+            className="button-primary"
+            onClick={() => void printDailyPriorityReport()}
+            disabled={priorityLoading || priorityOptions.length === 0}
+          >
+            Print report
+          </button>
+          <button type="button" onClick={() => void loadPriorityValves()} disabled={priorityLoading}>
+            {priorityLoading ? 'Loading…' : 'Refresh'}
+          </button>
+          {priorityKey !== 'all' ? (
+            <Link
+              to={`/status-priorities?kind=${priorityKind}&key=${encodeURIComponent(priorityKey)}`}
+            >
+              Set order for {priorityKey}
+            </Link>
+          ) : (
+            <Link
+              to={
+                priorityKind === 'cell' && priorityCellOptions[0]
+                  ? `/status-priorities?kind=cell&key=${encodeURIComponent(priorityCellOptions[0].key)}`
+                  : '/status-priorities?kind=status&key=Teardown'
+              }
+            >
+              Open priorities
+            </Link>
+          )}
+        </div>
+      </section>
 
       <section className="dashboard-panel">
         <h3>On-time delivery</h3>

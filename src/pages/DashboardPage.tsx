@@ -263,8 +263,8 @@ export function DashboardPage() {
                 <Link
                   key={row.cell}
                   className="cell-row"
-                  to={`/job-board?view=list&scope=in-process&cell=${encodeURIComponent(row.cell)}`}
-                  title={`View active valves in ${row.cell}`}
+                  to={`/status-priorities?kind=cell&key=${encodeURIComponent(row.cell)}`}
+                  title={`Set daily priorities for ${row.cell}`}
                 >
                   <div className="cell-name">{row.cell}</div>
                   <div className="cell-bar-track">
@@ -274,7 +274,7 @@ export function DashboardPage() {
                 </Link>
               ))}
             </div>
-            <div className="status-breakdown-note">Click a cell to open its active valve list.</div>
+            <div className="status-breakdown-note">Click a finish cell to set and print its daily priorities.</div>
           </section>
 
           <section className="dashboard-panel">
@@ -334,7 +334,7 @@ export function DashboardPage() {
                   <Link
                     key={item.status}
                     className={`status-breakdown-chip ${toneClass}`}
-                    to={`/job-board?view=list&scope=all&status=${encodeURIComponent(item.status)}`}
+                    to={`/status-priorities?kind=status&key=${encodeURIComponent(item.status)}`}
                   >
                     <span>{item.label}</span>
                     <strong>{item.count}</strong>
@@ -345,7 +345,9 @@ export function DashboardPage() {
                 )
               })}
             </div>
-            <p className="status-breakdown-note">Open work orders only — closed jobs excluded.</p>
+            <p className="status-breakdown-note">
+              Open work orders only — click a status to set and print its daily priorities.
+            </p>
           </section>
 
           <section className="dashboard-panel">

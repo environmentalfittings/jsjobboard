@@ -7,6 +7,7 @@ import { JobBoardPage } from './pages/JobBoardPage'
 import { LoginPage } from './pages/LoginPage'
 import { useEffect } from 'react'
 import { ReportsPage } from './pages/ReportsPage'
+import { StatusPrioritiesPage } from './pages/StatusPrioritiesPage'
 import { TestLogEntryPage } from './pages/TestLogEntryPage'
 import { ValveCardTicketPage } from './pages/ValveCardTicketPage'
 import { NewJobPage } from './pages/NewJobPage'
@@ -95,6 +96,14 @@ function AppRoutes() {
               element={
                 <ShopRoute>
                   <DashboardPage />
+                </ShopRoute>
+              }
+            />
+            <Route
+              path="/status-priorities"
+              element={
+                <ShopRoute>
+                  <StatusPrioritiesPage />
                 </ShopRoute>
               }
             />
