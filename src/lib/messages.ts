@@ -115,12 +115,15 @@ export async function loadInboxItems(userId: string): Promise<{ items: InboxItem
   const items: InboxItem[] = []
   let warning: string | null = null
 
-  let { data, error } = await supabase
+  const primary = await supabase
     .from('app_messages')
     .select(MESSAGE_SELECT_FULL)
     .or(`recipient_user_id.eq.${userId},sender_user_id.eq.${userId}`)
     .order('created_at', { ascending: false })
     .limit(300)
+
+  let rows: AppMessageRow[] = []
+  let error = primary.error
 
   if (error && isMissingArchiveColumns(error.message)) {
     warning = ARCHIVE_MIGRATION_HINT
@@ -130,8 +133,29 @@ export async function loadInboxItems(userId: string): Promise<{ items: InboxItem
       .or(`recipient_user_id.eq.${userId},sender_user_id.eq.${userId}`)
       .order('created_at', { ascending: false })
       .limit(300)
-    data = fallback.data
     error = fallback.error
+    if (!fallback.error) {
+      rows = ((fallback.data as Array<Partial<AppMessageRow>> | null) ?? []).map((row) => ({
+        id: Number(row.id),
+        sender_user_id: row.sender_user_id ?? null,
+        recipient_user_id: String(row.recipient_user_id ?? ''),
+        sender_name: row.sender_name ?? null,
+        subject: row.subject ?? null,
+        body: String(row.body ?? ''),
+        category: (row.category as AppMessageRow['category']) ?? 'message',
+        notification_kind: row.notification_kind ?? null,
+        related_feedback_id: row.related_feedback_id ?? null,
+        read_at: row.read_at ?? null,
+        recipient_archived_at: null,
+        recipient_deleted_at: null,
+        sender_archived_at: null,
+        sender_deleted_at: null,
+        attachments: [],
+        created_at: String(row.created_at ?? ''),
+      }))
+    }
+  } else if (!error) {
+    rows = (primary.data as AppMessageRow[] | null) ?? []
   }
 
   if (error) {
@@ -141,7 +165,7 @@ export async function loadInboxItems(userId: string): Promise<{ items: InboxItem
     return { items: [], error: error.message }
   }
 
-  for (const row of (data ?? []) as AppMessageRow[]) {
+  for (const row of rows) {
     const item = rowToInboxItem(row, userId)
     if (item) items.push(item)
   }
