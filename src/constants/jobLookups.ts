@@ -125,7 +125,7 @@ export const PRESSURE_CLASSES = ['150', '300', '400', '600', '800', '900', '1500
 
 /** Body material designations used as fallback when DB lookup_values is empty. */
 export const BODY_MATERIALS = [
-  'WCB', 'WC1', 'F11', 'F22', 'C5', 'C9', 'P91',
+  'WCB', 'WC1', 'F11', 'F22', 'C5', 'C12', 'P91',
   '304 SS', '309 SS', '316 SS', '347 SS',
   'Monel', 'Hastelloy', 'Alloy 400', 'Alloy C276',
 ] as const

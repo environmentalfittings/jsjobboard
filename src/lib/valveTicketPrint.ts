@@ -104,10 +104,12 @@ function wrapPdfText(doc: jsPDF, text: string, maxWidth: number, fontSize: numbe
 
 function woFontSizePt(valveId: string): number {
   const len = valveId.length
-  if (len <= 7) return 26
-  if (len <= 9) return 23
-  if (len <= 11) return 20
-  return 17
+  // Sized for the wider WO column (~56% of card); keep full ID visible.
+  if (len <= 6) return 28
+  if (len <= 8) return 24
+  if (len <= 10) return 20
+  if (len <= 12) return 17
+  return 14
 }
 
 function fitPdfFontSize(doc: jsPDF, text: string, maxWidth: number, maxPt: number, minPt: number): number {
@@ -123,7 +125,7 @@ function fitPdfFontSize(doc: jsPDF, text: string, maxWidth: number, maxPt: numbe
 function scaledRowTops(heightMm: number, insetMm: number): number[] {
   const innerH = heightMm - insetMm * 2
   // WO/Due, Size, Pressure, Description, Work Cell, Customer
-  const fractions = [0, 0.16, 0.26, 0.36, 0.58, 0.7]
+  const fractions = [0, 0.18, 0.29, 0.4, 0.6, 0.72]
   return fractions.map((f) => insetMm + innerH * f)
 }
 
@@ -133,8 +135,8 @@ function drawPdfCard(doc: jsPDF, valve: Valve) {
   const H = VALVE_TICKET_CARD_HEIGHT_MM
   const inset = CARD_PRINT_INSET_MM
   const innerW = W - inset * 2
-  const pad = 2
-  const halfW = inset + innerW / 2
+  const pad = 1.8
+  const woSplit = inset + innerW * 0.56
   const rowTops = scaledRowTops(H, inset)
   const bottom = inset + (H - inset * 2)
 
@@ -145,55 +147,59 @@ function drawPdfCard(doc: jsPDF, valve: Valve) {
   for (let i = 1; i < rowTops.length; i += 1) {
     doc.line(inset, rowTops[i], inset + innerW, rowTops[i])
   }
-  doc.line(halfW, inset, halfW, rowTops[1])
-  doc.line(halfW, rowTops[1], halfW, rowTops[3])
+  doc.line(woSplit, inset, woSplit, rowTops[1])
+  doc.line(woSplit, rowTops[1], woSplit, rowTops[3])
 
   const textLeft = inset + pad
-  const valueLeft = halfW + pad
-  const textWidth = halfW - inset - pad * 2
+  const valueLeft = woSplit + pad
+  const woWidth = woSplit - inset - pad * 2
+  const dueWidth = inset + innerW - woSplit - pad * 2
   const fullWidth = innerW - pad * 2
 
   doc.setFont('helvetica', 'bold')
-  const woSize = fitPdfFontSize(doc, card.valveId, textWidth, woFontSizePt(card.valveId), 13)
+  const woSize = fitPdfFontSize(doc, card.valveId, woWidth, woFontSizePt(card.valveId), 12)
   doc.setFontSize(woSize)
-  doc.text(card.valveId, textLeft, rowTops[0] + 5)
+  doc.text(card.valveId, textLeft, rowTops[0] + 6)
 
-  doc.setFontSize(11)
-  doc.text('Due:', valueLeft, rowTops[0] + 4)
+  doc.setFontSize(12)
+  doc.text('Due:', valueLeft, rowTops[0] + 4.5)
+  doc.setFontSize(14)
+  doc.text(wrapPdfText(doc, card.dueLabel, dueWidth, 14).slice(0, 1), valueLeft, rowTops[0] + 11)
+
+  doc.setFontSize(12)
+  doc.setFont('helvetica', 'bold')
+  doc.text('Size:', textLeft, rowTops[1] + 5)
+  doc.setFont('helvetica', 'normal')
   doc.setFontSize(13)
-  doc.text(card.dueLabel, valueLeft, rowTops[0] + 10)
-
-  doc.setFontSize(11)
-  doc.setFont('helvetica', 'bold')
-  doc.text('Size:', textLeft, rowTops[1] + 4)
-  doc.setFont('helvetica', 'normal')
-  doc.text(wrapPdfText(doc, card.size, textWidth, 11).slice(0, 1), valueLeft, rowTops[1] + 4)
+  doc.text(wrapPdfText(doc, card.size, dueWidth, 13).slice(0, 1), valueLeft, rowTops[1] + 5)
 
   doc.setFont('helvetica', 'bold')
-  doc.text('Pressure:', textLeft, rowTops[2] + 4)
+  doc.setFontSize(12)
+  doc.text('Pressure:', textLeft, rowTops[2] + 5)
   doc.setFont('helvetica', 'normal')
-  doc.text(wrapPdfText(doc, card.pressureClass, textWidth, 11).slice(0, 1), valueLeft, rowTops[2] + 4)
+  doc.setFontSize(13)
+  doc.text(wrapPdfText(doc, card.pressureClass, dueWidth, 13).slice(0, 1), valueLeft, rowTops[2] + 5)
 
-  doc.setFont('helvetica', 'normal')
-  doc.setFontSize(11)
-  doc.text(wrapPdfText(doc, card.description, fullWidth, 11).slice(0, 3), textLeft, rowTops[3] + 4)
-
-  doc.setFontSize(11)
-  doc.setFont('helvetica', 'bold')
-  doc.text('Work Cell:', textLeft, rowTops[4] + 4.5)
   doc.setFont('helvetica', 'normal')
   doc.setFontSize(12)
+  doc.text(wrapPdfText(doc, card.description, fullWidth, 12).slice(0, 3), textLeft, rowTops[3] + 5)
+
+  doc.setFontSize(12)
+  doc.setFont('helvetica', 'bold')
+  doc.text('Work Cell:', textLeft, rowTops[4] + 5)
+  doc.setFont('helvetica', 'normal')
+  doc.setFontSize(13)
   const cellLabelWidth = doc.getTextWidth('Work Cell: ')
   doc.text(
-    wrapPdfText(doc, card.workCell, fullWidth - cellLabelWidth, 12).slice(0, 1),
+    wrapPdfText(doc, card.workCell, fullWidth - cellLabelWidth, 13).slice(0, 1),
     textLeft + cellLabelWidth,
-    rowTops[4] + 4.5,
+    rowTops[4] + 5,
   )
 
   doc.setFont('helvetica', 'bold')
-  doc.setFontSize(14)
-  const customerMaxLines = Math.max(1, Math.floor((bottom - rowTops[5] - 3) / 5))
-  doc.text(wrapPdfText(doc, card.customer, fullWidth, 14).slice(0, customerMaxLines), textLeft, rowTops[5] + 5)
+  doc.setFontSize(16)
+  const customerMaxLines = Math.max(1, Math.floor((bottom - rowTops[5] - 3) / 5.5))
+  doc.text(wrapPdfText(doc, card.customer, fullWidth, 16).slice(0, customerMaxLines), textLeft, rowTops[5] + 6)
 }
 
 function createValveTicketPdf(valve: Valve) {
@@ -288,13 +294,13 @@ export function buildValveTicketPrintHtml(valve: Valve, options?: { autoPrint?: 
         border: 2px solid #111;
         background: #fff;
         display: grid;
-        grid-template-rows: 0.95fr 0.5fr 0.5fr 1.35fr 0.55fr 0.9fr;
-        grid-template-columns: 42% 58%;
+        grid-template-rows: 1.05fr 0.55fr 0.55fr 1.2fr 0.55fr 0.95fr;
+        grid-template-columns: 56% 44%;
       }
 
       .card > * {
         border: 1px solid #111;
-        padding: 0.04in 0.07in;
+        padding: 0.035in 0.06in;
         overflow: hidden;
         word-break: break-word;
         overflow-wrap: anywhere;
@@ -307,27 +313,45 @@ export function buildValveTicketPrintHtml(valve: Valve, options?: { autoPrint?: 
         font-size: ${woFontSizePt(card.valveId)}pt;
         font-weight: 700;
         line-height: 1.05;
+        display: flex;
+        align-items: center;
         white-space: nowrap;
         word-break: normal;
         overflow-wrap: normal;
+        /* Shrink long WO #s so they never clip into the Due column */
+        max-width: 100%;
+      }
+
+      .wo-text {
+        display: block;
+        max-width: 100%;
+        overflow: hidden;
+        text-overflow: clip;
+        white-space: nowrap;
+        font-size: inherit;
+        /* Scale down slightly if still too wide for the cell */
+        transform-origin: left center;
       }
 
       .due {
         grid-column: 2;
         grid-row: 1;
-        font-size: 13pt;
+        font-size: 14pt;
         line-height: 1.2;
+        display: flex;
+        flex-direction: column;
+        justify-content: center;
       }
 
       .due-label {
-        font-size: 12pt;
+        font-size: 13pt;
         font-weight: 700;
       }
 
       .desc {
         grid-column: 1 / -1;
         grid-row: 4;
-        font-size: 11pt;
+        font-size: 12.5pt;
         line-height: 1.2;
         display: -webkit-box;
         -webkit-box-orient: vertical;
@@ -336,14 +360,14 @@ export function buildValveTicketPrintHtml(valve: Valve, options?: { autoPrint?: 
       }
 
       .cell-label {
-        font-size: 11pt;
+        font-size: 12.5pt;
         font-weight: 700;
         display: flex;
         align-items: center;
       }
 
       .cell-value {
-        font-size: 12pt;
+        font-size: 14pt;
         font-weight: 700;
         display: flex;
         align-items: center;
@@ -357,7 +381,7 @@ export function buildValveTicketPrintHtml(valve: Valve, options?: { autoPrint?: 
       .work-cell {
         grid-column: 1 / -1;
         grid-row: 5;
-        font-size: 12pt;
+        font-size: 13.5pt;
         font-weight: 700;
         display: flex;
         align-items: center;
@@ -380,7 +404,7 @@ export function buildValveTicketPrintHtml(valve: Valve, options?: { autoPrint?: 
       .customer {
         grid-column: 1 / -1;
         grid-row: 6;
-        font-size: 16pt;
+        font-size: 18pt;
         font-weight: 700;
         line-height: 1.1;
         display: flex;
@@ -426,7 +450,7 @@ export function buildValveTicketPrintHtml(valve: Valve, options?: { autoPrint?: 
       }
     </style>
   </head>
-  <body${autoPrint ? ' onload="window.focus(); window.print()"' : ''}>
+  <body>
     <div class="toolbar">
       <button type="button" onclick="window.print()">Print</button>
     </div>
@@ -438,7 +462,7 @@ export function buildValveTicketPrintHtml(valve: Valve, options?: { autoPrint?: 
     <div class="preview-wrap">
       <div class="card-shell">
       <div class="card" role="presentation">
-        <div class="wo">${escapeHtml(card.valveId)}</div>
+        <div class="wo"><span class="wo-text" id="wo-text">${escapeHtml(card.valveId)}</span></div>
         <div class="due"><span class="due-label">Due:</span><br />${escapeHtml(card.dueLabel)}</div>
         <div class="cell-label size-label">Size:</div>
         <div class="cell-value size-value">${escapeHtml(card.size)}</div>
@@ -453,6 +477,19 @@ export function buildValveTicketPrintHtml(valve: Valve, options?: { autoPrint?: 
       </div>
       </div>
     </div>
+    <script>
+      (function fitWo() {
+        var el = document.getElementById('wo-text');
+        var cell = el && el.parentElement;
+        if (!el || !cell) return;
+        el.style.transform = 'none';
+        var avail = cell.clientWidth - 2;
+        if (avail <= 0 || el.scrollWidth <= avail) return;
+        var scale = Math.max(0.55, avail / el.scrollWidth);
+        el.style.transform = 'scale(' + scale.toFixed(3) + ')';
+      })();
+      ${autoPrint ? 'window.focus(); window.print();' : ''}
+    </script>
   </body>
 </html>`
 }

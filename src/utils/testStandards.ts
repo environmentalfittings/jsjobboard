@@ -10,7 +10,7 @@ export type MaterialKey =
   | 'SS304'
   | 'SS316'
   | 'C5'
-  | 'C9'
+  | 'C12'
   | 'P91'
   | 'Monel'
   | 'Hastelloy'
@@ -24,7 +24,7 @@ export const CWP_BY_CLASS: Record<number, Record<MaterialKey, number>> = {
     SS304: 275,
     SS316: 275,
     C5: 260,
-    C9: 280,
+    C12: 280,
     P91: 290,
     Monel: 270,
     Hastelloy: 210,
@@ -37,7 +37,7 @@ export const CWP_BY_CLASS: Record<number, Record<MaterialKey, number>> = {
     SS304: 720,
     SS316: 720,
     C5: 675,
-    C9: 730,
+    C12: 730,
     P91: 750,
     Monel: 705,
     Hastelloy: 545,
@@ -50,7 +50,7 @@ export const CWP_BY_CLASS: Record<number, Record<MaterialKey, number>> = {
     SS304: 960,
     SS316: 960,
     C5: 900,
-    C9: 970,
+    C12: 970,
     P91: 1000,
     Monel: 940,
     Hastelloy: 730,
@@ -63,7 +63,7 @@ export const CWP_BY_CLASS: Record<number, Record<MaterialKey, number>> = {
     SS304: 1440,
     SS316: 1440,
     C5: 1350,
-    C9: 1455,
+    C12: 1455,
     P91: 1500,
     Monel: 1410,
     Hastelloy: 1095,
@@ -76,7 +76,7 @@ export const CWP_BY_CLASS: Record<number, Record<MaterialKey, number>> = {
     SS304: 2160,
     SS316: 2160,
     C5: 2025,
-    C9: 2185,
+    C12: 2185,
     P91: 2250,
     Monel: 2120,
     Hastelloy: 1640,
@@ -89,7 +89,7 @@ export const CWP_BY_CLASS: Record<number, Record<MaterialKey, number>> = {
     SS304: 3600,
     SS316: 3600,
     C5: 3375,
-    C9: 3640,
+    C12: 3640,
     P91: 3750,
     Monel: 3530,
     Hastelloy: 2735,
@@ -102,7 +102,7 @@ export const CWP_BY_CLASS: Record<number, Record<MaterialKey, number>> = {
     SS304: 6000,
     SS316: 6000,
     C5: 5625,
-    C9: 6065,
+    C12: 6065,
     P91: 6250,
     Monel: 5885,
     Hastelloy: 4565,
@@ -245,7 +245,9 @@ const BODY_MATERIAL_TO_CWP_KEY: Record<string, MaterialKey> = {
   F11: 'F11',
   F22: 'F22',
   C5: 'C5',
-  C9: 'C9',
+  C12: 'C12',
+  C9: 'C12',
+  W9: 'C12',
   P91: 'P91',
   '304 SS': 'SS304',
   '309 SS': 'SS304',
