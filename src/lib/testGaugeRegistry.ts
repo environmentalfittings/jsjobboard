@@ -25,8 +25,23 @@ export function formatTestGaugeOptionLabel(gauge: TestGauge): string {
   return parts.join(' ')
 }
 
-export const GAUGE_CALIBRATION_CRITICAL_DAYS = 30
-export const GAUGE_CALIBRATION_WARNING_DAYS = 30
+/** Chart recorders are registered in test_gauges with type “Chart recorder”. */
+export function isChartRecorderGauge(gauge: TestGauge): boolean {
+  return /chart\s*recorder/i.test(String(gauge.gauge_type ?? ''))
+}
+
+export function filterPressureTestGauges(gauges: TestGauge[]): TestGauge[] {
+  return gauges.filter((g) => !isChartRecorderGauge(g))
+}
+
+export function filterChartRecorderGauges(gauges: TestGauge[]): TestGauge[] {
+  return gauges.filter(isChartRecorderGauge)
+}
+
+export const SUGGESTED_GAUGE_TYPES = ['Pressure', 'Helium', 'Chart recorder'] as const
+
+/** Orange warning when calibration is within ~3 months. */
+export const GAUGE_CALIBRATION_WARNING_DAYS = 90
 
 export type GaugeCalibrationStatus = 'ok' | 'expiring' | 'due' | 'critical'
 
@@ -47,14 +62,21 @@ export function daysPastGaugeCalibrationDue(gauge: TestGauge, today = new Date()
   return daysUntil < 0 ? -daysUntil : 0
 }
 
+export function formatGaugeCalibrationDueDate(gauge: TestGauge): string | null {
+  if (!gauge.next_calibration_date) return null
+  const due = new Date(`${gauge.next_calibration_date}T12:00:00`)
+  if (Number.isNaN(due.getTime())) return gauge.next_calibration_date
+  return due.toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' })
+}
+
+/**
+ * - `expiring` — due within 90 days (orange)
+ * - `critical` / `due` — past due (red / expired)
+ */
 export function getGaugeCalibrationStatus(gauge: TestGauge, today = new Date()): GaugeCalibrationStatus {
   const daysUntil = daysUntilGaugeCalibrationDue(gauge, today)
   if (daysUntil === null) return 'ok'
-  if (daysUntil < 0) {
-    const daysPast = -daysUntil
-    if (daysPast >= GAUGE_CALIBRATION_CRITICAL_DAYS) return 'critical'
-    return 'due'
-  }
+  if (daysUntil < 0) return 'critical'
   if (daysUntil <= GAUGE_CALIBRATION_WARNING_DAYS) return 'expiring'
   return 'ok'
 }
@@ -65,7 +87,7 @@ export function isGaugeCalibrationOverdue(gauge: TestGauge, today = new Date()):
 }
 
 export function isGaugeCalibrationCriticallyOverdue(gauge: TestGauge, today = new Date()): boolean {
-  return getGaugeCalibrationStatus(gauge, today) === 'critical'
+  return isGaugeCalibrationOverdue(gauge, today)
 }
 
 export function formatGaugeCalibrationStatusLabel(gauge: TestGauge, today = new Date()): string {
@@ -74,14 +96,12 @@ export function formatGaugeCalibrationStatusLabel(gauge: TestGauge, today = new 
   const daysPast = daysPastGaugeCalibrationDue(gauge, today)
 
   if (status === 'expiring' && daysUntil !== null) {
-    if (daysUntil === 0) return 'Expires today'
-    return `Expires in ${daysUntil} day${daysUntil === 1 ? '' : 's'}`
+    if (daysUntil === 0) return 'Due today'
+    return `Due in ${daysUntil} day${daysUntil === 1 ? '' : 's'}`
   }
-  if (status === 'due' && daysPast !== null) {
-    return daysPast === 1 ? '1 day overdue' : `${daysPast} days overdue`
-  }
-  if (status === 'critical' && daysPast !== null) {
-    return `Expired · ${daysPast} days past due`
+  if ((status === 'due' || status === 'critical') && daysPast !== null) {
+    if (daysPast === 0) return 'Expired'
+    return daysPast === 1 ? 'Expired · 1 day past due' : `Expired · ${daysPast} days past due`
   }
   return ''
 }

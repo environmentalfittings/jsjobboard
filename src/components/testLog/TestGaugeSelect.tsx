@@ -1,5 +1,6 @@
 import { useEffect, useId, useRef, useState } from 'react'
 import {
+  formatGaugeCalibrationDueDate,
   formatGaugeCalibrationStatusLabel,
   formatTestGaugeOptionLabel,
   getGaugeCalibrationStatus,
@@ -14,31 +15,37 @@ export type GaugeSelection = {
 type TestGaugeSelectProps = {
   id: string
   label?: string
+  placeholder?: string
   options: TestGauge[]
   value: GaugeSelection
   onChange: (next: GaugeSelection) => void
 }
 
-function statusBadgeShort(status: ReturnType<typeof getGaugeCalibrationStatus>): string {
-  if (status === 'expiring') return 'Expiring soon'
-  if (status === 'due') return 'Overdue'
-  if (status === 'critical') return 'Expired'
-  return ''
+function isExpiredStatus(status: ReturnType<typeof getGaugeCalibrationStatus>) {
+  return status === 'critical' || status === 'due'
 }
 
-export function TestGaugeSelect({ id, label = 'Test Gauge #', options, value, onChange }: TestGaugeSelectProps) {
+export function TestGaugeSelect({
+  id,
+  label = 'Test Gauge #',
+  placeholder = 'Select gauge…',
+  options,
+  value,
+  onChange,
+}: TestGaugeSelectProps) {
   const listId = useId()
   const rootRef = useRef<HTMLDivElement>(null)
   const [open, setOpen] = useState(false)
 
   const selected = options.find((g) => g.id === value.gaugeId) ?? options.find((g) => g.gauge_number === value.gauge)
   const status = selected ? getGaugeCalibrationStatus(selected) : 'ok'
+  const selectStatusClass = isExpiredStatus(status) ? 'critical' : status
 
   const triggerLabel = selected
     ? formatTestGaugeOptionLabel(selected)
     : value.gauge && !value.gaugeId
       ? `${value.gauge} (saved entry)`
-      : 'Select gauge…'
+      : placeholder
 
   useEffect(() => {
     if (!open) return
@@ -65,7 +72,7 @@ export function TestGaugeSelect({ id, label = 'Test Gauge #', options, value, on
 
   return (
     <div
-      className={`test-gauge-select${status !== 'ok' ? ` test-gauge-select--${status}` : ''}`}
+      className={`test-gauge-select${selectStatusClass !== 'ok' ? ` test-gauge-select--${selectStatusClass}` : ''}`}
       ref={rootRef}
     >
       <span className="test-gauge-select-label" id={`${id}-label`}>
@@ -83,6 +90,11 @@ export function TestGaugeSelect({ id, label = 'Test Gauge #', options, value, on
           onClick={() => setOpen((prev) => !prev)}
         >
           <span className="test-gauge-combobox-trigger-text">{triggerLabel}</span>
+          {isExpiredStatus(status) ? (
+            <span className="test-gauge-expired-badge test-gauge-expired-badge--inline" aria-hidden>
+              Expired
+            </span>
+          ) : null}
           <span className="test-gauge-combobox-caret" aria-hidden>
             ▾
           </span>
@@ -99,7 +111,7 @@ export function TestGaugeSelect({ id, label = 'Test Gauge #', options, value, on
                 onMouseDown={(e) => e.preventDefault()}
                 onClick={() => pickGauge(null)}
               >
-                <span className="test-gauge-combobox-option-label">Select gauge…</span>
+                <span className="test-gauge-combobox-option-label">{placeholder}</span>
               </button>
             </li>
 
@@ -118,8 +130,16 @@ export function TestGaugeSelect({ id, label = 'Test Gauge #', options, value, on
               </li>
             ) : null}
 
+            {options.length === 0 ? (
+              <li className="test-gauge-combobox-empty" role="presentation">
+                No matching gauges in the registry.
+              </li>
+            ) : null}
+
             {options.map((gauge) => {
               const optionStatus = getGaugeCalibrationStatus(gauge)
+              const optionClass = isExpiredStatus(optionStatus) ? 'critical' : optionStatus
+              const dueLabel = formatGaugeCalibrationDueDate(gauge)
               const statusLabel = formatGaugeCalibrationStatusLabel(gauge)
               const isSelected = value.gaugeId === gauge.id
               return (
@@ -127,21 +147,27 @@ export function TestGaugeSelect({ id, label = 'Test Gauge #', options, value, on
                   <button
                     type="button"
                     role="option"
-                    className={`test-gauge-combobox-option test-gauge-combobox-option--${optionStatus}${isSelected ? ' test-gauge-combobox-option--selected' : ''}`}
+                    className={`test-gauge-combobox-option test-gauge-combobox-option--${optionClass}${isSelected ? ' test-gauge-combobox-option--selected' : ''}`}
                     aria-selected={isSelected}
                     onMouseDown={(e) => e.preventDefault()}
                     onClick={() => pickGauge(gauge)}
                   >
-                    <span className="test-gauge-combobox-option-label">{formatTestGaugeOptionLabel(gauge)}</span>
-                    {statusLabel ? (
-                      <span className={`test-gauge-combobox-status test-gauge-combobox-status--${optionStatus}`}>
-                        {statusBadgeShort(optionStatus) || statusLabel}
+                    <span className="test-gauge-combobox-option-main">
+                      <span className="test-gauge-combobox-option-label">{formatTestGaugeOptionLabel(gauge)}</span>
+                      {isExpiredStatus(optionStatus) ? (
+                        <span className="test-gauge-expired-badge">Expired</span>
+                      ) : null}
+                    </span>
+                    {dueLabel ? (
+                      <span className={`test-gauge-combobox-due test-gauge-combobox-due--${optionClass}`}>
+                        Calibration due: {dueLabel}
+                        {statusLabel && optionStatus === 'expiring' ? ` · ${statusLabel}` : null}
                       </span>
-                    ) : gauge.next_calibration_date ? (
-                      <span className="test-gauge-combobox-status test-gauge-combobox-status--ok">
-                        Due {gauge.next_calibration_date}
+                    ) : (
+                      <span className="test-gauge-combobox-due test-gauge-combobox-due--ok">
+                        No calibration due date
                       </span>
-                    ) : null}
+                    )}
                   </button>
                 </li>
               )
@@ -151,11 +177,10 @@ export function TestGaugeSelect({ id, label = 'Test Gauge #', options, value, on
       </div>
 
       {selected?.next_calibration_date ? (
-        <p className={`test-gauge-cal-note test-gauge-cal-note--${status}`}>
-          Next calibration: {selected.next_calibration_date}
+        <p className={`test-gauge-cal-note test-gauge-cal-note--${selectStatusClass}`}>
+          Calibration due: {formatGaugeCalibrationDueDate(selected)}
           {status === 'expiring' ? ` (${formatGaugeCalibrationStatusLabel(selected)})` : null}
-          {status === 'due' ? ' (overdue)' : null}
-          {status === 'critical' ? ` (${formatGaugeCalibrationStatusLabel(selected)})` : null}
+          {isExpiredStatus(status) ? ` (${formatGaugeCalibrationStatusLabel(selected)})` : null}
         </p>
       ) : null}
     </div>

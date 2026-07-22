@@ -9,7 +9,7 @@ import { ValveTypeSelect } from './ValveTypeSelect'
 import { RequiredTestParametersPanel } from './RequiredTestParametersPanel'
 import { useToast } from '../ToastNotification'
 import { useEmployees } from '../../hooks/useEmployees'
-import { loadActiveTestGauges } from '../../lib/testGaugeRegistry'
+import { loadActiveTestGauges, filterChartRecorderGauges, filterPressureTestGauges } from '../../lib/testGaugeRegistry'
 import { isFourHourChartTestSelected, normalizeTestProcedures, mapJobTestTypeToProcedures, jobTestTypeLooksLikeMedia } from '../../lib/testLogProcedure'
 import { parseJobTestTypes } from '../../lib/jobTestTypes'
 import { applyTestMediaPrefill } from '../../lib/testLogMedia'
@@ -130,7 +130,7 @@ export function TestLogEntryForm({
   const [testing, setTesting] = useState<TestLogTestingDetails>(() => emptyTestLogTestingDetails())
   const [testMediaOptions, setTestMediaOptions] = useState<string[]>([])
   const [testProcedureOptions, setTestProcedureOptions] = useState<string[]>([])
-  const [chartRecorderOptions, setChartRecorderOptions] = useState<string[]>([])
+  const [chartRecorderOptions, setChartRecorderOptions] = useState<TestGauge[]>([])
   const [gaugeOptions, setGaugeOptions] = useState<TestGauge[]>([])
   const [pendingReportFiles, setPendingReportFiles] = useState<File[]>([])
   const [saving, setSaving] = useState(false)
@@ -259,14 +259,15 @@ export function TestLogEntryForm({
       const map = await loadLookupOptionsMap()
       setTestMediaOptions(map.test_media ?? [])
       setTestProcedureOptions(normalizeTestProcedures(map.test_procedure ?? []))
-      setChartRecorderOptions(map.chart_recorder ?? [])
       setBodyMaterialOptions(map.body_material ?? [])
 
       try {
         const gauges = await loadActiveTestGauges()
-        setGaugeOptions(gauges)
+        setGaugeOptions(filterPressureTestGauges(gauges))
+        setChartRecorderOptions(filterChartRecorderGauges(gauges))
       } catch {
         setGaugeOptions([])
+        setChartRecorderOptions([])
       }
     })()
   }, [])
@@ -606,7 +607,7 @@ export function TestLogEntryForm({
       const next = { ...prev, ...patch }
       if ('testProcedures' in patch || 'testProcedureOther' in patch) {
         if (!isFourHourChartTestSelected(next)) {
-          next.shellTest = { ...next.shellTest, chartRecorderNumber: '' }
+          next.shellTest = { ...next.shellTest, chartRecorderId: '', chartRecorderNumber: '' }
         }
       }
       return next
