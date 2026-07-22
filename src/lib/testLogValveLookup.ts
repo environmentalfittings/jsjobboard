@@ -69,27 +69,6 @@ export async function fetchValveForTestLog(valveIdInput: string): Promise<TestLo
   return null
 }
 
-/** Map of uppercase valve_id → description (newest valve row wins). */
-export async function fetchValveDescriptionsByIds(valveIds: string[]): Promise<Record<string, string>> {
-  const unique = Array.from(new Set(valveIds.map((id) => id.trim()).filter(Boolean)))
-  if (!unique.length) return {}
-
-  const { data, error } = await supabase.from('valves').select('id,valve_id,description').in('valve_id', unique)
-  if (error || !data?.length) return {}
-
-  const sorted = [...data].sort((a, b) => Number(b.id) - Number(a.id))
-  const map: Record<string, string> = {}
-  for (const row of sorted) {
-    const key = String(row.valve_id ?? '')
-      .trim()
-      .toUpperCase()
-    if (!key || key in map) continue
-    const description = String(row.description ?? '').trim()
-    if (description) map[key] = description
-  }
-  return map
-}
-
 /** Suggest valve IDs from the job board as the user types. */
 export async function searchValveIdsForTestLog(query: string, limit = 12): Promise<string[]> {
   const normalized = normalizeValveId(query)

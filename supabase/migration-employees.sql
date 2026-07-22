@@ -11,7 +11,6 @@ CREATE TABLE IF NOT EXISTS employees (
   initials      TEXT NOT NULL,
   company       TEXT DEFAULT 'J-S Machine & Valve, Inc.',
   is_active     BOOLEAN DEFAULT true,
-  is_tester     BOOLEAN NOT NULL DEFAULT false,
   auth_user_id  UUID,
   created_at    TIMESTAMPTZ DEFAULT now()
 );

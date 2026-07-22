@@ -6,8 +6,6 @@ import { ITP_BOWL_TYPE_OPTIONS, itpTemplateLabel } from '../constants/itpTemplat
 import { VALVE_TYPE_EDIT_PIN } from '../constants/valveTypeEditGate'
 import { useToast } from './ToastNotification'
 import { loadLookupOptionsMap } from '../lib/lookupValues'
-import { formatJobTestTypes, parseJobTestTypes } from '../lib/jobTestTypes'
-import { TEST_PROCEDURE_OTHER } from '../lib/testLogProcedure'
 import { buildTestLogEntryHref } from '../lib/testLogEntryPrefill'
 import { type JobCardSaveFields, toDateInputValue } from '../lib/jobCardSave'
 import { supabase } from '../lib/supabase'
@@ -143,8 +141,7 @@ export function StatusChangeModal({
   const [jobTypeDraft, setJobTypeDraft] = useState(valve.job_type ?? 'Valve Repair')
   const [orderTypeDraft, setOrderTypeDraft] = useState(valve.order_type ?? '')
   const [dueDateDraft, setDueDateDraft] = useState(toDateInputValue(valve.due_date))
-  const [testTypesDraft, setTestTypesDraft] = useState<string[]>([])
-  const [testTypeOtherDraft, setTestTypeOtherDraft] = useState('')
+  const [testTypeDraft, setTestTypeDraft] = useState(valve.test_type ?? '')
   const [materialSpecDraft, setMaterialSpecDraft] = useState(valve.material_spec ?? '')
   const [drawingPoNumberDraft, setDrawingPoNumberDraft] = useState(valve.drawing_po_number ?? '')
   const [finishCellOptions, setFinishCellOptions] = useState<string[]>([])
@@ -191,7 +188,7 @@ export function StatusChangeModal({
       setFinishCellOptions(map.finish_cell ?? [])
       setSizeOptions(map.valve_size ?? [])
       setOrderTypeOptions(map.order_type ?? [])
-      setTestTypeOptions(map.test_procedure ?? [])
+      setTestTypeOptions(map.test_type ?? [])
     })
   }, [])
 
@@ -251,15 +248,7 @@ export function StatusChangeModal({
     setJobTypeDraft(valve.job_type ?? 'Valve Repair')
     setOrderTypeDraft(valve.order_type ?? '')
     setDueDateDraft(toDateInputValue(valve.due_date))
-    const known = testTypeOptions.length
-      ? [...testTypeOptions, TEST_PROCEDURE_OTHER]
-      : [TEST_PROCEDURE_OTHER]
-    const parsed = parseJobTestTypes(valve.test_type, known)
-    const knownSet = new Set(known)
-    const recognized = parsed.filter((value) => knownSet.has(value))
-    const custom = parsed.filter((value) => !knownSet.has(value))
-    setTestTypesDraft(custom.length ? [...recognized, TEST_PROCEDURE_OTHER] : recognized)
-    setTestTypeOtherDraft(custom.join(', '))
+    setTestTypeDraft(valve.test_type ?? '')
     setMaterialSpecDraft(valve.material_spec ?? '')
     setDrawingPoNumberDraft(valve.drawing_po_number ?? '')
   }, [
@@ -278,7 +267,6 @@ export function StatusChangeModal({
     valve.test_type,
     valve.material_spec,
     valve.drawing_po_number,
-    testTypeOptions,
   ])
 
   useEffect(() => {
@@ -426,16 +414,7 @@ export function StatusChangeModal({
       jobType: normalizedJobType,
       orderType: orderTypeDraft.trim() || null,
       dueDate: dueDateDraft.trim() || null,
-      testType: valveRelated
-        ? formatJobTestTypes(
-            testTypesDraft.includes(TEST_PROCEDURE_OTHER)
-              ? [
-                  ...testTypesDraft.filter((value) => value !== TEST_PROCEDURE_OTHER),
-                  testTypeOtherDraft.trim(),
-                ]
-              : testTypesDraft,
-          ) || null
-        : null,
+      testType: valveRelated ? testTypeDraft.trim() || null : null,
       materialSpec: valveRelated ? null : materialSpecDraft.trim() || null,
       drawingPoNumber: valveRelated ? null : drawingPoNumberDraft.trim() || null,
     })
@@ -1024,45 +1003,23 @@ export function StatusChangeModal({
                         ))}
                       </datalist>
 
-                      <fieldset className="modal-test-types">
-                        <legend className="modal-label">Test type(s)</legend>
-                        <div className="modal-test-type-checkboxes" role="group" aria-label="Test types">
-                          {[...testTypeOptions, TEST_PROCEDURE_OTHER].map((option) => (
-                            <label key={option} className="modal-test-type-checkbox">
-                              <input
-                                type="checkbox"
-                                checked={testTypesDraft.includes(option)}
-                                disabled={isSaving}
-                                onChange={(e) => {
-                                  const checked = e.target.checked
-                                  setTestTypesDraft((prev) => {
-                                    const next = checked
-                                      ? [...prev, option]
-                                      : prev.filter((value) => value !== option)
-                                    if (!next.includes(TEST_PROCEDURE_OTHER)) setTestTypeOtherDraft('')
-                                    return next
-                                  })
-                                }}
-                              />
-                              <span>{option === TEST_PROCEDURE_OTHER ? 'Other…' : option}</span>
-                            </label>
-                          ))}
-                        </div>
-                        {testTypesDraft.includes(TEST_PROCEDURE_OTHER) ? (
-                          <label className="modal-label" htmlFor="modal-test-type-other">
-                            Other test type
-                            <input
-                              id="modal-test-type-other"
-                              type="text"
-                              className="modal-status-select"
-                              value={testTypeOtherDraft}
-                              onChange={(e) => setTestTypeOtherDraft(e.target.value)}
-                              disabled={isSaving}
-                              placeholder="Describe other test requirements"
-                            />
-                          </label>
-                        ) : null}
-                      </fieldset>
+                      <label className="modal-label" htmlFor="modal-test-type">
+                        Test type
+                      </label>
+                      <select
+                        id="modal-test-type"
+                        className="modal-status-select"
+                        value={testTypeDraft}
+                        onChange={(e) => setTestTypeDraft(e.target.value)}
+                        disabled={isSaving}
+                      >
+                        <option value="">— Select test type —</option>
+                        {testTypeOptions.map((tt) => (
+                          <option key={tt} value={tt}>
+                            {tt}
+                          </option>
+                        ))}
+                      </select>
                     </>
                   ) : (
                     <>

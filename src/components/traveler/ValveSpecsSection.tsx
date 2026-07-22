@@ -23,15 +23,13 @@ type AssemblyEntry = {
 
 type SpecsObject = Record<string, unknown>
 
-const KIT_TYPES = new Set(['a', 'b', 'c', 'i', 'j', 'l', 'm', 'n', 'o', 'p', 'd', 'k', 'q'])
-const STUD_TYPES = new Set(['a', 'b', 'i', 'l', 'm', 'n', 'o', 'c', 'd', 'j', 'k', 'p', 'q'])
+const KIT_TYPES = new Set(['a', 'b', 'c', 'i', 'j', 'l', 'm', 'n', 'o', 'p'])
+const STUD_TYPES = new Set(['a', 'b', 'i', 'l', 'm', 'n', 'o'])
 const CRITICAL_DIM_TYPES = new Set(['a', 'b', 'i', 'l', 'm'])
-const ASSEMBLY_TYPES = new Set(['a', 'b', 'i', 'l', 'm', 'n', 'o', 'c', 'd', 'j', 'k', 'p', 'q', 'f', 'g', 'h'])
+const ASSEMBLY_TYPES = new Set(['a', 'b', 'i', 'l', 'm', 'n', 'o'])
 const PLUG_STEM_TYPES = new Set(['a', 'b'])
-const GASKET_TYPES = new Set(['a', 'b', 'l', 'c', 'd', 'j', 'k', 'p', 'q'])
+const GASKET_TYPES = new Set(['a', 'b', 'l'])
 const RELIEF_TYPES = new Set(['r', 's'])
-const PRESSURE_SEAL_TYPES = new Set(['f', 'g', 'h'])
-const MFG_TYPES = new Set(['t'])
 
 const ASSEMBLY_COMPONENTS: Record<string, AssemblyComponent[]> = {
   b: [
@@ -85,74 +83,6 @@ const ASSEMBLY_COMPONENTS: Record<string, AssemblyComponent[]> = {
     { key: 'top_cap', label: 'Top Cap' },
     { key: 'plug', label: 'Plug' },
     { key: 'seats', label: 'Seats' },
-  ],
-  c: [
-    { key: 'body', label: 'Body' },
-    { key: 'top_cap', label: 'Top Cap' },
-    { key: 'plug', label: 'Plug' },
-    { key: 'seat_rings', label: 'Seat Rings' },
-    { key: 'stem', label: 'Stem' },
-    { key: 'thrust_bearing', label: 'Thrust Bearing' },
-  ],
-  d: [
-    { key: 'body', label: 'Body' },
-    { key: 'piston', label: 'Piston' },
-    { key: 'cylinder_bushing', label: 'Cylinder / Bushing' },
-    { key: 'spring', label: 'Spring' },
-    { key: 'seat', label: 'Seat' },
-    { key: 'cover', label: 'Cover' },
-  ],
-  j: [
-    { key: 'body', label: 'Body' },
-    { key: 'wedge', label: 'Wedge' },
-    { key: 'stem', label: 'Stem' },
-    { key: 'seat_rings', label: 'Seat Rings' },
-    { key: 'bonnet', label: 'Bonnet' },
-    { key: 'bonnet_bolting', label: 'Bonnet Bolting' },
-  ],
-  k: [
-    { key: 'body', label: 'Body' },
-    { key: 'disc', label: 'Disc' },
-    { key: 'stem', label: 'Stem' },
-    { key: 'seat_ring', label: 'Seat Ring' },
-    { key: 'bonnet', label: 'Bonnet' },
-  ],
-  p: [
-    { key: 'body', label: 'Body' },
-    { key: 'plug', label: 'Plug' },
-    { key: 'wedge_faces', label: 'Wedge Faces' },
-    { key: 'stem', label: 'Stem' },
-    { key: 'top_cap', label: 'Top Cap' },
-    { key: 'seats', label: 'Seats' },
-  ],
-  q: [
-    { key: 'body', label: 'Body' },
-    { key: 'ball', label: 'Ball' },
-    { key: 'stem', label: 'Stem' },
-    { key: 'seats', label: 'Seats' },
-    { key: 'end_caps', label: 'End Caps' },
-    { key: 'fire_safe_seal', label: 'Fire-safe Seal' },
-  ],
-  f: [
-    { key: 'body', label: 'Body' },
-    { key: 'clapper', label: 'Clapper' },
-    { key: 'hinge_pin', label: 'Hinge Pin' },
-    { key: 'seat', label: 'Seat' },
-    { key: 'bonnet', label: 'Bonnet' },
-  ],
-  g: [
-    { key: 'body', label: 'Body' },
-    { key: 'wedge', label: 'Wedge' },
-    { key: 'stem', label: 'Stem' },
-    { key: 'seat_rings', label: 'Seat Rings' },
-    { key: 'bonnet', label: 'Bonnet' },
-  ],
-  h: [
-    { key: 'body', label: 'Body' },
-    { key: 'disc', label: 'Disc' },
-    { key: 'stem', label: 'Stem' },
-    { key: 'seat_ring', label: 'Seat Ring' },
-    { key: 'bonnet', label: 'Bonnet' },
   ],
 }
 
@@ -215,8 +145,6 @@ export function ValveSpecsSection({ travelerId, valveId, valveTypeId, onComplete
     air_actuator: false,
     gasket: false,
     relief: false,
-    pressure_seal: false,
-    new_construction: false,
   })
 
   const showKit = KIT_TYPES.has(valveTypeId)
@@ -227,8 +155,6 @@ export function ValveSpecsSection({ travelerId, valveId, valveTypeId, onComplete
   const showAirActuator = operator === 'Air Act.'
   const showGasket = GASKET_TYPES.has(valveTypeId)
   const showRelief = RELIEF_TYPES.has(valveTypeId)
-  const showPressureSeal = PRESSURE_SEAL_TYPES.has(valveTypeId)
-  const showMfg = MFG_TYPES.has(valveTypeId)
   const assemblyComponents = ASSEMBLY_COMPONENTS[valveTypeId] ?? []
 
   useEffect(() => {
@@ -872,235 +798,6 @@ export function ValveSpecsSection({ travelerId, valveId, valveTypeId, onComplete
                         disabled={locked || saving}
                       />
                     </label>
-                  </div>
-                ) : null}
-              </section>
-            ) : null}
-
-            {showPressureSeal ? (
-              <section className="traveler-subaccordion-item">
-                <button
-                  type="button"
-                  className="traveler-subaccordion-head"
-                  onClick={() => setOpen((p) => ({ ...p, pressure_seal: !p.pressure_seal }))}
-                >
-                  <span>Pressure Seal Bonnet</span>
-                  <span>{open.pressure_seal ? '▾' : '▸'}</span>
-                </button>
-                {open.pressure_seal ? (
-                  <div className="traveler-subaccordion-body">
-                    <div className="traveler-spec-grid">
-                      <label>
-                        Seal Ring Material
-                        <input
-                          value={asString(specs.seal_ring_material)}
-                          onChange={(e) => setSpecField('seal_ring_material', e.target.value)}
-                          disabled={locked || saving}
-                        />
-                      </label>
-                      <label>
-                        Gland Torque
-                        <input
-                          value={asString(specs.gland_torque)}
-                          onChange={(e) => setSpecField('gland_torque', e.target.value)}
-                          disabled={locked || saving}
-                        />
-                      </label>
-                    </div>
-                    <div className="traveler-radio-wrap">
-                      <div className="traveler-radio-row">
-                        <span className="traveler-radio-label">Segmental Ring</span>
-                        <label>
-                          <input
-                            type="checkbox"
-                            checked={Boolean(specs.segmental_ring_repaired)}
-                            onChange={(e) => setSpecField('segmental_ring_repaired', e.target.checked)}
-                            disabled={locked || saving}
-                          />{' '}
-                          Repaired
-                        </label>
-                        <label>
-                          <input
-                            type="checkbox"
-                            checked={Boolean(specs.segmental_ring_replaced)}
-                            onChange={(e) => setSpecField('segmental_ring_replaced', e.target.checked)}
-                            disabled={locked || saving}
-                          />{' '}
-                          Replaced
-                        </label>
-                      </div>
-                      <div className="traveler-radio-row">
-                        <span className="traveler-radio-label">Spring</span>
-                        <label>
-                          <input
-                            type="checkbox"
-                            checked={Boolean(specs.spring_repaired)}
-                            onChange={(e) => setSpecField('spring_repaired', e.target.checked)}
-                            disabled={locked || saving}
-                          />{' '}
-                          Repaired
-                        </label>
-                        <label>
-                          <input
-                            type="checkbox"
-                            checked={Boolean(specs.spring_replaced)}
-                            onChange={(e) => setSpecField('spring_replaced', e.target.checked)}
-                            disabled={locked || saving}
-                          />{' '}
-                          Replaced
-                        </label>
-                      </div>
-                      <div className="traveler-radio-row">
-                        <span className="traveler-radio-label">Bonnet-to-body preload verified?</span>
-                        <label>
-                          <input
-                            type="radio"
-                            checked={asBooleanOrNull(specs.preload_verified) === true}
-                            onChange={() => setSpecField('preload_verified', true)}
-                            disabled={locked || saving}
-                          />{' '}
-                          Yes
-                        </label>
-                        <label>
-                          <input
-                            type="radio"
-                            checked={asBooleanOrNull(specs.preload_verified) === false}
-                            onChange={() => setSpecField('preload_verified', false)}
-                            disabled={locked || saving}
-                          />{' '}
-                          No
-                        </label>
-                      </div>
-                    </div>
-                  </div>
-                ) : null}
-              </section>
-            ) : null}
-
-            {showMfg ? (
-              <section className="traveler-subaccordion-item">
-                <button
-                  type="button"
-                  className="traveler-subaccordion-head"
-                  onClick={() => setOpen((p) => ({ ...p, new_construction: !p.new_construction }))}
-                >
-                  <span>New Construction</span>
-                  <span>{open.new_construction ? '▾' : '▸'}</span>
-                </button>
-                {open.new_construction ? (
-                  <div className="traveler-subaccordion-body">
-                    <div className="traveler-spec-grid">
-                      <label>
-                        Body Heat / Cert #
-                        <input
-                          value={asString(specs.body_heat_cert)}
-                          onChange={(e) => setSpecField('body_heat_cert', e.target.value)}
-                          disabled={locked || saving}
-                        />
-                      </label>
-                      <label>
-                        Bonnet Heat / Cert #
-                        <input
-                          value={asString(specs.bonnet_heat_cert)}
-                          onChange={(e) => setSpecField('bonnet_heat_cert', e.target.value)}
-                          disabled={locked || saving}
-                        />
-                      </label>
-                      <label>
-                        Hydrostatic Shell Test Pressure
-                        <input
-                          value={asString(specs.hydro_shell_test_pressure)}
-                          onChange={(e) => setSpecField('hydro_shell_test_pressure', e.target.value)}
-                          disabled={locked || saving}
-                        />
-                      </label>
-                    </div>
-                    <div className="traveler-radio-wrap">
-                      <div className="traveler-radio-row">
-                        <span className="traveler-radio-label">Trim material certified?</span>
-                        <label>
-                          <input
-                            type="radio"
-                            checked={asBooleanOrNull(specs.trim_material_certified) === true}
-                            onChange={() => setSpecField('trim_material_certified', true)}
-                            disabled={locked || saving}
-                          />{' '}
-                          Yes
-                        </label>
-                        <label>
-                          <input
-                            type="radio"
-                            checked={asBooleanOrNull(specs.trim_material_certified) === false}
-                            onChange={() => setSpecField('trim_material_certified', false)}
-                            disabled={locked || saving}
-                          />{' '}
-                          No
-                        </label>
-                      </div>
-                      <div className="traveler-radio-row">
-                        <span className="traveler-radio-label">Hydrostatic shell test result</span>
-                        <label>
-                          <input
-                            type="radio"
-                            checked={asString(specs.hydro_shell_test_result) === 'Pass'}
-                            onChange={() => setSpecField('hydro_shell_test_result', 'Pass')}
-                            disabled={locked || saving}
-                          />{' '}
-                          Pass
-                        </label>
-                        <label>
-                          <input
-                            type="radio"
-                            checked={asString(specs.hydro_shell_test_result) === 'Fail'}
-                            onChange={() => setSpecField('hydro_shell_test_result', 'Fail')}
-                            disabled={locked || saving}
-                          />{' '}
-                          Fail
-                        </label>
-                      </div>
-                      <div className="traveler-radio-row">
-                        <span className="traveler-radio-label">Final dimensional check complete?</span>
-                        <label>
-                          <input
-                            type="radio"
-                            checked={asBooleanOrNull(specs.final_dimensional_check) === true}
-                            onChange={() => setSpecField('final_dimensional_check', true)}
-                            disabled={locked || saving}
-                          />{' '}
-                          Yes
-                        </label>
-                        <label>
-                          <input
-                            type="radio"
-                            checked={asBooleanOrNull(specs.final_dimensional_check) === false}
-                            onChange={() => setSpecField('final_dimensional_check', false)}
-                            disabled={locked || saving}
-                          />{' '}
-                          No
-                        </label>
-                      </div>
-                      <div className="traveler-radio-row">
-                        <span className="traveler-radio-label">Nameplate stamped?</span>
-                        <label>
-                          <input
-                            type="radio"
-                            checked={asBooleanOrNull(specs.nameplate_stamped) === true}
-                            onChange={() => setSpecField('nameplate_stamped', true)}
-                            disabled={locked || saving}
-                          />{' '}
-                          Yes
-                        </label>
-                        <label>
-                          <input
-                            type="radio"
-                            checked={asBooleanOrNull(specs.nameplate_stamped) === false}
-                            onChange={() => setSpecField('nameplate_stamped', false)}
-                            disabled={locked || saving}
-                          />{' '}
-                          No
-                        </label>
-                      </div>
-                    </div>
                   </div>
                 ) : null}
               </section>

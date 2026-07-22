@@ -218,34 +218,6 @@ export function AdminEmployeesPage({ isAdmin }: { isAdmin: boolean }) {
     }
   }
 
-  const toggleTester = async (employee: Employee, nextValue: boolean) => {
-    if (!isAdmin) {
-      showToast('Only Admin can update tester designation')
-      return
-    }
-    setBusy(true)
-    const { error: rpcError } = await supabase.rpc('set_employee_is_tester', {
-      p_employee_id: employee.id,
-      p_is_tester: nextValue,
-    })
-    setBusy(false)
-    if (rpcError) {
-      const message = rpcError.message || 'Could not update tester designation'
-      showToast(
-        /Only Admin can update tester designation/i.test(message)
-          ? 'Admin check failed in database. Re-run supabase/migration-employee-is-tester.sql, then try again.'
-          : /set_employee_is_tester|function|schema cache|does not exist/i.test(message)
-            ? 'Run migration-employee-is-tester.sql in Supabase SQL Editor first'
-            : message,
-      )
-      return
-    }
-    showToast(
-      nextValue ? `${employee.full_name} marked as tester` : `${employee.full_name} removed from testers`,
-    )
-    await reload()
-  }
-
   const handleBulkCreate = async () => {
     if (!isAdmin) {
       showToast('Only Admin can create employee accounts')
@@ -323,9 +295,6 @@ export function AdminEmployeesPage({ isAdmin }: { isAdmin: boolean }) {
       </p>
 
       {error ? <p className="admin-employees-error">{error}</p> : null}
-      <p className="admin-employees-tester-hint">
-        Check <strong>Tester</strong> for people who should appear in the Test Log tester dropdown.
-      </p>
 
       <section className="dashboard-panel admin-employees-panel">
         <div className="admin-employees-filters">
@@ -371,7 +340,6 @@ export function AdminEmployeesPage({ isAdmin }: { isAdmin: boolean }) {
                 <th>Name</th>
                 <th>Username</th>
                 <th>Initials</th>
-                <th>Tester</th>
                 <th>Status</th>
                 <th>Last Sign In</th>
                 <th>Actions</th>
@@ -380,11 +348,11 @@ export function AdminEmployeesPage({ isAdmin }: { isAdmin: boolean }) {
             <tbody>
               {loading ? (
                 <tr>
-                  <td colSpan={8}>Loading employees…</td>
+                  <td colSpan={7}>Loading employees…</td>
                 </tr>
               ) : filteredEmployees.length === 0 ? (
                 <tr>
-                  <td colSpan={8}>No employees match your filters.</td>
+                  <td colSpan={7}>No employees match your filters.</td>
                 </tr>
               ) : (
                 filteredEmployees.map((employee) => {
@@ -401,18 +369,6 @@ export function AdminEmployeesPage({ isAdmin }: { isAdmin: boolean }) {
                         <code>{employee.username}</code>
                       </td>
                       <td>{employee.initials}</td>
-                      <td>
-                        <label className="admin-employees-tester-toggle">
-                          <input
-                            type="checkbox"
-                            checked={Boolean(employee.is_tester)}
-                            disabled={!isAdmin || busy || !employee.is_active}
-                            onChange={(e) => void toggleTester(employee, e.target.checked)}
-                            aria-label={`Mark ${employee.full_name} as tester`}
-                          />
-                          <span>{employee.is_tester ? 'Yes' : 'No'}</span>
-                        </label>
-                      </td>
                       <td>{statusLabel(status)}</td>
                       <td>{statusLoading && employee.auth_user_id ? '…' : formatDateTime(lastSignIn)}</td>
                       <td>

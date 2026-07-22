@@ -3,7 +3,6 @@ import type { TestMediaFields } from '../../lib/testLogMedia'
 import type { TestGauge } from '../../types/testGauge'
 import { TestGaugeSelect } from './TestGaugeSelect'
 import { TestMediaSelect } from './TestMediaSelect'
-import { TestTimeSelect } from './TestTimeSelect'
 
 type TestPressureBlockProps = {
   title: string
@@ -65,11 +64,10 @@ export function TestPressureBlock({
           onChange={(e) => onChange({ ...value, pressure: e.target.value })}
         />
       </label>
-      <TestTimeSelect
-        id={`${accent}-pressure`}
-        value={value.time}
-        onChange={(time) => onChange({ ...value, time })}
-      />
+      <label>
+        Test Time
+        <input type="text" value={value.time} onChange={(e) => onChange({ ...value, time: e.target.value })} />
+      </label>
       <fieldset className="test-pressure-result-fieldset">
         <legend>Result</legend>
         <label className="test-pressure-result-option">

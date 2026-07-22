@@ -7,24 +7,11 @@ import { canWriteShop } from '../lib/roles'
 import { normalizeValveId } from '../lib/valveId'
 import { supabase } from '../lib/supabase'
 import { testLogHasDetailsColumn, testLogSelectColumns } from '../lib/testLogSchema'
-import { fetchValveDescriptionsByIds } from '../lib/testLogValveLookup'
 import { formatTestProceduresSummary, parseTestLogTestingDetails, resolveTestMedia } from '../types/testLog'
 import { formatCheckedStandardsSummary, formatTestPressuresSummary } from '../lib/testStandardParams'
 import type { TestLogEntry } from '../types'
 
-type SortColumn =
-  | 'tested_on'
-  | 'valve_id'
-  | 'description'
-  | 'size'
-  | 'pressure'
-  | 'test_type'
-  | 'pass_fail'
-  | 'tester'
-  | 'action_taken'
-  | 'saved_at'
-
-const RECENT_TABLE_COL_COUNT = 10
+type SortColumn = 'tested_on' | 'valve_id' | 'test_type' | 'pass_fail' | 'tester' | 'action_taken'
 type SortDirection = 'asc' | 'desc'
 
 type TableColumnFilters = {
@@ -229,15 +216,6 @@ async function loadLast12MonthVolumes(reference = new Date()): Promise<MonthVolu
   })
 }
 
-function formatSavedAt(row: TestLogEntry) {
-  const details = parseTestLogTestingDetails(row.testing_details)
-  const raw = details?.savedAt || row.created_at
-  if (!raw) return '—'
-  const date = new Date(raw)
-  if (Number.isNaN(date.getTime())) return String(raw)
-  return date.toLocaleString()
-}
-
 function PassFailBadge({ value }: { value: string | null | undefined }) {
   if (isPassResult(value)) return <span className="test-log-result-badge test-log-result-pass">Pass</span>
   if (isFailResult(value)) return <span className="test-log-result-badge test-log-result-fail">Fail</span>
@@ -254,8 +232,6 @@ export function TestLogEntryPage() {
   const [searchOptions, setSearchOptions] = useState<string[]>([])
   const [loadingRows, setLoadingRows] = useState(false)
   const [expandedRowId, setExpandedRowId] = useState<number | null>(null)
-  const [editingEntry, setEditingEntry] = useState<TestLogEntry | null>(null)
-  const [valveDescriptions, setValveDescriptions] = useState<Record<string, string>>({})
   const [detailsColumnReady, setDetailsColumnReady] = useState<boolean | null>(null)
   const [sortColumn, setSortColumn] = useState<SortColumn>('tested_on')
   const [sortDirection, setSortDirection] = useState<SortDirection>('desc')
@@ -332,10 +308,7 @@ export function TestLogEntryPage() {
     if (filterEndDate) query = query.lte('tested_on', filterEndDate)
 
     const { data } = await query
-    const nextRows = (data as unknown as TestLogEntry[]) ?? []
-    setRows(nextRows)
-    const descriptions = await fetchValveDescriptionsByIds(nextRows.map((row) => row.valve_id))
-    setValveDescriptions(descriptions)
+    setRows((data as unknown as TestLogEntry[]) ?? [])
     setLoadingRows(false)
   }
 
@@ -376,9 +349,6 @@ export function TestLogEntryPage() {
     [rows],
   )
 
-  const descriptionFor = (valveId: string) =>
-    valveDescriptions[String(valveId ?? '').trim().toUpperCase()] ?? ''
-
   const displayRows = useMemo(() => {
     const filtered = rows.filter((row) => {
       if (tableFilters.test_type.length > 0) {
@@ -407,15 +377,6 @@ export function TestLogEntryPage() {
         case 'valve_id':
           result = compareText(a.valve_id, b.valve_id)
           break
-        case 'description':
-          result = compareText(descriptionFor(a.valve_id), descriptionFor(b.valve_id))
-          break
-        case 'size':
-          result = compareText(a.size, b.size)
-          break
-        case 'pressure':
-          result = compareText(a.pressure, b.pressure)
-          break
         case 'test_type':
           result = compareText(a.test_type, b.test_type)
           break
@@ -428,18 +389,12 @@ export function TestLogEntryPage() {
         case 'action_taken':
           result = compareText(a.action_taken, b.action_taken)
           break
-        case 'saved_at':
-          result = compareText(
-            parseTestLogTestingDetails(a.testing_details)?.savedAt || a.created_at,
-            parseTestLogTestingDetails(b.testing_details)?.savedAt || b.created_at,
-          )
-          break
       }
       return sortDirection === 'asc' ? result : -result
     })
 
     return sorted
-  }, [rows, sortColumn, sortDirection, tableFilters, valveDescriptions])
+  }, [rows, sortColumn, sortDirection, tableFilters])
 
   const activeTableFilterCount =
     tableFilters.test_type.length + tableFilters.pass_fail.length + tableFilters.tester.length
@@ -663,10 +618,7 @@ export function TestLogEntryPage() {
       {canWrite ? (
         <TestLogEntryForm
           detailsColumnReady={detailsColumnReady}
-          editingEntry={editingEntry}
-          onCancelEdit={() => setEditingEntry(null)}
           onSaved={() => {
-            setEditingEntry(null)
             void loadRows()
             void loadPeriodStats()
           }}
@@ -758,30 +710,6 @@ export function TestLogEntryPage() {
                 </th>
                 <th>
                   <TestLogColumnHeader
-                    label="Description"
-                    sortActive={sortColumn === 'description'}
-                    sortDirection={sortDirection}
-                    onSort={() => toggleSort('description')}
-                  />
-                </th>
-                <th>
-                  <TestLogColumnHeader
-                    label="Size"
-                    sortActive={sortColumn === 'size'}
-                    sortDirection={sortDirection}
-                    onSort={() => toggleSort('size')}
-                  />
-                </th>
-                <th>
-                  <TestLogColumnHeader
-                    label="Pressure"
-                    sortActive={sortColumn === 'pressure'}
-                    sortDirection={sortDirection}
-                    onSort={() => toggleSort('pressure')}
-                  />
-                </th>
-                <th>
-                  <TestLogColumnHeader
                     label="Test medium"
                     sortActive={sortColumn === 'test_type'}
                     sortDirection={sortDirection}
@@ -821,20 +749,12 @@ export function TestLogEntryPage() {
                     onSort={() => toggleSort('action_taken')}
                   />
                 </th>
-                <th>
-                  <TestLogColumnHeader
-                    label="Saved"
-                    sortActive={sortColumn === 'saved_at'}
-                    sortDirection={sortDirection}
-                    onSort={() => toggleSort('saved_at')}
-                  />
-                </th>
               </tr>
             </thead>
             <tbody>
               {displayRows.length === 0 && !loadingRows ? (
                 <tr>
-                  <td colSpan={RECENT_TABLE_COL_COUNT} className="test-log-empty-row">
+                  <td colSpan={6} className="test-log-empty-row">
                     No test log entries match these filters.
                   </td>
                 </tr>
@@ -842,7 +762,6 @@ export function TestLogEntryPage() {
               {displayRows.map((row) => {
                 const isExpanded = expandedRowId === row.id
                 const details = parseTestLogTestingDetails(row.testing_details)
-                const description = descriptionFor(row.valve_id)
                 return (
                   <Fragment key={row.id}>
                     <tr
@@ -867,11 +786,6 @@ export function TestLogEntryPage() {
                       <td>
                         <span className="test-log-valve-id">{row.valve_id}</span>
                       </td>
-                      <td className="table-cell-clamp" title={description || undefined}>
-                        {description || '—'}
-                      </td>
-                      <td>{row.size?.trim() || '—'}</td>
-                      <td>{row.pressure?.trim() || '—'}</td>
                       <td>{row.test_type ?? '-'}</td>
                       <td>
                         <PassFailBadge value={row.pass_fail} />
@@ -880,43 +794,12 @@ export function TestLogEntryPage() {
                         <span className="test-log-tester-chip">{row.tester ?? '-'}</span>
                       </td>
                       <td>{row.action_taken ?? '-'}</td>
-                      <td className="test-log-saved-at">{formatSavedAt(row)}</td>
                     </tr>
                     {isExpanded ? (
                       <tr className="test-log-detail-row">
-                        <td colSpan={RECENT_TABLE_COL_COUNT}>
+                        <td colSpan={6}>
                           <div className="test-log-detail-panel">
-                            {canWrite ? (
-                              <div className="test-log-detail-actions">
-                                <button
-                                  type="button"
-                                  className="button-primary"
-                                  onClick={(e) => {
-                                    e.stopPropagation()
-                                    setEditingEntry(row)
-                                  }}
-                                >
-                                  {editingEntry?.id === row.id ? 'Editing…' : 'Edit test'}
-                                </button>
-                              </div>
-                            ) : null}
                             <div className="test-log-detail-grid">
-                              <div className="test-log-detail-item">
-                                <span className="test-log-detail-label">Saved</span>
-                                <span className="test-log-detail-value">{formatSavedAt(row)}</span>
-                              </div>
-                              <div className="test-log-detail-item">
-                                <span className="test-log-detail-label">Description</span>
-                                <span
-                                  className={
-                                    description
-                                      ? 'test-log-detail-value'
-                                      : 'test-log-detail-value test-log-detail-empty'
-                                  }
-                                >
-                                  {description || '—'}
-                                </span>
-                              </div>
                               <div className="test-log-detail-item">
                                 <span className="test-log-detail-label">Size</span>
                                 <span className={row.size ? 'test-log-detail-value' : 'test-log-detail-value test-log-detail-empty'}>

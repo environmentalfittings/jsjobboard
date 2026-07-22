@@ -12,45 +12,18 @@ type EmployeesSnapshot = {
 let sharedSnapshot: EmployeesSnapshot | null = null
 let sharedLoadPromise: Promise<EmployeesSnapshot> | null = null
 
-const EMPLOYEE_SELECT_WITH_TESTER =
-  'id,employee_no,first_name,last_name,full_name,username,initials,company,is_active,is_tester,auth_user_id'
-const EMPLOYEE_SELECT_BASE =
-  'id,employee_no,first_name,last_name,full_name,username,initials,company,is_active,auth_user_id'
-
-function isMissingIsTesterColumn(message: string | null | undefined) {
-  return /is_tester/i.test(String(message ?? '')) && /column|schema|does not exist/i.test(String(message ?? ''))
-}
-
 async function loadEmployeesSnapshot(): Promise<EmployeesSnapshot> {
-  const [employeesResPrimary, userRes] = await Promise.all([
+  const [employeesRes, userRes] = await Promise.all([
     supabase
       .from('employees')
-      .select(EMPLOYEE_SELECT_WITH_TESTER)
+      .select('id,employee_no,first_name,last_name,full_name,username,initials,company,is_active,auth_user_id')
       .order('last_name', { ascending: true })
       .order('first_name', { ascending: true }),
     supabase.auth.getUser(),
   ])
 
-  let employeesRes = employeesResPrimary
-  if (employeesRes.error && isMissingIsTesterColumn(employeesRes.error.message)) {
-    employeesRes = await supabase
-      .from('employees')
-      .select(EMPLOYEE_SELECT_BASE)
-      .order('last_name', { ascending: true })
-      .order('first_name', { ascending: true })
-  }
-
   let error: string | null = employeesRes.error?.message ?? null
-  if (employeesResPrimary.error && isMissingIsTesterColumn(employeesResPrimary.error.message) && !employeesRes.error) {
-    error = 'Run migration-employee-is-tester.sql in Supabase to enable tester designation'
-  }
-
-  const employees = employeesRes.error
-    ? []
-    : (((employeesRes.data as Employee[]) ?? []).map((row) => ({
-        ...row,
-        is_tester: Boolean((row as Employee).is_tester),
-      })) as Employee[])
+  const employees = employeesRes.error ? [] : ((employeesRes.data as Employee[]) ?? [])
 
   let currentUserProfile: Profile | null = null
   const userId = userRes.data.user?.id

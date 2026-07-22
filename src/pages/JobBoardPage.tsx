@@ -362,12 +362,7 @@ export function JobBoardPage({ role, username }: { role?: UserRole; username?: s
   const [workOrderQuery, setWorkOrderQuery] = useState('')
   const [selectedWorkOrder, setSelectedWorkOrder] = useState('')
   const [listSort, setListSort] = useState<ValveListSort>('default')
-  const [columnFilters, setColumnFilters] = useState(() => {
-    const filters = emptyColumnFilters()
-    const cell = searchParams.get('cell')?.trim()
-    if (cell) filters.cell = { query: cell, selected: cell }
-    return filters
-  })
+  const [columnFilters, setColumnFilters] = useState(emptyColumnFilters)
   const [listColumnSort, setListColumnSort] = useState<ListSortState>({ column: 'default', direction: 'asc' })
   const [scopeFilter, setScopeFilter] = useState<ScopeFilter>(initialScope)
   const viewingCompletedValves = scopeFilter === 'closed'
@@ -435,35 +430,6 @@ export function JobBoardPage({ role, username }: { role?: UserRole; username?: s
       }).length,
     [columnFilters],
   )
-
-  // Apply dashboard deep-links: ?view=list&scope=…&cell=Durco/Twinseal
-  useEffect(() => {
-    const view = searchParams.get('view')
-    if (view === 'list') setTab('list')
-    else if (view === 'kanban') setTab('kanban')
-
-    const nextScope = searchParams.get('scope')
-    if (
-      nextScope === 'in-process' ||
-      nextScope === 'on-hold' ||
-      nextScope === 'waiting-on-arrival' ||
-      nextScope === 'on-order' ||
-      nextScope === 'closed' ||
-      nextScope === 'ready-to-ship' ||
-      nextScope === 'not-arrived' ||
-      nextScope === 'all'
-    ) {
-      setScopeFilter(nextScope === 'all' ? 'all' : nextScope)
-    }
-
-    const cell = searchParams.get('cell')?.trim() ?? ''
-    if (cell) {
-      setColumnFilters((prev) => {
-        if (prev.cell.selected === cell && prev.cell.query === cell) return prev
-        return { ...prev, cell: { query: cell, selected: cell } }
-      })
-    }
-  }, [searchParams])
 
   useEffect(() => {
     let cancelled = false
@@ -1219,11 +1185,6 @@ export function JobBoardPage({ role, username }: { role?: UserRole; username?: s
               onClick={() => {
                 setColumnFilters(emptyColumnFilters())
                 setListColumnSort({ column: 'default', direction: 'asc' })
-                setSearchParams((prev) => {
-                  const next = new URLSearchParams(prev)
-                  next.delete('cell')
-                  return next
-                })
               }}
               disabled={activeColumnFilterCount === 0 && listColumnSort.column === 'default'}
             >

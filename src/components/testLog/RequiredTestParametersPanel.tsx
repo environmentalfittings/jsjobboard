@@ -31,25 +31,13 @@ function mergePhaseRows(
   phases: TestPhaseRow[],
   phaseState: Record<string, TestPhaseResult>,
   valveContext: ValveDataForTest | null,
+  options?: { enforceLocking?: boolean },
 ): DisplayPhaseRow[] {
-  if (!valveContext) {
-    return phases.map((phase) => {
-      const state = phaseState[phase.id]
-      const needsActual = phase.testPressure.includes('enter actual')
-      return {
-        ...phase,
-        medium: state?.medium ?? phase.medium,
-        passFail: state?.passFail ?? '',
-        notes: state?.notes ?? '',
-        locked: false,
-        needsActualPressure: needsActual,
-        actualPressure: state?.actualPressure ?? '',
-        displayPressure: needsActual ? state?.actualPressure ?? '' : phase.testPressure,
-      }
-    })
-  }
+  if (!valveContext) return phases
 
   const bracket = getNPSSizeBracket(valveContext.nps)
+  const enforceLocking = options?.enforceLocking ?? true
+  let previousPassed = true
 
   return phases.map((phase) => {
     const state = phaseState[phase.id]
@@ -70,6 +58,13 @@ function mergePhaseRows(
       })
     }
 
+    const skipsLocking = Boolean(phase.excludesFromLocking)
+    const locked = enforceLocking && !skipsLocking ? !previousPassed : false
+
+    if (!skipsLocking && enforceLocking) {
+      previousPassed = state?.passFail === 'pass'
+    }
+
     const needsActual = row.testPressure.includes('enter actual')
 
     return {
@@ -77,7 +72,7 @@ function mergePhaseRows(
       medium,
       passFail: state?.passFail ?? '',
       notes: state?.notes ?? '',
-      locked: false,
+      locked,
       needsActualPressure: needsActual,
       actualPressure: state?.actualPressure ?? '',
       displayPressure: needsActual ? state?.actualPressure ?? '' : row.testPressure,
@@ -102,8 +97,6 @@ function PhaseTable({
 }) {
   if (!rows.length) return null
 
-  const colCount = (showStandardColumn ? 1 : 0) + 6
-
   return (
     <div className="test-required-params-table-wrap">
       <table className="test-required-params-table test-required-params-phase-table">
@@ -112,16 +105,19 @@ function PhaseTable({
             {showStandardColumn ? <th>Standard</th> : null}
             <th>Phase</th>
             <th>Test</th>
+            <th>Medium</th>
             <th>Test pressure</th>
             <th>Hold time</th>
             <th>Allowable leakage</th>
+            <th>Pass</th>
+            <th>Fail</th>
             <th>Notes</th>
           </tr>
         </thead>
         <tbody>
           {rows.map((row) => (
             <Fragment key={row.id}>
-              <tr>
+              <tr className={row.locked ? 'test-phase-row-locked' : ''}>
                 {showStandardColumn ? <td>{checkedStandardLabel(row.standard)}</td> : null}
                 <th scope="row">{row.phase}</th>
                 <td>
@@ -130,12 +126,30 @@ function PhaseTable({
                     <div className="test-phase-acceptance">Acceptance: {row.acceptanceCriteria}</div>
                   ) : null}
                 </td>
+                <td>
+                  {row.mediumEditable && row.mediumOptions?.length ? (
+                    <select
+                      value={row.medium}
+                      disabled={row.locked}
+                      onChange={(e) => onPhaseChange(row.id, { medium: e.target.value })}
+                    >
+                      {row.mediumOptions.map((opt) => (
+                        <option key={opt} value={opt}>
+                          {opt}
+                        </option>
+                      ))}
+                    </select>
+                  ) : (
+                    row.medium
+                  )}
+                </td>
                 <td className="test-required-params-emphasis">
                   {row.needsActualPressure ? (
                     <input
                       type="text"
                       className="test-phase-pressure-input"
                       placeholder={row.testPressure}
+                      disabled={row.locked}
                       value={row.actualPressure ?? ''}
                       onChange={(e) => onPhaseChange(row.id, { actualPressure: e.target.value })}
                     />
@@ -152,9 +166,30 @@ function PhaseTable({
                 </td>
                 <td>
                   <input
+                    type="radio"
+                    name={`phase-pf-${row.id}`}
+                    checked={row.passFail === 'pass'}
+                    disabled={row.locked}
+                    onChange={() => onPhaseChange(row.id, { passFail: 'pass' })}
+                    aria-label={`${row.phase} pass`}
+                  />
+                </td>
+                <td>
+                  <input
+                    type="radio"
+                    name={`phase-pf-${row.id}`}
+                    checked={row.passFail === 'fail'}
+                    disabled={row.locked}
+                    onChange={() => onPhaseChange(row.id, { passFail: 'fail' })}
+                    aria-label={`${row.phase} fail`}
+                  />
+                </td>
+                <td>
+                  <input
                     type="text"
                     className="test-phase-notes-input"
                     placeholder="Notes"
+                    disabled={row.locked}
                     value={row.notes ?? ''}
                     onChange={(e) => onPhaseChange(row.id, { notes: e.target.value })}
                   />
@@ -162,7 +197,7 @@ function PhaseTable({
               </tr>
               {row.noticeAfter ? (
                 <tr className="test-phase-notice-row">
-                  <td colSpan={colCount}>{row.noticeAfter}</td>
+                  <td colSpan={showStandardColumn ? 10 : 9}>{row.noticeAfter}</td>
                 </tr>
               ) : null}
             </Fragment>
@@ -188,7 +223,7 @@ export function RequiredTestParametersPanel({
   valveContext,
 }: RequiredTestParametersPanelProps) {
   const precheckSteps = useMemo(
-    () => mergePhaseRows(bundle?.precheckSteps ?? [], phaseState, valveContext),
+    () => mergePhaseRows(bundle?.precheckSteps ?? [], phaseState, valveContext, { enforceLocking: false }),
     [bundle?.precheckSteps, phaseState, valveContext],
   )
 
