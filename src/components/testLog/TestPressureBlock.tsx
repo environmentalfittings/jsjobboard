@@ -12,7 +12,7 @@ type TestPressureBlockProps = {
   testMediaOptions: string[]
   gaugeOptions: TestGauge[]
   showChartRecorder?: boolean
-  chartRecorderOptions?: string[]
+  chartRecorderOptions?: TestGauge[]
   onChange: (next: PressureTestBlock) => void
 }
 
@@ -39,23 +39,20 @@ export function TestPressureBlock({
         onChange={(gauge) => onChange({ ...value, ...gauge })}
       />
       {showChartRecorder ? (
-        <label>
-          Chart Recorder #
-          <select
-            value={value.chartRecorderNumber}
-            onChange={(e) => onChange({ ...value, chartRecorderNumber: e.target.value })}
-          >
-            <option value="">Select chart recorder…</option>
-            {chartRecorderOptions.map((recorder) => (
-              <option key={recorder} value={recorder}>
-                {recorder}
-              </option>
-            ))}
-            {value.chartRecorderNumber && !chartRecorderOptions.includes(value.chartRecorderNumber) ? (
-              <option value={value.chartRecorderNumber}>{value.chartRecorderNumber} (saved)</option>
-            ) : null}
-          </select>
-        </label>
+        <TestGaugeSelect
+          id={`${accent}-chart-recorder`}
+          label="Chart Recorder #"
+          placeholder="Select chart recorder…"
+          options={chartRecorderOptions}
+          value={{ gaugeId: value.chartRecorderId, gauge: value.chartRecorderNumber }}
+          onChange={(picked) =>
+            onChange({
+              ...value,
+              chartRecorderId: picked.gaugeId,
+              chartRecorderNumber: picked.gauge,
+            })
+          }
+        />
       ) : null}
       <label>
         Test Pressure

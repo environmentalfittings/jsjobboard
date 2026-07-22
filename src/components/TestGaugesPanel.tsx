@@ -8,6 +8,7 @@ import {
   formatGaugeCalibrationAlert,
   loadTestGauges,
   removeTestGaugeCertificate,
+  SUGGESTED_GAUGE_TYPES,
   testGaugeCertificateUrl,
   updateTestGauge,
 } from '../lib/testGaugeRegistry'
@@ -121,8 +122,9 @@ export function TestGaugesPanel() {
     <section className="dashboard-panel admin-lists-panel">
       <h3>Test gauges</h3>
       <p className="placeholder-copy resources-hint">
-        Register calibrated test gauges for the test log. Technicians pick from this list when recording low, high,
-        shell, and helium tests.
+        Register calibrated test gauges and chart recorders for the test log. Use type{' '}
+        <strong>Chart recorder</strong> for 4-hour shell chart equipment; other types appear in the pressure and
+        helium gauge pickers.
       </p>
 
       <div className="test-gauge-admin-form">
@@ -149,10 +151,16 @@ export function TestGaugesPanel() {
             Type
             <input
               type="text"
+              list="test-gauge-type-suggestions"
               value={form.gauge_type}
               onChange={(e) => setForm((f) => ({ ...f, gauge_type: e.target.value }))}
-              placeholder="e.g. Pressure gauge"
+              placeholder="e.g. Pressure, Helium, Chart recorder"
             />
+            <datalist id="test-gauge-type-suggestions">
+              {SUGGESTED_GAUGE_TYPES.map((type) => (
+                <option key={type} value={type} />
+              ))}
+            </datalist>
           </label>
           <label>
             Last calibration date
@@ -235,7 +243,9 @@ export function TestGaugesPanel() {
                     <td>{row.last_calibration_date ?? '—'}</td>
                     <td className={calStatus !== 'ok' ? `test-gauge-cal-cell--${calStatus}` : undefined}>
                       {row.next_calibration_date ?? '—'}
-                      {calStatus !== 'ok' ? (
+                      {calStatus === 'critical' || calStatus === 'due' ? (
+                        <span className="test-gauge-expired-badge">Expired</span>
+                      ) : calStatus === 'expiring' ? (
                         <span className={`test-gauge-cal-badge test-gauge-cal-badge--${calStatus}`}>
                           {formatGaugeCalibrationAlert(row)}
                         </span>
