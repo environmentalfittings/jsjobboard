@@ -31,33 +31,26 @@ async function loadEmployeesSnapshot(): Promise<EmployeesSnapshot> {
     supabase.auth.getUser(),
   ])
 
-  let rows: Employee[] = []
-  let error: string | null = employeesResPrimary.error?.message ?? null
-
-  if (employeesResPrimary.error && isMissingIsTesterColumn(employeesResPrimary.error.message)) {
-    const fallback = await supabase
+  let employeesRes = employeesResPrimary
+  if (employeesRes.error && isMissingIsTesterColumn(employeesRes.error.message)) {
+    employeesRes = await supabase
       .from('employees')
       .select(EMPLOYEE_SELECT_BASE)
       .order('last_name', { ascending: true })
       .order('first_name', { ascending: true })
-
-    if (fallback.error) {
-      error = fallback.error.message
-    } else {
-      error = 'Run migration-employee-is-tester.sql in Supabase to enable tester designation'
-      rows = ((fallback.data as Employee[] | null) ?? []).map((row) => ({
-        ...row,
-        is_tester: Boolean((row as Employee).is_tester),
-      }))
-    }
-  } else if (!employeesResPrimary.error) {
-    rows = ((employeesResPrimary.data as Employee[] | null) ?? []).map((row) => ({
-      ...row,
-      is_tester: Boolean(row.is_tester),
-    }))
   }
 
-  const employees = rows
+  let error: string | null = employeesRes.error?.message ?? null
+  if (employeesResPrimary.error && isMissingIsTesterColumn(employeesResPrimary.error.message) && !employeesRes.error) {
+    error = 'Run migration-employee-is-tester.sql in Supabase to enable tester designation'
+  }
+
+  const employees = employeesRes.error
+    ? []
+    : (((employeesRes.data as Employee[]) ?? []).map((row) => ({
+        ...row,
+        is_tester: Boolean((row as Employee).is_tester),
+      })) as Employee[])
 
   let currentUserProfile: Profile | null = null
   const userId = userRes.data.user?.id
