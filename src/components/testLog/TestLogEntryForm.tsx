@@ -8,12 +8,17 @@ import { BodyMaterialSelect } from './BodyMaterialSelect'
 import { ValveTypeSelect } from './ValveTypeSelect'
 import { RequiredTestParametersPanel } from './RequiredTestParametersPanel'
 import { useToast } from '../ToastNotification'
+import { useEmployees } from '../../hooks/useEmployees'
 import { loadActiveTestGauges } from '../../lib/testGaugeRegistry'
-import { isFourHourChartTestSelected, normalizeTestProcedures } from '../../lib/testLogProcedure'
+import { isFourHourChartTestSelected, normalizeTestProcedures, mapJobTestTypeToProcedures, jobTestTypeLooksLikeMedia } from '../../lib/testLogProcedure'
+import { parseJobTestTypes } from '../../lib/jobTestTypes'
 import { applyTestMediaPrefill } from '../../lib/testLogMedia'
+import { normalizeTestTimeLabel } from '../../lib/testLogTime'
+import { TEST_PROCEDURE_REQUIREMENTS } from '../../constants/jobLookups'
 import { loadLookupOptionsMap } from '../../lib/lookupValues'
 import { TEST_LOG_PREFILL_KEYS } from '../../lib/testLogEntryPrefill'
 import { fetchValveForTestLog, searchValveIdsForTestLog } from '../../lib/testLogValveLookup'
+import { formatTesterInitials, parseTesterInitials } from '../../lib/testLogTester'
 import { canonicalizeValveType } from '../../lib/testLogValveType'
 import { supabase } from '../../lib/supabase'
 import { normalizeValveId } from '../../lib/valveId'
@@ -37,9 +42,11 @@ import {
   deriveLegacyWorked,
   deriveOverallPassFail,
   emptyTestLogTestingDetails,
+  parseTestLogTestingDetails,
   type TestLogTestingDetails,
 } from '../../types/testLog'
 import type { TestGauge } from '../../types/testGauge'
+import type { TestLogEntry } from '../../types'
 
 function todayIso() {
   return new Date().toISOString().slice(0, 10)
@@ -52,6 +59,7 @@ function isPassing(passFail: string) {
 function applyValvePrefill(
   prefill: Awaited<ReturnType<typeof fetchValveForTestLog>>,
   mediaOptions: string[],
+  procedureOptions: string[],
   setters: {
     setSize: (v: string) => void
     setPressure: (v: string) => void
@@ -59,6 +67,7 @@ function applyValvePrefill(
     setValveType: (v: string) => void
     setSeatType: (v: SeatTypeKind) => void
     applyTestMedia: (media: ReturnType<typeof applyTestMediaPrefill>) => void
+    applyTestProcedures: (procedures: ReturnType<typeof mapJobTestTypeToProcedures>) => void
   },
 ) {
   if (!prefill) return
@@ -68,15 +77,40 @@ function applyValvePrefill(
   const canonicalType = canonicalizeValveType(prefill.valveType)
   setters.setValveType(canonicalType)
   if (canonicalType) setters.setSeatType(defaultSeatTypeForValve(canonicalType))
-  if (prefill.testType) setters.applyTestMedia(applyTestMediaPrefill(prefill.testType, mediaOptions))
+
+  if (!prefill.testType?.trim()) return
+
+  const procedures = mapJobTestTypeToProcedures(
+    prefill.testType,
+    procedureOptions.length ? procedureOptions : [...TEST_PROCEDURE_REQUIREMENTS],
+  )
+  if (procedures.testProcedures.length) {
+    setters.applyTestProcedures(procedures)
+  }
+
+  // Only prefill media when the job value includes a real media token (legacy jobs).
+  const mediaPart = parseJobTestTypes(prefill.testType).find((part) =>
+    jobTestTypeLooksLikeMedia(part, mediaOptions),
+  )
+  if (mediaPart) {
+    setters.applyTestMedia(applyTestMediaPrefill(mediaPart, mediaOptions))
+  }
 }
 
 type TestLogEntryFormProps = {
   onSaved: (valveId: string) => void
   detailsColumnReady?: boolean | null
+  /** When set, form loads this row for update instead of insert. */
+  editingEntry?: TestLogEntry | null
+  onCancelEdit?: () => void
 }
 
-export function TestLogEntryForm({ onSaved, detailsColumnReady = null }: TestLogEntryFormProps) {
+export function TestLogEntryForm({
+  onSaved,
+  detailsColumnReady = null,
+  editingEntry = null,
+  onCancelEdit,
+}: TestLogEntryFormProps) {
   const [searchParams, setSearchParams] = useSearchParams()
   const [testedOn, setTestedOn] = useState(todayIso())
   const [valveId, setValveId] = useState('')
@@ -104,9 +138,63 @@ export function TestLogEntryForm({ onSaved, detailsColumnReady = null }: TestLog
   const [valveLookupStatus, setValveLookupStatus] = useState<'idle' | 'loading' | 'found' | 'missing'>('idle')
   const [entryStarted, setEntryStarted] = useState(false)
   const [loadingEntry, setLoadingEntry] = useState(false)
+  const [editingId, setEditingId] = useState<number | null>(null)
   const lastPrefilledValveId = useRef<string | null>(null)
   const autoOpenedFromUrl = useRef(false)
+  const skipStandardsSyncRef = useRef(false)
+  const formTopRef = useRef<HTMLElement | null>(null)
   const { showToast } = useToast()
+  const { employees, loading: employeesLoading } = useEmployees()
+  const isEditing = editingId != null
+
+  const testerOptions = useMemo(() => {
+    const active = employees
+      .filter((employee) => employee.is_active && employee.is_tester && employee.initials.trim())
+      .slice()
+      .sort((a, b) => a.full_name.localeCompare(b.full_name, undefined, { sensitivity: 'base' }))
+    return active
+  }, [employees])
+
+  const knownTesterInitials = useMemo(
+    () => testerOptions.map((employee) => employee.initials),
+    [testerOptions],
+  )
+
+  const selectedTesters = useMemo(
+    () => parseTesterInitials(tester, knownTesterInitials),
+    [tester, knownTesterInitials],
+  )
+
+  const orphanTesterInitials = useMemo(
+    () =>
+      selectedTesters.filter(
+        (initials) => !testerOptions.some((employee) => employee.initials.toUpperCase() === initials),
+      ),
+    [selectedTesters, testerOptions],
+  )
+
+  const availableTesterOptions = useMemo(
+    () =>
+      testerOptions.filter(
+        (employee) => !selectedTesters.includes(employee.initials.toUpperCase()),
+      ),
+    [testerOptions, selectedTesters],
+  )
+
+  const toggleTester = (initials: string, checked: boolean) => {
+    const key = initials.trim().toUpperCase()
+    if (!key) return
+    const next = checked
+      ? [...selectedTesters, key]
+      : selectedTesters.filter((value) => value !== key)
+    setTester(formatTesterInitials(next))
+  }
+
+  const addTester = (initials: string) => {
+    const key = initials.trim().toUpperCase()
+    if (!key || selectedTesters.includes(key)) return
+    setTester(formatTesterInitials([...selectedTesters, key]))
+  }
 
   const overallPassFail = useMemo(() => deriveOverallPassFail(testing), [testing])
   const fourHourChartSelected = useMemo(() => isFourHourChartTestSelected(testing), [testing])
@@ -118,14 +206,17 @@ export function TestLogEntryForm({ onSaved, detailsColumnReady = null }: TestLog
       pressure: pressure || null,
       valve_type: valveType || null,
       manufacturer: null,
-      tester: tester || null,
+      tester: formatTesterInitials(parseTesterInitials(tester, knownTesterInitials)) || null,
       pass_fail: overallPassFail || null,
       action_taken: deriveActionTaken(testing),
       testing_details: testing,
     }),
-    [testedOn, valveId, size, pressure, valveType, tester, overallPassFail, testing],
+    [testedOn, valveId, size, pressure, valveType, tester, knownTesterInitials, overallPassFail, testing],
   )
-  const canSubmit = valveId.trim().length > 0 && testedOn.trim().length > 0
+  const canSubmit =
+    valveId.trim().length > 0 &&
+    testedOn.trim().length > 0 &&
+    formatTesterInitials(parseTesterInitials(tester, knownTesterInitials)).length > 0
 
   const checkedStandards = useMemo(
     () => mapProceduresToStandards(testing.testProcedures),
@@ -158,8 +249,9 @@ export function TestLogEntryForm({ onSaved, detailsColumnReady = null }: TestLog
     const cell = searchParams.get(TEST_LOG_PREFILL_KEYS.cell)
     const desc = searchParams.get(TEST_LOG_PREFILL_KEYS.description)
     const st = searchParams.get(TEST_LOG_PREFILL_KEYS.jobStatus)
-    if (!cust && !cell && !desc && !st) return null
-    return { customer: cust, cell, description: desc, jobStatus: st }
+    const tt = searchParams.get(TEST_LOG_PREFILL_KEYS.testType)
+    if (!cust && !cell && !desc && !st && !tt) return null
+    return { customer: cust, cell, description: desc, jobStatus: st, testType: tt }
   }, [searchParams])
 
   useEffect(() => {
@@ -187,8 +279,23 @@ export function TestLogEntryForm({ onSaved, detailsColumnReady = null }: TestLog
     const vt = searchParams.get(TEST_LOG_PREFILL_KEYS.valveType)
     if (vt) setValveType(canonicalizeValveType(vt))
     const tt = searchParams.get(TEST_LOG_PREFILL_KEYS.testType)
-    if (tt && testMediaOptions.length) {
-      const media = applyTestMediaPrefill(tt, testMediaOptions)
+    if (!tt?.trim()) return
+
+    const procedureOptions = testProcedureOptions.length
+      ? testProcedureOptions
+      : [...TEST_PROCEDURE_REQUIREMENTS]
+    const procedures = mapJobTestTypeToProcedures(tt, procedureOptions)
+    if (procedures.testProcedures.length) {
+      setTesting((prev) => ({
+        ...prev,
+        testProcedures: procedures.testProcedures,
+        testProcedureOther: procedures.testProcedureOther,
+      }))
+    }
+
+    const mediaPart = parseJobTestTypes(tt).find((part) => jobTestTypeLooksLikeMedia(part, testMediaOptions))
+    if (mediaPart) {
+      const media = applyTestMediaPrefill(mediaPart, testMediaOptions)
       setTesting((prev) => ({
         ...prev,
         lowTest: { ...prev.lowTest, ...media },
@@ -218,7 +325,7 @@ export function TestLogEntryForm({ onSaved, detailsColumnReady = null }: TestLog
     setValveId(resolvedId)
 
     if (prefill) {
-      applyValvePrefill(prefill, testMediaOptions, {
+      applyValvePrefill(prefill, testMediaOptions, testProcedureOptions, {
         setSize,
         setPressure,
         setBodyMaterial,
@@ -230,6 +337,18 @@ export function TestLogEntryForm({ onSaved, detailsColumnReady = null }: TestLog
             lowTest: { ...prev.lowTest, ...media },
             highTest: { ...prev.highTest, ...media },
             shellTest: { ...prev.shellTest, ...media },
+          })),
+        applyTestProcedures: (procedures) =>
+          setTesting((prev) => ({
+            ...prev,
+            testProcedures: procedures.testProcedures,
+            testProcedureOther: procedures.testProcedureOther,
+            heliumTest: {
+              ...prev.heliumTest,
+              enabled:
+                prev.heliumTest.enabled ||
+                procedures.testProcedures.some((value) => /helium/i.test(value)),
+            },
           })),
       })
       setValveRowId(prefill.valveRowId)
@@ -254,7 +373,7 @@ export function TestLogEntryForm({ onSaved, detailsColumnReady = null }: TestLog
     autoOpenedFromUrl.current = true
     void openEntry(vid)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [searchParams, entryStarted, testMediaOptions.length])
+  }, [searchParams, entryStarted, testMediaOptions.length, testProcedureOptions.length])
 
   useEffect(() => {
     if (entryStarted) return
@@ -298,18 +417,108 @@ export function TestLogEntryForm({ onSaved, detailsColumnReady = null }: TestLog
     setValveLookupStatus('idle')
     setEntryStarted(false)
     setLoadingEntry(false)
+    setEditingId(null)
     autoOpenedFromUrl.current = false
+    skipStandardsSyncRef.current = false
     setSearchParams({}, { replace: true })
   }
 
+  const loadEditingEntry = async (entry: TestLogEntry) => {
+    skipStandardsSyncRef.current = true
+    setLoadingEntry(true)
+    setEditingId(entry.id)
+    setTestedOn(String(entry.tested_on ?? '').slice(0, 10) || todayIso())
+    setValveId(entry.valve_id)
+    setSize(entry.size ?? '')
+    setPressure(entry.pressure ?? '')
+    setValveType(canonicalizeValveType(entry.valve_type) || entry.valve_type || '')
+    setTester(entry.tester ?? '')
+    setPendingReportFiles([])
+
+    const details = parseTestLogTestingDetails(entry.testing_details) ?? emptyTestLogTestingDetails()
+    setTesting(details)
+
+    const tsp = details.testStandardParams
+    if (tsp?.testMedium) setTestMediumKind(tsp.testMedium)
+    if (tsp?.seatType) setSeatType(tsp.seatType)
+    else if (entry.valve_type) setSeatType(defaultSeatTypeForValve(canonicalizeValveType(entry.valve_type) || entry.valve_type))
+
+    if (tsp?.phaseResults?.length) {
+      const next: Record<string, TestPhaseResult> = {}
+      for (const phase of tsp.phaseResults) {
+        next[phase.id] = {
+          id: phase.id,
+          passFail: phase.passFail ?? '',
+          notes: phase.notes ?? '',
+          medium: phase.medium,
+          actualPressure: phase.actualPressure,
+        }
+      }
+      setPhaseState(next)
+      setEnabledOptionalPhaseIds(tsp.phaseResults.map((phase) => phase.id))
+    } else {
+      setPhaseState({})
+      setEnabledOptionalPhaseIds([])
+    }
+
+    const prefill = await fetchValveForTestLog(entry.valve_id)
+    if (prefill) {
+      setValveRowId(prefill.valveRowId)
+      if (!entry.size && prefill.size) setSize(prefill.size)
+      if (!entry.pressure && prefill.pressure) setPressure(prefill.pressure)
+      if (prefill.bodyMaterial) {
+        setBodyMaterial(prefill.bodyMaterial)
+        setBodyMaterialLoadedFromJob(true)
+      } else {
+        setBodyMaterial('')
+        setBodyMaterialLoadedFromJob(false)
+      }
+      setValveTypeLoadedFromJob(Boolean(prefill.valveType?.trim()))
+      setValveLookupStatus('found')
+      lastPrefilledValveId.current = prefill.valveId
+    } else {
+      setValveRowId(null)
+      setBodyMaterial('')
+      setBodyMaterialLoadedFromJob(false)
+      setValveTypeLoadedFromJob(false)
+      setValveLookupStatus('missing')
+    }
+
+    setEntryStarted(true)
+    setLoadingEntry(false)
+    window.setTimeout(() => {
+      skipStandardsSyncRef.current = false
+      formTopRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+    }, 50)
+  }
+
+  useEffect(() => {
+    if (!editingEntry) return
+    void loadEditingEntry(editingEntry)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [editingEntry?.id])
+
   const submit = async () => {
-    if (!canSubmit) return
+    const testerValue = formatTesterInitials(parseTesterInitials(tester, knownTesterInitials))
+    if (!valveId.trim() || !testedOn.trim()) {
+      showToast('Valve ID and date are required')
+      return
+    }
+    if (!testerValue) {
+      showToast('Select at least one tester before saving')
+      return
+    }
     if (detailsColumnReady === false) {
       showToast(`Run ${TEST_LOG_DETAILS_MIGRATION} in Supabase before saving`)
       return
     }
     const normalizedValveId = normalizeValveId(valveId)
     const passFail = overallPassFail || null
+    const savedAt = new Date().toISOString()
+    const testingWithStamp: TestLogTestingDetails = {
+      ...testing,
+      savedAt,
+    }
     const payload = {
       tested_on: testedOn,
       valve_id: normalizedValveId,
@@ -317,30 +526,46 @@ export function TestLogEntryForm({ onSaved, detailsColumnReady = null }: TestLog
       pressure: pressure || null,
       manufacturer: null,
       valve_type: valveType || null,
-      test_type: deriveLegacyTestType(testing),
-      worked: deriveLegacyWorked(testing),
+      test_type: deriveLegacyTestType(testingWithStamp),
+      worked: deriveLegacyWorked(testingWithStamp),
       pass_fail: passFail,
-      action_taken: deriveActionTaken(testing),
-      tester: tester || null,
-      testing_details: testing,
+      action_taken: deriveActionTaken(testingWithStamp),
+      tester: testerValue,
+      testing_details: testingWithStamp,
     }
 
     setSaving(true)
-    const { data: savedRow, error } = await supabase.from('test_logs').insert(payload).select('id').single()
-    if (error || !savedRow?.id) {
-      setSaving(false)
-      showToast(
-        isMissingTestingDetailsError(error?.message)
-          ? `Run ${TEST_LOG_DETAILS_MIGRATION} in Supabase`
-          : 'Could not save test log entry',
-      )
-      return
+    let savedId = editingId
+
+    if (isEditing && editingId != null) {
+      const { error } = await supabase.from('test_logs').update(payload).eq('id', editingId)
+      if (error) {
+        setSaving(false)
+        showToast(
+          isMissingTestingDetailsError(error.message)
+            ? `Run ${TEST_LOG_DETAILS_MIGRATION} in Supabase`
+            : 'Could not update test log entry',
+        )
+        return
+      }
+    } else {
+      const { data: savedRow, error } = await supabase.from('test_logs').insert(payload).select('id,created_at').single()
+      if (error || !savedRow?.id) {
+        setSaving(false)
+        showToast(
+          isMissingTestingDetailsError(error?.message)
+            ? `Run ${TEST_LOG_DETAILS_MIGRATION} in Supabase`
+            : 'Could not save test log entry',
+        )
+        return
+      }
+      savedId = savedRow.id
     }
 
-    if (pendingReportFiles.length) {
+    if (pendingReportFiles.length && savedId != null) {
       let uploaded = 0
       for (const file of pendingReportFiles) {
-        const { error: uploadError } = await uploadTestLogReport(savedRow.id, file, 'upload')
+        const { error: uploadError } = await uploadTestLogReport(savedId, file, 'upload')
         if (!uploadError) uploaded += 1
       }
       if (uploaded < pendingReportFiles.length) {
@@ -364,8 +589,15 @@ export function TestLogEntryForm({ onSaved, detailsColumnReady = null }: TestLog
     }
 
     setSaving(false)
+    const wasEdit = isEditing
     await resetForm()
-    showToast(`Test log saved for ${normalizedValveId}`)
+    onCancelEdit?.()
+    const savedLabel = new Date(savedAt).toLocaleString()
+    showToast(
+      wasEdit
+        ? `Test log updated for ${normalizedValveId} · ${savedLabel}`
+        : `Test log saved for ${normalizedValveId} · ${savedLabel}`,
+    )
     onSaved(normalizedValveId)
   }
 
@@ -399,6 +631,7 @@ export function TestLogEntryForm({ onSaved, detailsColumnReady = null }: TestLog
   }
 
   useEffect(() => {
+    if (skipStandardsSyncRef.current) return
     if (!entryStarted || !testParamsBundle?.summary) return
 
     const phaseResults = Object.values(phaseState)
@@ -418,12 +651,14 @@ export function TestLogEntryForm({ onSaved, detailsColumnReady = null }: TestLog
         ...prev.shellTest,
         pressure: summary.shellTestPressure ? `${summary.shellTestPressure} PSI` : prev.shellTest.pressure,
         time: testParamsBundle.phases.find((p) => p.id.includes('shell') || p.id === 'sp160-phase2')
-          ? formatHoldTimeSeconds(
-              parseInt(
-                testParamsBundle.phases.find((p) => p.id.includes('shell') || p.id === 'sp160-phase2')!.holdTime,
-                10,
-              ) || 60,
-            )
+          ? normalizeTestTimeLabel(
+              formatHoldTimeSeconds(
+                parseInt(
+                  testParamsBundle.phases.find((p) => p.id.includes('shell') || p.id === 'sp160-phase2')!.holdTime,
+                  10,
+                ) || 60,
+              ),
+            ) || prev.shellTest.time
           : prev.shellTest.time,
       },
       highTest: {
@@ -438,7 +673,7 @@ export function TestLogEntryForm({ onSaved, detailsColumnReady = null }: TestLog
   }, [entryStarted, testParamsBundle, testMediumKind, seatType, checkedStandards, phaseState])
 
   return (
-    <section className="dashboard-panel test-log-entry-panel">
+    <section className="dashboard-panel test-log-entry-panel" ref={formTopRef} id="test-log-entry-form">
       {!entryStarted ? (
         <div className="test-log-entry-start">
           <div className="test-log-entry-start-copy">
@@ -484,10 +719,27 @@ export function TestLogEntryForm({ onSaved, detailsColumnReady = null }: TestLog
       ) : (
         <>
           <div className="test-log-entry-active-header">
-            <h3>Test log — {normalizeValveId(valveId) || valveId.trim()}</h3>
-            <button type="button" className="button-secondary" onClick={() => void resetForm()}>
-              Change valve
-            </button>
+            <h3>
+              {isEditing ? 'Edit test log' : 'Test log'} — {normalizeValveId(valveId) || valveId.trim()}
+            </h3>
+            <div className="test-log-entry-active-header-actions">
+              {isEditing ? (
+                <button
+                  type="button"
+                  className="button-secondary"
+                  onClick={() => {
+                    void resetForm()
+                    onCancelEdit?.()
+                  }}
+                >
+                  Cancel edit
+                </button>
+              ) : (
+                <button type="button" className="button-secondary" onClick={() => void resetForm()}>
+                  Change valve
+                </button>
+              )}
+            </div>
           </div>
 
           {jobCardPrefillBanner ? (
@@ -515,6 +767,11 @@ export function TestLogEntryForm({ onSaved, detailsColumnReady = null }: TestLog
               ) : null}
               {jobCardPrefillBanner.description ? (
                 <p className="test-log-prefill-desc">{jobCardPrefillBanner.description}</p>
+              ) : null}
+              {jobCardPrefillBanner.testType ? (
+                <p className="test-log-prefill-line">
+                  <span className="test-log-prefill-k">Test requirements</span> {jobCardPrefillBanner.testType}
+                </p>
               ) : null}
             </div>
           ) : null}
@@ -560,15 +817,76 @@ export function TestLogEntryForm({ onSaved, detailsColumnReady = null }: TestLog
               }}
               onSaved={() => showToast('Valve type saved to job record')}
             />
-            <label>
-              Tester
-              <input type="text" value={tester} onChange={(e) => setTester(e.target.value)} />
-            </label>
           </div>
+
+          <fieldset className="test-log-tester-select test-log-fieldset">
+            <legend>
+              Tester(s) <span className="test-log-required-mark">*</span>
+            </legend>
+            {employeesLoading ? (
+              <p className="test-log-tester-loading">Loading employees…</p>
+            ) : (
+              <>
+                <div className="test-log-tester-chips" aria-live="polite">
+                  {selectedTesters.length === 0 ? (
+                    <span className="test-log-tester-empty">Required — select at least one tester</span>
+                  ) : (
+                    selectedTesters.map((initials) => {
+                      const employee = testerOptions.find(
+                        (row) => row.initials.toUpperCase() === initials,
+                      )
+                      const orphan = orphanTesterInitials.includes(initials)
+                      return (
+                        <button
+                          key={initials}
+                          type="button"
+                          className="test-log-tester-chip-btn"
+                          onClick={() => toggleTester(initials, false)}
+                          title="Remove tester"
+                        >
+                          {employee ? `${employee.full_name} (${initials})` : orphan ? `${initials} (saved)` : initials}
+                          <span aria-hidden>×</span>
+                        </button>
+                      )
+                    })
+                  )}
+                </div>
+                <label className="test-log-tester-add">
+                  Add tester
+                  <select
+                    value=""
+                    disabled={availableTesterOptions.length === 0}
+                    onChange={(e) => {
+                      addTester(e.target.value)
+                      e.target.value = ''
+                    }}
+                  >
+                    <option value="">
+                      {testerOptions.length === 0
+                        ? 'No testers designated yet'
+                        : availableTesterOptions.length === 0
+                          ? 'All designated testers selected'
+                          : 'Select tester…'}
+                    </option>
+                    {availableTesterOptions.map((employee) => (
+                      <option key={employee.id} value={employee.initials.toUpperCase()}>
+                        {employee.full_name} ({employee.initials.toUpperCase()})
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                {testerOptions.length === 0 ? (
+                  <p className="test-log-tester-hint">
+                    Mark people as testers under Admin → Employees, then they will appear here.
+                  </p>
+                ) : null}
+              </>
+            )}
+          </fieldset>
 
           {valveLookupStatus === 'found' ? (
             <p className="status-breakdown-note test-log-valve-lookup-note">
-              Loaded size, pressure, and type from the job board.
+              Loaded size, pressure, type, and test requirements from the job board.
             </p>
           ) : valveLookupStatus === 'missing' ? (
             <p className="status-breakdown-note test-log-valve-lookup-note test-log-valve-lookup-missing">
@@ -651,12 +969,20 @@ export function TestLogEntryForm({ onSaved, detailsColumnReady = null }: TestLog
           onChange={patchTesting}
         />
 
-        <TestLogReportsSection
-          mode="draft"
-          reportData={reportData}
-          pendingFiles={pendingReportFiles}
-          onPendingFilesChange={setPendingReportFiles}
-        />
+        {isEditing && editingId != null ? (
+          <TestLogReportsSection
+            mode="saved"
+            testLogId={editingId}
+            reportData={reportData}
+          />
+        ) : (
+          <TestLogReportsSection
+            mode="draft"
+            reportData={reportData}
+            pendingFiles={pendingReportFiles}
+            onPendingFilesChange={setPendingReportFiles}
+          />
+        )}
 
         <div className="test-log-form-footer">
           <div className="test-log-overall-result" aria-live="polite">
@@ -671,7 +997,7 @@ export function TestLogEntryForm({ onSaved, detailsColumnReady = null }: TestLog
             disabled={!canSubmit || saving || detailsColumnReady === false}
             onClick={() => void submit()}
           >
-            {saving ? 'Saving…' : 'Save entry'}
+            {saving ? 'Saving…' : isEditing ? 'Save changes' : 'Save entry'}
           </button>
         </div>
           </div>

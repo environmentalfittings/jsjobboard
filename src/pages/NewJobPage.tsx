@@ -7,6 +7,7 @@ import { STATUS_ORDER } from '../constants/statuses'
 import { loadLookupOptionsMap } from '../lib/lookupValues'
 import { hasAdminAccess } from '../lib/roles'
 import { TEST_PROCEDURE_OTHER } from '../lib/testLogProcedure'
+import { formatJobTestTypes } from '../lib/jobTestTypes'
 import { openValveTicketPdfForPrint } from '../lib/valveTicketPrint'
 import { supabase } from '../lib/supabase'
 import type { Valve } from '../types'
@@ -45,7 +46,7 @@ export function NewJobPage({ role }: NewJobPageProps) {
   const [materialSpec, setMaterialSpec] = useState('')
   const [drawingPoNumber, setDrawingPoNumber] = useState('')
   const [valveType, setValveType] = useState('')
-  const [testType, setTestType] = useState('')
+  const [testTypes, setTestTypes] = useState<string[]>([])
   const [testTypeOther, setTestTypeOther] = useState('')
   const [status, setStatus] = useState('Arrived - Not Started')
   const [orderType, setOrderType] = useState('')
@@ -126,7 +127,7 @@ export function NewJobPage({ role }: NewJobPageProps) {
     setMaterialSpec('')
     setDrawingPoNumber('')
     setValveType('')
-    setTestType('')
+    setTestTypes([])
     setTestTypeOther('')
     setOrderType('')
     setDueDate('')
@@ -160,10 +161,15 @@ export function NewJobPage({ role }: NewJobPageProps) {
     }
     const normalizedJobType = normalizeJobType(jobType)
     const valveRelated = isValveRelatedJobType(normalizedJobType)
-    const resolvedTestType =
-      testType === TEST_PROCEDURE_OTHER ? testTypeOther.trim() : testType.trim()
+    const selectedTypes = testTypes.includes(TEST_PROCEDURE_OTHER)
+      ? [
+          ...testTypes.filter((value) => value !== TEST_PROCEDURE_OTHER),
+          testTypeOther.trim(),
+        ]
+      : testTypes
+    const resolvedTestType = formatJobTestTypes(selectedTypes)
 
-    if (valveRelated && testType === TEST_PROCEDURE_OTHER && !resolvedTestType) {
+    if (valveRelated && testTypes.includes(TEST_PROCEDURE_OTHER) && !testTypeOther.trim()) {
       showToast('Describe the other test type')
       return
     }
@@ -434,33 +440,55 @@ export function NewJobPage({ role }: NewJobPageProps) {
             <div className="new-job-grid">
               {isValveRelatedJobType(jobType) ? (
                 <>
-                  <label>
-                    Test type
-                    <select
-                      value={testType}
-                      onChange={(e) => {
-                        const next = e.target.value
-                        setTestType(next)
-                        if (next !== TEST_PROCEDURE_OTHER) setTestTypeOther('')
-                      }}
-                    >
-                      <option value="">— Select test type —</option>
-                      {lookupSelectOptions(lookupOptions.test_procedure)}
-                      <option value={TEST_PROCEDURE_OTHER}>Other…</option>
-                    </select>
-                  </label>
-                  {testType === TEST_PROCEDURE_OTHER ? (
-                    <label>
-                      Other test type
-                      <input
-                        type="text"
-                        value={testTypeOther}
-                        onChange={(e) => setTestTypeOther(e.target.value)}
-                        placeholder="Describe other test requirements"
-                        required
-                      />
-                    </label>
-                  ) : null}
+                  <fieldset className="new-job-test-types new-job-span-full">
+                    <legend>Test type(s)</legend>
+                    <div className="new-job-test-type-checkboxes" role="group" aria-label="Test types">
+                      {[...lookupOptions.test_procedure, TEST_PROCEDURE_OTHER].map((option) => (
+                        <label key={option} className="new-job-test-type-checkbox">
+                          <input
+                            type="checkbox"
+                            checked={testTypes.includes(option)}
+                            onChange={(e) => {
+                              const checked = e.target.checked
+                              setTestTypes((prev) => {
+                                const next = checked
+                                  ? [...prev, option]
+                                  : prev.filter((value) => value !== option)
+                                if (!next.includes(TEST_PROCEDURE_OTHER)) setTestTypeOther('')
+                                return next
+                              })
+                            }}
+                          />
+                          <span>{option === TEST_PROCEDURE_OTHER ? 'Other…' : option}</span>
+                        </label>
+                      ))}
+                    </div>
+                    {testTypes.includes(TEST_PROCEDURE_OTHER) ? (
+                      <label className="new-job-test-type-other">
+                        Other test type
+                        <input
+                          type="text"
+                          value={testTypeOther}
+                          onChange={(e) => setTestTypeOther(e.target.value)}
+                          placeholder="Describe other test requirements"
+                          required
+                        />
+                      </label>
+                    ) : null}
+                    {testTypes.length > 0 ? (
+                      <p className="new-job-test-type-selected">
+                        Selected:{' '}
+                        {formatJobTestTypes(
+                          testTypes.includes(TEST_PROCEDURE_OTHER)
+                            ? [
+                                ...testTypes.filter((value) => value !== TEST_PROCEDURE_OTHER),
+                                testTypeOther.trim() || 'Other…',
+                              ]
+                            : testTypes,
+                        )}
+                      </p>
+                    ) : null}
+                  </fieldset>
                 </>
               ) : null}
               <label>

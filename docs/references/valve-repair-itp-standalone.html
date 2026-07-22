@@ -1,0 +1,1271 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1.0"/>
+<title>Valve Repair ITP – Environmental Fittings</title>
+<style>
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+:root{
+  --brand:#1a3a5c;--accent:#e8740a;--bg:#eef1f4;--card:#fff;
+  --border:#d0d7de;--text:#1c2b3a;--muted:#6b7c8d;
+  --pass:#1a7f37;--fail:#cf222e;--warn:#9a6700;--hp:#7c3aed;--r:7px;
+}
+body{font-family:system-ui,-apple-system,sans-serif;background:var(--bg);color:var(--text);
+  height:100vh;display:flex;flex-direction:column;overflow:hidden}
+
+/* ── HEADER ── */
+header{height:48px;background:var(--brand);color:#fff;padding:0 16px;
+  display:flex;align-items:center;justify-content:space-between;gap:10px;flex-shrink:0;
+  box-shadow:0 2px 8px rgba(0,0,0,.3);z-index:100}
+.logo{font-size:.98rem;font-weight:700;white-space:nowrap}.logo span{color:var(--accent)}
+
+/* BUTTONS */
+.btn{display:inline-flex;align-items:center;gap:4px;padding:6px 11px;border-radius:5px;
+  font-size:.77rem;font-weight:600;cursor:pointer;border:2px solid transparent;transition:.12s;line-height:1;white-space:nowrap}
+.btn-primary{background:var(--accent);color:#fff}.btn-primary:hover{background:#c9620a}
+.btn-outline{background:transparent;border-color:rgba(255,255,255,.4);color:#fff}.btn-outline:hover{background:rgba(255,255,255,.1)}
+.btn-ghost{background:transparent;border-color:var(--border);color:var(--text)}.btn-ghost:hover{background:var(--bg)}
+.btn-danger{background:var(--fail);color:#fff}.btn-danger:hover{background:#a81820}
+.btn-sm{padding:4px 9px;font-size:.73rem}
+
+/* ── SHELL ── */
+.shell{display:grid;grid-template-columns:200px 1fr;flex:1;overflow:hidden}
+
+/* SIDEBAR */
+.sidebar{background:var(--card);border-right:1px solid var(--border);display:flex;flex-direction:column;overflow:hidden}
+.sb-top{padding:10px;border-bottom:1px solid var(--border);flex-shrink:0}
+.sb-top h2{font-size:.65rem;text-transform:uppercase;letter-spacing:.08em;color:var(--muted);font-weight:700;margin-bottom:7px}
+.job-list{flex:1;overflow-y:auto;padding:7px}
+.jcard{border:1px solid var(--border);border-radius:6px;padding:9px;cursor:pointer;transition:.12s;margin-bottom:6px}
+.jcard:hover{border-color:var(--brand)}.jcard.active{border-color:var(--accent);background:#fff8f2}
+.jt{font-weight:700;font-size:.82rem}.jm{font-size:.69rem;color:var(--muted);margin-top:2px}
+.badge{display:inline-block;padding:2px 6px;border-radius:20px;font-size:.63rem;font-weight:700}
+.b-bld{background:#fff8c5;color:var(--warn)}.b-open{background:#ddf4ff;color:#0969da}
+.b-act{background:#e6f0ff;color:#0550ae}.b-done{background:#dafbe1;color:var(--pass)}.b-attn{background:#ffebe9;color:var(--fail)}
+
+/* ── WORK AREA ── */
+.work-area{display:flex;flex-direction:column;overflow:hidden}
+.job-bar{background:var(--card);border-bottom:1px solid var(--border);padding:8px 14px;
+  display:flex;align-items:center;justify-content:space-between;gap:10px;flex-shrink:0;flex-wrap:wrap}
+.jb-title{font-size:.98rem;font-weight:800}.jb-meta{font-size:.71rem;color:var(--muted)}
+
+/* ── SPLIT ── */
+.split{display:grid;grid-template-columns:1fr 1fr;flex:1;overflow:hidden}
+.panel{display:flex;flex-direction:column;overflow:hidden}
+.panel-left{border-right:2px solid var(--border)}
+.panel-hdr{padding:9px 13px;display:flex;align-items:center;justify-content:space-between;
+  background:var(--bg);border-bottom:1px solid var(--border);flex-shrink:0}
+.panel-hdr h3{font-size:.78rem;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:var(--muted)}
+.ph-count{font-size:.75rem;font-weight:700;color:var(--accent)}
+.panel-body{flex:1;overflow-y:auto;padding:9px}
+
+/* ══════════════════════════════════════
+   LEFT — SCOPE BUILDER
+══════════════════════════════════════ */
+.lib-sec{background:var(--card);border:1px solid var(--border);border-radius:var(--r);
+  margin-bottom:8px;overflow:hidden}
+.lib-sec-hdr{background:#2c527a;color:#fff;padding:7px 11px;
+  display:flex;align-items:center;justify-content:space-between;gap:6px}
+.lib-sec-hdr h4{font-size:.8rem;font-weight:700;flex:1}
+.lib-sec-hdr .lshr{display:flex;align-items:center;gap:5px;font-size:.67rem;opacity:.82}
+.sel-all{padding:2px 7px;border-radius:4px;font-size:.66rem;font-weight:700;cursor:pointer;
+  background:rgba(255,255,255,.15);border:1px solid rgba(255,255,255,.3);color:#fff}
+.sel-all:hover{background:rgba(255,255,255,.28)}
+
+/* ITEM ROW */
+.lib-item{border-bottom:1px solid var(--border);transition:background .1s}
+.lib-item:last-of-type{border-bottom:none}
+.lib-item.sel{background:#f6fdf8}
+.lib-item-top{display:flex;align-items:stretch;cursor:pointer;min-height:40px}
+.lib-item-top:hover{background:#f0f4f7}
+.lib-item.sel .lib-item-top:hover{background:#edfbf2}
+
+.cb-cell{width:36px;display:flex;align-items:center;justify-content:center;
+  flex-shrink:0;border-right:1px solid var(--border)}
+.cb{width:17px;height:17px;border-radius:4px;border:2px solid var(--border);background:#fff;
+  display:flex;align-items:center;justify-content:center;transition:.12s;flex-shrink:0}
+.lib-item.sel .cb{background:var(--pass);border-color:var(--pass)}
+.lib-item.sel .cb::after{content:'✓';color:#fff;font-size:.72rem;font-weight:700}
+.lib-item-top:hover .cb{border-color:#8a9cb0}
+
+.lib-item-name{padding:7px 9px;flex:1}
+.lin{font-size:.8rem;line-height:1.3}.lref{font-size:.62rem;color:var(--muted)}
+
+/* ATTRIBUTES BAR — shows when item is selected */
+.attr-bar{padding:5px 9px 7px 36px;display:flex;flex-wrap:wrap;gap:5px;align-items:center;
+  border-top:1px dashed var(--border);background:#f0fdf4}
+.attr-toggle{display:inline-flex;align-items:center;gap:3px;padding:3px 7px;border-radius:20px;
+  font-size:.67rem;font-weight:700;cursor:pointer;border:1.5px solid var(--border);
+  background:#fff;color:var(--muted);transition:.12s;white-space:nowrap;user-select:none}
+.attr-toggle:hover{border-color:#8a9cb0;color:var(--text)}
+.attr-toggle.on{color:#fff;border-color:transparent}
+.attr-toggle.hp.on  {background:var(--hp)}
+.attr-toggle.bef.on {background:#0550ae}
+.attr-toggle.aft.on {background:#0969da}
+.attr-toggle.ver.on {background:var(--warn);color:#fff}
+.attr-toggle .atcb{width:12px;height:12px;border-radius:2px;border:1.5px solid currentColor;
+  display:inline-flex;align-items:center;justify-content:center;flex-shrink:0}
+.attr-toggle.on .atcb::after{content:'✓';font-size:.6rem;font-weight:700}
+
+/* SUB-REQS */
+.sub-reqs-area{padding:0 9px 7px 36px;background:#f6fdf8}
+.sub-req-row{display:flex;align-items:center;gap:6px;margin-top:4px}
+.sub-req-row span{font-size:.75rem;flex:1;color:var(--text)}
+.sr-del{width:18px;height:18px;border-radius:3px;border:none;background:transparent;
+  cursor:pointer;font-size:.7rem;color:var(--muted);display:flex;align-items:center;justify-content:center}
+.sr-del:hover{background:#ffecec;color:var(--fail)}
+.add-sr-row{display:flex;gap:5px;margin-top:5px;align-items:center}
+.add-sr-inp{flex:1;border:1px solid var(--border);border-radius:4px;
+  padding:3px 7px;font-size:.75rem;background:#fff;font-family:inherit}
+.add-sr-inp:focus{outline:none;border-color:var(--accent)}
+.add-sr-btn{padding:3px 8px;border-radius:4px;font-size:.7rem;font-weight:700;cursor:pointer;
+  background:transparent;border:1.5px solid var(--accent);color:var(--accent)}
+.add-sr-btn:hover{background:#fff5ee}
+
+/* add custom item */
+.add-row{padding:6px 9px;display:flex;gap:5px;border-top:1px dashed var(--border)}
+.add-inp{flex:1;border:1px solid var(--border);border-radius:4px;
+  padding:4px 7px;font-size:.77rem;background:#fafbfc;font-family:inherit}
+.add-inp:focus{outline:none;border-color:var(--accent)}
+.add-btn{padding:3px 9px;border-radius:4px;font-size:.72rem;font-weight:700;cursor:pointer;
+  background:transparent;border:1.5px solid var(--accent);color:var(--accent)}
+.add-btn:hover{background:#fff5ee}
+
+/* ══════════════════════════════════════
+   RIGHT — ITP CHECKLIST
+══════════════════════════════════════ */
+.itp-empty{display:flex;flex-direction:column;align-items:center;justify-content:center;
+  height:100%;gap:10px;color:var(--muted);text-align:center;padding:20px}
+
+/* summary */
+.itp-summary{display:flex;gap:0;border-bottom:1px solid var(--border);flex-shrink:0;background:var(--card)}
+.ss{flex:1;text-align:center;padding:7px 4px;border-right:1px solid var(--border)}
+.ss:last-child{border-right:none}
+.ss .sv{font-size:1.15rem;font-weight:800}.ss .sl{font-size:.6rem;color:var(--muted);text-transform:uppercase;letter-spacing:.05em}
+.c-pass{color:var(--pass)}.c-fail{color:var(--fail)}.c-warn{color:var(--warn)}.c-hp{color:var(--hp)}
+.pbar-strip{height:4px;background:var(--border);flex-shrink:0}
+.pbar-fill{height:100%;transition:.3s}
+
+/* itp section */
+.itp-sec{margin-bottom:9px}
+.itp-sec-hdr{background:var(--brand);color:#fff;padding:7px 11px;border-radius:6px 6px 0 0;
+  display:flex;align-items:center;justify-content:space-between}
+.itp-sec-hdr h4{font-size:.78rem;font-weight:700}.isp{font-size:.67rem;opacity:.75}
+
+/* exec row */
+.exec-row{background:var(--card);border-left:1px solid var(--border);
+  border-right:1px solid var(--border);border-bottom:1px solid var(--border)}
+.exec-row:last-child{border-radius:0 0 6px 6px;overflow:hidden}
+.exec-row.done{background:#f0fdf4}.exec-row.flagged{background:#fff5f5}
+
+/* HOLD POINT ROW */
+.exec-row.hold-point{border-left:3px solid var(--hp)}
+
+.exec-top{display:grid;grid-template-columns:34px 1fr 60px;align-items:stretch;min-height:42px}
+.exec-cb{display:flex;align-items:flex-start;justify-content:center;padding-top:11px;
+  border-right:1px solid var(--border);cursor:pointer;flex-shrink:0}
+.exec-body{padding:7px 9px;display:flex;flex-direction:column;gap:2px;min-width:0}
+.en{font-size:.79rem;font-weight:500;line-height:1.3;display:flex;align-items:flex-start;gap:5px;flex-wrap:wrap}
+.er{font-size:.61rem;color:var(--muted)}
+
+/* attribute badges on ITP */
+.hp-badge{display:inline-flex;align-items:center;gap:2px;padding:1px 6px;border-radius:20px;
+  background:var(--hp);color:#fff;font-size:.62rem;font-weight:700;white-space:nowrap;flex-shrink:0}
+.attr-badge{display:inline-flex;align-items:center;gap:2px;padding:1px 5px;border-radius:20px;
+  font-size:.61rem;font-weight:700;white-space:nowrap;flex-shrink:0}
+.attr-badge.bef{background:#ddeeff;color:#0550ae}
+.attr-badge.aft{background:#ddeeff;color:#0969da}
+.attr-badge.ver{background:#fff3cd;color:var(--warn)}
+
+/* measurement fields */
+.meas-fields{display:grid;grid-template-columns:1fr 1fr;gap:5px;margin-top:4px}
+.meas-fields.one{grid-template-columns:1fr}
+.mf-wrap label{display:block;font-size:.61rem;font-weight:700;color:var(--muted);
+  text-transform:uppercase;letter-spacing:.04em;margin-bottom:2px}
+.meas-inp{width:100%;border:1px solid var(--border);border-radius:4px;
+  padding:3px 7px;font-size:.75rem;background:#fafbfc;font-family:inherit}
+.meas-inp:focus{outline:none;border-color:var(--accent)}
+.meas-inp.verify{border-color:var(--warn);background:#fffdf0}
+
+.enote{border:none;border-bottom:1px dashed var(--border);background:transparent;
+  font-size:.72rem;color:var(--muted);width:100%;padding:2px 0;font-family:inherit;margin-top:3px}
+.enote:focus{outline:none;border-bottom-color:var(--accent);color:var(--text)}
+.enote::placeholder{color:#c5d0db}
+
+.exec-acts{display:flex;flex-direction:column;align-items:center;justify-content:center;
+  gap:3px;padding:0 7px;border-left:1px solid var(--border)}
+.flag-btn{width:24px;height:24px;border-radius:4px;border:1.5px solid var(--border);
+  background:transparent;cursor:pointer;font-size:.76rem;display:flex;align-items:center;
+  justify-content:center;transition:.12s;color:var(--muted)}
+.flag-btn:hover{border-color:var(--fail);color:var(--fail)}
+.exec-row.flagged .flag-btn{background:var(--fail);border-color:var(--fail);color:#fff}
+.rm-btn{width:20px;height:20px;border-radius:4px;border:none;background:transparent;
+  cursor:pointer;font-size:.72rem;color:var(--muted);display:flex;align-items:center;justify-content:center}
+.rm-btn:hover{background:#ffecec;color:var(--fail)}
+
+/* sub-req items in exec */
+.exec-subreqs{padding:4px 9px 7px 34px;background:inherit;border-top:1px dashed var(--border)}
+.exec-sr-row{display:flex;align-items:center;gap:6px;padding:3px 0;
+  border-bottom:1px dotted var(--border)}
+.exec-sr-row:last-child{border-bottom:none}
+.exec-sr-row .srcb{cursor:pointer}
+.exec-sr-row span{font-size:.74rem;flex:1}
+.exec-sr-row .done-text{text-decoration:line-through;color:var(--muted)}
+
+/* HOLD POINT divider */
+.hp-divider{background:#7c3aed;color:#fff;padding:4px 9px 4px 11px;
+  display:flex;align-items:center;gap:6px;font-size:.68rem;font-weight:700;letter-spacing:.04em}
+.hp-divider::before{content:'🔴';font-size:.8rem}
+
+/* sign-off */
+.signoff{background:var(--card);border:1px solid var(--border);border-radius:var(--r);
+  padding:12px;margin-top:9px}
+.signoff h4{font-size:.78rem;font-weight:700;margin-bottom:9px;
+  border-bottom:1px solid var(--border);padding-bottom:6px}
+.so-grid{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.sof label{display:block;font-size:.62rem;font-weight:700;color:var(--muted);
+  text-transform:uppercase;letter-spacing:.06em;margin-bottom:2px}
+.sof input{width:100%;border:1px solid var(--border);border-radius:4px;
+  padding:4px 7px;font-size:.78rem;background:#fafbfc;font-family:inherit}
+.sof input:focus{outline:none;border-color:var(--accent)}
+.sig-line{border-bottom:2px solid var(--border);height:28px}
+
+/* job details */
+.job-details{background:var(--card);border:1px solid var(--border);border-radius:var(--r);
+  padding:10px;margin-bottom:9px}
+.jd-hdr{font-size:.76rem;font-weight:700;color:var(--muted);text-transform:uppercase;
+  letter-spacing:.06em;cursor:pointer;display:flex;align-items:center;gap:4px;margin-bottom:8px}
+.jd-grid{display:grid;grid-template-columns:1fr 1fr;gap:7px}
+.jdf label{display:block;font-size:.62rem;font-weight:700;color:var(--muted);
+  text-transform:uppercase;letter-spacing:.06em;margin-bottom:2px}
+.jdf input,.jdf select,.jdf textarea{width:100%;border:1px solid var(--border);border-radius:4px;
+  padding:4px 7px;font-size:.77rem;background:#fafbfc;font-family:inherit}
+.jdf input:focus,.jdf select:focus,.jdf textarea:focus{outline:none;border-color:var(--accent)}
+.jdf.s2{grid-column:span 2}
+
+/* MODAL */
+.overlay{position:fixed;inset:0;background:rgba(0,0,0,.52);display:flex;align-items:center;
+  justify-content:center;z-index:500;padding:14px}
+.overlay.hidden{display:none}
+.modal{background:var(--card);border-radius:11px;padding:20px;width:100%;max-width:520px;
+  box-shadow:0 16px 48px rgba(0,0,0,.28);max-height:92vh;overflow-y:auto}
+.modal h2{font-size:1rem;font-weight:700;margin-bottom:13px}
+.mgrid{display:grid;grid-template-columns:1fr 1fr;gap:9px;margin-bottom:13px}
+.mf label{display:block;font-size:.68rem;font-weight:700;color:var(--muted);
+  text-transform:uppercase;margin-bottom:3px}
+.mf input,.mf select,.mf textarea{width:100%;border:1px solid var(--border);border-radius:5px;
+  padding:5px 8px;font-size:.81rem;background:#fafbfc;font-family:inherit}
+.mf input:focus,.mf select:focus,.mf textarea:focus{outline:none;border-color:var(--accent)}
+.mf.s2{grid-column:span 2}
+.mact{display:flex;justify-content:flex-end;gap:7px}
+.tmpl-note{grid-column:span 2;font-size:.71rem;color:var(--muted);background:#f0fdf4;
+  border:1px solid #c6efd0;border-radius:5px;padding:6px 9px;line-height:1.4}
+
+@media(max-width:900px){
+  .split{grid-template-columns:1fr}
+  .panel-left{border-right:none;border-bottom:2px solid var(--border);max-height:50vh}
+}
+@media(max-width:620px){.shell{grid-template-columns:1fr}.sidebar{display:none}}
+
+@media print{
+  header,.sidebar,.panel-left,.job-bar .btn,.exec-acts,.attr-bar,.sub-reqs-area,.add-row,.add-sr-row,.sel-all{display:none!important}
+  body{height:auto;overflow:visible}
+  .shell{grid-template-columns:1fr;overflow:visible}
+  .work-area,.split,.panel,.panel-body{overflow:visible}
+  .itp-sec-hdr{background:var(--brand)!important;-webkit-print-color-adjust:exact;print-color-adjust:exact}
+  .exec-row{break-inside:avoid}
+  .hp-divider{background:#7c3aed!important;-webkit-print-color-adjust:exact;print-color-adjust:exact}
+}
+</style>
+</head>
+<body>
+
+<header>
+  <div class="logo">Environmental <span>Fittings</span> — Valve Repair ITP</div>
+  <div style="display:flex;gap:7px">
+    <button class="btn btn-outline btn-sm" onclick="openModal()">+ New Job</button>
+  </div>
+</header>
+
+<div class="shell">
+  <aside class="sidebar">
+    <div class="sb-top">
+      <h2>Work Orders</h2>
+      <button class="btn btn-primary btn-sm" style="width:100%" onclick="openModal()">+ New Job</button>
+    </div>
+    <div class="job-list" id="job-list"><p style="font-size:.73rem;color:var(--muted);padding:3px">No jobs yet.</p></div>
+  </aside>
+
+  <div class="work-area" id="work-area">
+    <div style="display:flex;align-items:center;justify-content:center;flex:1;color:var(--muted);flex-direction:column;gap:10px">
+      <svg width="50" height="50" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4" opacity=".22">
+        <path d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2"/>
+        <rect x="9" y="3" width="6" height="4" rx="1"/><path d="M9 12h6M9 16h4"/>
+      </svg>
+      <p style="font-size:.88rem">Create a work order to get started.</p>
+    </div>
+  </div>
+</div>
+
+<!-- MODAL -->
+<div class="overlay hidden" id="modal" onclick="overlayClick(event)">
+  <div class="modal">
+    <h2>New Work Order</h2>
+    <div class="mgrid">
+      <div class="mf"><label>Work Order #</label><input id="f-wo" placeholder="WO-2026-001"/></div>
+      <div class="mf"><label>Date Received</label><input type="date" id="f-date"/></div>
+      <div class="mf"><label>Customer</label><input id="f-cust" placeholder="Company name"/></div>
+      <div class="mf"><label>PO Number</label><input id="f-po" placeholder="PO-XXXXX"/></div>
+      <div class="mf"><label>Valve Tag / ID</label><input id="f-tag" placeholder="V-101"/></div>
+      <div class="mf"><label>Size / Class</label><input id="f-size" placeholder='2" / 900# ANSI'/></div>
+
+      <!-- Job Type — full width -->
+      <div class="mf s2">
+        <label>Job Type</label>
+        <select id="f-jobtype" onchange="toggleValveTypeRow(this.value)">
+          <option value="">— Select job type —</option>
+          <option value="repair">Repair</option>
+          <option value="testonly">Test Only</option>
+          <option value="manufacturing">Manufacturing</option>
+          <option value="other">Other</option>
+        </select>
+      </div>
+
+      <!-- Valve Type — shown for Repair / Test Only -->
+      <div class="mf s2" id="vt-row" style="display:none">
+        <label>Valve Type</label>
+        <select id="f-valvetype">
+          <option value="">— Select valve type —</option>
+          <optgroup label="Ball &amp; Rotary">
+            <option>4-Way Diverter Valve</option>
+            <option>Ball Valve</option>
+            <option>Delayed Coker Ball</option>
+            <option>Delayed Coker Isolation Ball</option>
+            <option>Delayed Coker Switch</option>
+            <option>Orbit</option>
+            <option>Twinseal</option>
+            <option>Wedgeplug</option>
+            <option>6-Way Transfer Valve</option>
+          </optgroup>
+          <optgroup label="Gate">
+            <option>Gate</option>
+            <option>Knife Gate</option>
+            <option>Mud Valve</option>
+            <option>Pipeline Gate-Slab</option>
+            <option>Pipeline Gate-Expanding</option>
+            <option>Pressure Seal Gate</option>
+            <option>Wedge Gate</option>
+          </optgroup>
+          <optgroup label="Globe">
+            <option>Angle Globe</option>
+            <option>Globe</option>
+            <option>Pressure Seal Globe</option>
+          </optgroup>
+          <optgroup label="Check">
+            <option>ARC</option>
+            <option>Ball Check</option>
+            <option>Check</option>
+            <option>Duo Check</option>
+            <option>Piston Check</option>
+            <option>Swing Check</option>
+          </optgroup>
+          <optgroup label="Control &amp; Specialty">
+            <option>Butterfly</option>
+            <option>Control Valve</option>
+            <option>Everlast</option>
+            <option>Mixer</option>
+            <option>Pinch</option>
+            <option>Relief Valve</option>
+            <option>Safety Valve</option>
+          </optgroup>
+          <optgroup label="Plug">
+            <option>Lubricated Plug</option>
+            <option>Non-Lubricated Plug</option>
+          </optgroup>
+          <optgroup label="Other">
+            <option>Actuator</option>
+            <option>Manufacture/Machine/Weld</option>
+          </optgroup>
+        </select>
+      </div>
+
+      <div class="mf s2" id="tmpl-note-row" style="display:none">
+        <div class="tmpl-note" id="tmpl-note">✅ A template will be applied — ITP items will be pre-selected based on job type and valve type. You can add or remove items after creation.</div>
+      </div>
+
+      <div class="mf"><label>Material</label><input id="f-mat" placeholder="SS316 / WCB"/></div>
+      <div class="mf s2"><label>Scope Notes</label>
+        <textarea id="f-scope" rows="2" placeholder="Brief description of work…"></textarea></div>
+    </div>
+    <div class="mact">
+      <button class="btn btn-ghost" onclick="closeModal()">Cancel</button>
+      <button class="btn btn-primary" onclick="createJob()">Create Work Order</button>
+    </div>
+  </div>
+</div>
+
+<script>
+// ════════════════════════════════════════
+// LIBRARY
+// ════════════════════════════════════════
+const LIB = [
+  {id:'receipt', title:'1. Incoming Inspection & Receipt', items:[
+    {id:'r1',name:'Verify work order & tag number match physical valve',ref:'WO Review'},
+    {id:'r2',name:'Check nameplate data (size, class, material, trim)',ref:'Nameplate'},
+    {id:'r3',name:'Document as-received condition (photos, corrosion, damage)',ref:'Incoming Report'},
+    {id:'r4',name:'Confirm customer documents received (drawings, specs)',ref:'Document Control'},
+    {id:'r5',name:'Verify previous service history if available',ref:'Service Record'},
+  ]},
+  {id:'disassembly', title:'2. Disassembly & Cleaning', items:[
+    {id:'d1',name:'Mark components for orientation / reassembly reference',ref:'Procedure'},
+    {id:'d2',name:'Disassemble per approved procedure / OEM instructions',ref:'Repair Proc.'},
+    {id:'d3',name:'Clean all components — remove scale, deposits, old sealant',ref:'Cleaning Proc.'},
+    {id:'d4',name:'Inspect & replace fasteners — record all fastener data on traveler',ref:'Fastener Record',
+      defaultSubReqs:['Fastener size & thread spec (dia. × pitch × length)',
+        'Material / grade (e.g. A193 B7, A320 L7, SS316)',
+        'Quantity replaced','Replacement part number / heat number',
+        'MTR / material certification number obtained',
+        'Verify replacement fasteners meet original design spec']},
+  ]},
+  {id:'inspection', title:'3. Component Inspection', items:[
+    {id:'i1',name:'Body / bonnet — pitting, cracks, erosion; wall thickness if required',ref:'Visual + DT'},
+    {id:'i2',name:'Seat faces / seat rings — scoring, erosion, corrosion',ref:'Visual Insp.'},
+    {id:'i3',name:'Closure member (ball, disc, gate, plug) — finish & dimensions',ref:'Dimensional'},
+    {id:'i4',name:'Stem — corrosion, scoring, straightness, thread condition',ref:'Stem Insp.'},
+    {id:'i5',name:'Packing area / stem bore — wear, damage',ref:'Visual Insp.'},
+    {id:'i6',name:'Gland / gland follower — sealing surfaces',ref:'Visual Insp.'},
+    {id:'i7',name:'Body-to-bonnet joint / RTJ ring groove — sealing surfaces',ref:'Visual Insp.'},
+    {id:'i8',name:'End connections — flanges, threads, BW ends for damage',ref:'API 6D / B16.5'},
+    {id:'i9',name:'Actuator / handwheel — damage, function (if applicable)',ref:'Visual Insp.'},
+  ]},
+  {id:'ndt', title:'4. NDE / NDT', items:[
+    {id:'n1',name:'MT or PT on body / bonnet — cracks, laminations (record report #)',ref:'ASME / API'},
+    {id:'n2',name:'UT wall thickness — body (3 locations) and bonnet (2 locations) per API RP 621 / B16.34',ref:'UT Procedure'},
+    {id:'n3',name:'Hardness testing — seats, closure member (record HRC/HB values)',ref:'Hardness Proc.'},
+    {id:'n4',name:'Dimensional inspection — key clearances per drawings/specs',ref:'Drawing'},
+    {id:'n5',name:'PMI (Positive Material Identification) — all wetted parts verified; results on traveler',ref:'SOP 3020 / API'},
+  ]},
+  {id:'repair', title:'5. Repair & Machining', items:[
+    {id:'m1',name:'Seat lapping / machining — achieve required surface finish',ref:'Lapping Proc.'},
+    {id:'m2',name:'Closure member repair or replacement',ref:'Repair Proc.'},
+    {id:'m3',name:'Stem replacement or repair (if required)',ref:'Parts Record'},
+    {id:'m4',name:'Body weld repair — record WPS/PQR used (if applicable)',ref:'WPS/PQR'},
+    {id:'m5',name:'PWHT completed — record time/temp chart (if required)',ref:'PWHT Record'},
+    {id:'m6',name:'Re-inspect machined/repaired surfaces before assembly',ref:'Dimensional'},
+  ]},
+  {id:'assembly', title:'6. Reassembly', items:[
+    {id:'a1',name:'New soft goods installed (gaskets, O-rings, packing, seals)',ref:'Parts Record'},
+    {id:'a2',name:'Correct packing type and quantity per spec',ref:'Packing Spec.'},
+    {id:'a3',name:'Stem installed — correct orientation, no binding',ref:'Proc.'},
+    {id:'a4',name:'Closure member installed per orientation marks',ref:'Proc.'},
+    {id:'a5',name:'Body-to-bonnet fasteners torqued per spec — record values',ref:'Torque Table'},
+    {id:'a6',name:'Gland bolting tightened to specified value',ref:'Torque Table'},
+    {id:'a7',name:'Valve operates full open to full close without binding',ref:'Functional Check'},
+    {id:'a8',name:'Travel stops / position indicators set correctly',ref:'Proc.'},
+  ]},
+  {id:'testing', title:'7. Pressure & Leak Testing', items:[
+    {id:'t1',name:'Shell / body test — pressure: ___ psi, medium: ___, duration: ___ min',ref:'API 598 / ASME'},
+    {id:'t2',name:'Shell test result — no visible leakage confirmed',ref:'API 598'},
+    {id:'t3',name:'Seat closure test low pressure (air/N₂) — pressure: ___ psi',ref:'API 598'},
+    {id:'t4',name:'Seat closure test high pressure — pressure: ___ psi',ref:'API 598'},
+    {id:'t5',name:'Allowable seat leakage rate recorded (Class ___ per API 598)',ref:'API 598'},
+    {id:'t6',name:'Backseat / stem packing test — no leakage at operating pressure',ref:'API 598'},
+    {id:'t7',name:'Test pressures verified on calibrated gauge (cal. cert. #: ___)',ref:'Calibration'},
+    {id:'t8',name:'Test medium removed / drained after testing',ref:'Proc.'},
+    {id:'t9',name:'Cavity relief test — relieve cavity into valve end; relief pressure: ___ psi (spec: ≤33% of MAWP)',ref:'API 6D / Repair Proc.'},
+    {id:'t10',name:'High-pressure shell test (1.5× MAWP, min. 4 hrs, chart-recorded) — test pressure: ___ psi',ref:'SOP 6080 / API 6D'},
+  ]},
+  {id:'final', title:'8. Final Inspection & Documentation', items:[
+    {id:'f1',name:'Nameplate correct — size, class, material, trim matches repair record',ref:'Nameplate'},
+    {id:'f2',name:'Valve cleaned and preserved per customer spec',ref:'Preservation Spec.'},
+    {id:'f3',name:'End connections protected (caps, plugs, covers)',ref:'Shipping Prep.'},
+    {id:'f4',name:'All soft goods / materials certified — MTRs obtained',ref:'MTR File'},
+    {id:'f5',name:'Test reports, inspection records, and photographs compiled',ref:'Document Package'},
+    {id:'f6',name:'Repair tag / certificate of compliance attached to valve',ref:'Quality Record'},
+    {id:'f7',name:'Final review — all ITP items dispositioned, no open FAIL items',ref:'QC Review'},
+  ]},
+
+  // ── SPECIALTY SECTIONS ──────────────────────────────────
+
+  // HF ACID SERVICE
+  {id:'hfservice', title:'HF Acid Service — Special Requirements', items:[
+    {id:'hf1',name:'Valve confirmed neutralized per API 751 / SOP 1200 — neutralization tag present',ref:'API 751 / SOP 1200'},
+    {id:'hf2',name:'pH test of neutralization solution documented on traveler — pH: ___',ref:'SOP 1200'},
+    {id:'hf3',name:'HF PPE verified on all personnel — face shield, chemical suit, nitrile inner + HF outer gloves, boots',ref:'Safety Proc.'},
+    {id:'hf4',name:'PMI performed on all wetted parts per SOP 3020 — mass spec / XRF results on traveler',ref:'SOP 3020'},
+    {id:'hf5',name:'PT on all internal & external CS, M35, Alloy C276 surfaces per ASME B16.34 App. II',ref:'SOP 3010 / B16.34'},
+    {id:'hf6',name:'Mass spectrometer leak check completed (if applicable)',ref:'Spec.'},
+  ]},
+
+  // PIPELINE GATE — SLAB
+  {id:'slabgate', title:'Pipeline Gate-Slab — Specialty Inspection', items:[
+    {id:'sg1',name:'NORM assessment documented — valve cleared for handling per applicable regulations',ref:'SOP / Regulations'},
+    {id:'sg2',name:'Slab as-found condition recorded — eligible for repair per dimensional table; if not, replace',ref:'SOP 6080 Annex 1'},
+    {id:'sg3',name:'ENP plating stripped from slab — inspect bare slab for pitting, gouging, foot wear',ref:'SOP 6080'},
+    {id:'sg4',name:'Slab surface finish verified by profilometer — Ra: ___ uim (accept: ≤10.8 std / ≤3.6 cryo)',ref:'SOP 6080'},
+    {id:'sg5',name:'Slab re-plated with ENP — minimum 3 mils coating; final thickness recorded on traveler',ref:'SOP 6080'},
+    {id:'sg6',name:'Seat pockets inspected for pitting, ovality — repaired by weld and machined to OEM spec; PT performed',ref:'SOP 6080 / ASME'},
+    {id:'sg7',name:'Stem straightness ≤.001" runout over sealing length; surface finish 16–32 uin; thread profile gauged',ref:'SOP 6080 Table 3'},
+    {id:'sg8',name:'Bonnet O-ring sealing surface checked for flatness, pitting; stuffing box concentricity verified',ref:'SOP 6080'},
+    {id:'sg9',name:'NACE MR0175 requirements verified — base material ≤22 HRC, weld zone ≤22 HRC, B7M bolting',ref:'NACE MR0175 / SOP 6080'},
+  ]},
+
+  // WEDGEPLUG
+  {id:'wedgeplug', title:'Wedgeplug Valve — Specialty Inspection', items:[
+    {id:'wp1',name:'Stem revolution count recorded open-to-close — total turns: ___ ; stem threads exposed: ___',ref:'SOP 6050'},
+    {id:'wp2',name:'Actuator torque & limit switches checked before disassembly (if motorized)',ref:'SOP 6050'},
+    {id:'wp3',name:'Bonnet stuffing box ID polished to ≤32 RMS — max oversize .030" before weld repair required',ref:'SOP 6050'},
+    {id:'wp4',name:'Stem inspected at 3 points — straightness, pitting, galls, thread wear; repaired or replaced',ref:'SOP 6050'},
+    {id:'wp5',name:'Plug & body seats cleaned to bare metal — inspect for pitting, wire draw, washouts; repair TIG as needed',ref:'SOP 6050'},
+    {id:'wp6',name:'Plug & body match-ground to achieve watertight seal — lapping marks even and complete 360°',ref:'SOP 6050'},
+  ]},
+
+  {id:'controlvlv', title:'Control Valve — Calibration & Actuator', items:[
+    {id:'cv1',name:'Actuator calibration — bench set: ___ to ___ psi (or ___ to ___ mA)',ref:'Actuator Spec.'},
+    {id:'cv2',name:'Travel / stroke verification — full open: ___, full close: ___',ref:'Drawing'},
+    {id:'cv3',name:'Positioner calibration — input signal vs. position table recorded',ref:'Calibration'},
+    {id:'cv4',name:'Fugitive emissions / stem packing leak test per spec',ref:'EPA 21 / Spec'},
+  ]},
+  {id:'reliefsafety', title:'Relief / Safety Valve — Testing', items:[
+    {id:'rv1',name:'Set pressure test (CDTP) — Required: ___ psi, Actual: ___ psi',ref:'API 527 / ASME'},
+    {id:'rv2',name:'Blowdown — valve reseats at: ___ psi (spec: ___ psi)',ref:'API 527'},
+    {id:'rv3',name:'Seat leakage per API 527 / ASME PTC 25 — leakage rate: ___',ref:'API 527'},
+    {id:'rv4',name:'Accumulation test (if required) — max pressure: ___ psi',ref:'ASME'},
+  ]},
+  {id:'actuatorsec', title:'Actuator Overhaul', items:[
+    {id:'act1',name:'Actuator disassembly — inspect cylinder / diaphragm, springs, seals',ref:'OEM Proc.'},
+    {id:'act2',name:'Spring range recorded — lower bench set: ___ psi, upper: ___ psi',ref:'Actuator Spec.'},
+    {id:'act3',name:'Actuator reassembled — bench set verified: ___ to ___ psi',ref:'Actuator Spec.'},
+    {id:'act4',name:'Full stroke functional test — travel, limits, torque / thrust verified',ref:'OEM Spec.'},
+  ]},
+  {id:'mfgsec', title:'Manufacturing & Fabrication', items:[
+    {id:'mfg1',name:'Raw material received — verify MTR, heat number, grade vs. PO',ref:'Material Control'},
+    {id:'mfg2',name:'Material traceability marked and maintained on all parts',ref:'MTR'},
+    {id:'mfg3',name:'First operation dimensions verified per engineering drawing',ref:'Drawing'},
+    {id:'mfg4',name:'All machining operations complete per router / traveler',ref:'Router'},
+    {id:'mfg5',name:'Critical dimensions verified — bore, OD, threads, face-to-face',ref:'Drawing'},
+    {id:'mfg6',name:'Surface finish verified (Ra / RMS per spec: ___)',ref:'Surface Finish Spec.'},
+    {id:'mfg7',name:'Welding performed per qualified WPS — record WPS #, welder ID',ref:'WPS/PQR'},
+    {id:'mfg8',name:'PWHT completed (if required) — record time / temperature chart',ref:'PWHT Record'},
+    {id:'mfg9',name:'Final dimensional inspection — all dims recorded on inspection sheet',ref:'Dimensional Insp.'},
+  ]},
+];
+
+// ════════════════════════════════════════
+// VALVE FAMILIES & TEMPLATES
+// ════════════════════════════════════════
+const VALVE_TYPES = [
+  '4-Way Diverter Valve','6-Way Transfer Valve','Actuator','Angle Globe','ARC',
+  'Ball Check','Ball Valve','Butterfly','Check','Control Valve',
+  'Delayed Coker Ball','Delayed Coker Isolation Ball','Delayed Coker Switch',
+  'Duo Check','Everlast','Gate','Globe','Knife Gate','Lubricated Plug',
+  'Manufacture/Machine/Weld','Mixer','Mud Valve','Non-Lubricated Plug',
+  'Orbit','Pinch','Pipeline Gate-Expanding','Pipeline Gate-Slab','Piston Check',
+  'Pressure Seal Gate','Pressure Seal Globe','Relief Valve','Safety Valve',
+  'Swing Check','Twinseal','Wedge Gate','Wedgeplug',
+];
+
+function valveFamily(vt){
+  if(!vt) return 'general';
+  const lv=vt.toLowerCase();
+  const M={
+    ball:['4-way diverter valve','ball valve','delayed coker ball','delayed coker isolation ball',
+      'delayed coker switch','orbit','twinseal','6-way transfer valve'],
+    wedgeplug:['wedgeplug'],
+    gate:['gate','knife gate','mud valve','pipeline gate-expanding',
+      'pressure seal gate','wedge gate'],
+    slab:['pipeline gate-slab'],
+    globe:['angle globe','globe','pressure seal globe'],
+    check:['arc','ball check','check','duo check','piston check','swing check'],
+    butterfly:['butterfly'],
+    control:['control valve'],
+    plug:['lubricated plug','non-lubricated plug'],
+    relief:['relief valve','safety valve'],
+    actuator:['actuator'],
+  };
+  for(const [fam,types] of Object.entries(M)){
+    if(types.includes(lv)) return fam;
+  }
+  return 'general';
+}
+
+const TEMPLATES={
+  // ── REPAIR ──
+  'repair:ball':    ['r1','r2','r3','r4','r5','d1','d2','d3','d4',
+    'i1','i2','i3','i8','n2','n3','n4','m1','m2','m3','m6',
+    'a1','a2','a3','a4','a5','a6','a7','a8',
+    't1','t2','t3','t4','t5','t7','t8','f1','f2','f3','f4','f5','f6','f7'],
+  'repair:gate':    ['r1','r2','r3','r4','r5','d1','d2','d3','d4',
+    'i1','i2','i3','i4','i5','i6','i7','i8','n1','n2','n3','n4','n5',
+    'm1','m2','m3','m4','m6','a1','a2','a3','a4','a5','a6','a7','a8',
+    't1','t2','t3','t4','t5','t6','t7','t8','f1','f2','f3','f4','f5','f6','f7'],
+  'repair:globe':   ['r1','r2','r3','r4','r5','d1','d2','d3','d4',
+    'i1','i2','i3','i4','i5','i6','i7','i8','n1','n2','n3','n4','n5',
+    'm1','m2','m3','m6','a1','a2','a3','a4','a5','a6','a7','a8',
+    't1','t2','t3','t4','t5','t6','t7','t8','f1','f2','f3','f4','f5','f6','f7'],
+  'repair:check':   ['r1','r2','r3','r4','r5','d1','d2','d3','d4',
+    'i1','i2','i3','i7','i8','n1','n2','m2','m6',
+    'a1','a4','a5','a7','t1','t2','t3','t4','t5','t7','t8',
+    'f1','f2','f3','f4','f5','f6','f7'],
+  'repair:butterfly':['r1','r2','r3','r4','r5','d1','d2','d3','d4',
+    'i1','i2','i3','i4','i5','i8','n2','n3','n4',
+    'm1','m2','m3','m6','a1','a2','a3','a4','a5','a7','a8',
+    't1','t2','t3','t4','t5','t7','t8','f1','f2','f3','f4','f5','f6','f7'],
+  'repair:control': ['r1','r2','r3','r4','r5','d1','d2','d3','d4',
+    'i1','i2','i3','i4','i5','i6','i7','i8','i9','n2','n3','n4',
+    'm1','m2','m3','m6','a1','a2','a3','a4','a5','a6','a7','a8',
+    'cv1','cv2','cv3','cv4','t1','t2','t6','t7','t8','f1','f2','f3','f4','f5','f6','f7'],
+  'repair:plug':    ['r1','r2','r3','r4','r5','d1','d2','d3','d4',
+    'i1','i3','i4','i5','i6','i8','n2','n3','n4','n5',
+    'm1','m2','m3','m6','a1','a2','a3','a4','a5','a6','a7','a8',
+    't1','t2','t3','t4','t5','t7','t8','f1','f2','f3','f4','f5','f6','f7'],
+  'repair:relief':  ['r1','r2','r3','r4','r5','d1','d2','d3','d4',
+    'i1','i2','i3','i4','i5','i7','i8','n2','n3',
+    'm1','m2','m3','m6','a1','a2','a3','a4','a5','a6','a7',
+    'rv1','rv2','rv3','rv4','f1','f2','f3','f4','f5','f6','f7'],
+  'repair:actuator':['r1','r2','r3','r4','i9','n3',
+    'act1','act2','act3','act4','t7','f1','f4','f5','f6','f7'],
+  // Pipeline Gate-Slab gets core gate items + slab specialty + cavity relief + 4-hr shell
+  'repair:slab':    ['r1','r2','r3','r4','r5','d1','d2','d3','d4',
+    'i1','i2','i4','i5','i6','i7','i8','n1','n2','n3','n4','n5',
+    'm1','m4','m6','a1','a2','a3','a4','a5','a6','a7','a8',
+    'sg1','sg2','sg3','sg4','sg5','sg6','sg7','sg8','sg9',
+    't1','t2','t3','t4','t5','t6','t7','t8','t9','t10',
+    'f1','f2','f3','f4','f5','f6','f7'],
+  // Wedgeplug gets core repair + wedgeplug specialty
+  'repair:wedgeplug':['r1','r2','r3','r4','r5','d1','d2','d3','d4',
+    'i1','i3','i4','i5','i8','n2','n3','n4','n5',
+    'm1','m2','m3','m6',
+    'wp1','wp2','wp3','wp4','wp5','wp6',
+    'a1','a2','a4','a5','a6','a7','a8',
+    't1','t2','t3','t4','t5','t7','t8','f1','f2','f3','f4','f5','f6','f7'],
+  'repair:general': ['r1','r2','r3','r4','r5','d1','d2','d3','d4',
+    'i1','i2','i3','i4','i5','i6','i7','i8','n2','n3','n4',
+    'm1','m2','m3','m6','a1','a2','a3','a4','a5','a6','a7','a8',
+    't1','t2','t3','t4','t5','t7','t8','f1','f2','f3','f4','f5','f6','f7'],
+  // ── TEST ONLY ──
+  'testonly:standard':['r1','r2','r3','t1','t2','t3','t4','t5','t6','t7','t8',
+    'f1','f4','f5','f6','f7'],
+  'testonly:relief':  ['r1','r2','r3','rv1','rv2','rv3','rv4','f1','f4','f5','f6','f7'],
+  'testonly:control': ['r1','r2','r3','cv1','cv2','cv3','cv4','t1','t2','t7','t8',
+    'f1','f4','f5','f6','f7'],
+  // ── MANUFACTURING ──
+  'manufacturing':    ['r1','r2','mfg1','mfg2','mfg3','mfg4','mfg5','mfg6','mfg7','mfg8','mfg9',
+    'n1','n2','n3','n4','t1','t2','t7','t8','f1','f3','f4','f5','f6','f7'],
+  // ── OTHER ──
+  'other':            [],
+};
+
+function getTemplateKey(jobType, valveType){
+  if(!jobType||jobType==='other') return 'other';
+  if(jobType==='manufacturing') return 'manufacturing';
+  const fam=valveFamily(valveType);
+  if(jobType==='repair'){
+    const k='repair:'+fam;
+    return TEMPLATES[k]?k:'repair:general';
+  }
+  if(jobType==='testonly'){
+    if(fam==='relief') return 'testonly:relief';
+    if(fam==='control') return 'testonly:control';
+    return 'testonly:standard';
+  }
+  return 'other';
+}
+
+function applyTemplate(j){
+  const key=getTemplateKey(j.jobType, j.valveType);
+  const ids=TEMPLATES[key]||[];
+  ids.forEach(itemId=>{
+    if(!j.sel[itemId]) j.sel[itemId]=defSel();
+    j.sel[itemId].included=true;
+    // auto-populate defaultSubReqs
+    let libItem=null;
+    LIB.forEach(sec=>sec.items.forEach(it=>{ if(it.id===itemId) libItem=it; }));
+    if(libItem&&libItem.defaultSubReqs&&j.sel[itemId].subReqs.length===0){
+      j.sel[itemId].subReqs=[...libItem.defaultSubReqs];
+    }
+  });
+}
+
+// ════════════════════════════════════════
+// STATE
+// ════════════════════════════════════════
+let jobs=JSON.parse(localStorage.getItem('itp_v5')||'[]');
+let active=null;
+
+function save(){ localStorage.setItem('itp_v5', JSON.stringify(jobs)); }
+function J(){ return jobs.find(j=>j.id===active); }
+
+function defSel(){ return {included:false,holdPoint:false,beforeMeas:false,afterMeas:false,measVerify:false,subReqs:[]}; }
+function getSel(j,id){ return j.sel[id]||defSel(); }
+function getExec(j,id){ return j.exec[id]||{done:false,flagged:false,notes:'',beforeVal:'',afterVal:'',verifyVal:'',subDone:{}}; }
+function isIncluded(j,id){ return getSel(j,id).included; }
+
+function allScopeItems(j){
+  const out=[];
+  LIB.forEach(sec=>{
+    sec.items.forEach(it=>{ if(isIncluded(j,it.id)) out.push({...it,secId:sec.id,secTitle:sec.title,...getSel(j,it.id),custom:false}); });
+    (j.custom||[]).filter(c=>c.secId===sec.id).forEach(c=>{
+      out.push({id:c.id,name:c.name,ref:'Custom',secId:sec.id,secTitle:sec.title,...getSel(j,c.id),custom:true});
+    });
+  });
+  return out;
+}
+
+function scopeCount(j){ return allScopeItems(j).length; }
+
+function execStats(j){
+  const items=allScopeItems(j);
+  let done=0,flagged=0,holdPts=0,total=0;
+  items.forEach(it=>{
+    const ex=getExec(j,it.id);
+    total++;
+    if(ex.done) done++;
+    if(ex.flagged) flagged++;
+    if(it.holdPoint) holdPts++;
+  });
+  const pct=total?Math.round(done/total*100):0;
+  return {total,done,flagged,open:total-done,holdPts,pct};
+}
+
+// ════════════════════════════════════════
+// JOB TYPE HELPERS
+// ════════════════════════════════════════
+const JT_LABELS={repair:'Repair',testonly:'Test Only',manufacturing:'Manufacturing',other:'Other'};
+const JT_COLORS={repair:'#0550ae',testonly:'#0969da',manufacturing:'#1a7f37',other:'#6b7c8d'};
+
+function jtBadge(jobType, small){
+  if(!jobType) return '';
+  const lbl=JT_LABELS[jobType]||jobType;
+  const col=JT_COLORS[jobType]||'#6b7c8d';
+  const fs=small?'.63rem':'.67rem';
+  return `<span style="display:inline-block;padding:1px 6px;border-radius:10px;background:${col}20;color:${col};font-size:${fs};font-weight:700;border:1px solid ${col}40">${lbl}</span>`;
+}
+
+// ════════════════════════════════════════
+// MODAL
+// ════════════════════════════════════════
+function toggleValveTypeRow(jt){
+  const show=jt==='repair'||jt==='testonly';
+  document.getElementById('vt-row').style.display=show?'':'none';
+  document.getElementById('tmpl-note-row').style.display=jt?'':'none';
+  if(jt==='manufacturing'){
+    document.getElementById('tmpl-note').textContent='✅ Manufacturing template will be applied — material receiving, machining, NDT, testing, and final inspection items pre-selected.';
+  } else if(jt==='other'){
+    document.getElementById('tmpl-note').textContent='ℹ️ Other — no template applied. Build the scope manually from the library.';
+  } else if(show){
+    document.getElementById('tmpl-note').textContent='✅ A template will be applied based on valve type. All items are editable after creation.';
+  }
+}
+
+function openModal(){
+  document.getElementById('f-date').value=new Date().toISOString().slice(0,10);
+  document.getElementById('f-wo').value='WO-'+new Date().getFullYear()+'-'+String(jobs.length+1).padStart(3,'0');
+  document.getElementById('f-jobtype').value='';
+  document.getElementById('f-valvetype').value='';
+  document.getElementById('vt-row').style.display='none';
+  document.getElementById('tmpl-note-row').style.display='none';
+  document.getElementById('modal').classList.remove('hidden');
+  setTimeout(()=>document.getElementById('f-cust').focus(),50);
+}
+function closeModal(){ document.getElementById('modal').classList.add('hidden'); }
+function overlayClick(e){ if(e.target.id==='modal') closeModal(); }
+function g(id){ return document.getElementById(id).value.trim(); }
+
+function createJob(){
+  const jobType=g('f-jobtype');
+  const valveType=g('f-valvetype');
+  const j={
+    id:String(Date.now()),
+    wo:g('f-wo'), customer:g('f-cust'), po:g('f-po'), tag:g('f-tag'),
+    jobType, valveType,
+    size:g('f-size'), material:g('f-mat'), scope:g('f-scope'), date:g('f-date'),
+    inspector:'', inspDate:'', qcMgr:'', qcDate:'',
+    sel:{}, custom:[], exec:{}
+  };
+  applyTemplate(j);
+  jobs.unshift(j); save(); closeModal();
+  ['f-wo','f-cust','f-po','f-tag','f-size','f-mat','f-scope'].forEach(i=>document.getElementById(i).value='');
+  document.getElementById('f-jobtype').value='';
+  document.getElementById('f-valvetype').value='';
+  renderSidebar(); loadJob(j.id);
+}
+
+// ════════════════════════════════════════
+// SIDEBAR
+// ════════════════════════════════════════
+function renderSidebar(){
+  const el=document.getElementById('job-list');
+  if(!jobs.length){ el.innerHTML='<p style="font-size:.73rem;color:var(--muted);padding:3px">No jobs yet.</p>'; return; }
+  el.innerHTML=jobs.map(j=>{
+    const sc=scopeCount(j), es=execStats(j);
+    let badge,bc;
+    if(sc===0){badge='Building';bc='b-bld';}
+    else if(es.flagged>0){badge='Attention';bc='b-attn';}
+    else if(es.done===es.total&&es.total>0){badge='Complete';bc='b-done';}
+    else if(es.done>0){badge='Active';bc='b-act';}
+    else{badge='Scoped';bc='b-open';}
+    const vtLine=j.valveType||j.type||'';
+    return `<div class="jcard${active===j.id?' active':''}" onclick="loadJob('${j.id}')">
+      <div class="jt">${e(j.wo)}</div>
+      <div class="jm">${e(j.customer)||'—'}${j.tag?' · '+e(j.tag):''}</div>
+      ${vtLine||j.jobType?`<div class="jm" style="margin-top:3px;display:flex;align-items:center;gap:4px;flex-wrap:wrap">
+        ${jtBadge(j.jobType,true)}
+        ${vtLine?`<span style="font-size:.63rem;color:var(--muted)">${e(vtLine)}</span>`:''}
+      </div>`:''}
+      <div class="jm" style="margin-top:5px;display:flex;align-items:center;gap:5px">
+        <span class="badge ${bc}">${badge}</span>
+        <span style="font-size:.62rem;color:var(--muted)">${sc} scoped</span>
+      </div>
+    </div>`;
+  }).join('');
+}
+
+// ════════════════════════════════════════
+// LOAD
+// ════════════════════════════════════════
+function loadJob(id){ active=id; renderSidebar(); renderWorkArea(); }
+
+function renderWorkArea(){
+  const j=J(); if(!j) return;
+  const titleValve=j.valveType||j.type||'Valve';
+  const jobTypeStr=j.jobType?JT_LABELS[j.jobType]||j.jobType:'';
+  document.getElementById('work-area').innerHTML=`
+    <div class="job-bar">
+      <div>
+        <div class="jb-title" style="display:flex;align-items:center;gap:8px">
+          ${e(j.wo)} — ${e(titleValve)}
+          ${j.jobType?jtBadge(j.jobType,false):''}
+        </div>
+        <div class="jb-meta">${e(j.customer)||'—'} | Tag: ${e(j.tag)||'—'} | ${e(j.size)||'—'} | ${e(j.material)||'—'}</div>
+      </div>
+      <div style="display:flex;gap:6px">
+        <button class="btn btn-ghost btn-sm" onclick="window.print()">🖨 Print ITP</button>
+        <button class="btn btn-danger btn-sm" onclick="deleteJob()">Delete</button>
+      </div>
+    </div>
+    <div class="split">
+      <div class="panel panel-left" id="panel-left"></div>
+      <div class="panel" id="panel-right"></div>
+    </div>`;
+  renderLeft(); renderRight();
+}
+
+// ════════════════════════════════════════
+// LEFT PANEL
+// ════════════════════════════════════════
+function buildItemHtml(it, itemId, isCustom){
+  const j=J();
+  const sel=getSel(j,itemId);
+  const inc=sel.included;
+  let attrBar='', subReqArea='';
+
+  if(inc){
+    const tog=(cls,flag,label,emoji)=>`
+      <span class="attr-toggle ${cls}${sel[flag]?' on':''}"
+        onclick="event.stopPropagation();toggleAttr('${itemId}','${flag}')">
+        <span class="atcb"></span>${emoji} ${label}
+      </span>`;
+    attrBar=`<div class="attr-bar">
+      ${tog('hp','holdPoint','Hold Point','🔴')}
+      ${tog('bef','beforeMeas','Before Meas.','📏')}
+      ${tog('aft','afterMeas','After Meas.','📐')}
+      ${tog('ver','measVerify','Meas. Verify','✔️')}
+    </div>`;
+    const srRows=(sel.subReqs||[]).map((sr,idx)=>`
+      <div class="sub-req-row">
+        <span>• ${e(sr)}</span>
+        <button class="sr-del" onclick="event.stopPropagation();removeSubReq('${itemId}',${idx})">✕</button>
+      </div>`).join('');
+    subReqArea=`<div class="sub-reqs-area">
+      ${srRows}
+      <div class="add-sr-row">
+        <input class="add-sr-inp" id="sr-${itemId}" type="text" placeholder="+ Add sub-requirement…"
+          onkeydown="if(event.key==='Enter'){event.preventDefault();addSubReq('${itemId}',this)}"/>
+        <button class="add-sr-btn" onclick="event.stopPropagation();addSubReq('${itemId}',document.getElementById('sr-${itemId}'))">Add</button>
+      </div>
+    </div>`;
+  }
+
+  const nameLine=isCustom
+    ?`${e(it.name)} <span style="font-size:.61rem;color:var(--muted)">(custom)</span>`
+    :e(it.name);
+  const refLine=isCustom
+    ?`Custom · <span style="cursor:pointer;color:var(--fail)" onclick="event.stopPropagation();removeCustomItem('${itemId}')">remove</span>`
+    :e(it.ref);
+
+  return `<div class="lib-item${inc?' sel':''}">
+    <div class="lib-item-top" onclick="toggleInclude('${itemId}')">
+      <div class="cb-cell"><span class="cb"></span></div>
+      <div class="lib-item-name">
+        <div class="lin">${nameLine}</div>
+        <div class="lref">${refLine}</div>
+      </div>
+    </div>
+    ${attrBar}${subReqArea}
+  </div>`;
+}
+
+function renderLeft(){
+  const j=J();
+  const sc=scopeCount(j);
+
+  const secs=LIB.map((sec,si)=>{
+    const selCount=sec.items.filter(it=>isIncluded(j,it.id)).length
+      +(j.custom||[]).filter(c=>c.secId===sec.id).length;
+    const allSel=sec.items.length>0&&sec.items.every(it=>isIncluded(j,it.id));
+
+    const rows=sec.items.map(it=>buildItemHtml(it,it.id,false)).join('');
+    const customs=(j.custom||[]).filter(c=>c.secId===sec.id)
+      .map(c=>buildItemHtml(c,c.id,true)).join('');
+
+    return `<div class="lib-sec">
+      <div class="lib-sec-hdr">
+        <h4>${e(sec.title)}</h4>
+        <div class="lshr">
+          <span>${selCount}/${sec.items.length+(j.custom||[]).filter(c=>c.secId===sec.id).length}</span>
+          <button class="sel-all" onclick="event.stopPropagation();selectAll('${sec.id}',${!allSel})">${allSel?'Deselect All':'Select All'}</button>
+        </div>
+      </div>
+      ${rows}${customs}
+      <div class="add-row">
+        <input class="add-inp" id="ai-${si}" type="text" placeholder="+ Add custom item…"
+          onkeydown="if(event.key==='Enter'){addCustomItem('${sec.id}',${si});event.preventDefault()}"/>
+        <button class="add-btn" onclick="addCustomItem('${sec.id}',${si})">Add</button>
+      </div>
+    </div>`;
+  }).join('');
+
+  document.getElementById('panel-left').innerHTML=`
+    <div class="panel-hdr">
+      <h3>📋 Build Scope</h3>
+      <span class="ph-count">${sc} selected</span>
+    </div>
+    <div class="panel-body">${secs}</div>`;
+}
+
+// ════════════════════════════════════════
+// RIGHT PANEL
+// ════════════════════════════════════════
+function renderRight(){
+  const j=J();
+  const items=allScopeItems(j);
+
+  if(!items.length){
+    document.getElementById('panel-right').innerHTML=`
+      <div class="panel-hdr">
+        <h3>✅ ITP Checklist</h3>
+        <span style="font-size:.72rem;color:var(--muted)">0 items</span>
+      </div>
+      <div class="itp-empty">
+        <svg width="42" height="42" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4" opacity=".22">
+          <polyline points="9 11 12 14 22 4"/><path d="M21 12v7a2 2 0 01-2 2H5a2 2 0 01-2-2V5a2 2 0 012-2h11"/>
+        </svg>
+        <p style="font-size:.8rem">Check items on the left<br>to build your ITP scope.</p>
+      </div>`;
+    return;
+  }
+
+  const es=execStats(j);
+  const pctColor=es.flagged>0?'var(--fail)':es.done===es.total?'var(--pass)':'var(--accent)';
+  const overallLabel=es.flagged>0?`⚑ ${es.flagged} flagged`
+    :es.done===es.total?'✓ Complete':`${es.open} remaining`;
+
+  const bySection={};
+  LIB.forEach(sec=>{ bySection[sec.id]={title:sec.title,items:[]}; });
+  items.forEach(it=>{ if(bySection[it.secId]) bySection[it.secId].items.push(it); });
+
+  const sectHtml=LIB.map(sec=>{
+    const grp=bySection[sec.id];
+    if(!grp||!grp.items.length) return '';
+    const secDone=grp.items.filter(it=>getExec(j,it.id).done).length;
+    const secFlag=grp.items.filter(it=>getExec(j,it.id).flagged).length;
+
+    const rows=grp.items.map(it=>{
+      const ex=getExec(j,it.id);
+      const sel=getSel(j,it.id);
+
+      let badges='';
+      if(sel.holdPoint) badges+=`<span class="hp-badge">🔴 HOLD POINT</span>`;
+      if(sel.beforeMeas) badges+=`<span class="attr-badge bef">📏 Before</span>`;
+      if(sel.afterMeas)  badges+=`<span class="attr-badge aft">📐 After</span>`;
+      if(sel.measVerify) badges+=`<span class="attr-badge ver">✔️ Verify</span>`;
+
+      let measHtml='';
+      const hasBefore=sel.beforeMeas, hasAfter=sel.afterMeas, hasVerify=sel.measVerify;
+      if(hasBefore||hasAfter||hasVerify){
+        const fields=[];
+        if(hasBefore) fields.push(`<div class="mf-wrap"><label>Before Measurement</label>
+          <input class="meas-inp" type="text" value="${e(ex.beforeVal||'')}" placeholder="Value / units"
+            onchange="setExecField('${it.id}','beforeVal',this.value)"/></div>`);
+        if(hasAfter) fields.push(`<div class="mf-wrap"><label>After Measurement</label>
+          <input class="meas-inp" type="text" value="${e(ex.afterVal||'')}" placeholder="Value / units"
+            onchange="setExecField('${it.id}','afterVal',this.value)"/></div>`);
+        if(hasVerify) fields.push(`<div class="mf-wrap"><label>Verification / Acceptance</label>
+          <input class="meas-inp verify" type="text" value="${e(ex.verifyVal||'')}" placeholder="Spec / result"
+            onchange="setExecField('${it.id}','verifyVal',this.value)"/></div>`);
+        measHtml=`<div class="meas-fields${fields.length===1?' one':''}">${fields.join('')}</div>`;
+      }
+
+      let srHtml='';
+      if((sel.subReqs||[]).length){
+        srHtml=`<div class="exec-subreqs">`
+          +(sel.subReqs||[]).map((sr,idx)=>{
+            const done=!!(ex.subDone||{})[idx];
+            return `<div class="exec-sr-row">
+              <span class="srcb" style="width:14px;height:14px;border-radius:3px;border:1.5px solid ${done?'var(--pass)':'var(--border)'};display:inline-flex;align-items:center;justify-content:center;cursor:pointer;background:${done?'var(--pass)':'#fff'};flex-shrink:0"
+                onclick="toggleSubDone('${it.id}',${idx})">${done?'<span style="color:#fff;font-size:.65rem;font-weight:700">✓</span>':''}</span>
+              <span class="${done?'done-text':''}">• ${e(sr)}</span>
+            </div>`;
+          }).join('')
+          +`</div>`;
+      }
+
+      const hpClass=sel.holdPoint?' hold-point':'';
+      return `${sel.holdPoint?'<div class="hp-divider">QA/QC HOLD POINT — Inspector sign-off required before proceeding</div>':''}
+        <div class="exec-row${ex.done?' done':''}${ex.flagged?' flagged':''}${hpClass}">
+          <div class="exec-top">
+            <div class="exec-cb" onclick="toggleDone('${it.id}')">
+              <span class="cb${ex.done?' sel':''}"></span>
+            </div>
+            <div class="exec-body">
+              <div class="en">${e(it.name)} ${badges}</div>
+              <div class="er">[${e(it.ref)}]</div>
+              ${measHtml}
+              <input class="enote" type="text" value="${e(ex.notes||'')}"
+                placeholder="Notes, observations…" onchange="setExecField('${it.id}','notes',this.value)"/>
+            </div>
+            <div class="exec-acts">
+              <button class="flag-btn" title="Flag issue" onclick="toggleFlag('${it.id}')">⚑</button>
+              <button class="rm-btn" title="Remove from ITP" onclick="removeScope('${it.id}')">✕</button>
+            </div>
+          </div>
+          ${srHtml}
+        </div>`;
+    }).join('');
+
+    return `<div class="itp-sec">
+      <div class="itp-sec-hdr">
+        <h4>${e(sec.title)}</h4>
+        <div style="display:flex;align-items:center;gap:5px">
+          ${secFlag?`<span style="font-size:.63rem;background:var(--fail);color:#fff;border-radius:20px;padding:1px 5px">⚑${secFlag}</span>`:''}
+          <span class="isp">${secDone}/${grp.items.length}</span>
+        </div>
+      </div>
+      ${rows}
+    </div>`;
+  }).join('');
+
+  // job details
+  const vtOpts=VALVE_TYPES.map(vt=>`<option ${(j.valveType||j.type)===vt?'selected':''}>${e(vt)}</option>`).join('');
+  const details=`<div class="job-details">
+    <div class="jd-hdr" onclick="toggleDetails(this)">▾ Job Details</div>
+    <div id="jd-body">
+      <div class="jd-grid">
+        <div class="jdf"><label>Work Order #</label><input value="${e(j.wo)}" onchange="upf('wo',this.value)"/></div>
+        <div class="jdf"><label>Date</label><input type="date" value="${j.date}" onchange="upf('date',this.value)"/></div>
+        <div class="jdf"><label>Customer</label><input value="${e(j.customer)}" onchange="upf('customer',this.value)"/></div>
+        <div class="jdf"><label>PO</label><input value="${e(j.po)}" onchange="upf('po',this.value)"/></div>
+        <div class="jdf"><label>Tag</label><input value="${e(j.tag)}" onchange="upf('tag',this.value)"/></div>
+        <div class="jdf"><label>Job Type</label>
+          <select onchange="upf('jobType',this.value)">
+            <option value="">— Select —</option>
+            <option ${j.jobType==='repair'?'selected':''} value="repair">Repair</option>
+            <option ${j.jobType==='testonly'?'selected':''} value="testonly">Test Only</option>
+            <option ${j.jobType==='manufacturing'?'selected':''} value="manufacturing">Manufacturing</option>
+            <option ${j.jobType==='other'?'selected':''} value="other">Other</option>
+          </select>
+        </div>
+        <div class="jdf"><label>Valve Type</label>
+          <select onchange="upf('valveType',this.value)">
+            <option value="">— Select —</option>
+            ${vtOpts}
+          </select>
+        </div>
+        <div class="jdf"><label>Size / Class</label><input value="${e(j.size)}" onchange="upf('size',this.value)"/></div>
+        <div class="jdf"><label>Material</label><input value="${e(j.material)}" onchange="upf('material',this.value)"/></div>
+        <div class="jdf s2"><label>Scope Notes</label><textarea rows="2" onchange="upf('scope',this.value)">${e(j.scope)}</textarea></div>
+      </div>
+    </div>
+  </div>`;
+
+  const signoff=`<div class="signoff">
+    <h4>QC Sign-Off</h4>
+    <div class="so-grid">
+      <div class="sof"><label>Inspector</label><input value="${e(j.inspector)}" onchange="upf('inspector',this.value)" placeholder="Print name"/></div>
+      <div class="sof"><label>Inspection Date</label><input type="date" value="${j.inspDate}" onchange="upf('inspDate',this.value)"/></div>
+      <div class="sof"><label>QC Manager</label><input value="${e(j.qcMgr)}" onchange="upf('qcMgr',this.value)" placeholder="Print name"/></div>
+      <div class="sof"><label>Review Date</label><input type="date" value="${j.qcDate}" onchange="upf('qcDate',this.value)"/></div>
+    </div>
+    <div style="margin-top:9px;display:grid;grid-template-columns:1fr 1fr;gap:14px;padding-top:8px;border-top:1px solid var(--border)">
+      <div><div style="font-size:.6rem;color:var(--muted);text-transform:uppercase;letter-spacing:.06em;margin-bottom:3px">Inspector Signature</div><div class="sig-line"></div></div>
+      <div><div style="font-size:.6rem;color:var(--muted);text-transform:uppercase;letter-spacing:.06em;margin-bottom:3px">QC Manager Signature</div><div class="sig-line"></div></div>
+    </div>
+    <div style="margin-top:8px;font-size:.68rem;color:var(--muted)">
+      Environmental Fittings · mike@envfittings.com · ITP Rev 1.0
+      &nbsp;|&nbsp; <strong>Overall:</strong> <span style="color:${pctColor};font-weight:700">${overallLabel}</span>
+    </div>
+  </div>`;
+
+  document.getElementById('panel-right').innerHTML=`
+    <div class="panel-hdr" style="flex-shrink:0">
+      <h3>✅ ITP Checklist</h3>
+      <span class="ph-count" style="color:${pctColor}">${es.done}/${es.total} · ${es.pct}%</span>
+    </div>
+    <div class="itp-summary" style="flex-shrink:0">
+      <div class="ss"><div class="sv">${es.total}</div><div class="sl">Items</div></div>
+      <div class="ss"><div class="sv c-pass">${es.done}</div><div class="sl">Done</div></div>
+      <div class="ss"><div class="sv c-fail">${es.flagged}</div><div class="sl">Flagged</div></div>
+      <div class="ss"><div class="sv c-hp">${es.holdPts}</div><div class="sl">Hold Pts</div></div>
+      <div class="ss"><div class="sv c-warn">${es.open}</div><div class="sl">Open</div></div>
+    </div>
+    <div class="pbar-strip" style="flex-shrink:0">
+      <div class="pbar-fill" style="width:${es.pct}%;background:${pctColor}"></div>
+    </div>
+    <div class="panel-body">${details}${sectHtml}${signoff}</div>`;
+}
+
+function toggleDetails(h){
+  const b=document.getElementById('jd-body'); if(!b) return;
+  const hidden=b.style.display==='none';
+  b.style.display=hidden?'':'none';
+  h.textContent=(hidden?'▾':'▸')+' Job Details';
+}
+
+// ════════════════════════════════════════
+// ACTIONS — SCOPE BUILDER
+// ════════════════════════════════════════
+function toggleInclude(itemId){
+  const j=J();
+  const wasNew=!j.sel[itemId];
+  if(!j.sel[itemId]) j.sel[itemId]=defSel();
+  j.sel[itemId].included=!j.sel[itemId].included;
+  if(j.sel[itemId].included&&wasNew){
+    let libItem=null;
+    LIB.forEach(sec=>sec.items.forEach(it=>{ if(it.id===itemId) libItem=it; }));
+    if(libItem&&libItem.defaultSubReqs&&j.sel[itemId].subReqs.length===0){
+      j.sel[itemId].subReqs=[...libItem.defaultSubReqs];
+    }
+  }
+  save(); renderLeft(); renderRight();
+}
+
+function toggleAttr(itemId,attr){
+  const j=J();
+  if(!j.sel[itemId]) j.sel[itemId]=defSel();
+  j.sel[itemId][attr]=!j.sel[itemId][attr];
+  save(); renderLeft(); renderRight();
+}
+
+function selectAll(secId,inc){
+  const j=J();
+  LIB.find(s=>s.id===secId).items.forEach(it=>{
+    if(!j.sel[it.id]) j.sel[it.id]=defSel();
+    j.sel[it.id].included=inc;
+    if(inc){
+      let libItem=LIB.flatMap(s=>s.items).find(x=>x.id===it.id);
+      if(libItem&&libItem.defaultSubReqs&&j.sel[it.id].subReqs.length===0){
+        j.sel[it.id].subReqs=[...libItem.defaultSubReqs];
+      }
+    }
+  });
+  save(); renderLeft(); renderRight();
+}
+
+function addCustomItem(secId,si){
+  const inp=document.getElementById('ai-'+si);
+  const text=(inp?.value||'').trim(); if(!text) return;
+  const j=J();
+  const cid='c'+Date.now();
+  j.custom.push({id:cid,secId,name:text});
+  j.sel[cid]={...defSel(),included:true};
+  save(); renderLeft(); renderRight();
+}
+
+function removeCustomItem(cid){
+  const j=J();
+  j.custom=j.custom.filter(c=>c.id!==cid);
+  delete j.sel[cid]; delete j.exec[cid];
+  save(); renderLeft(); renderRight();
+}
+
+function addSubReq(itemId,inp){
+  const text=(inp?.value||'').trim(); if(!text) return;
+  const j=J();
+  if(!j.sel[itemId]) j.sel[itemId]=defSel();
+  j.sel[itemId].subReqs.push(text);
+  inp.value=''; save(); renderLeft(); renderRight();
+}
+
+function removeSubReq(itemId,idx){
+  const j=J();
+  if(!j.sel[itemId]) return;
+  j.sel[itemId].subReqs.splice(idx,1);
+  save(); renderLeft(); renderRight();
+}
+
+// ════════════════════════════════════════
+// ACTIONS — ITP EXEC
+// ════════════════════════════════════════
+function ensureExec(j,id){ if(!j.exec[id]) j.exec[id]={done:false,flagged:false,notes:'',beforeVal:'',afterVal:'',verifyVal:'',subDone:{}}; }
+
+function toggleDone(itemId){
+  const j=J(); ensureExec(j,itemId);
+  j.exec[itemId].done=!j.exec[itemId].done;
+  save(); renderRight(); renderSidebar();
+}
+
+function toggleFlag(itemId){
+  const j=J(); ensureExec(j,itemId);
+  j.exec[itemId].flagged=!j.exec[itemId].flagged;
+  save(); renderRight(); renderSidebar();
+}
+
+function setExecField(itemId,field,val){
+  const j=J(); ensureExec(j,itemId);
+  j.exec[itemId][field]=val; save();
+}
+
+function toggleSubDone(itemId,idx){
+  const j=J(); ensureExec(j,itemId);
+  if(!j.exec[itemId].subDone) j.exec[itemId].subDone={};
+  j.exec[itemId].subDone[idx]=!j.exec[itemId].subDone[idx];
+  save(); renderRight();
+}
+
+function removeScope(itemId){
+  const j=J();
+  if(j.sel[itemId]) j.sel[itemId].included=false;
+  j.custom=j.custom.filter(c=>c.id!==itemId);
+  save(); renderLeft(); renderRight();
+}
+
+function upf(field,val){ const j=J(); j[field]=val; save(); renderSidebar(); }
+
+function deleteJob(){
+  if(!confirm('Delete this work order?')) return;
+  jobs=jobs.filter(j=>j.id!==active); active=null; save(); renderSidebar();
+  document.getElementById('work-area').innerHTML=`
+    <div style="display:flex;align-items:center;justify-content:center;flex:1;color:var(--muted);flex-direction:column;gap:10px">
+      <svg width="50" height="50" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4" opacity=".22">
+        <path d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2"/>
+        <rect x="9" y="3" width="6" height="4" rx="1"/><path d="M9 12h6M9 16h4"/>
+      </svg>
+      <p style="font-size:.88rem">Select or create a work order.</p>
+    </div>`;
+}
+
+// ════════════════════════════════════════
+// UTILS
+// ════════════════════════════════════════
+function e(s){ return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+
+// ════════════════════════════════════════
+// INIT
+// ════════════════════════════════════════
+renderSidebar();
+if(jobs.length) loadJob(jobs[0].id);
+</script>
+</body>
+</html>

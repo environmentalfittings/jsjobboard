@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
-import { ItpPlanEditor } from '../components/ItpPlanEditor'
+import { ItpLibraryEditor } from '../components/ItpLibraryEditor'
 import { useAuth } from '../contexts/AuthContext'
 import { canWriteShop } from '../lib/roles'
 import { supabase } from '../lib/supabase'
@@ -67,5 +67,5 @@ export function ItpPage() {
     )
   }
 
-  return <ItpPlanEditor valve={valve} onClose={closeItp} readOnly={!canWrite} />
+  return <ItpLibraryEditor valve={valve} onClose={closeItp} readOnly={!canWrite} />
 }

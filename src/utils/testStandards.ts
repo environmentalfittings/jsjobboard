@@ -569,8 +569,8 @@ function buildApi6dPhases(
   push({
     id: 'api6d-hp-gas-seat',
     standard: 'api6d',
-    phase: 'HP Gas Seat Closure',
-    test: 'HP Gas Seat — Required for gas transmission service',
+    phase: 'High Pressure Seat Closure Test',
+    test: 'High-pressure seat closure — required for gas transmission service',
     medium: 'Nitrogen',
     mediumEditable: false,
     testPressure: `${hpPsi} PSI`,
