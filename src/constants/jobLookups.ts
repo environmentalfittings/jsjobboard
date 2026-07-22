@@ -29,6 +29,9 @@ export const TEST_PROCEDURE_REQUIREMENTS = [
   'Helium Test',
 ] as const
 
+/** Chart recorder IDs for 4-hour shell tests (editable under Admin → Manage lists). */
+export const CHART_RECORDERS: readonly string[] = []
+
 export const VALVE_SIZES = [
   '0.5',
   '0.75',

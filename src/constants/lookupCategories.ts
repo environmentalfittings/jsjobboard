@@ -1,5 +1,6 @@
 import {
   BODY_MATERIALS,
+  CHART_RECORDERS,
   FINISH_CELLS,
   ORDER_TYPES,
   PRESSURE_CLASSES,
@@ -14,6 +15,7 @@ export type LookupCategory =
   | 'test_type'
   | 'test_media'
   | 'test_procedure'
+  | 'chart_recorder'
   | 'valve_size'
   | 'valve_type'
   | 'finish_cell'
@@ -30,6 +32,7 @@ export const LOOKUP_CATEGORY_DEFS: readonly {
   { key: 'test_type', label: 'Test type', fallback: TEST_TYPES },
   { key: 'test_media', label: 'Test media', fallback: TEST_MEDIA },
   { key: 'test_procedure', label: 'Test requirements', fallback: TEST_PROCEDURE_REQUIREMENTS },
+  { key: 'chart_recorder', label: 'Chart recorders', fallback: CHART_RECORDERS },
   { key: 'valve_size', label: 'Size', fallback: VALVE_SIZES },
   { key: 'valve_type', label: 'Valve type', fallback: VALVE_TYPES },
   { key: 'pressure_class', label: 'Pressure class', fallback: PRESSURE_CLASSES },

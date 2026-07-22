@@ -3114,7 +3114,7 @@ a.test-log-reports-item-name:hover {
   display: flex;
   flex-direction: column;
   align-items: flex-start;
-  gap: 4px;
+  gap: 2px;
   padding: 8px 10px;
   border: none;
   border-radius: 6px;
@@ -3132,45 +3132,11 @@ a.test-log-reports-item-name:hover {
   background: #eff6ff;
 }
 
-.test-gauge-combobox-option-main {
-  width: 100%;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 0.5rem;
-}
-
 .test-gauge-combobox-option-label {
   font-size: 14px;
   font-weight: 500;
   color: #0f172a;
   line-height: 1.35;
-}
-
-.test-gauge-combobox-due {
-  font-size: 12px;
-  font-weight: 600;
-  line-height: 1.3;
-}
-
-.test-gauge-combobox-due--ok {
-  color: #64748b;
-  font-weight: 500;
-}
-
-.test-gauge-combobox-due--expiring {
-  color: #b45309;
-}
-
-.test-gauge-combobox-due--due,
-.test-gauge-combobox-due--critical {
-  color: #b91c1c;
-}
-
-.test-gauge-combobox-empty {
-  padding: 10px;
-  font-size: 13px;
-  color: #64748b;
 }
 
 .test-gauge-combobox-status {
@@ -3200,11 +3166,6 @@ a.test-log-reports-item-name:hover {
 
 .test-gauge-combobox-option--expiring {
   border-left: 3px solid #f59e0b;
-  background: #fffbeb;
-}
-
-.test-gauge-combobox-option--expiring:hover {
-  background: #fef3c7;
 }
 
 .test-gauge-combobox-option--due {
@@ -3217,7 +3178,7 @@ a.test-log-reports-item-name:hover {
 }
 
 .test-gauge-combobox-option--critical {
-  border-left: 4px solid #dc2626;
+  border-left: 3px solid #dc2626;
   background: #fef2f2;
 }
 
@@ -3225,36 +3186,9 @@ a.test-log-reports-item-name:hover {
   background: #fee2e2;
 }
 
-.test-gauge-expired-badge {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  flex-shrink: 0;
-  padding: 3px 8px;
-  border-radius: 4px;
-  background: #dc2626;
-  color: #fff;
-  font-size: 11px;
-  font-weight: 800;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
-  line-height: 1.2;
-}
-
-.test-gauge-expired-badge--inline {
-  padding: 2px 6px;
-  font-size: 10px;
-}
-
 .test-gauge-select--expiring .test-gauge-combobox-trigger {
   border-color: #f59e0b;
   background: #fffbeb;
-}
-
-.test-gauge-select--due .test-gauge-combobox-trigger,
-.test-gauge-select--critical .test-gauge-combobox-trigger {
-  border-color: #dc2626;
-  background: #fef2f2;
 }
 
 .test-gauge-cal-note--expiring {
@@ -3297,8 +3231,8 @@ a.test-log-reports-item-name:hover {
 }
 
 .test-gauge-cal-note--due {
-  color: #b91c1c;
-  font-weight: 700;
+  color: #b45309;
+  font-weight: 600;
 }
 
 .test-gauge-cal-note--critical {
@@ -3307,8 +3241,8 @@ a.test-log-reports-item-name:hover {
 }
 
 .test-gauge-select--due select {
-  border-color: #dc2626;
-  background: #fef2f2;
+  border-color: #f59e0b;
+  background: #fffbeb;
 }
 
 .test-gauge-select--critical select {
@@ -3317,7 +3251,7 @@ a.test-log-reports-item-name:hover {
 }
 
 .test-gauge-row--due {
-  background: #fef2f2;
+  background: #fffbeb;
 }
 
 .test-gauge-row--critical {
@@ -3327,11 +3261,10 @@ a.test-log-reports-item-name:hover {
 .test-gauge-cal-cell--due,
 .test-gauge-cal-cell--critical {
   font-weight: 600;
-  color: #b91c1c;
 }
 
 .test-gauge-cal-cell--due {
-  color: #b91c1c;
+  color: #b45309;
 }
 
 .test-gauge-cal-cell--critical {
@@ -3347,13 +3280,8 @@ a.test-log-reports-item-name:hover {
   letter-spacing: 0.02em;
 }
 
-.test-gauge-cal-cell .test-gauge-expired-badge {
-  display: inline-flex;
-  margin-top: 6px;
-}
-
 .test-gauge-cal-badge--due {
-  color: #b91c1c;
+  color: #b45309;
 }
 
 .test-gauge-cal-badge--critical {

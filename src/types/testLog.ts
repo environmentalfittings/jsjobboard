@@ -25,7 +25,6 @@ export type PressureTestBlock = TestMediaFields & {
   result: PressureTestResult
   reason: string
   /** Shell test only — when 4-Hour Chart Test is selected in test requirements. */
-  chartRecorderId: string
   chartRecorderNumber: string
 }
 
@@ -78,7 +77,6 @@ export function emptyPressureTestBlock(): PressureTestBlock {
     time: '',
     result: '',
     reason: '',
-    chartRecorderId: '',
     chartRecorderNumber: '',
   }
 }
@@ -208,7 +206,6 @@ function parsePressureBlock(raw: unknown, legacyMedium = ''): PressureTestBlock 
     time: typeof b.time === 'string' ? b.time : '',
     result,
     reason: typeof b.reason === 'string' ? b.reason : '',
-    chartRecorderId: typeof b.chartRecorderId === 'string' ? b.chartRecorderId : '',
     chartRecorderNumber: typeof b.chartRecorderNumber === 'string' ? b.chartRecorderNumber : '',
   }
 }
