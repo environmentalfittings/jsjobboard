@@ -46,12 +46,29 @@ type AppMessageRow = {
   created_at: string
 }
 
+const MESSAGE_SELECT_FULL =
+  'id,sender_user_id,recipient_user_id,sender_name,subject,body,category,notification_kind,related_feedback_id,read_at,recipient_archived_at,recipient_deleted_at,sender_archived_at,sender_deleted_at,attachments,created_at'
+
+const MESSAGE_SELECT_BASE =
+  'id,sender_user_id,recipient_user_id,sender_name,subject,body,category,notification_kind,related_feedback_id,read_at,created_at'
+
+const ARCHIVE_MIGRATION_HINT =
+  'Run supabase/migration-app-messages-archive-attachments.sql in Supabase SQL Editor to enable message archive'
+
 function isMissingMessagesTable(message: string) {
-  return /app_messages|relation.*does not exist/i.test(message)
+  return /Could not find the table|relation ["']?public\.app_messages["']? does not exist|relation ["']?app_messages["']? does not exist/i.test(
+    message,
+  )
+}
+
+function isMissingArchiveColumns(message: string) {
+  return /(recipient_archived_at|sender_archived_at|recipient_deleted_at|sender_deleted_at|attachments)/i.test(
+    message,
+  ) && /column|schema cache|does not exist/i.test(message)
 }
 
 function isMissingMessagesRpc(message: string) {
-  return /mark_app_message_read|archive_app_message|unarchive_app_message|delete_app_message|function.*does not exist/i.test(
+  return /mark_app_message_read|archive_app_message|unarchive_app_message|delete_app_message|function.*does not exist|Could not find the function/i.test(
     message,
   )
 }
@@ -85,26 +102,85 @@ function rowToInboxItem(row: AppMessageRow, userId: string): InboxItem | null {
   }
 }
 
+function mergeInboxItems(target: InboxItem[], incoming: InboxItem[]) {
+  const seen = new Set(target.map((item) => item.key))
+  for (const item of incoming) {
+    if (seen.has(item.key)) continue
+    target.push(item)
+    seen.add(item.key)
+  }
+}
+
 export async function loadInboxItems(userId: string): Promise<{ items: InboxItem[]; error: string | null }> {
   const items: InboxItem[] = []
+  let warning: string | null = null
 
-  const { data, error } = await supabase
+  let { data, error } = await supabase
     .from('app_messages')
-    .select(
-      'id,sender_user_id,recipient_user_id,sender_name,subject,body,category,notification_kind,related_feedback_id,read_at,recipient_archived_at,recipient_deleted_at,sender_archived_at,sender_deleted_at,attachments,created_at',
-    )
+    .select(MESSAGE_SELECT_FULL)
     .or(`recipient_user_id.eq.${userId},sender_user_id.eq.${userId}`)
     .order('created_at', { ascending: false })
-    .limit(200)
+    .limit(300)
+
+  if (error && isMissingArchiveColumns(error.message)) {
+    warning = ARCHIVE_MIGRATION_HINT
+    const fallback = await supabase
+      .from('app_messages')
+      .select(MESSAGE_SELECT_BASE)
+      .or(`recipient_user_id.eq.${userId},sender_user_id.eq.${userId}`)
+      .order('created_at', { ascending: false })
+      .limit(300)
+    data = fallback.data
+    error = fallback.error
+  }
 
   if (error) {
-    if (!isMissingMessagesTable(error.message)) {
-      return { items: [], error: error.message }
+    if (isMissingMessagesTable(error.message)) {
+      return { items: [], error: 'Run supabase/migration-app-messages.sql in Supabase SQL Editor' }
     }
-  } else {
-    for (const row of (data ?? []) as AppMessageRow[]) {
-      const item = rowToInboxItem(row, userId)
-      if (item) items.push(item)
+    return { items: [], error: error.message }
+  }
+
+  for (const row of (data ?? []) as AppMessageRow[]) {
+    const item = rowToInboxItem(row, userId)
+    if (item) items.push(item)
+  }
+
+  // Pull archived messages explicitly so they are not pushed out of the recent-message limit.
+  if (!warning) {
+    const archivedQueries = await Promise.all([
+      supabase
+        .from('app_messages')
+        .select(MESSAGE_SELECT_FULL)
+        .eq('recipient_user_id', userId)
+        .not('recipient_archived_at', 'is', null)
+        .is('recipient_deleted_at', null)
+        .order('created_at', { ascending: false })
+        .limit(300),
+      supabase
+        .from('app_messages')
+        .select(MESSAGE_SELECT_FULL)
+        .eq('sender_user_id', userId)
+        .not('sender_archived_at', 'is', null)
+        .is('sender_deleted_at', null)
+        .order('created_at', { ascending: false })
+        .limit(300),
+    ])
+
+    for (const result of archivedQueries) {
+      if (result.error) {
+        if (isMissingArchiveColumns(result.error.message)) {
+          warning = ARCHIVE_MIGRATION_HINT
+          break
+        }
+        continue
+      }
+      const archivedItems: InboxItem[] = []
+      for (const row of (result.data ?? []) as AppMessageRow[]) {
+        const item = rowToInboxItem(row, userId)
+        if (item) archivedItems.push(item)
+      }
+      mergeInboxItems(items, archivedItems)
     }
   }
 
@@ -139,7 +215,7 @@ export async function loadInboxItems(userId: string): Promise<{ items: InboxItem
   }
 
   items.sort((a, b) => Date.parse(b.createdAt) - Date.parse(a.createdAt))
-  return { items, error: null }
+  return { items, error: warning }
 }
 
 export function inboxUnreadCount(items: InboxItem[], userId: string) {
@@ -176,7 +252,7 @@ export async function archiveInboxItem(item: InboxItem): Promise<string | null> 
   const { error } = await supabase.rpc('archive_app_message', { p_message_id: item.sourceId })
   if (error) {
     if (isMissingMessagesRpc(error.message)) {
-      return 'Run supabase/migration-app-messages-archive-attachments.sql in Supabase SQL Editor'
+      return ARCHIVE_MIGRATION_HINT
     }
     return error.message
   }
@@ -188,7 +264,7 @@ export async function unarchiveInboxItem(item: InboxItem): Promise<string | null
   const { error } = await supabase.rpc('unarchive_app_message', { p_message_id: item.sourceId })
   if (error) {
     if (isMissingMessagesRpc(error.message)) {
-      return 'Run supabase/migration-app-messages-archive-attachments.sql in Supabase SQL Editor'
+      return ARCHIVE_MIGRATION_HINT
     }
     return error.message
   }
@@ -202,7 +278,7 @@ export async function deleteInboxItem(item: InboxItem): Promise<string | null> {
   const { error } = await supabase.rpc('delete_app_message', { p_message_id: item.sourceId })
   if (error) {
     if (isMissingMessagesRpc(error.message)) {
-      return 'Run supabase/migration-app-messages-archive-attachments.sql in Supabase SQL Editor'
+      return ARCHIVE_MIGRATION_HINT
     }
     return error.message
   }

@@ -54,7 +54,7 @@ export function MessagesPage({ userId, username, homePath }: MessagesPageProps) 
   const { role } = useAuth()
   const canWrite = canWriteShop(role)
   const { employees, loading: employeesLoading } = useEmployees()
-  const { items, loading, refresh } = useInbox(userId)
+  const { items, loading, error, refresh } = useInbox(userId)
   const [searchParams, setSearchParams] = useSearchParams()
   const [filter, setFilter] = useState<InboxFilter>('inbox')
   const [selectedKey, setSelectedKey] = useState<string | null>(searchParams.get('item'))
@@ -264,6 +264,7 @@ export function MessagesPage({ userId, username, homePath }: MessagesPageProps) 
       <p className="placeholder-copy">
         Notifications and direct messages for shop staff. Feedback updates and employee messages appear here.
       </p>
+      {error ? <p className="messages-error">{error}</p> : null}
 
       <div className="messages-layout">
         <aside className="messages-sidebar">

@@ -8,6 +8,8 @@ export interface Employee {
   initials: string
   company: string
   is_active: boolean
+  /** When true, employee appears in Test Log tester multi-select. */
+  is_tester: boolean
   auth_user_id: string | null
 }
 

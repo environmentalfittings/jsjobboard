@@ -62,6 +62,8 @@ export type TestLogTestingDetails = TestProcedureFields & {
   heliumTest: HeliumTest
   cavityReliefTest: CavityReliefTest
   additionalNotes: string
+  /** ISO timestamp set each time the entry is saved. */
+  savedAt?: string | null
   /** Required test parameters audit snapshot (standard, CWP, pressures, hold times, leakage). */
   testStandardParams?: TestStandardParams | null
 }
@@ -113,6 +115,7 @@ export function emptyTestLogTestingDetails(): TestLogTestingDetails {
     heliumTest: emptyHeliumTest(),
     cavityReliefTest: emptyCavityReliefTest(),
     additionalNotes: '',
+    savedAt: null,
   }
 }
 
@@ -272,6 +275,7 @@ export function parseTestLogTestingDetails(raw: unknown): TestLogTestingDetails 
     heliumTest: o.heliumTest ? parseHeliumTest(o.heliumTest, legacyMedium) : emptyHeliumTest(),
     cavityReliefTest: o.cavityReliefTest ? parseCavityReliefTest(o.cavityReliefTest) : emptyCavityReliefTest(),
     additionalNotes,
+    savedAt: typeof o.savedAt === 'string' ? o.savedAt : null,
     testStandardParams: parseTestStandardParams(o.testStandardParams),
   }
 }
