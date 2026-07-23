@@ -58,7 +58,7 @@ alter table public.status_priority_queue alter column scope_key set not null;
 alter table public.status_priority_queue drop constraint if exists status_priority_queue_scope_kind_check;
 alter table public.status_priority_queue
   add constraint status_priority_queue_scope_kind_check
-  check (scope_kind in ('status', 'cell'));
+  check (scope_kind in ('status', 'cell', 'department'));
 
 alter table public.status_priority_queue drop constraint if exists status_priority_queue_scope_kind_scope_key_valve_id_key;
 alter table public.status_priority_queue drop constraint if exists status_priority_queue_scope_unique;

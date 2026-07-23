@@ -1,12 +1,18 @@
 import { displayJobStatus } from './jobDisplayStatus'
 import type { Valve } from '../types'
 
+export type DailyPriorityReportAssignment = {
+  technicianName?: string | null
+  notes?: string | null
+}
+
 export type DailyPriorityReportSection = {
   /** Section heading (status name or finish-cell label). */
   shopStatus: string
   valves: Valve[]
   /** When `cell`, the mid column shows shop status instead of finish cell. */
   kind?: 'status' | 'cell'
+  assignments?: Record<string, DailyPriorityReportAssignment>
 }
 
 function escapeHtml(s: string) {
@@ -19,7 +25,14 @@ function escapeHtml(s: string) {
 
 function display(value: string | null | undefined) {
   const trimmed = value?.trim()
-  return trimmed ? trimmed : '—'
+  return trimmed ? trimmed : ''
+}
+
+function formatDue(value: string | null | undefined) {
+  if (!value?.trim()) return ''
+  const parsed = new Date(value)
+  if (Number.isNaN(parsed.getTime())) return value.trim()
+  return parsed.toLocaleDateString(undefined, { month: 'numeric', day: 'numeric', year: '2-digit' })
 }
 
 function formatReportDate(d = new Date()) {
@@ -37,34 +50,41 @@ function sectionHtml(section: DailyPriorityReportSection): string {
     .map((valve, index) => {
       const mid =
         section.kind === 'cell' ? displayJobStatus(valve) : display(valve.cell)
+      const assignment = section.assignments?.[valve.valve_id]
       return `<tr>
         <td class="rank">${index + 1}</td>
         <td class="wo">${escapeHtml(valve.valve_id)}</td>
-        <td>${escapeHtml(display(valve.customer))}</td>
-        <td>${escapeHtml(mid)}</td>
-        <td>${escapeHtml(display(valve.due_date))}</td>
+        <td class="customer">${escapeHtml(display(valve.customer))}</td>
+        <td class="mid">${escapeHtml(mid)}</td>
+        <td class="due">${escapeHtml(formatDue(valve.due_date))}</td>
         <td class="desc">${escapeHtml(display(valve.description))}</td>
+        <td class="tech">${escapeHtml(display(assignment?.technicianName))}</td>
+        <td class="notes">${escapeHtml(display(assignment?.notes))}</td>
       </tr>`
     })
     .join('')
 
   const empty =
     section.valves.length === 0
-      ? '<tr><td colspan="6" class="empty">No active valves in this department.</td></tr>'
+      ? '<tr><td colspan="8" class="empty">No active valves in this department.</td></tr>'
       : ''
 
   return `<section class="dept">
-    <h2>${escapeHtml(section.shopStatus)}</h2>
-    <p class="count">${section.valves.length} job${section.valves.length === 1 ? '' : 's'}</p>
+    <header class="dept-head">
+      <h2>${escapeHtml(section.shopStatus)}</h2>
+      <p class="count">${section.valves.length} job${section.valves.length === 1 ? '' : 's'}</p>
+    </header>
     <table>
       <thead>
         <tr>
-          <th>#</th>
-          <th>WO #</th>
-          <th>Customer</th>
-          <th>${escapeHtml(midLabel)}</th>
-          <th>Due</th>
-          <th>Description</th>
+          <th class="rank">#</th>
+          <th class="wo">WO #</th>
+          <th class="customer">Customer</th>
+          <th class="mid">${escapeHtml(midLabel)}</th>
+          <th class="due">Due</th>
+          <th class="desc">Description</th>
+          <th class="tech">Technician</th>
+          <th class="notes">Notes</th>
         </tr>
       </thead>
       <tbody>
@@ -88,18 +108,25 @@ export function buildDailyPriorityReportHtml(
     <meta charset="utf-8" />
     <title>${escapeHtml(title)}</title>
     <style>
+      @page {
+        size: letter landscape;
+        margin: 0.35in;
+      }
       * { box-sizing: border-box; }
       body {
         margin: 0;
-        padding: 16px;
+        padding: 12px;
         font-family: Arial, Helvetica, sans-serif;
         color: #111;
+        font-size: 10px;
       }
       .toolbar {
         display: flex;
-        gap: 8px;
-        margin-bottom: 12px;
-        padding-bottom: 12px;
+        flex-wrap: wrap;
+        align-items: center;
+        gap: 10px;
+        margin-bottom: 10px;
+        padding-bottom: 10px;
         border-bottom: 1px solid #d1d5db;
       }
       .toolbar button {
@@ -111,49 +138,70 @@ export function buildDailyPriorityReportHtml(
         color: #fff;
         cursor: pointer;
       }
+      .toolbar-hint {
+        margin: 0;
+        color: #64748b;
+        font-size: 12px;
+        max-width: 36rem;
+      }
       h1 {
-        margin: 0 0 4px;
-        font-size: 22px;
+        margin: 0 0 2px;
+        font-size: 16px;
       }
       .report-date {
-        margin: 0 0 18px;
+        margin: 0 0 10px;
         color: #4b5563;
-        font-size: 14px;
+        font-size: 11px;
       }
       .dept {
-        margin-bottom: 24px;
-        page-break-inside: avoid;
+        margin: 0 0 12px;
       }
       .dept + .dept {
         page-break-before: always;
       }
+      .dept-head {
+        display: flex;
+        align-items: baseline;
+        gap: 10px;
+        margin: 0 0 6px;
+      }
       h2 {
-        margin: 0 0 4px;
-        font-size: 18px;
+        margin: 0;
+        font-size: 13px;
       }
       .count {
-        margin: 0 0 10px;
+        margin: 0;
         color: #4b5563;
-        font-size: 13px;
+        font-size: 10px;
       }
       table {
         width: 100%;
         border-collapse: collapse;
-        font-size: 12px;
+        table-layout: fixed;
+        font-size: 9.5px;
       }
+      thead { display: table-header-group; }
+      tr { page-break-inside: avoid; }
       th, td {
-        border: 1px solid #cbd5e1;
-        padding: 6px 8px;
+        border: 1px solid #94a3b8;
+        padding: 3px 5px;
         text-align: left;
         vertical-align: top;
+        word-wrap: break-word;
+        overflow-wrap: anywhere;
       }
       th {
-        background: #f1f5f9;
+        background: #e2e8f0;
         font-weight: 700;
       }
-      .rank { width: 36px; text-align: center; font-weight: 700; }
-      .wo { font-weight: 700; white-space: nowrap; }
-      .desc { max-width: 280px; }
+      .rank { width: 3%; text-align: center; font-weight: 700; }
+      .wo { width: 9%; font-weight: 700; white-space: nowrap; }
+      .customer { width: 16%; }
+      .mid { width: 10%; }
+      .due { width: 7%; white-space: nowrap; }
+      .desc { width: 24%; }
+      .tech { width: 14%; }
+      .notes { width: 17%; }
       .empty { color: #64748b; font-style: italic; }
       @media print {
         .toolbar { display: none !important; }
@@ -164,12 +212,23 @@ export function buildDailyPriorityReportHtml(
   <body>
     <div class="toolbar">
       <button type="button" onclick="window.print()">Print</button>
+      <p class="toolbar-hint">
+        Use landscape. In the print dialog, turn off <strong>Headers and footers</strong>
+        so the blob URL and date do not appear on the page.
+      </p>
     </div>
     <h1>${escapeHtml(title)}</h1>
     <p class="report-date">${escapeHtml(formatReportDate())}</p>
     ${body}
     <script>
-      ${autoPrint ? 'window.focus(); window.print();' : ''}
+      ${
+        autoPrint
+          ? `window.addEventListener('load', function () {
+        window.focus();
+        setTimeout(function () { window.print(); }, 250);
+      });`
+          : ''
+      }
     </script>
   </body>
 </html>`
@@ -180,12 +239,11 @@ export function openDailyPriorityReportPrint(
   options?: { title?: string; autoPrint?: boolean },
 ) {
   const html = buildDailyPriorityReportHtml(sections, options)
-  const blob = new Blob([html], { type: 'text/html;charset=utf-8' })
-  const url = URL.createObjectURL(blob)
-  const popup = window.open(url, '_blank', 'noopener,noreferrer,width=900,height=700')
+  const popup = window.open('', '_blank', 'noopener,noreferrer,width=1100,height=750')
   if (!popup) {
-    URL.revokeObjectURL(url)
     throw new Error('Popup blocked. Allow popups to print the daily priority report.')
   }
-  window.setTimeout(() => URL.revokeObjectURL(url), 60_000)
+  popup.document.open()
+  popup.document.write(html)
+  popup.document.close()
 }

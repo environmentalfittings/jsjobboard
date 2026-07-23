@@ -16,6 +16,7 @@ import { isGaugeCalibrationCriticallyOverdue, loadActiveTestGauges } from '../li
 import type { TestGauge } from '../types/testGauge'
 import { isEligiblePriorityValve, syncPriorityQueueWithValves } from '../lib/priorityQueue'
 import { canWriteShop, permissionDeniedReason } from '../lib/roles'
+import { departmentIdForShopStatus } from '../lib/statusPriorityQueue'
 import { supabase } from '../lib/supabase'
 import type { Valve } from '../types'
 import logo from '../assets/js-logo.png'
@@ -263,8 +264,8 @@ export function DashboardPage() {
                 <Link
                   key={row.cell}
                   className="cell-row"
-                  to={`/status-priorities?kind=cell&key=${encodeURIComponent(row.cell)}`}
-                  title={`Set daily priorities for ${row.cell}`}
+                  to={`/status-priorities?department=finish-cell&cell=${encodeURIComponent(row.cell)}`}
+                  title={`Set daily priorities for finish cell ${row.cell}`}
                 >
                   <div className="cell-name">{row.cell}</div>
                   <div className="cell-bar-track">
@@ -334,7 +335,12 @@ export function DashboardPage() {
                   <Link
                     key={item.status}
                     className={`status-breakdown-chip ${toneClass}`}
-                    to={`/status-priorities?kind=status&key=${encodeURIComponent(item.status)}`}
+                    to={(() => {
+                      const dept = departmentIdForShopStatus(item.status)
+                      return dept
+                        ? `/status-priorities?department=${dept}`
+                        : `/status-priorities?kind=status&key=${encodeURIComponent(item.status)}`
+                    })()}
                   >
                     <span>{item.label}</span>
                     <strong>{item.count}</strong>

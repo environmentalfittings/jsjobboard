@@ -3444,6 +3444,111 @@ a.test-log-reports-item-name:hover {
   margin-top: 0.75rem;
 }
 
+.daily-priority-filter-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(16rem, 1fr));
+  gap: 1rem;
+}
+
+.daily-priority-multiselect {
+  margin: 0;
+  padding: 0.75rem 1rem;
+  border: 1px solid #cbd5e1;
+  border-radius: 10px;
+  background: #fff;
+}
+
+.daily-priority-multiselect legend {
+  padding: 0 0.35rem;
+  font-size: 0.8125rem;
+  font-weight: 700;
+  color: #334155;
+}
+
+.daily-priority-filter-hint {
+  margin: 0 0 0.5rem;
+  font-size: 0.75rem;
+  color: #64748b;
+}
+
+.daily-priority-check-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(10rem, 1fr));
+  gap: 0.35rem 0.75rem;
+}
+
+.daily-priority-check {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-size: 0.875rem;
+  color: #0f172a;
+}
+
+.daily-priority-clear-cells {
+  margin-top: 0.65rem;
+}
+
+.daily-priority-tech-select,
+.daily-priority-notes-input {
+  width: 100%;
+  min-width: 8rem;
+  max-width: 14rem;
+  padding: 0.35rem 0.45rem;
+  border: 1px solid #cbd5e1;
+  border-radius: 6px;
+  font: inherit;
+  background: #fff;
+}
+
+.daily-priority-notes-input {
+  max-width: 16rem;
+}
+
+.daily-priority-tech-typeahead {
+  position: relative;
+  min-width: 10rem;
+  max-width: 14rem;
+}
+
+.daily-priority-tech-typeahead .daily-priority-tech-select {
+  max-width: none;
+}
+
+.daily-priority-tech-menu {
+  position: absolute;
+  z-index: 40;
+  top: calc(100% + 4px);
+  left: 0;
+  right: 0;
+  margin: 0;
+  padding: 0.25rem 0;
+  list-style: none;
+  max-height: 14rem;
+  overflow: auto;
+  border: 1px solid #cbd5e1;
+  border-radius: 8px;
+  background: #fff;
+  box-shadow: 0 8px 20px rgba(15, 23, 42, 0.12);
+}
+
+.daily-priority-tech-option,
+.daily-priority-tech-empty {
+  padding: 0.4rem 0.65rem;
+  font-size: 0.875rem;
+  cursor: pointer;
+}
+
+.daily-priority-tech-option.is-selected,
+.daily-priority-tech-option:hover {
+  background: #eff6ff;
+}
+
+.daily-priority-tech-empty {
+  color: #64748b;
+  cursor: default;
+}
+
 .dashboard-gauge-cal-alert {
   margin-bottom: 16px;
   padding: 14px 16px;
