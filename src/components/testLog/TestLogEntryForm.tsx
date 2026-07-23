@@ -574,7 +574,9 @@ export function TestLogEntryForm({
       }
     }
 
-    if (passFail && isPassing(passFail)) {
+    // Always stamp shop date_tested from the log date so closed cards still show "Tested …".
+    // Passing tests also move open jobs to Warehouse RTS (Completed stays Completed).
+    {
       const { data: valve } = await supabase
         .from('valves')
         .select('id,status')
@@ -584,8 +586,11 @@ export function TestLogEntryForm({
         .maybeSingle()
 
       if (valve?.id) {
-        const nextStatus = valve.status === 'Completed' ? 'Completed' : 'Warehouse RTS'
-        await supabase.from('valves').update({ date_tested: testedOn, status: nextStatus }).eq('id', valve.id)
+        const patch: { date_tested: string; status?: string } = { date_tested: testedOn }
+        if (passFail && isPassing(passFail) && valve.status !== 'Completed') {
+          patch.status = 'Warehouse RTS'
+        }
+        await supabase.from('valves').update(patch).eq('id', valve.id)
       }
     }
 
