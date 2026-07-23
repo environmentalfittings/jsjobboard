@@ -18,7 +18,8 @@ export type PriorityDepartmentId =
   | 'waiting-hold'
   | 'waiting-on-parts'
   | 'replaced-junked'
-  | 'customer-sales-completed'
+  | 'waiting-customer-salesman'
+  | 'completed'
 
 export type PriorityDepartment = {
   id: PriorityDepartmentId
@@ -110,9 +111,15 @@ export const PRIORITY_DEPARTMENTS: readonly PriorityDepartment[] = [
     breakOutByCell: false,
   },
   {
-    id: 'customer-sales-completed',
-    label: 'Waiting on Customer / Salesman / Completed',
-    statuses: ['Waiting on Customer', 'Waiting on Salesman', 'Completed'],
+    id: 'waiting-customer-salesman',
+    label: 'Waiting on Customer / Salesman',
+    statuses: ['Waiting on Customer', 'Waiting on Salesman'],
+    breakOutByCell: false,
+  },
+  {
+    id: 'completed',
+    label: 'Completed',
+    statuses: ['Completed'],
     breakOutByCell: false,
   },
 ] as const

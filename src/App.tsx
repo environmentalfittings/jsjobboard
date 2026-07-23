@@ -26,6 +26,7 @@ import { CustomerTravelerView } from './pages/CustomerTravelerView'
 import { TravelerInspectionPage } from './pages/TravelerInspectionPage'
 import { FeedbackInboxPage } from './pages/FeedbackInboxPage'
 import { MessagesPage } from './pages/MessagesPage'
+import { ManagerDashboardPage } from './pages/ManagerDashboardPage'
 import { can, canAccessEmployeesPage, canAccessTestLog, defaultHomePath, isShopRole } from './lib/roles'
 
 function ShopRoute({ children }: { children: React.ReactNode }) {
@@ -185,6 +186,18 @@ function AppRoutes() {
                 <ShopRoute>
                   <TravelerPage />
                 </ShopRoute>
+              }
+            />
+            <Route
+              path="/admin/manager-dashboard"
+              element={
+                can(role, 'viewReports') ? (
+                  <ManagerDashboardPage />
+                ) : role ? (
+                  <Navigate to={defaultHomePath(role)} replace />
+                ) : (
+                  <Navigate to="/login" replace />
+                )
               }
             />
             <Route

@@ -6,7 +6,6 @@ import {
   type PriorityDepartment,
   type PriorityDepartmentId,
 } from '../constants/priorityDepartments'
-import { TERMINAL_STATUSES } from '../constants/statuses'
 import { compareValveIdSequential } from './valveWorkOrderSearch'
 import { displayJobStatus, isActiveShopWork } from './jobDisplayStatus'
 import { supabase } from './supabase'
@@ -21,7 +20,7 @@ export type PriorityScope = {
 
 export type HandoutAssignment = {
   valve_id: string
-  assigned_technician_id: number | null
+  assigned_technician_ids: number[]
   handout_notes: string
 }
 
@@ -93,6 +92,14 @@ export function departmentFiltersLabel(departmentId: string, cell?: string | nul
   return scopeLabel(departmentOrderScope(departmentId, cell))
 }
 
+/** Status used for department handout membership (closed WO → Completed, not leftover phase). */
+export function handoutStatusForValve(valve: Valve): string {
+  if (valve.order_type === 'Completed' || valve.status === 'Completed') return 'Completed'
+  if (valve.status === 'Junked') return 'Junked'
+  if (valve.status === 'Replaced') return 'Replaced'
+  return displayJobStatus(valve)
+}
+
 export function valvesForHandoutFilters(
   valves: Valve[],
   departmentIds: readonly string[],
@@ -101,26 +108,9 @@ export function valvesForHandoutFilters(
   const statusSet = new Set(statusesForDepartments(departmentIds))
   if (!statusSet.size) return []
   const cellSet = cells.length ? new Set(cells.map((c) => c.trim()).filter(Boolean)) : null
-  const includesClosed = [...statusSet].some(
-    (status) => TERMINAL_STATUSES.has(status) || status === 'Completed',
-  )
 
   return valves.filter((v) => {
-    const display = displayJobStatus(v)
-    const shop = v.status
-    const matchesStatus = statusSet.has(display) || statusSet.has(shop)
-    if (!matchesStatus) return false
-
-    // Open shop work always qualifies when status matches.
-    // Closed/terminal jobs only when the selected department explicitly includes them.
-    if (!isActiveShopWork(v)) {
-      if (!includesClosed) return false
-      const closedMatch =
-        statusSet.has(shop) ||
-        (statusSet.has('Completed') && (shop === 'Completed' || v.order_type === 'Completed'))
-      if (!closedMatch) return false
-    }
-
+    if (!statusSet.has(handoutStatusForValve(v))) return false
     if (cellSet && !cellSet.has((v.cell ?? '').trim())) return false
     return true
   })
@@ -213,7 +203,7 @@ export async function loadHandoutAssignments(scope: PriorityScope): Promise<Hand
   if (!key) return []
   const { data, error } = await supabase
     .from('status_priority_queue')
-    .select('valve_id,sort_order,assigned_technician_id,handout_notes')
+    .select('valve_id,sort_order,assigned_technician_id,assigned_technician_ids,handout_notes')
     .eq('scope_kind', scope.kind)
     .eq('scope_key', key)
     .order('sort_order', { ascending: true })
@@ -222,12 +212,22 @@ export async function loadHandoutAssignments(scope: PriorityScope): Promise<Hand
     (row: {
       valve_id: string
       assigned_technician_id: number | null
+      assigned_technician_ids: number[] | null
       handout_notes: string | null
-    }) => ({
-      valve_id: row.valve_id,
-      assigned_technician_id: row.assigned_technician_id ?? null,
-      handout_notes: row.handout_notes ?? '',
-    }),
+    }) => {
+      const fromArray = Array.isArray(row.assigned_technician_ids)
+        ? row.assigned_technician_ids.filter((id) => typeof id === 'number')
+        : []
+      const legacy =
+        row.assigned_technician_id != null && !fromArray.includes(row.assigned_technician_id)
+          ? [row.assigned_technician_id]
+          : []
+      return {
+        valve_id: row.valve_id,
+        assigned_technician_ids: [...fromArray, ...legacy],
+        handout_notes: row.handout_notes ?? '',
+      }
+    },
   )
 }
 
@@ -264,7 +264,7 @@ export function mergeHandoutAssignments(
     const existing = byId.get(valve_id)
     return {
       valve_id,
-      assigned_technician_id: existing?.assigned_technician_id ?? null,
+      assigned_technician_ids: existing?.assigned_technician_ids ?? [],
       handout_notes: existing?.handout_notes ?? '',
     }
   })
@@ -316,7 +316,8 @@ export async function saveHandoutAssignments(
     scope_key: key,
     valve_id: row.valve_id,
     sort_order,
-    assigned_technician_id: row.assigned_technician_id,
+    assigned_technician_id: row.assigned_technician_ids[0] ?? null,
+    assigned_technician_ids: row.assigned_technician_ids,
     handout_notes: row.handout_notes.trim() || null,
     updated_at: new Date().toISOString(),
   }))
@@ -334,7 +335,7 @@ export async function savePriorityScopeOrder(
   const byId = new Map(existing.map((row) => [row.valve_id, row]))
   const rows = orderedValveIds.map((valve_id) => ({
     valve_id,
-    assigned_technician_id: byId.get(valve_id)?.assigned_technician_id ?? null,
+    assigned_technician_ids: byId.get(valve_id)?.assigned_technician_ids ?? [],
     handout_notes: byId.get(valve_id)?.handout_notes ?? '',
   }))
   return saveHandoutAssignments(scope, rows)

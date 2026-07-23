@@ -116,11 +116,12 @@ insert into public.lookup_values (category, value, sort_order) values
   ('finish_cell', 'Field Service',  3),
   ('finish_cell', 'G/G/C',       4),
   ('finish_cell', 'Machine Shop', 5),
-  ('finish_cell', 'Pipeline',    6),
-  ('finish_cell', 'PRV',         7),
-  ('finish_cell', 'Test Only',   8),
-  ('finish_cell', 'Welding',     9),
-  ('finish_cell', 'Outsourced',  10),
+  ('finish_cell', 'Machining only', 6),
+  ('finish_cell', 'Pipeline',    7),
+  ('finish_cell', 'PRV',         8),
+  ('finish_cell', 'Test Only',   9),
+  ('finish_cell', 'Welding',     10),
+  ('finish_cell', 'Outsourced',  11),
 
   -- Order types
   ('order_type', 'In-Process Order',    0),

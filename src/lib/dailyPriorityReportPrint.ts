@@ -1,4 +1,5 @@
 import { displayJobStatus } from './jobDisplayStatus'
+import type { YesterdayClosedJob, YesterdayStatusMove } from './dailyPriorityYesterday'
 import type { Valve } from '../types'
 
 export type DailyPriorityReportAssignment = {
@@ -13,6 +14,12 @@ export type DailyPriorityReportSection = {
   /** When `cell`, the mid column shows shop status instead of finish cell. */
   kind?: 'status' | 'cell'
   assignments?: Record<string, DailyPriorityReportAssignment>
+}
+
+export type DailyPriorityYesterdayPrint = {
+  label: string
+  closed: YesterdayClosedJob[]
+  moves: YesterdayStatusMove[]
 }
 
 function escapeHtml(s: string) {
@@ -56,6 +63,8 @@ function sectionHtml(section: DailyPriorityReportSection): string {
         <td class="wo">${escapeHtml(valve.valve_id)}</td>
         <td class="customer">${escapeHtml(display(valve.customer))}</td>
         <td class="mid">${escapeHtml(mid)}</td>
+        <td class="size">${escapeHtml(display(valve.size))}</td>
+        <td class="pressure">${escapeHtml(display(valve.pressure_class))}</td>
         <td class="due">${escapeHtml(formatDue(valve.due_date))}</td>
         <td class="desc">${escapeHtml(display(valve.description))}</td>
         <td class="tech">${escapeHtml(display(assignment?.technicianName))}</td>
@@ -66,7 +75,7 @@ function sectionHtml(section: DailyPriorityReportSection): string {
 
   const empty =
     section.valves.length === 0
-      ? '<tr><td colspan="8" class="empty">No active valves in this department.</td></tr>'
+      ? '<tr><td colspan="10" class="empty">No active valves in this department.</td></tr>'
       : ''
 
   return `<section class="dept">
@@ -81,6 +90,8 @@ function sectionHtml(section: DailyPriorityReportSection): string {
           <th class="wo">WO #</th>
           <th class="customer">Customer</th>
           <th class="mid">${escapeHtml(midLabel)}</th>
+          <th class="size">Size</th>
+          <th class="pressure">Pressure</th>
           <th class="due">Due</th>
           <th class="desc">Description</th>
           <th class="tech">Technician</th>
@@ -94,13 +105,93 @@ function sectionHtml(section: DailyPriorityReportSection): string {
   </section>`
 }
 
+function formatChangedAt(value: string) {
+  const parsed = new Date(value)
+  if (Number.isNaN(parsed.getTime())) return value
+  return parsed.toLocaleString(undefined, {
+    month: 'numeric',
+    day: 'numeric',
+    year: '2-digit',
+    hour: 'numeric',
+    minute: '2-digit',
+  })
+}
+
+function yesterdayHtml(yesterday: DailyPriorityYesterdayPrint): string {
+  const closedRows =
+    yesterday.closed.length === 0
+      ? '<tr><td colspan="4" class="empty">None</td></tr>'
+      : yesterday.closed
+          .map(
+            (row) => `<tr>
+        <td class="wo">${escapeHtml(row.valve_id)}</td>
+        <td class="customer">${escapeHtml(display(row.customer))}</td>
+        <td class="mid">${escapeHtml(display(row.status))}</td>
+        <td class="due">${escapeHtml(row.date_closed)}</td>
+      </tr>`,
+          )
+          .join('')
+
+  const moveRows =
+    yesterday.moves.length === 0
+      ? '<tr><td colspan="4" class="empty">None</td></tr>'
+      : yesterday.moves
+          .map(
+            (row) => `<tr>
+        <td class="wo">${escapeHtml(row.valve_id)}</td>
+        <td class="customer">${escapeHtml(display(row.customer))}</td>
+        <td class="mid">${escapeHtml(`${row.fromStatus} → ${row.toStatus}`)}</td>
+        <td class="due">${escapeHtml(formatChangedAt(row.changedAt))}</td>
+      </tr>`,
+          )
+          .join('')
+
+  return `<section class="dept yesterday">
+    <header class="dept-head">
+      <h2>Yesterday — completed (${escapeHtml(yesterday.label)})</h2>
+      <p class="count">${yesterday.closed.length} job${yesterday.closed.length === 1 ? '' : 's'}</p>
+    </header>
+    <table>
+      <thead>
+        <tr>
+          <th class="wo">WO #</th>
+          <th class="customer">Customer</th>
+          <th class="mid">Status</th>
+          <th class="due">Closed</th>
+        </tr>
+      </thead>
+      <tbody>${closedRows}</tbody>
+    </table>
+    <header class="dept-head yesterday-subhead">
+      <h2>Yesterday — status moves (${escapeHtml(yesterday.label)})</h2>
+      <p class="count">${yesterday.moves.length} move${yesterday.moves.length === 1 ? '' : 's'}</p>
+    </header>
+    <table>
+      <thead>
+        <tr>
+          <th class="wo">WO #</th>
+          <th class="customer">Customer</th>
+          <th class="mid">From → To</th>
+          <th class="due">When</th>
+        </tr>
+      </thead>
+      <tbody>${moveRows}</tbody>
+    </table>
+  </section>`
+}
+
 export function buildDailyPriorityReportHtml(
   sections: DailyPriorityReportSection[],
-  options?: { title?: string; autoPrint?: boolean },
+  options?: { title?: string; autoPrint?: boolean; yesterday?: DailyPriorityYesterdayPrint | null },
 ): string {
   const title = options?.title ?? 'Daily Priority Report'
   const autoPrint = options?.autoPrint ?? false
-  const body = sections.map(sectionHtml).join('\n')
+  const body = [
+    ...sections.map(sectionHtml),
+    options?.yesterday ? yesterdayHtml(options.yesterday) : '',
+  ]
+    .filter(Boolean)
+    .join('\n')
 
   return `<!doctype html>
 <html>
@@ -195,14 +286,17 @@ export function buildDailyPriorityReportHtml(
         font-weight: 700;
       }
       .rank { width: 3%; text-align: center; font-weight: 700; }
-      .wo { width: 9%; font-weight: 700; white-space: nowrap; }
-      .customer { width: 16%; }
-      .mid { width: 10%; }
-      .due { width: 7%; white-space: nowrap; }
-      .desc { width: 24%; }
+      .wo { width: 8%; font-weight: 700; white-space: nowrap; }
+      .customer { width: 13%; }
+      .mid { width: 9%; }
+      .size { width: 5%; white-space: nowrap; }
+      .pressure { width: 6%; white-space: nowrap; }
+      .due { width: 6%; white-space: nowrap; }
+      .desc { width: 18%; }
       .tech { width: 14%; }
-      .notes { width: 17%; }
+      .notes { width: 18%; }
       .empty { color: #64748b; font-style: italic; }
+      .yesterday-subhead { margin-top: 14px; }
       @media print {
         .toolbar { display: none !important; }
         body { padding: 0; }
@@ -214,7 +308,7 @@ export function buildDailyPriorityReportHtml(
       <button type="button" onclick="window.print()">Print</button>
       <p class="toolbar-hint">
         Use landscape. In the print dialog, turn off <strong>Headers and footers</strong>
-        so the blob URL and date do not appear on the page.
+        so the page URL and date do not appear on the page.
       </p>
     </div>
     <h1>${escapeHtml(title)}</h1>
@@ -236,14 +330,65 @@ export function buildDailyPriorityReportHtml(
 
 export function openDailyPriorityReportPrint(
   sections: DailyPriorityReportSection[],
-  options?: { title?: string; autoPrint?: boolean },
+  options?: { title?: string; autoPrint?: boolean; yesterday?: DailyPriorityYesterdayPrint | null },
 ) {
-  const html = buildDailyPriorityReportHtml(sections, options)
-  const popup = window.open('', '_blank', 'noopener,noreferrer,width=1100,height=750')
-  if (!popup) {
-    throw new Error('Popup blocked. Allow popups to print the daily priority report.')
+  // Use a hidden iframe so browsers do not treat this as a popup.
+  const html = buildDailyPriorityReportHtml(sections, { ...options, autoPrint: false })
+  const existing = document.getElementById('daily-priority-print-frame')
+  if (existing) existing.remove()
+
+  const iframe = document.createElement('iframe')
+  iframe.id = 'daily-priority-print-frame'
+  iframe.title = 'Daily priority print'
+  iframe.setAttribute('aria-hidden', 'true')
+  Object.assign(iframe.style, {
+    position: 'fixed',
+    right: '0',
+    bottom: '0',
+    width: '0',
+    height: '0',
+    border: '0',
+    opacity: '0',
+    pointerEvents: 'none',
+  })
+  document.body.appendChild(iframe)
+
+  const win = iframe.contentWindow
+  const doc = win?.document
+  if (!win || !doc) {
+    iframe.remove()
+    throw new Error('Could not open print preview.')
   }
-  popup.document.open()
-  popup.document.write(html)
-  popup.document.close()
+
+  doc.open()
+  doc.write(html)
+  doc.close()
+
+  const cleanup = () => {
+    try {
+      iframe.remove()
+    } catch {
+      /* ignore */
+    }
+  }
+
+  win.addEventListener('afterprint', cleanup)
+  // Fallback if afterprint never fires (some browsers).
+  window.setTimeout(cleanup, 60_000)
+
+  const shouldAutoPrint = options?.autoPrint ?? false
+  const runPrint = () => {
+    try {
+      win.focus()
+      win.print()
+    } catch {
+      cleanup()
+      throw new Error('Could not open the print dialog.')
+    }
+  }
+
+  if (shouldAutoPrint) {
+    // Defer one tick so the iframe finishes painting inline styles.
+    window.setTimeout(runPrint, 50)
+  }
 }

@@ -12,3 +12,13 @@ alter table public.status_priority_queue
 
 alter table public.status_priority_queue
   add column if not exists handout_notes text;
+
+-- Allow authenticated shop users to read change log (Reports yesterday section).
+drop policy if exists "admin read valve change log" on public.valve_change_log;
+drop policy if exists "authenticated read valve change log" on public.valve_change_log;
+
+create policy "authenticated read valve change log"
+on public.valve_change_log
+for select
+to authenticated
+using (true);

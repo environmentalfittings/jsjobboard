@@ -3485,8 +3485,19 @@ a.test-log-reports-item-name:hover {
   color: #0f172a;
 }
 
-.daily-priority-clear-cells {
-  margin-top: 0.65rem;
+.daily-priority-check-all {
+  margin: 0 0 0.55rem;
+  padding-bottom: 0.45rem;
+  border-bottom: 1px solid #e2e8f0;
+  font-weight: 600;
+}
+
+.daily-priority-tech-filter .daily-priority-tech-typeahead {
+  max-width: 22rem;
+}
+
+.daily-priority-unassigned-filter {
+  margin-top: 0.55rem;
 }
 
 .daily-priority-tech-select,
@@ -3508,11 +3519,45 @@ a.test-log-reports-item-name:hover {
 .daily-priority-tech-typeahead {
   position: relative;
   min-width: 10rem;
-  max-width: 14rem;
+  max-width: 16rem;
 }
 
 .daily-priority-tech-typeahead .daily-priority-tech-select {
   max-width: none;
+}
+
+.daily-priority-tech-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.25rem;
+  margin-bottom: 0.3rem;
+}
+
+.daily-priority-tech-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.2rem;
+  max-width: 100%;
+  padding: 0.15rem 0.35rem;
+  border-radius: 999px;
+  background: #e2e8f0;
+  color: #0f172a;
+  font-size: 0.75rem;
+  line-height: 1.2;
+}
+
+.daily-priority-tech-chip-remove {
+  border: 0;
+  background: transparent;
+  color: #475569;
+  cursor: pointer;
+  font: inherit;
+  line-height: 1;
+  padding: 0 0.1rem;
+}
+
+.daily-priority-tech-chip-remove:hover {
+  color: #0f172a;
 }
 
 .daily-priority-tech-menu {
@@ -3547,6 +3592,32 @@ a.test-log-reports-item-name:hover {
 .daily-priority-tech-empty {
   color: #64748b;
   cursor: default;
+}
+
+.daily-priority-yesterday h3 {
+  margin: 0 0 6px;
+  font-size: 1.05rem;
+}
+
+.daily-priority-yesterday-sub {
+  margin-top: 1.5rem !important;
+}
+
+.manager-dashboard-kpis {
+  margin-bottom: 1rem;
+}
+
+.manager-dashboard-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 1rem;
+  margin-bottom: 1rem;
+}
+
+@media (max-width: 900px) {
+  .manager-dashboard-grid {
+    grid-template-columns: 1fr;
+  }
 }
 
 .dashboard-gauge-cal-alert {

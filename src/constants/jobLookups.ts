@@ -111,6 +111,7 @@ export const FINISH_CELLS = [
   'Field Service',
   'G/G/C',
   'Machine Shop',
+  'Machining only',
   'Pipeline',
   'PRV',
   'Test Only',

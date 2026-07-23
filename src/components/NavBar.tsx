@@ -137,6 +137,12 @@ function RestrictedNavLink({
 export function NavBar({ role, username, userId, onLogout }: NavBarProps) {
   const adminItems: NavDropdownItem[] = [
     {
+      to: '/admin/manager-dashboard',
+      label: 'Manager dashboard',
+      disabled: !can(role, 'viewReports'),
+      disabledReason: permissionDeniedReason('viewReports'),
+    },
+    {
       to: '/reports',
       label: 'Reports',
       disabled: !can(role, 'viewReports'),
