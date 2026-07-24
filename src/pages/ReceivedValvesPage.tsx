@@ -1,83 +1,24 @@
 import { useCallback, useEffect, useMemo, useState, type ChangeEvent, type FormEvent } from 'react'
+import { Link } from 'react-router-dom'
 import { useToast } from '../components/ToastNotification'
+import {
+  emptyReceivedValveForm,
+  loadReceivedValveRows,
+  readFileAsDataUrl,
+  RECEIVED_VALVE_MAX_IMAGE_BYTES,
+  saveReceivedValveRows,
+  sortReceivedValveRows,
+  todayIsoDate,
+  type ReceivedValveFormState,
+  type ReceivedValveRecord,
+} from '../lib/receivedValves'
 import { supabase } from '../lib/supabase'
-
-interface ReceivedValveRecord {
-  id: string
-  receivedDate: string
-  customer: string
-  description: string
-  teardownInspectionDate: string
-  warehouseCheckInDate: string
-  estimateNumber: string
-  salesOrderNumber: string
-  workOrderPrinted: boolean
-  imageDataUrl: string | null
-  imageName: string | null
-  createdAt: string
-}
-
-interface ReceivedValveFormState {
-  receivedDate: string
-  customer: string
-  description: string
-  teardownInspectionDate: string
-  warehouseCheckInDate: string
-  estimateNumber: string
-  salesOrderNumber: string
-  workOrderPrinted: 'yes' | 'no'
-  imageDataUrl: string | null
-  imageName: string | null
-}
 
 type CustomerRow = { id: number; name: string }
 
-const STORAGE_KEY = 'js-job-board-received-valves-v1'
-const MAX_IMAGE_SIZE_BYTES = 2 * 1024 * 1024
-
-function todayIso() {
-  return new Date().toISOString().slice(0, 10)
-}
-
-function emptyForm(): ReceivedValveFormState {
-  return {
-    receivedDate: todayIso(),
-    customer: '',
-    description: '',
-    teardownInspectionDate: '',
-    warehouseCheckInDate: '',
-    estimateNumber: '',
-    salesOrderNumber: '',
-    workOrderPrinted: 'no',
-    imageDataUrl: null,
-    imageName: null,
-  }
-}
-
-function readFileAsDataUrl(file: File) {
-  return new Promise<string>((resolve, reject) => {
-    const reader = new FileReader()
-    reader.onload = () => resolve(String(reader.result ?? ''))
-    reader.onerror = () => reject(new Error('Could not read image file'))
-    reader.readAsDataURL(file)
-  })
-}
-
-function loadStoredRows(): ReceivedValveRecord[] {
-  const raw = window.localStorage.getItem(STORAGE_KEY)
-  if (!raw) return []
-  try {
-    const parsed = JSON.parse(raw)
-    if (!Array.isArray(parsed)) return []
-    return parsed.filter((row) => row && typeof row === 'object')
-  } catch {
-    return []
-  }
-}
-
 export function ReceivedValvesPage() {
   const { showToast } = useToast()
-  const [form, setForm] = useState<ReceivedValveFormState>(() => emptyForm())
+  const [form, setForm] = useState<ReceivedValveFormState>(() => emptyReceivedValveForm())
   const [rows, setRows] = useState<ReceivedValveRecord[]>([])
   const [customers, setCustomers] = useState<CustomerRow[]>([])
   const [loadingCustomers, setLoadingCustomers] = useState(true)
@@ -95,30 +36,20 @@ export function ReceivedValvesPage() {
   }, [showToast])
 
   useEffect(() => {
-    setRows(loadStoredRows())
+    setRows(loadReceivedValveRows())
     void loadCustomers()
   }, [loadCustomers])
 
-  const sortedRows = useMemo(
-    () =>
-      [...rows].sort((a, b) => {
-        const dateCompare = (b.receivedDate ?? '').localeCompare(a.receivedDate ?? '')
-        if (dateCompare !== 0) return dateCompare
-        return (b.createdAt ?? '').localeCompare(a.createdAt ?? '')
-      }),
-    [rows],
-  )
+  const sortedRows = useMemo(() => sortReceivedValveRows(rows), [rows])
 
   const persistRows = (nextRows: ReceivedValveRecord[]) => {
-    try {
-      window.localStorage.setItem(STORAGE_KEY, JSON.stringify(nextRows))
-      setRows(nextRows)
-      return true
-    } catch (error) {
-      const msg = error instanceof Error ? error.message : 'Storage write failed'
-      showToast(`Could not save received valves: ${msg}`)
+    const result = saveReceivedValveRows(nextRows)
+    if (!result.ok) {
+      showToast(`Could not save received valves: ${result.error}`)
       return false
     }
+    setRows(nextRows)
+    return true
   }
 
   const onImageChange = async (event: ChangeEvent<HTMLInputElement>) => {
@@ -129,7 +60,7 @@ export function ReceivedValvesPage() {
       event.target.value = ''
       return
     }
-    if (file.size > MAX_IMAGE_SIZE_BYTES) {
+    if (file.size > RECEIVED_VALVE_MAX_IMAGE_BYTES) {
       showToast('Image is too large (max 2 MB)')
       event.target.value = ''
       return
@@ -170,7 +101,7 @@ export function ReceivedValvesPage() {
     setSaving(true)
     const nextRow: ReceivedValveRecord = {
       id: crypto.randomUUID(),
-      receivedDate: form.receivedDate || todayIso(),
+      receivedDate: form.receivedDate || todayIsoDate(),
       customer: form.customer.trim(),
       description: form.description.trim(),
       teardownInspectionDate: form.teardownInspectionDate || '',
@@ -186,7 +117,7 @@ export function ReceivedValvesPage() {
     const ok = persistRows(nextRows)
     setSaving(false)
     if (!ok) return
-    setForm(emptyForm())
+    setForm(emptyReceivedValveForm())
     showToast('Received valve entry saved')
   }
 
@@ -201,12 +132,16 @@ export function ReceivedValvesPage() {
     <section className="dashboard-page">
       <div className="dashboard-title-row">
         <h2 className="dashboard-title">Received Valves</h2>
+        <Link to="/dashboard" className="button-secondary">
+          Back to dashboard
+        </Link>
       </div>
 
       <section className="dashboard-panel">
         <h3>Log received valve</h3>
         <p className="placeholder-copy">
-          Track incoming valves with key dates, order references, and an optional photo.
+          Track incoming valves with key dates, order references, and an optional photo. Entries also appear on the
+          Dashboard.
         </p>
         <form className="received-valves-form" onSubmit={onSubmit}>
           <label>
@@ -345,7 +280,12 @@ export function ReceivedValvesPage() {
                   <tr key={row.id}>
                     <td>
                       {row.imageDataUrl ? (
-                        <a href={row.imageDataUrl} target="_blank" rel="noreferrer" className="received-valves-image-link">
+                        <a
+                          href={row.imageDataUrl}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="received-valves-image-link"
+                        >
                           <img src={row.imageDataUrl} alt={row.imageName ?? 'Received valve'} />
                         </a>
                       ) : (

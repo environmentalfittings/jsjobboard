@@ -36,9 +36,11 @@ export function isActiveShopWork(valve: Valve): boolean {
   return false
 }
 
-/** Completed work that actually reached a done shop status (excludes bulk-repair data artifacts). */
+/** Completed work orders used for dashboard completion metrics. */
 export function isCompletedForMetrics(valve: Valve): boolean {
-  return valve.order_type === 'Completed' && DONE_STATUSES.has(valve.status)
+  // Order type Completed is the source of truth for closed WOs. Imported rows often
+  // keep a leftover shop status (Testing, Assembly, etc.) even after close.
+  return valve.order_type === 'Completed'
 }
 
 export function parseCalendarDate(raw: string | null | undefined): Date | null {

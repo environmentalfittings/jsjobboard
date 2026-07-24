@@ -1,5 +1,6 @@
 import { useSearchParams } from 'react-router-dom'
 import { DailyPriorityWorksheet } from '../components/DailyPriorityWorksheet'
+import { openShopDepartmentsParam } from '../constants/priorityDepartments'
 import { departmentIdForShopStatus } from '../lib/statusPriorityQueue'
 
 export function StatusPrioritiesPage() {
@@ -7,20 +8,29 @@ export function StatusPrioritiesPage() {
   const legacyKind = searchParams.get('kind')
   const legacyKey = searchParams.get('key')?.trim()
 
-  const departmentParam =
-    searchParams.get('department') ||
-    (legacyKind === 'cell'
-      ? 'finish-cell'
-      : legacyKind === 'status' && legacyKey
-        ? (departmentIdForShopStatus(legacyKey) ?? legacyKey)
-        : legacyKey && !legacyKind
-          ? (departmentIdForShopStatus(legacyKey) ?? legacyKey)
-          : searchParams.get('departments'))
-
   const cellParam =
     searchParams.get('cells') ||
     searchParams.get('cell') ||
     (legacyKind === 'cell' && legacyKey ? legacyKey : null)
+
+  const explicitDepartments = searchParams.get('departments')
+  const singleDepartment = searchParams.get('department')
+
+  // Work-cell drill-in: preselect every department except Completed.
+  const fromWorkCell =
+    Boolean(cellParam?.trim()) &&
+    (legacyKind === 'cell' || singleDepartment === 'finish-cell')
+
+  const departmentParam = explicitDepartments
+    ? explicitDepartments
+    : fromWorkCell
+      ? openShopDepartmentsParam()
+      : singleDepartment ||
+        (legacyKind === 'status' && legacyKey
+          ? (departmentIdForShopStatus(legacyKey) ?? legacyKey)
+          : legacyKey && !legacyKind
+            ? (departmentIdForShopStatus(legacyKey) ?? legacyKey)
+            : null)
 
   return (
     <DailyPriorityWorksheet

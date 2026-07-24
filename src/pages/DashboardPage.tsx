@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { DashboardNotesPanel } from '../components/DashboardNotesPanel'
+import { ReceivedValvesDashboardPanel } from '../components/ReceivedValvesDashboardPanel'
 import { useToast } from '../components/ToastNotification'
 import { useAuth } from '../contexts/AuthContext'
 import {
@@ -17,6 +18,7 @@ import type { TestGauge } from '../types/testGauge'
 import { isEligiblePriorityValve, syncPriorityQueueWithValves } from '../lib/priorityQueue'
 import { canWriteShop, permissionDeniedReason } from '../lib/roles'
 import { departmentIdForShopStatus } from '../lib/statusPriorityQueue'
+import { openShopDepartmentsParam } from '../constants/priorityDepartments'
 import { supabase } from '../lib/supabase'
 import type { Valve } from '../types'
 import logo from '../assets/js-logo.png'
@@ -265,8 +267,8 @@ export function DashboardPage() {
                 <Link
                   key={row.cell}
                   className="cell-row"
-                  to={`/status-priorities?department=finish-cell&cell=${encodeURIComponent(row.cell)}`}
-                  title={`Set daily priorities for finish cell ${row.cell}`}
+                  to={`/status-priorities?departments=${encodeURIComponent(openShopDepartmentsParam())}&cell=${encodeURIComponent(row.cell)}`}
+                  title={`Daily priorities for finish cell ${row.cell} (all open departments)`}
                 >
                   <div className="cell-name">{row.cell}</div>
                   <div className="cell-bar-track">
@@ -320,6 +322,8 @@ export function DashboardPage() {
               </table>
             </div>
           </section>
+
+          <ReceivedValvesDashboardPanel />
 
           <section className="dashboard-panel">
             <h3>Breakdown by status (active jobs)</h3>

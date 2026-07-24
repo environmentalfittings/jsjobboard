@@ -156,3 +156,12 @@ export function parsePriorityDepartmentIds(value: string | null | undefined): Pr
     .filter((id): id is PriorityDepartmentId => Boolean(id))
   return ids.length ? ids : ['teardown']
 }
+
+/** All shop departments except Completed — default when drilling in from a work cell. */
+export function openShopDepartmentIds(): PriorityDepartmentId[] {
+  return PRIORITY_DEPARTMENTS.filter((dept) => dept.id !== 'completed').map((dept) => dept.id)
+}
+
+export function openShopDepartmentsParam(): string {
+  return openShopDepartmentIds().join(',')
+}

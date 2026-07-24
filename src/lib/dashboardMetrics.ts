@@ -11,16 +11,22 @@ export function calcDashboardKpis(valves: Valve[]) {
 }
 
 /** Active jobs by finish cell (In-Process Order only). */
-export function calcActiveJobsByCell(valves: Valve[], limit = 6) {
+export function calcActiveJobsByCell(valves: Valve[], limit = 20) {
   const counts = new Map<string, number>()
   valves.forEach((v) => {
     if (v.order_type !== 'In-Process Order') return
     if (!v.cell) return
     counts.set(v.cell, (counts.get(v.cell) ?? 0) + 1)
   })
+
+  // Always surface these cells on the dashboard even when count is 0.
+  for (const cell of ['Actuation', 'Field Service']) {
+    if (!counts.has(cell)) counts.set(cell, 0)
+  }
+
   return [...counts.entries()]
     .map(([cell, count]) => ({ cell, count }))
-    .sort((a, b) => b.count - a.count)
+    .sort((a, b) => b.count - a.count || a.cell.localeCompare(b.cell))
     .slice(0, limit)
 }
 
@@ -84,7 +90,10 @@ export function calcCompletedMetrics(valves: Valve[], now = new Date()) {
     }
   })
 
-  const samePeriodLabel = `Jan–${now.toLocaleDateString(undefined, { month: 'short' })} ${lastYear}`
+  const samePeriodLabel = `Jan 1–${now.toLocaleDateString(undefined, {
+    month: 'short',
+    day: 'numeric',
+  })} ${lastYear}`
 
   return { monthCount, yearCount, lastYearCount, lastYearSamePeriodCount, samePeriodLabel, missingCloseDateCount }
 }
