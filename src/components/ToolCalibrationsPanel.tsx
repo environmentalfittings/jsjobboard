@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { Fragment, useCallback, useEffect, useMemo, useState } from 'react'
 import { useToast } from './ToastNotification'
 import { TestLogColumnHeader } from './testLog/TestLogColumnHeader'
 import { ToolExternalCertModal } from './ToolExternalCertModal'
@@ -304,6 +304,10 @@ export function ToolCalibrationsPanel() {
   }
 
   const startEdit = (row: ToolCalibration) => {
+    if (editingId === row.id && formOpen) {
+      resetForm()
+      return
+    }
     setEditingId(row.id)
     setForm(toolCalibrationToForm(row))
     setFormOpen(true)
@@ -517,14 +521,150 @@ export function ToolCalibrationsPanel() {
     />
   )
 
+  const toolFormFields = (
+    <div className="test-gauge-admin-grid tool-cal-admin-grid">
+      <label>
+        JS ID
+        <input
+          type="text"
+          value={form.js_id}
+          onChange={(e) => setForm((f) => ({ ...f, js_id: e.target.value }))}
+        />
+      </label>
+      <label>
+        Manufacturer
+        <input
+          type="text"
+          value={form.manufacturer}
+          onChange={(e) => setForm((f) => ({ ...f, manufacturer: e.target.value }))}
+        />
+      </label>
+      <label>
+        Model / description
+        <input
+          type="text"
+          value={form.model}
+          onChange={(e) => setForm((f) => ({ ...f, model: e.target.value }))}
+        />
+      </label>
+      <label>
+        Tool type
+        <input
+          type="text"
+          value={form.tool_type}
+          onChange={(e) => setForm((f) => ({ ...f, tool_type: e.target.value }))}
+        />
+      </label>
+      <label>
+        Category
+        <select
+          value={form.categorySelect}
+          onChange={(e) => {
+            const categorySelect = e.target.value as ToolCalibrationFormState['categorySelect']
+            setForm((f) => ({
+              ...f,
+              categorySelect,
+              categoryOther: categorySelect === TOOL_CATEGORY_OTHER ? f.categoryOther : '',
+            }))
+          }}
+        >
+          <option value="">Select category…</option>
+          {TOOL_CATEGORY_OPTIONS.map((opt) => (
+            <option key={opt} value={opt}>
+              {opt}
+            </option>
+          ))}
+          <option value={TOOL_CATEGORY_OTHER}>{TOOL_CATEGORY_OTHER}</option>
+        </select>
+      </label>
+      {form.categorySelect === TOOL_CATEGORY_OTHER ? (
+        <label>
+          Other category
+          <input
+            type="text"
+            value={form.categoryOther}
+            placeholder="Type category…"
+            onChange={(e) => setForm((f) => ({ ...f, categoryOther: e.target.value }))}
+          />
+        </label>
+      ) : null}
+      <label>
+        Serial number
+        <input
+          type="text"
+          value={form.serial_number}
+          onChange={(e) => setForm((f) => ({ ...f, serial_number: e.target.value }))}
+        />
+      </label>
+      <label>
+        Department
+        <input
+          type="text"
+          value={form.department}
+          onChange={(e) => setForm((f) => ({ ...f, department: e.target.value }))}
+        />
+      </label>
+      <label>
+        Calibration date
+        <input
+          type="date"
+          value={form.calibration_date}
+          onChange={(e) => setForm((f) => ({ ...f, calibration_date: e.target.value }))}
+        />
+      </label>
+      <label>
+        Expiration date
+        <input
+          type="date"
+          value={form.expiration_date}
+          onChange={(e) => setForm((f) => ({ ...f, expiration_date: e.target.value }))}
+        />
+      </label>
+      <label>
+        Status
+        <select
+          value={form.status}
+          onChange={(e) => {
+            const status = e.target.value as ToolCalibrationStatus
+            setForm((f) => ({
+              ...f,
+              status,
+              active: status === 'active',
+            }))
+          }}
+        >
+          <option value="active">Active</option>
+          <option value="out_of_service">Out of service</option>
+        </select>
+      </label>
+      <label>
+        Notes
+        <input
+          type="text"
+          value={form.notes}
+          onChange={(e) => setForm((f) => ({ ...f, notes: e.target.value }))}
+        />
+      </label>
+      <label>
+        Certificate number
+        <input
+          type="text"
+          value={form.certificate_number}
+          placeholder="Lab certificate #"
+          onChange={(e) => setForm((f) => ({ ...f, certificate_number: e.target.value }))}
+        />
+      </label>
+    </div>
+  )
+
   return (
     <section className="dashboard-panel admin-lists-panel">
       <h3>Tool calibration log</h3>
       <p className="placeholder-copy resources-hint">
         Shop MTE tools (micrometers, calipers, etc.). Use <strong>Recalibrate</strong> for in-house SOP 2010
-        checks. Torque wrenches and deadweight testers use <strong>Upload cert</strong> for outside-lab
-        certificates. Active tools are shown by default — click a summary card to focus due windows. Use column
-        filters for Category, Department, or Status.
+        checks. Torque wrenches, deadweight testers, and gauge block standards use{' '}
+        <strong>Upload cert</strong> for outside-lab certificates. Active tools are shown by default — click a
+        summary card to focus due windows. Use column filters for Category, Department, or Status.
       </p>
 
       <div className="dashboard-kpis tool-cal-kpis" aria-label="Tool calibration summary">
@@ -576,7 +716,7 @@ export function ToolCalibrationsPanel() {
       </div>
 
       <div className="test-gauge-admin-actions" style={{ marginBottom: 12 }}>
-        {!formOpen ? (
+        {!(formOpen && editingId == null) ? (
           <button type="button" className="button-primary" onClick={openAddForm}>
             Add tool
           </button>
@@ -601,139 +741,16 @@ export function ToolCalibrationsPanel() {
         </button>
       </div>
 
-      {formOpen ? (
+      {formOpen && editingId == null ? (
         <div className="test-gauge-admin-form">
-          <h4>{editingId != null ? 'Edit tool' : 'Add tool'}</h4>
-          <div className="test-gauge-admin-grid tool-cal-admin-grid">
-            <label>
-              JS ID
-              <input
-                type="text"
-                value={form.js_id}
-                onChange={(e) => setForm((f) => ({ ...f, js_id: e.target.value }))}
-              />
-            </label>
-            <label>
-              Manufacturer
-              <input
-                type="text"
-                value={form.manufacturer}
-                onChange={(e) => setForm((f) => ({ ...f, manufacturer: e.target.value }))}
-              />
-            </label>
-            <label>
-              Model / description
-              <input
-                type="text"
-                value={form.model}
-                onChange={(e) => setForm((f) => ({ ...f, model: e.target.value }))}
-              />
-            </label>
-            <label>
-              Tool type
-              <input
-                type="text"
-                value={form.tool_type}
-                onChange={(e) => setForm((f) => ({ ...f, tool_type: e.target.value }))}
-              />
-            </label>
-            <label>
-              Category
-              <select
-                value={form.categorySelect}
-                onChange={(e) => {
-                  const categorySelect = e.target.value as ToolCalibrationFormState['categorySelect']
-                  setForm((f) => ({
-                    ...f,
-                    categorySelect,
-                    categoryOther: categorySelect === TOOL_CATEGORY_OTHER ? f.categoryOther : '',
-                  }))
-                }}
-              >
-                <option value="">Select category…</option>
-                {TOOL_CATEGORY_OPTIONS.map((opt) => (
-                  <option key={opt} value={opt}>
-                    {opt}
-                  </option>
-                ))}
-                <option value={TOOL_CATEGORY_OTHER}>{TOOL_CATEGORY_OTHER}</option>
-              </select>
-            </label>
-            {form.categorySelect === TOOL_CATEGORY_OTHER ? (
-              <label>
-                Other category
-                <input
-                  type="text"
-                  value={form.categoryOther}
-                  placeholder="Type category…"
-                  onChange={(e) => setForm((f) => ({ ...f, categoryOther: e.target.value }))}
-                />
-              </label>
-            ) : null}
-            <label>
-              Serial number
-              <input
-                type="text"
-                value={form.serial_number}
-                onChange={(e) => setForm((f) => ({ ...f, serial_number: e.target.value }))}
-              />
-            </label>
-            <label>
-              Department
-              <input
-                type="text"
-                value={form.department}
-                onChange={(e) => setForm((f) => ({ ...f, department: e.target.value }))}
-              />
-            </label>
-            <label>
-              Calibration date
-              <input
-                type="date"
-                value={form.calibration_date}
-                onChange={(e) => setForm((f) => ({ ...f, calibration_date: e.target.value }))}
-              />
-            </label>
-            <label>
-              Expiration date
-              <input
-                type="date"
-                value={form.expiration_date}
-                onChange={(e) => setForm((f) => ({ ...f, expiration_date: e.target.value }))}
-              />
-            </label>
-            <label>
-              Status
-              <select
-                value={form.status}
-                onChange={(e) => {
-                  const status = e.target.value as ToolCalibrationStatus
-                  setForm((f) => ({
-                    ...f,
-                    status,
-                    active: status === 'active',
-                  }))
-                }}
-              >
-                <option value="active">Active</option>
-                <option value="out_of_service">Out of service</option>
-              </select>
-            </label>
-            <label>
-              Notes
-              <input
-                type="text"
-                value={form.notes}
-                onChange={(e) => setForm((f) => ({ ...f, notes: e.target.value }))}
-              />
-            </label>
-          </div>
+          <h4>Add tool</h4>
+          {toolFormFields}
           <div className="test-gauge-admin-actions">
             <button type="button" className="button-primary" disabled={saving} onClick={() => void saveRow()}>
-              {saving ? 'Saving…' : editingId != null ? 'Save changes' : 'Add tool'}
+              {saving ? 'Saving…' : 'Add tool'}
             </button>
             <button type="button" className="button-secondary" onClick={resetForm}>
-              {editingId != null ? 'Cancel edit' : 'Cancel'}
+              Cancel
             </button>
           </div>
         </div>
@@ -801,83 +818,112 @@ export function ToolCalibrationsPanel() {
                 const due = getToolCalibrationDueStatus(row)
                 const certUrl = toolCalibrationCertificateUrl(row.certificate_storage_path)
                 const external = isExternalCalibrationCategory(row.category)
+                const isEditingRow = formOpen && editingId === row.id
                 return (
-                  <tr key={row.id} className={due !== 'ok' ? `test-gauge-row--${due}` : undefined}>
-                    <td>{row.js_id ?? '—'}</td>
-                    <td>{row.model ?? '—'}</td>
-                    <td>
-                      <InlineCategoryCell
-                        row={row}
-                        disabled={categorySavingId != null && categorySavingId !== row.id}
-                        onSave={(category) => saveCategoryInline(row, category)}
-                      />
-                    </td>
-                    <td>{row.tool_type ?? '—'}</td>
-                    <td>{row.serial_number ?? '—'}</td>
-                    <td>{row.department ?? '—'}</td>
-                    <td>{row.calibration_date ?? '—'}</td>
-                    <td className={due !== 'ok' ? `test-gauge-cal-cell--${due}` : undefined}>
-                      {row.expiration_date ?? '—'}
-                      {due === 'critical' || due === 'due' ? (
-                        <span className="test-gauge-expired-badge">Expired</span>
-                      ) : due === 'expiring' ? (
-                        <span className={`test-gauge-cal-badge test-gauge-cal-badge--${due}`}>
-                          {formatToolDueAlert(row)}
-                        </span>
-                      ) : null}
-                    </td>
-                    <td className="test-gauge-cert-cell">
-                      {certUrl ? (
-                        <a href={certUrl} target="_blank" rel="noreferrer">
-                          {row.certificate_file_name ?? 'View'}
-                        </a>
-                      ) : (
-                        '—'
-                      )}
-                      {certUrl ? (
-                        <div className="test-gauge-cert-actions">
+                  <Fragment key={row.id}>
+                    <tr className={due !== 'ok' ? `test-gauge-row--${due}` : undefined}>
+                      <td>{row.js_id ?? '—'}</td>
+                      <td>{row.model ?? '—'}</td>
+                      <td>
+                        <InlineCategoryCell
+                          row={row}
+                          disabled={categorySavingId != null && categorySavingId !== row.id}
+                          onSave={(category) => saveCategoryInline(row, category)}
+                        />
+                      </td>
+                      <td>{row.tool_type ?? '—'}</td>
+                      <td>{row.serial_number ?? '—'}</td>
+                      <td>{row.department ?? '—'}</td>
+                      <td>{row.calibration_date ?? '—'}</td>
+                      <td className={due !== 'ok' ? `test-gauge-cal-cell--${due}` : undefined}>
+                        {row.expiration_date ?? '—'}
+                        {due === 'critical' || due === 'due' ? (
+                          <span className="test-gauge-expired-badge">Expired</span>
+                        ) : due === 'expiring' ? (
+                          <span className={`test-gauge-cal-badge test-gauge-cal-badge--${due}`}>
+                            {formatToolDueAlert(row)}
+                          </span>
+                        ) : null}
+                      </td>
+                      <td className="test-gauge-cert-cell">
+                        {row.certificate_number?.trim() ? (
+                          <div className="tool-cal-cert-number">#{row.certificate_number.trim()}</div>
+                        ) : null}
+                        {certUrl ? (
+                          <a href={certUrl} target="_blank" rel="noreferrer">
+                            {row.certificate_file_name ?? 'View'}
+                          </a>
+                        ) : row.certificate_number?.trim() ? null : (
+                          '—'
+                        )}
+                        {certUrl ? (
+                          <div className="test-gauge-cert-actions">
+                            <button
+                              type="button"
+                              className="link-button"
+                              disabled={certBusyId === row.id}
+                              onClick={() => void clearCertificate(row)}
+                            >
+                              Remove
+                            </button>
+                          </div>
+                        ) : null}
+                      </td>
+                      <td>{row.status === 'out_of_service' ? 'Out of service' : 'Active'}</td>
+                      <td className="test-gauge-row-actions">
+                        {external ? (
                           <button
                             type="button"
                             className="link-button"
-                            disabled={certBusyId === row.id}
-                            onClick={() => void clearCertificate(row)}
+                            onClick={() => setExternalCertTool(row)}
                           >
-                            Remove
+                            Upload cert
                           </button>
-                        </div>
-                      ) : null}
-                    </td>
-                    <td>{row.status === 'out_of_service' ? 'Out of service' : 'Active'}</td>
-                    <td className="test-gauge-row-actions">
-                      {external ? (
+                        ) : (
+                          <button
+                            type="button"
+                            className="link-button"
+                            onClick={() => setRecalibrateTool(row)}
+                          >
+                            Recalibrate
+                          </button>
+                        )}
+                        <button type="button" className="link-button" onClick={() => startEdit(row)}>
+                          {isEditingRow ? 'Close' : 'Edit'}
+                        </button>
                         <button
                           type="button"
-                          className="link-button"
-                          onClick={() => setExternalCertTool(row)}
+                          className="link-button link-button-danger"
+                          onClick={() => void removeRow(row)}
                         >
-                          Upload cert
+                          Delete
                         </button>
-                      ) : (
-                        <button
-                          type="button"
-                          className="link-button"
-                          onClick={() => setRecalibrateTool(row)}
-                        >
-                          Recalibrate
-                        </button>
-                      )}
-                      <button type="button" className="link-button" onClick={() => startEdit(row)}>
-                        Edit
-                      </button>
-                      <button
-                        type="button"
-                        className="link-button link-button-danger"
-                        onClick={() => void removeRow(row)}
-                      >
-                        Delete
-                      </button>
-                    </td>
-                  </tr>
+                      </td>
+                    </tr>
+                    {isEditingRow ? (
+                      <tr className="tool-cal-inline-edit-row">
+                        <td colSpan={11}>
+                          <div className="test-gauge-admin-form tool-cal-inline-edit-form">
+                            <h4>Edit tool — {row.js_id ?? row.serial_number ?? row.id}</h4>
+                            {toolFormFields}
+                            <div className="test-gauge-admin-actions">
+                              <button
+                                type="button"
+                                className="button-primary"
+                                disabled={saving}
+                                onClick={() => void saveRow()}
+                              >
+                                {saving ? 'Saving…' : 'Save changes'}
+                              </button>
+                              <button type="button" className="button-secondary" onClick={resetForm}>
+                                Cancel edit
+                              </button>
+                            </div>
+                          </div>
+                        </td>
+                      </tr>
+                    ) : null}
+                  </Fragment>
                 )
               })}
             </tbody>

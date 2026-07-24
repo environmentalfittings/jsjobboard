@@ -121,6 +121,7 @@ function buildCertificateHtml(tool: ToolCalibration, event: ToolCalibrationEvent
       }</div>
       <div><span>Gauge block SN</span> ${escapeHtml(display(event.gauge_block_serial))}</div>
       <div><span>Gauge block due</span> ${escapeHtml(formatDate(event.gauge_block_next_due))}</div>
+      <div><span>Certificate #</span> ${escapeHtml(display(event.certificate_number))}</div>
       <div><span>Calibrated</span> ${escapeHtml(formatDate(event.calibrated_at))}</div>
       <div><span>Next due</span> ${escapeHtml(formatDate(event.next_due_at))}</div>
       <div><span>Technician</span> ${escapeHtml(

@@ -18,6 +18,9 @@ export type ToolCalibrationEvent = {
   result: ToolCalibrationEventResult
   notes: string | null
   measurements: ToolCalibrationMeasurement[]
+  certificate_number: string | null
+  certificate_storage_path: string | null
+  certificate_file_name: string | null
   created_at: string
 }
 

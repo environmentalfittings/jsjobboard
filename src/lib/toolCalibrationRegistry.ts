@@ -16,10 +16,10 @@ import {
 } from './testGaugeRegistry'
 
 const TOOL_SELECT =
-  'id,js_id,manufacturer,model,tool_type,category,serial_number,calibration_date,expiration_date,department,status,notes,active,certificate_storage_path,certificate_file_name,certificate_mime_type,created_at,updated_at'
+  'id,js_id,manufacturer,model,tool_type,category,serial_number,calibration_date,expiration_date,department,status,notes,active,certificate_storage_path,certificate_file_name,certificate_mime_type,certificate_number,created_at,updated_at'
 
 const EVENT_SELECT =
-  'id,tool_id,calibrated_at,next_due_at,tech_initials,technician_id,technician_name,signed_off_at,ambient_temp_f,gauge_block_serial,gauge_block_next_due,procedure_ref,result,notes,measurements,created_at'
+  'id,tool_id,calibrated_at,next_due_at,tech_initials,technician_id,technician_name,signed_off_at,ambient_temp_f,gauge_block_serial,gauge_block_next_due,procedure_ref,result,notes,measurements,certificate_number,certificate_storage_path,certificate_file_name,created_at'
 
 export const TOOL_CERT_BUCKET = 'valve-attachments'
 const MAX_CERT_BYTES = 20 * 1024 * 1024
@@ -77,6 +77,10 @@ function mapEvent(row: Record<string, unknown>): ToolCalibrationEvent {
     result: row.result === 'fail' ? 'fail' : 'pass',
     notes: row.notes == null ? null : String(row.notes),
     measurements: parseMeasurements(row.measurements),
+    certificate_number: row.certificate_number == null ? null : String(row.certificate_number),
+    certificate_storage_path:
+      row.certificate_storage_path == null ? null : String(row.certificate_storage_path),
+    certificate_file_name: row.certificate_file_name == null ? null : String(row.certificate_file_name),
     created_at: String(row.created_at),
   }
 }
@@ -94,6 +98,7 @@ function formPayload(form: ToolCalibrationFormState) {
     department: nullIfBlank(form.department),
     status: form.status,
     notes: nullIfBlank(form.notes),
+    certificate_number: nullIfBlank(form.certificate_number),
     active: form.active,
     updated_at: new Date().toISOString(),
   }
@@ -246,7 +251,7 @@ export async function removeToolCalibrationCertificate(
   return { error: error?.message ?? null }
 }
 
-/** Record an outside-lab calibration: update dates and attach the certificate PDF/image. */
+/** Record an outside-lab calibration: archive prior cert/dates, attach new certificate, update tool. */
 export async function recordExternalToolCalibration(
   tool: ToolCalibration,
   input: {
@@ -255,6 +260,7 @@ export async function recordExternalToolCalibration(
     technicianId: number | null
     technicianName: string
     signedOffAt: string
+    certificateNumber: string
     notes?: string
     file: File
   },
@@ -264,12 +270,43 @@ export async function recordExternalToolCalibration(
   const techName = input.technicianName.trim()
   if (!techName) return { row: null, error: 'Select the technician who signed off.' }
   if (!input.signedOffAt.trim()) return { row: null, error: 'Sign-off date is required.' }
+  const certNumber = input.certificateNumber.trim()
+  if (!certNumber) return { row: null, error: 'Certificate number is required.' }
 
   const { path, error: uploadError } = await uploadToolCalibrationCertificate(tool.id, input.file)
   if (uploadError || !path) return { row: null, error: uploadError ?? 'Upload failed.' }
 
-  if (tool.certificate_storage_path) {
-    await supabase.storage.from(TOOL_CERT_BUCKET).remove([tool.certificate_storage_path])
+  const hasPriorRecord = Boolean(
+    tool.calibration_date ||
+      tool.expiration_date ||
+      tool.certificate_storage_path ||
+      tool.certificate_number,
+  )
+
+  // Archive the current record (keep old certificate file for history).
+  if (hasPriorRecord) {
+    await supabase.from('tool_calibration_events').insert({
+      tool_id: tool.id,
+      calibrated_at: tool.calibration_date || input.calibratedAt,
+      next_due_at: tool.expiration_date || input.nextDueAt,
+      tech_initials: 'ARCH',
+      technician_name: 'Archived prior calibration',
+      signed_off_at: tool.calibration_date,
+      procedure_ref: 'External lab certificate (archived)',
+      result: 'pass',
+      notes: [
+        'Archived when a new certificate was uploaded.',
+        tool.certificate_number ? `Prior cert # ${tool.certificate_number}` : null,
+        tool.certificate_file_name ? `Prior file: ${tool.certificate_file_name}` : null,
+        tool.notes?.trim() || null,
+      ]
+        .filter(Boolean)
+        .join('\n'),
+      measurements: [],
+      certificate_number: tool.certificate_number,
+      certificate_storage_path: tool.certificate_storage_path,
+      certificate_file_name: tool.certificate_file_name,
+    })
   }
 
   const notes = input.notes?.trim()
@@ -284,6 +321,7 @@ export async function recordExternalToolCalibration(
       certificate_storage_path: path,
       certificate_file_name: input.file.name.slice(0, 500),
       certificate_mime_type: input.file.type || null,
+      certificate_number: certNumber,
       updated_at: new Date().toISOString(),
     })
     .eq('id', tool.id)
@@ -295,7 +333,6 @@ export async function recordExternalToolCalibration(
     return { row: null, error: error.message }
   }
 
-  // Best-effort history row (ignore if events table / sign-off columns missing).
   await supabase.from('tool_calibration_events').insert({
     tool_id: tool.id,
     calibrated_at: input.calibratedAt,
@@ -306,8 +343,11 @@ export async function recordExternalToolCalibration(
     signed_off_at: input.signedOffAt,
     procedure_ref: 'External lab certificate',
     result: 'pass',
-    notes: notes || `Certificate: ${input.file.name}`,
+    notes: notes || `Certificate # ${certNumber}`,
     measurements: [],
+    certificate_number: certNumber,
+    certificate_storage_path: path,
+    certificate_file_name: input.file.name.slice(0, 500),
   })
 
   return { row: data as ToolCalibration, error: null }

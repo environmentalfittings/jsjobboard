@@ -3896,8 +3896,29 @@ a.test-log-reports-item-name:hover {
   gap: 8px;
 }
 
+.tool-cal-inline-edit-row > td {
+  padding: 0;
+  background: #f8fafc;
+  border-bottom: 2px solid #cbd5e1;
+}
+
+.tool-cal-inline-edit-form {
+  margin: 0;
+  padding: 14px 16px 16px;
+  border: none;
+  border-radius: 0;
+  background: transparent;
+}
+
 .tool-external-cert-modal {
-  width: min(560px, 100%);
+  width: min(720px, 100%);
+}
+
+.tool-cal-cert-number {
+  font-weight: 600;
+  font-size: 12px;
+  color: #334155;
+  margin-bottom: 2px;
 }
 
 .mte-calibrations-page .admin-lists-tabs {

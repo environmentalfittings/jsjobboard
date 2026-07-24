@@ -24,6 +24,7 @@ export const TOOL_CATEGORY_OTHER = 'Other'
 export const EXTERNAL_CALIBRATION_CATEGORIES: readonly ToolCategoryOption[] = [
   'Torque Wrenches',
   'Dead Weight Tester',
+  'Gauge Block Standard',
 ]
 
 export function isExternalCalibrationCategory(category: string | null | undefined): boolean {
@@ -48,6 +49,7 @@ export type ToolCalibration = {
   certificate_storage_path: string | null
   certificate_file_name: string | null
   certificate_mime_type: string | null
+  certificate_number: string | null
   created_at: string
   updated_at: string
 }
@@ -67,6 +69,7 @@ export type ToolCalibrationFormState = {
   department: string
   status: ToolCalibrationStatus
   notes: string
+  certificate_number: string
   active: boolean
 }
 
@@ -97,6 +100,7 @@ export function emptyToolCalibrationForm(): ToolCalibrationFormState {
     department: '',
     status: 'active',
     notes: '',
+    certificate_number: '',
     active: true,
   }
 }
@@ -117,6 +121,7 @@ export function toolCalibrationToForm(row: ToolCalibration): ToolCalibrationForm
     department: row.department ?? '',
     status: row.status,
     notes: row.notes ?? '',
+    certificate_number: row.certificate_number ?? '',
     active: row.active,
   }
 }
