@@ -20,6 +20,17 @@ export type ToolCategoryOption = (typeof TOOL_CATEGORY_OPTIONS)[number]
 
 export const TOOL_CATEGORY_OTHER = 'Other'
 
+/** Categories calibrated by an outside lab — upload certificate instead of in-house SOP form. */
+export const EXTERNAL_CALIBRATION_CATEGORIES: readonly ToolCategoryOption[] = [
+  'Torque Wrenches',
+  'Dead Weight Tester',
+]
+
+export function isExternalCalibrationCategory(category: string | null | undefined): boolean {
+  const value = (category ?? '').trim()
+  return (EXTERNAL_CALIBRATION_CATEGORIES as readonly string[]).includes(value)
+}
+
 export type ToolCalibration = {
   id: number
   js_id: string | null
@@ -34,6 +45,9 @@ export type ToolCalibration = {
   status: ToolCalibrationStatus
   notes: string | null
   active: boolean
+  certificate_storage_path: string | null
+  certificate_file_name: string | null
+  certificate_mime_type: string | null
   created_at: string
   updated_at: string
 }
@@ -111,16 +125,16 @@ export function toolCalibrationToForm(row: ToolCalibration): ToolCalibrationForm
 export function inferToolCategory(toolType: string | null | undefined, model?: string | null): string | null {
   const hay = `${toolType ?? ''} ${model ?? ''}`.toLowerCase()
   if (/caliper/.test(hay)) return 'Calipers'
-  if (/micrometer|\bmic\b/.test(hay)) return 'Micrometer'
+  if (/depth\s*ga(?:u)?ge|micrometer|\bmic\b/.test(hay)) return 'Micrometer'
   if (/dial\s*indicator/.test(hay)) return 'Dial Indicator'
   if (/torque/.test(hay)) return 'Torque Wrenches'
   if (/load\s*cell/.test(hay)) return 'Load Cells'
-  if (/thickness/.test(hay)) return 'Thickness Tester'
+  if (/thickness|surface\s*roughness|roughness\s*ga(?:u)?ge/.test(hay)) return 'Thickness Tester'
   if (/dead\s*weight/.test(hay)) return 'Dead Weight Tester'
   if (/helium/.test(hay)) return 'Helium Leak Standard'
   if (/gauge\s*block/.test(hay)) return 'Gauge Block Standard'
   if (/chart\s*recorder|heat\s*treat/.test(hay)) return 'Heat Treat Chart Recorder'
   if (/welder\s*load/.test(hay)) return 'Welder Load Test'
-  if (/gauge|pressure/.test(hay)) return 'Gauges'
+  if (/pressure|transducer|digital\s*(test\s*)?gauge|\bgauge\b/.test(hay)) return 'Gauges'
   return null
 }

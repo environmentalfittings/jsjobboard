@@ -220,7 +220,7 @@ insert into public.tool_calibrations (
   ('125', null, 'Pressure Gauge 10K', 'Digital Pressure Gauge', 'Gauges', '6712180094', '2022-11-14', '2023-11-14', 'Testing', 'out_of_service', '?', false),
   ('126', null, 'Pressure Gauge 10K', 'Pressure Gauge', 'Gauges', '9801701787', '2024-05-24', '2025-05-24', 'Testing', 'out_of_service', 'lost item', false),
   ('127', null, 'Pressure Gauge 2K', 'Digital Pressure Gauge', 'Gauges', '2K-2', '2022-11-14', '2023-11-14', 'Testing', 'out_of_service', '?', false),
-  ('128', null, 'Surface Roughness Gauge', 'Surface Roughness Gauge', 'Gauges', 'SRG140509', '2024-05-03', '2025-05-03', 'Tool Room', 'out_of_service', null, false),
+  ('128', null, 'Surface Roughness Gauge', 'Surface Roughness Gauge', 'Thickness Tester', 'SRG140509', '2024-05-03', '2025-05-03', 'Tool Room', 'out_of_service', null, false),
   ('129', null, 'Toxic Vapor Analyzer', 'Toxic Vapor Analyzer', null, '202000000000', null, null, 'TESTING', 'active', null, true),
   ('130', null, '16" Digital Caliper', 'Caliper', 'Calipers', '1220-176-67R', null, null, 'Earl', 'out_of_service', null, false),
   ('131', null, '6-7" Mic', 'Micrometer OD', 'Micrometer', '71097560', '2025-02-10', '2026-02-10', 'TOOL ROOM', 'active', null, true),
@@ -312,7 +312,7 @@ insert into public.tool_calibrations (
   ('229', null, '6" Caliper', 'Caliper', 'Calipers', '52-008-706-0', '2024-08-22', '2025-08-22', 'PRV', 'out_of_service', 'non repairable', false),
   ('231', null, '12" Caliper', 'Caliper', 'Calipers', '52-008-712-0', '2023-03-09', '2024-03-09', 'PRV', 'out_of_service', null, false),
   ('232', null, '24" Caliper', 'Caliper', 'Calipers', '52-008-024-0', '2023-03-09', '2024-03-09', 'PRV', 'out_of_service', null, false),
-  ('233', null, '0-22" Depth Gage', 'Depth Gauge', 'Gauges', '52-125-006-1', '2025-07-11', '2026-07-11', 'PRV', 'active', null, true),
+  ('233', null, '0-22" Depth Gage', 'Depth Gauge', 'Micrometer', '52-125-006-1', '2025-07-11', '2026-07-11', 'PRV', 'active', null, true),
   ('234', null, 'Digital Test Gauge', 'Digital Pressure Gauge', 'Gauges', '304045', '2023-03-03', '2024-03-03', 'PRV', 'out_of_service', null, false),
   ('235', null, 'Digital Test Gauge', 'Digital Pressure Gauge', 'Gauges', '304046', '2025-05-22', '2026-05-22', 'PRV', 'active', null, true),
   ('236', null, 'Digital Test Gauge', 'Digital Pressure Gauge', 'Gauges', '304047', '2025-05-22', '2026-05-22', 'PRV', 'active', null, true),
@@ -356,7 +356,7 @@ insert into public.tool_calibrations (
   ('280', 'Hotfoil-EHS,Inc', 'Chart Recorder 12 Channel', 'Chart Recorder 12 Channel', 'Heat Treat Chart Recorder', 'R4-018ZA0078', '2026-01-13', '2027-01-13', 'FIELD SERVICE', 'active', null, true),
   ('281', 'Lincon', 'Square Wave TIG 275', 'Welder', null, 'U1010404643', '2026-01-13', '2027-01-13', 'WELDING', 'active', null, true),
   ('282', 'FOWLER', '12" Caliper', 'Caliper', 'Calipers', '22080842', '2025-07-10', '2026-07-10', 'FITTING', 'active', null, true),
-  ('283', 'PHASE II', 'SRG-2200', 'Surface Roughness Gauge', 'Gauges', 'PH2401SR21', '2025-07-11', '2026-07-11', 'TOOL ROOM', 'active', null, true),
+  ('283', 'PHASE II', 'SRG-2200', 'Surface Roughness Gauge', 'Thickness Tester', 'PH2401SR21', '2025-07-11', '2026-07-11', 'TOOL ROOM', 'active', null, true),
   ('284', 'Crystal', 'XP2i', '0-5000 Digital Pressure Gauge', 'Gauges', '222114', '2025-02-26', '2026-02-26', 'PRV', 'active', null, true),
   ('285', 'Crystal', 'XP2i', '0-5000 Digital Pressure Gauge', 'Gauges', '222119', '2025-01-24', '2026-01-24', 'TESTING', 'active', null, true);
 

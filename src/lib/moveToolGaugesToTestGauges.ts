@@ -1,9 +1,25 @@
 import { supabase } from './supabase'
-import { createTestGauge, loadTestGauges } from './testGaugeRegistry'
-import { loadToolCalibrations } from './toolCalibrationRegistry'
-import type { ToolCalibration } from '../types/toolCalibration'
+import { createTestGauge, deleteTestGauge, loadTestGauges } from './testGaugeRegistry'
+import { createToolCalibration, loadToolCalibrations } from './toolCalibrationRegistry'
+import {
+  emptyToolCalibrationForm,
+  inferToolCategory,
+  isPresetToolCategory,
+  TOOL_CATEGORY_OTHER,
+  type ToolCalibration,
+  type ToolCalibrationFormState,
+} from '../types/toolCalibration'
+import type { TestGauge } from '../types/testGauge'
 
 const MOVE_CATEGORIES = new Set(['gauges', 'load cells'])
+
+/** Shop measuring tools that belong on the tool log, even if category was set to Gauges. */
+function isShopMeasuringTool(tool: ToolCalibration): boolean {
+  const hay = `${tool.tool_type ?? ''} ${tool.model ?? ''}`.toLowerCase()
+  return /depth\s*ga(?:u)?ge|surface\s*roughness|roughness\s*ga(?:u)?ge|caliper|micrometer|\bmic\b|dial\s*indicator|thickness\s*tester|torque\s*wrench/.test(
+    hay,
+  )
+}
 
 function normalizeGaugeKey(value: string | null | undefined): string | null {
   const raw = String(value ?? '').trim()
@@ -33,24 +49,52 @@ function resolveGaugeType(tool: ToolCalibration): string {
   const hay = `${tool.tool_type ?? ''} ${tool.model ?? ''}`.toLowerCase()
   if (/helium/.test(hay)) return 'Helium'
   if (/chart\s*recorder/.test(hay)) return 'Chart recorder'
-  if (/pressure/.test(hay)) return 'Pressure'
+  if (/pressure|transducer/.test(hay)) return 'Pressure'
   return (tool.tool_type ?? '').trim() || 'Pressure'
 }
 
-function isMoveCategory(tool: ToolCalibration): boolean {
-  return MOVE_CATEGORIES.has((tool.category ?? '').trim().toLowerCase())
+/** Only pressure / helium / chart / load-cell style items — not depth gauges, SRGs, etc. */
+function isMoveCandidate(tool: ToolCalibration): boolean {
+  const category = (tool.category ?? '').trim().toLowerCase()
+  if (!MOVE_CATEGORIES.has(category)) return false
+  if (category === 'load cells') return true
+  if (isShopMeasuringTool(tool)) return false
+  return true
+}
+
+function toolFormFromTestGauge(gauge: TestGauge): ToolCalibrationFormState {
+  const gaugeType = (gauge.gauge_type ?? '').trim()
+  const inferred = inferToolCategory(gaugeType) ?? (gaugeType.toLowerCase() === 'load cell' ? 'Load Cells' : null)
+  const form = emptyToolCalibrationForm()
+  form.manufacturer = gauge.manufacturer ?? ''
+  form.tool_type = gaugeType
+  form.serial_number = gauge.gauge_number
+  form.calibration_date = gauge.last_calibration_date ?? ''
+  form.expiration_date = gauge.next_calibration_date ?? ''
+  form.status = gauge.active ? 'active' : 'out_of_service'
+  form.active = gauge.active
+  if (inferred && isPresetToolCategory(inferred)) {
+    form.categorySelect = inferred
+    form.categoryOther = ''
+  } else if (gaugeType) {
+    form.categorySelect = TOOL_CATEGORY_OTHER
+    form.categoryOther = gaugeType
+  }
+  return form
 }
 
 export type MoveToolGaugesResult = {
   moved: number
   skippedDuplicates: number
   skippedInvalid: number
+  skippedShopTools: number
   removedFromToolLog: number
   error: string | null
 }
 
 /**
  * Move tool_calibrations rows with category Gauges or Load Cells into test_gauges.
+ * Skips shop measuring tools (depth gauges, surface roughness, etc.).
  * Skips inserts when gauge_number / serial / js_id already exists on a test gauge,
  * then removes successfully processed source rows from the tool log.
  */
@@ -59,6 +103,7 @@ export async function moveGaugeCategoryToolsToTestGauges(): Promise<MoveToolGaug
     moved: 0,
     skippedDuplicates: 0,
     skippedInvalid: 0,
+    skippedShopTools: 0,
     removedFromToolLog: 0,
     error: null,
   }
@@ -74,9 +119,13 @@ export async function moveGaugeCategoryToolsToTestGauges(): Promise<MoveToolGaug
     }
   }
 
-  const candidates = tools.filter(isMoveCategory)
+  const gaugeCategoryTools = tools.filter((tool) =>
+    MOVE_CATEGORIES.has((tool.category ?? '').trim().toLowerCase()),
+  )
+  const skippedShopTools = gaugeCategoryTools.filter(isShopMeasuringTool).length
+  const candidates = gaugeCategoryTools.filter(isMoveCandidate)
   if (candidates.length === 0) {
-    return { ...empty, error: null }
+    return { ...empty, skippedShopTools, error: null }
   }
 
   const existingKeys = new Set<string>()
@@ -125,6 +174,7 @@ export async function moveGaugeCategoryToolsToTestGauges(): Promise<MoveToolGaug
         moved,
         skippedDuplicates,
         skippedInvalid,
+        skippedShopTools,
         removedFromToolLog: 0,
         error,
       }
@@ -150,6 +200,7 @@ export async function moveGaugeCategoryToolsToTestGauges(): Promise<MoveToolGaug
           moved,
           skippedDuplicates,
           skippedInvalid,
+          skippedShopTools,
           removedFromToolLog,
           error: `Moved gauges, but failed removing some from tool log: ${error.message}`,
         }
@@ -162,7 +213,25 @@ export async function moveGaugeCategoryToolsToTestGauges(): Promise<MoveToolGaug
     moved,
     skippedDuplicates,
     skippedInvalid,
+    skippedShopTools,
     removedFromToolLog,
     error: null,
   }
+}
+
+/**
+ * Move a test gauge back onto the tool calibrations log (e.g. depth gauges).
+ * Creates the tool row first, then deletes the test gauge.
+ */
+export async function moveTestGaugeToToolLog(gauge: TestGauge): Promise<{ error: string | null }> {
+  const form = toolFormFromTestGauge(gauge)
+  const { error: createError } = await createToolCalibration(form)
+  if (createError) return { error: createError }
+  const { error: deleteError } = await deleteTestGauge(gauge)
+  if (deleteError) {
+    return {
+      error: `Added to tool log, but could not remove from Test gauges: ${deleteError}`,
+    }
+  }
+  return { error: null }
 }

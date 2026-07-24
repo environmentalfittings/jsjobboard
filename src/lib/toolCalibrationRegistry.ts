@@ -4,17 +4,81 @@ import {
   type ToolCalibration,
   type ToolCalibrationFormState,
 } from '../types/toolCalibration'
+import type {
+  ToolCalibrationEvent,
+  ToolRecalibrationInput,
+} from '../types/toolCalibrationEvent'
+import type { ToolCalibrationMeasurement } from './toolCalibrationSopPoints'
+import { technicianInitials } from './technicianInitials'
 import {
   GAUGE_CALIBRATION_WARNING_DAYS,
   type GaugeCalibrationStatus,
 } from './testGaugeRegistry'
 
 const TOOL_SELECT =
-  'id,js_id,manufacturer,model,tool_type,category,serial_number,calibration_date,expiration_date,department,status,notes,active,created_at,updated_at'
+  'id,js_id,manufacturer,model,tool_type,category,serial_number,calibration_date,expiration_date,department,status,notes,active,certificate_storage_path,certificate_file_name,certificate_mime_type,created_at,updated_at'
+
+const EVENT_SELECT =
+  'id,tool_id,calibrated_at,next_due_at,tech_initials,technician_id,technician_name,signed_off_at,ambient_temp_f,gauge_block_serial,gauge_block_next_due,procedure_ref,result,notes,measurements,created_at'
+
+export const TOOL_CERT_BUCKET = 'valve-attachments'
+const MAX_CERT_BYTES = 20 * 1024 * 1024
 
 function nullIfBlank(value: string): string | null {
   const trimmed = value.trim()
   return trimmed ? trimmed : null
+}
+
+function extFromName(name: string) {
+  const i = name.lastIndexOf('.')
+  return i >= 0 ? name.slice(i).toLowerCase() : ''
+}
+
+export function toolCalibrationCertificateUrl(storagePath: string | null | undefined): string | null {
+  if (!storagePath) return null
+  const { data } = supabase.storage.from(TOOL_CERT_BUCKET).getPublicUrl(storagePath)
+  return data.publicUrl
+}
+
+function parseMeasurements(raw: unknown): ToolCalibrationMeasurement[] {
+  if (!Array.isArray(raw)) return []
+  return raw.map((item) => {
+    const row = item as Partial<ToolCalibrationMeasurement>
+    return {
+      pointId: String(row.pointId ?? ''),
+      label: String(row.label ?? ''),
+      nominal: row.nominal == null || row.nominal === '' ? null : String(row.nominal),
+      kind: row.kind === 'visual' || row.kind === 'passfail' ? row.kind : 'measurement',
+      asFound: String(row.asFound ?? ''),
+      asLeft: String(row.asLeft ?? ''),
+      passed: Boolean(row.passed),
+    }
+  })
+}
+
+function mapEvent(row: Record<string, unknown>): ToolCalibrationEvent {
+  return {
+    id: String(row.id),
+    tool_id: Number(row.tool_id),
+    calibrated_at: String(row.calibrated_at),
+    next_due_at: String(row.next_due_at),
+    tech_initials: String(row.tech_initials ?? ''),
+    technician_id:
+      row.technician_id === null || row.technician_id === undefined ? null : Number(row.technician_id),
+    technician_name: row.technician_name == null ? null : String(row.technician_name),
+    signed_off_at: row.signed_off_at == null ? null : String(row.signed_off_at),
+    ambient_temp_f:
+      row.ambient_temp_f === null || row.ambient_temp_f === undefined
+        ? null
+        : Number(row.ambient_temp_f),
+    gauge_block_serial: row.gauge_block_serial == null ? null : String(row.gauge_block_serial),
+    gauge_block_next_due: row.gauge_block_next_due == null ? null : String(row.gauge_block_next_due),
+    procedure_ref: String(row.procedure_ref ?? 'SOP 2010'),
+    result: row.result === 'fail' ? 'fail' : 'pass',
+    notes: row.notes == null ? null : String(row.notes),
+    measurements: parseMeasurements(row.measurements),
+    created_at: String(row.created_at),
+  }
 }
 
 function formPayload(form: ToolCalibrationFormState) {
@@ -105,9 +169,148 @@ export async function updateToolCalibrationCategory(
   return { error: error?.message ?? null }
 }
 
-export async function deleteToolCalibration(id: number): Promise<{ error: string | null }> {
-  const { error } = await supabase.from('tool_calibrations').delete().eq('id', id)
+export async function deleteToolCalibration(row: ToolCalibration): Promise<{ error: string | null }> {
+  if (row.certificate_storage_path) {
+    await supabase.storage.from(TOOL_CERT_BUCKET).remove([row.certificate_storage_path])
+  }
+  const { error } = await supabase.from('tool_calibrations').delete().eq('id', row.id)
   return { error: error?.message ?? null }
+}
+
+export async function uploadToolCalibrationCertificate(
+  toolId: number,
+  file: File,
+): Promise<{ path: string | null; error: string | null }> {
+  if (file.size > MAX_CERT_BYTES) return { path: null, error: 'Certificate file is too large (max 20 MB).' }
+
+  const allowed =
+    file.type.startsWith('image/') ||
+    file.type === 'application/pdf' ||
+    /\.(pdf|png|jpe?g|webp|gif)$/i.test(file.name)
+  if (!allowed) return { path: null, error: 'Upload a PDF or image file.' }
+
+  const storagePath = `tool-calibration-certificates/${toolId}/${crypto.randomUUID()}${extFromName(file.name)}`
+  const { error: uploadError } = await supabase.storage.from(TOOL_CERT_BUCKET).upload(storagePath, file, {
+    contentType: file.type || undefined,
+    upsert: false,
+  })
+  if (uploadError) return { path: null, error: uploadError.message || 'Upload failed.' }
+  return { path: storagePath, error: null }
+}
+
+export async function attachToolCalibrationCertificate(
+  tool: ToolCalibration,
+  file: File,
+): Promise<{ row: ToolCalibration | null; error: string | null }> {
+  const { path, error: uploadError } = await uploadToolCalibrationCertificate(tool.id, file)
+  if (uploadError || !path) return { row: null, error: uploadError ?? 'Upload failed.' }
+
+  if (tool.certificate_storage_path) {
+    await supabase.storage.from(TOOL_CERT_BUCKET).remove([tool.certificate_storage_path])
+  }
+
+  const { data, error } = await supabase
+    .from('tool_calibrations')
+    .update({
+      certificate_storage_path: path,
+      certificate_file_name: file.name.slice(0, 500),
+      certificate_mime_type: file.type || null,
+      updated_at: new Date().toISOString(),
+    })
+    .eq('id', tool.id)
+    .select(TOOL_SELECT)
+    .single()
+
+  if (error) {
+    await supabase.storage.from(TOOL_CERT_BUCKET).remove([path])
+    return { row: null, error: error.message }
+  }
+  return { row: data as ToolCalibration, error: null }
+}
+
+export async function removeToolCalibrationCertificate(
+  tool: ToolCalibration,
+): Promise<{ error: string | null }> {
+  if (tool.certificate_storage_path) {
+    await supabase.storage.from(TOOL_CERT_BUCKET).remove([tool.certificate_storage_path])
+  }
+  const { error } = await supabase
+    .from('tool_calibrations')
+    .update({
+      certificate_storage_path: null,
+      certificate_file_name: null,
+      certificate_mime_type: null,
+      updated_at: new Date().toISOString(),
+    })
+    .eq('id', tool.id)
+  return { error: error?.message ?? null }
+}
+
+/** Record an outside-lab calibration: update dates and attach the certificate PDF/image. */
+export async function recordExternalToolCalibration(
+  tool: ToolCalibration,
+  input: {
+    calibratedAt: string
+    nextDueAt: string
+    technicianId: number | null
+    technicianName: string
+    signedOffAt: string
+    notes?: string
+    file: File
+  },
+): Promise<{ row: ToolCalibration | null; error: string | null }> {
+  if (!input.calibratedAt.trim()) return { row: null, error: 'Calibration date is required.' }
+  if (!input.nextDueAt.trim()) return { row: null, error: 'Next due date is required.' }
+  const techName = input.technicianName.trim()
+  if (!techName) return { row: null, error: 'Select the technician who signed off.' }
+  if (!input.signedOffAt.trim()) return { row: null, error: 'Sign-off date is required.' }
+
+  const { path, error: uploadError } = await uploadToolCalibrationCertificate(tool.id, input.file)
+  if (uploadError || !path) return { row: null, error: uploadError ?? 'Upload failed.' }
+
+  if (tool.certificate_storage_path) {
+    await supabase.storage.from(TOOL_CERT_BUCKET).remove([tool.certificate_storage_path])
+  }
+
+  const notes = input.notes?.trim()
+  const { data, error } = await supabase
+    .from('tool_calibrations')
+    .update({
+      calibration_date: input.calibratedAt,
+      expiration_date: input.nextDueAt,
+      status: 'active',
+      active: true,
+      notes: notes ? notes : tool.notes,
+      certificate_storage_path: path,
+      certificate_file_name: input.file.name.slice(0, 500),
+      certificate_mime_type: input.file.type || null,
+      updated_at: new Date().toISOString(),
+    })
+    .eq('id', tool.id)
+    .select(TOOL_SELECT)
+    .single()
+
+  if (error) {
+    await supabase.storage.from(TOOL_CERT_BUCKET).remove([path])
+    return { row: null, error: error.message }
+  }
+
+  // Best-effort history row (ignore if events table / sign-off columns missing).
+  await supabase.from('tool_calibration_events').insert({
+    tool_id: tool.id,
+    calibrated_at: input.calibratedAt,
+    next_due_at: input.nextDueAt,
+    tech_initials: technicianInitials(techName),
+    technician_id: input.technicianId,
+    technician_name: techName,
+    signed_off_at: input.signedOffAt,
+    procedure_ref: 'External lab certificate',
+    result: 'pass',
+    notes: notes || `Certificate: ${input.file.name}`,
+    measurements: [],
+  })
+
+  return { row: data as ToolCalibration, error: null }
 }
 
 export type ToolCalibrationSeedRow = {
@@ -159,4 +362,91 @@ export async function importAllToolCalibrationsFromSeed(
     imported += chunk.length
   }
   return { imported, error: null }
+}
+
+export async function loadToolCalibrationEvents(
+  toolId: number,
+): Promise<{ events: ToolCalibrationEvent[]; error: string | null }> {
+  const { data, error } = await supabase
+    .from('tool_calibration_events')
+    .select(EVENT_SELECT)
+    .eq('tool_id', toolId)
+    .order('calibrated_at', { ascending: false })
+    .order('created_at', { ascending: false })
+  if (error) return { events: [], error: error.message }
+  return { events: (data ?? []).map((row) => mapEvent(row as Record<string, unknown>)), error: null }
+}
+
+/**
+ * Record an in-house recalibration (SOP 2010), update the tool's dates/status,
+ * and return the saved event for certificate printing.
+ */
+export async function completeToolRecalibration(
+  tool: ToolCalibration,
+  input: ToolRecalibrationInput,
+): Promise<{ event: ToolCalibrationEvent | null; error: string | null }> {
+  const techName = input.technicianName.trim()
+  if (!techName) return { event: null, error: 'Select the technician who signed off.' }
+  if (!input.signedOffAt.trim()) return { event: null, error: 'Sign-off date is required.' }
+  if (!input.calibratedAt.trim()) return { event: null, error: 'Calibration date is required.' }
+  if (!input.nextDueAt.trim()) return { event: null, error: 'Next due date is required.' }
+  if (!input.gaugeBlockSerial.trim()) {
+    return { event: null, error: 'Gauge block set serial number is required.' }
+  }
+  if (!input.gaugeBlockNextDue.trim()) {
+    return { event: null, error: 'Gauge block set next calibration due date is required.' }
+  }
+
+  const passed = input.result === 'pass'
+  const failNote = input.notes.trim()
+  const nextNotes =
+    passed
+      ? tool.notes
+      : [tool.notes?.trim(), failNote || 'Failed in-house calibration (SOP 2010) — Non-Compliance.']
+          .filter(Boolean)
+          .join('\n')
+
+  const { data, error } = await supabase
+    .from('tool_calibration_events')
+    .insert({
+      tool_id: tool.id,
+      calibrated_at: input.calibratedAt,
+      next_due_at: input.nextDueAt,
+      tech_initials: technicianInitials(techName),
+      technician_id: input.technicianId,
+      technician_name: techName,
+      signed_off_at: input.signedOffAt,
+      ambient_temp_f: input.ambientTempF,
+      gauge_block_serial: input.gaugeBlockSerial.trim(),
+      gauge_block_next_due: input.gaugeBlockNextDue,
+      procedure_ref: input.procedureRef?.trim() || 'SOP 2010',
+      result: input.result,
+      notes: nullIfBlank(input.notes),
+      measurements: input.measurements,
+    })
+    .select(EVENT_SELECT)
+    .single()
+
+  if (error) return { event: null, error: error.message }
+
+  const { error: updateError } = await supabase
+    .from('tool_calibrations')
+    .update({
+      calibration_date: input.calibratedAt,
+      expiration_date: input.nextDueAt,
+      status: passed ? 'active' : 'out_of_service',
+      active: passed,
+      notes: nextNotes,
+      updated_at: new Date().toISOString(),
+    })
+    .eq('id', tool.id)
+
+  if (updateError) {
+    return {
+      event: mapEvent(data as Record<string, unknown>),
+      error: `Saved calibration record, but failed updating tool: ${updateError.message}`,
+    }
+  }
+
+  return { event: mapEvent(data as Record<string, unknown>), error: null }
 }

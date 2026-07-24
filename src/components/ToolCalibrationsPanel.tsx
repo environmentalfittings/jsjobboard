@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useToast } from './ToastNotification'
 import { TestLogColumnHeader } from './testLog/TestLogColumnHeader'
+import { ToolExternalCertModal } from './ToolExternalCertModal'
+import { ToolRecalibrateModal } from './ToolRecalibrateModal'
 import {
   createToolCalibration,
   daysUntilToolExpiration,
@@ -8,11 +10,15 @@ import {
   formatToolDueAlert,
   getToolCalibrationDueStatus,
   loadToolCalibrations,
+  removeToolCalibrationCertificate,
+  toolCalibrationCertificateUrl,
   updateToolCalibration,
   updateToolCalibrationCategory,
 } from '../lib/toolCalibrationRegistry'
+import { openToolCalibrationsReportPrint } from '../lib/toolCalibrationsReportPrint'
 import {
   emptyToolCalibrationForm,
+  isExternalCalibrationCategory,
   isPresetToolCategory,
   toolCalibrationToForm,
   TOOL_CATEGORY_OPTIONS,
@@ -95,6 +101,42 @@ function dueFocusLabel(focus: DueFocus): string {
   if (focus === 'due-30') return 'due within 30 days'
   if (focus === 'due-60') return 'due within 60 days'
   return 'due within 90 days'
+}
+
+const SORT_KEY_LABELS: Record<SortKey, string> = {
+  js_id: 'js id',
+  model: 'model',
+  tool_type: 'type',
+  category: 'category',
+  serial_number: 'serial',
+  department: 'department',
+  calibration_date: 'calibrated date',
+  expiration_date: 'expires date',
+  status: 'status',
+}
+
+function buildPrintFilterNote(options: {
+  search: string
+  columnFilters: ColumnFilters
+  dueFocus: DueFocus | null
+  sortKey: SortKey
+  sortDir: SortDir
+}): string {
+  const parts: string[] = []
+  const q = options.search.trim()
+  if (q) parts.push(`search “${q}”`)
+  if (options.columnFilters.category.length > 0) {
+    parts.push(`category: ${options.columnFilters.category.join(', ')}`)
+  }
+  if (options.columnFilters.department.length > 0) {
+    parts.push(`dept: ${options.columnFilters.department.join(', ')}`)
+  }
+  if (options.columnFilters.status.length > 0) {
+    parts.push(`status: ${options.columnFilters.status.join(', ')}`)
+  }
+  if (options.dueFocus) parts.push(dueFocusLabel(options.dueFocus))
+  parts.push(`sorted by ${SORT_KEY_LABELS[options.sortKey]} (${options.sortDir})`)
+  return parts.join(' · ')
 }
 
 function categorySelectValue(category: string | null | undefined): string {
@@ -223,6 +265,9 @@ export function ToolCalibrationsPanel() {
   const [columnFilters, setColumnFilters] = useState<ColumnFilters>(DEFAULT_COLUMN_FILTERS)
   const [dueFocus, setDueFocus] = useState<DueFocus | null>(null)
   const [categorySavingId, setCategorySavingId] = useState<number | null>(null)
+  const [recalibrateTool, setRecalibrateTool] = useState<ToolCalibration | null>(null)
+  const [externalCertTool, setExternalCertTool] = useState<ToolCalibration | null>(null)
+  const [certBusyId, setCertBusyId] = useState<number | null>(null)
 
   const reload = useCallback(async () => {
     setLoading(true)
@@ -294,7 +339,7 @@ export function ToolCalibrationsPanel() {
       showToast('Incorrect password')
       return
     }
-    const { error } = await deleteToolCalibration(row.id)
+    const { error } = await deleteToolCalibration(row)
     if (error) {
       showToast(error)
       return
@@ -318,6 +363,19 @@ export function ToolCalibrationsPanel() {
     }
     setRows((prev) => prev.map((item) => (item.id === row.id ? { ...item, category } : item)))
     return true
+  }
+
+  const clearCertificate = async (row: ToolCalibration) => {
+    if (!window.confirm(`Remove certificate for ${row.js_id ?? row.id}?`)) return
+    setCertBusyId(row.id)
+    const { error } = await removeToolCalibrationCertificate(row)
+    setCertBusyId(null)
+    if (error) {
+      showToast(error)
+      return
+    }
+    showToast('Certificate removed')
+    await reload()
   }
 
   const toggleSort = (key: SortKey) => {
@@ -463,9 +521,10 @@ export function ToolCalibrationsPanel() {
     <section className="dashboard-panel admin-lists-panel">
       <h3>Tool calibration log</h3>
       <p className="placeholder-copy resources-hint">
-        Shop MTE tools (micrometers, calipers, etc.) from the Tool Calibration Log workbook. Update dates here
-        when tools are recalibrated. Active tools are shown by default — click a summary card to focus due
-        windows. Use column filters for Category, Department, or Status.
+        Shop MTE tools (micrometers, calipers, etc.). Use <strong>Recalibrate</strong> for in-house SOP 2010
+        checks. Torque wrenches and deadweight testers use <strong>Upload cert</strong> for outside-lab
+        certificates. Active tools are shown by default — click a summary card to focus due windows. Use column
+        filters for Category, Department, or Status.
       </p>
 
       <div className="dashboard-kpis tool-cal-kpis" aria-label="Tool calibration summary">
@@ -516,13 +575,33 @@ export function ToolCalibrationsPanel() {
         </button>
       </div>
 
-      {!formOpen ? (
-        <div className="test-gauge-admin-actions" style={{ marginBottom: 12 }}>
+      <div className="test-gauge-admin-actions" style={{ marginBottom: 12 }}>
+        {!formOpen ? (
           <button type="button" className="button-primary" onClick={openAddForm}>
             Add tool
           </button>
-        </div>
-      ) : (
+        ) : null}
+        <button
+          type="button"
+          className="button-secondary"
+          disabled={loading}
+          onClick={() =>
+            openToolCalibrationsReportPrint(sortedRows, {
+              filterNote: buildPrintFilterNote({
+                search,
+                columnFilters,
+                dueFocus,
+                sortKey,
+                sortDir,
+              }),
+            })
+          }
+        >
+          Print report
+        </button>
+      </div>
+
+      {formOpen ? (
         <div className="test-gauge-admin-form">
           <h4>{editingId != null ? 'Edit tool' : 'Add tool'}</h4>
           <div className="test-gauge-admin-grid tool-cal-admin-grid">
@@ -658,7 +737,7 @@ export function ToolCalibrationsPanel() {
             </button>
           </div>
         </div>
-      )}
+      ) : null}
 
       <div className="tool-cal-filters">
         <label>
@@ -712,6 +791,7 @@ export function ToolCalibrationsPanel() {
                 <th>{header('department', 'Dept', 'department')}</th>
                 <th>{header('calibration_date', 'Calibrated')}</th>
                 <th>{header('expiration_date', 'Expires')}</th>
+                <th>Certificate</th>
                 <th>{header('status', 'Status', 'status')}</th>
                 <th />
               </tr>
@@ -719,6 +799,8 @@ export function ToolCalibrationsPanel() {
             <tbody>
               {sortedRows.map((row) => {
                 const due = getToolCalibrationDueStatus(row)
+                const certUrl = toolCalibrationCertificateUrl(row.certificate_storage_path)
+                const external = isExternalCalibrationCategory(row.category)
                 return (
                   <tr key={row.id} className={due !== 'ok' ? `test-gauge-row--${due}` : undefined}>
                     <td>{row.js_id ?? '—'}</td>
@@ -744,8 +826,46 @@ export function ToolCalibrationsPanel() {
                         </span>
                       ) : null}
                     </td>
+                    <td className="test-gauge-cert-cell">
+                      {certUrl ? (
+                        <a href={certUrl} target="_blank" rel="noreferrer">
+                          {row.certificate_file_name ?? 'View'}
+                        </a>
+                      ) : (
+                        '—'
+                      )}
+                      {certUrl ? (
+                        <div className="test-gauge-cert-actions">
+                          <button
+                            type="button"
+                            className="link-button"
+                            disabled={certBusyId === row.id}
+                            onClick={() => void clearCertificate(row)}
+                          >
+                            Remove
+                          </button>
+                        </div>
+                      ) : null}
+                    </td>
                     <td>{row.status === 'out_of_service' ? 'Out of service' : 'Active'}</td>
                     <td className="test-gauge-row-actions">
+                      {external ? (
+                        <button
+                          type="button"
+                          className="link-button"
+                          onClick={() => setExternalCertTool(row)}
+                        >
+                          Upload cert
+                        </button>
+                      ) : (
+                        <button
+                          type="button"
+                          className="link-button"
+                          onClick={() => setRecalibrateTool(row)}
+                        >
+                          Recalibrate
+                        </button>
+                      )}
                       <button type="button" className="link-button" onClick={() => startEdit(row)}>
                         Edit
                       </button>
@@ -764,6 +884,28 @@ export function ToolCalibrationsPanel() {
           </table>
         </div>
       )}
+
+      {recalibrateTool ? (
+        <ToolRecalibrateModal
+          tool={recalibrateTool}
+          showToast={showToast}
+          onClose={() => setRecalibrateTool(null)}
+          onSaved={() => {
+            void reload()
+          }}
+        />
+      ) : null}
+
+      {externalCertTool ? (
+        <ToolExternalCertModal
+          tool={externalCertTool}
+          showToast={showToast}
+          onClose={() => setExternalCertTool(null)}
+          onSaved={() => {
+            void reload()
+          }}
+        />
+      ) : null}
     </section>
   )
 }

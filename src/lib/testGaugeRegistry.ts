@@ -169,6 +169,34 @@ export async function updateTestGauge(
   return { error: error?.message ?? null }
 }
 
+export async function updateTestGaugeType(
+  id: string,
+  gauge_type: string | null,
+): Promise<{ error: string | null }> {
+  const { error } = await supabase
+    .from('test_gauges')
+    .update({
+      gauge_type: gauge_type?.trim() ? gauge_type.trim() : null,
+      updated_at: new Date().toISOString(),
+    })
+    .eq('id', id)
+  return { error: error?.message ?? null }
+}
+
+export async function updateTestGaugeActive(
+  id: string,
+  active: boolean,
+): Promise<{ error: string | null }> {
+  const { error } = await supabase
+    .from('test_gauges')
+    .update({
+      active,
+      updated_at: new Date().toISOString(),
+    })
+    .eq('id', id)
+  return { error: error?.message ?? null }
+}
+
 export async function deleteTestGauge(row: TestGauge): Promise<{ error: string | null }> {
   if (row.certificate_storage_path) {
     await supabase.storage.from(TEST_GAUGE_CERT_BUCKET).remove([row.certificate_storage_path])
