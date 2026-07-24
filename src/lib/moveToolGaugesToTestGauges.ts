@@ -71,6 +71,7 @@ function toolFormFromTestGauge(gauge: TestGauge): ToolCalibrationFormState {
   form.serial_number = gauge.gauge_number
   form.calibration_date = gauge.last_calibration_date ?? ''
   form.expiration_date = gauge.next_calibration_date ?? ''
+  form.certificate_number = gauge.certificate_number ?? ''
   form.status = gauge.active ? 'active' : 'out_of_service'
   form.active = gauge.active
   if (inferred && isPresetToolCategory(inferred)) {
@@ -160,6 +161,7 @@ export async function moveGaugeCategoryToolsToTestGauges(): Promise<MoveToolGaug
       gauge_type: resolveGaugeType(tool),
       last_calibration_date: tool.calibration_date ?? '',
       next_calibration_date: tool.expiration_date ?? '',
+      certificate_number: tool.certificate_number ?? '',
       active: tool.active && tool.status === 'active',
     })
 

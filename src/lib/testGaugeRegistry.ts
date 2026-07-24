@@ -1,11 +1,15 @@
 import { supabase } from './supabase'
-import type { TestGauge, TestGaugeFormState } from '../types/testGauge'
+import { technicianInitials } from './technicianInitials'
+import type { TestGauge, TestGaugeCalibrationEvent, TestGaugeFormState } from '../types/testGauge'
 
 export const TEST_GAUGE_CERT_BUCKET = 'valve-attachments'
 const MAX_CERT_BYTES = 20 * 1024 * 1024
 
 const GAUGE_SELECT =
-  'id,gauge_number,manufacturer,gauge_type,last_calibration_date,next_calibration_date,certificate_storage_path,certificate_file_name,certificate_mime_type,active,created_at,updated_at'
+  'id,gauge_number,manufacturer,gauge_type,last_calibration_date,next_calibration_date,certificate_storage_path,certificate_file_name,certificate_mime_type,certificate_number,active,created_at,updated_at'
+
+const EVENT_SELECT =
+  'id,gauge_id,calibrated_at,next_due_at,tech_initials,technician_id,technician_name,signed_off_at,procedure_ref,result,notes,certificate_number,certificate_storage_path,certificate_file_name,created_at'
 
 function extFromName(name: string) {
   const i = name.lastIndexOf('.')
@@ -136,6 +140,7 @@ export async function createTestGauge(form: TestGaugeFormState): Promise<{ row: 
       gauge_type: form.gauge_type.trim() || null,
       last_calibration_date: form.last_calibration_date || null,
       next_calibration_date: form.next_calibration_date || null,
+      certificate_number: form.certificate_number.trim() || null,
       active: form.active,
     })
     .select(GAUGE_SELECT)
@@ -148,9 +153,27 @@ export async function createTestGauge(form: TestGaugeFormState): Promise<{ row: 
 export async function updateTestGauge(
   id: string,
   form: TestGaugeFormState,
+  previous?: TestGauge | null,
 ): Promise<{ error: string | null }> {
   const gauge_number = form.gauge_number.trim()
   if (!gauge_number) return { error: 'Gauge number is required.' }
+
+  if (previous) {
+    const nextCal = form.last_calibration_date || null
+    const nextExp = form.next_calibration_date || null
+    const nextCert = form.certificate_number.trim() || null
+    const changing =
+      (previous.last_calibration_date ?? null) !== nextCal ||
+      (previous.next_calibration_date ?? null) !== nextExp ||
+      (previous.certificate_number ?? null) !== nextCert
+    if (changing) {
+      const { error: archiveError } = await archivePriorTestGaugeCalibration(previous, {
+        procedureRef: 'Manual edit (archived)',
+        reason: 'Archived when calibration dates or certificate number were edited.',
+      })
+      if (archiveError) return { error: archiveError }
+    }
+  }
 
   const { error } = await supabase
     .from('test_gauges')
@@ -161,6 +184,7 @@ export async function updateTestGauge(
       gauge_type: form.gauge_type.trim() || null,
       last_calibration_date: form.last_calibration_date || null,
       next_calibration_date: form.next_calibration_date || null,
+      certificate_number: form.certificate_number.trim() || null,
       active: form.active,
       updated_at: new Date().toISOString(),
     })
@@ -233,10 +257,7 @@ export async function attachTestGaugeCertificate(
   const { path, error: uploadError } = await uploadTestGaugeCertificate(gauge.id, file)
   if (uploadError || !path) return { row: null, error: uploadError ?? 'Upload failed.' }
 
-  if (gauge.certificate_storage_path) {
-    await supabase.storage.from(TEST_GAUGE_CERT_BUCKET).remove([gauge.certificate_storage_path])
-  }
-
+  // Keep prior file if present — callers that replace calibrations should archive first.
   const { data, error } = await supabase
     .from('test_gauges')
     .update({
@@ -266,10 +287,181 @@ export async function removeTestGaugeCertificate(gauge: TestGauge): Promise<{ er
       certificate_storage_path: null,
       certificate_file_name: null,
       certificate_mime_type: null,
+      certificate_number: null,
       updated_at: new Date().toISOString(),
     })
     .eq('id', gauge.id)
   return { error: error?.message ?? null }
+}
+
+function todayFallback() {
+  const d = new Date()
+  const y = d.getFullYear()
+  const m = String(d.getMonth() + 1).padStart(2, '0')
+  const day = String(d.getDate()).padStart(2, '0')
+  return `${y}-${m}-${day}`
+}
+
+function mapGaugeEvent(row: Record<string, unknown>): TestGaugeCalibrationEvent {
+  return {
+    id: String(row.id),
+    gauge_id: String(row.gauge_id),
+    calibrated_at: String(row.calibrated_at),
+    next_due_at: String(row.next_due_at),
+    tech_initials: String(row.tech_initials ?? ''),
+    technician_id:
+      row.technician_id === null || row.technician_id === undefined ? null : Number(row.technician_id),
+    technician_name: row.technician_name == null ? null : String(row.technician_name),
+    signed_off_at: row.signed_off_at == null ? null : String(row.signed_off_at),
+    procedure_ref: String(row.procedure_ref ?? 'External lab certificate'),
+    result: row.result === 'fail' ? 'fail' : 'pass',
+    notes: row.notes == null ? null : String(row.notes),
+    certificate_number: row.certificate_number == null ? null : String(row.certificate_number),
+    certificate_storage_path:
+      row.certificate_storage_path == null ? null : String(row.certificate_storage_path),
+    certificate_file_name: row.certificate_file_name == null ? null : String(row.certificate_file_name),
+    created_at: String(row.created_at),
+  }
+}
+
+export function testGaugeHasCalibrationRecord(gauge: TestGauge): boolean {
+  return Boolean(
+    gauge.last_calibration_date ||
+      gauge.next_calibration_date ||
+      gauge.certificate_storage_path ||
+      gauge.certificate_number,
+  )
+}
+
+export async function loadTestGaugeCalibrationEvents(
+  gaugeId: string,
+): Promise<{ events: TestGaugeCalibrationEvent[]; error: string | null }> {
+  const { data, error } = await supabase
+    .from('test_gauge_calibration_events')
+    .select(EVENT_SELECT)
+    .eq('gauge_id', gaugeId)
+    .order('calibrated_at', { ascending: false })
+    .order('created_at', { ascending: false })
+  if (error) return { events: [], error: error.message }
+  return { events: (data ?? []).map((row) => mapGaugeEvent(row as Record<string, unknown>)), error: null }
+}
+
+export async function archivePriorTestGaugeCalibration(
+  gauge: TestGauge,
+  options?: { procedureRef?: string; reason?: string },
+): Promise<{ archived: boolean; error: string | null }> {
+  if (!testGaugeHasCalibrationRecord(gauge)) return { archived: false, error: null }
+
+  const { events, error: loadError } = await loadTestGaugeCalibrationEvents(gauge.id)
+  if (loadError) return { archived: false, error: loadError }
+
+  const latest = events[0]
+  const alreadyRecorded =
+    latest &&
+    latest.calibrated_at === (gauge.last_calibration_date ?? '') &&
+    latest.next_due_at === (gauge.next_calibration_date ?? '') &&
+    (latest.certificate_number ?? null) === (gauge.certificate_number ?? null) &&
+    (latest.certificate_storage_path ?? null) === (gauge.certificate_storage_path ?? null)
+
+  if (alreadyRecorded) return { archived: false, error: null }
+
+  const { error } = await supabase.from('test_gauge_calibration_events').insert({
+    gauge_id: gauge.id,
+    calibrated_at: gauge.last_calibration_date || todayFallback(),
+    next_due_at: gauge.next_calibration_date || gauge.last_calibration_date || todayFallback(),
+    tech_initials: 'ARCH',
+    technician_name: 'Archived prior calibration',
+    signed_off_at: gauge.last_calibration_date,
+    procedure_ref: options?.procedureRef ?? 'Prior calibration (archived)',
+    result: 'pass',
+    notes: [
+      options?.reason ?? 'Archived when a new calibration was recorded.',
+      gauge.certificate_number ? `Prior cert # ${gauge.certificate_number}` : null,
+      gauge.certificate_file_name ? `Prior file: ${gauge.certificate_file_name}` : null,
+    ]
+      .filter(Boolean)
+      .join('\n'),
+    certificate_number: gauge.certificate_number,
+    certificate_storage_path: gauge.certificate_storage_path,
+    certificate_file_name: gauge.certificate_file_name,
+  })
+
+  return { archived: !error, error: error?.message ?? null }
+}
+
+/** Outside-lab calibration for test gauges: archive prior, attach cert, update dates. */
+export async function recordExternalTestGaugeCalibration(
+  gauge: TestGauge,
+  input: {
+    calibratedAt: string
+    nextDueAt: string
+    technicianId: number | null
+    technicianName: string
+    signedOffAt: string
+    certificateNumber: string
+    notes?: string
+    file: File
+  },
+): Promise<{ row: TestGauge | null; error: string | null }> {
+  if (!input.calibratedAt.trim()) return { row: null, error: 'Calibration date is required.' }
+  if (!input.nextDueAt.trim()) return { row: null, error: 'Next due date is required.' }
+  const techName = input.technicianName.trim()
+  if (!techName) return { row: null, error: 'Select the technician who signed off.' }
+  if (!input.signedOffAt.trim()) return { row: null, error: 'Sign-off date is required.' }
+  const certNumber = input.certificateNumber.trim()
+  if (!certNumber) return { row: null, error: 'Certificate number is required.' }
+
+  const { path, error: uploadError } = await uploadTestGaugeCertificate(gauge.id, input.file)
+  if (uploadError || !path) return { row: null, error: uploadError ?? 'Upload failed.' }
+
+  const { error: archiveError } = await archivePriorTestGaugeCalibration(gauge, {
+    procedureRef: 'External lab certificate (archived)',
+    reason: 'Archived when a new certificate was uploaded.',
+  })
+  if (archiveError) {
+    await supabase.storage.from(TEST_GAUGE_CERT_BUCKET).remove([path])
+    return { row: null, error: archiveError }
+  }
+
+  const notes = input.notes?.trim()
+  const { data, error } = await supabase
+    .from('test_gauges')
+    .update({
+      last_calibration_date: input.calibratedAt,
+      next_calibration_date: input.nextDueAt,
+      active: true,
+      certificate_storage_path: path,
+      certificate_file_name: input.file.name.slice(0, 500),
+      certificate_mime_type: input.file.type || null,
+      certificate_number: certNumber,
+      updated_at: new Date().toISOString(),
+    })
+    .eq('id', gauge.id)
+    .select(GAUGE_SELECT)
+    .single()
+
+  if (error) {
+    await supabase.storage.from(TEST_GAUGE_CERT_BUCKET).remove([path])
+    return { row: null, error: error.message }
+  }
+
+  await supabase.from('test_gauge_calibration_events').insert({
+    gauge_id: gauge.id,
+    calibrated_at: input.calibratedAt,
+    next_due_at: input.nextDueAt,
+    tech_initials: technicianInitials(techName),
+    technician_id: input.technicianId,
+    technician_name: techName,
+    signed_off_at: input.signedOffAt,
+    procedure_ref: 'External lab certificate',
+    result: 'pass',
+    notes: notes || `Certificate # ${certNumber}`,
+    certificate_number: certNumber,
+    certificate_storage_path: path,
+    certificate_file_name: input.file.name.slice(0, 500),
+  })
+
+  return { row: data as TestGauge, error: null }
 }
 
 /** Resolve gauge id + number for test log blocks (supports legacy text-only saves). */

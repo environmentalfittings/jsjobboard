@@ -155,7 +155,24 @@ export async function createToolCalibration(
 export async function updateToolCalibration(
   id: number,
   form: ToolCalibrationFormState,
+  previous?: ToolCalibration | null,
 ): Promise<{ error: string | null }> {
+  if (previous) {
+    const nextCal = nullIfBlank(form.calibration_date)
+    const nextExp = nullIfBlank(form.expiration_date)
+    const nextCert = nullIfBlank(form.certificate_number)
+    const datesOrCertChanging =
+      (previous.calibration_date ?? null) !== nextCal ||
+      (previous.expiration_date ?? null) !== nextExp ||
+      (previous.certificate_number ?? null) !== nextCert
+    if (datesOrCertChanging) {
+      const { error: archiveError } = await archivePriorToolCalibration(previous, {
+        procedureRef: 'Manual edit (archived)',
+        reason: 'Archived when calibration dates or certificate number were edited.',
+      })
+      if (archiveError) return { error: archiveError }
+    }
+  }
   const { error } = await supabase.from('tool_calibrations').update(formPayload(form)).eq('id', id)
   return { error: error?.message ?? null }
 }
@@ -276,37 +293,13 @@ export async function recordExternalToolCalibration(
   const { path, error: uploadError } = await uploadToolCalibrationCertificate(tool.id, input.file)
   if (uploadError || !path) return { row: null, error: uploadError ?? 'Upload failed.' }
 
-  const hasPriorRecord = Boolean(
-    tool.calibration_date ||
-      tool.expiration_date ||
-      tool.certificate_storage_path ||
-      tool.certificate_number,
-  )
-
-  // Archive the current record (keep old certificate file for history).
-  if (hasPriorRecord) {
-    await supabase.from('tool_calibration_events').insert({
-      tool_id: tool.id,
-      calibrated_at: tool.calibration_date || input.calibratedAt,
-      next_due_at: tool.expiration_date || input.nextDueAt,
-      tech_initials: 'ARCH',
-      technician_name: 'Archived prior calibration',
-      signed_off_at: tool.calibration_date,
-      procedure_ref: 'External lab certificate (archived)',
-      result: 'pass',
-      notes: [
-        'Archived when a new certificate was uploaded.',
-        tool.certificate_number ? `Prior cert # ${tool.certificate_number}` : null,
-        tool.certificate_file_name ? `Prior file: ${tool.certificate_file_name}` : null,
-        tool.notes?.trim() || null,
-      ]
-        .filter(Boolean)
-        .join('\n'),
-      measurements: [],
-      certificate_number: tool.certificate_number,
-      certificate_storage_path: tool.certificate_storage_path,
-      certificate_file_name: tool.certificate_file_name,
-    })
+  const { error: archiveError } = await archivePriorToolCalibration(tool, {
+    procedureRef: 'External lab certificate (archived)',
+    reason: 'Archived when a new certificate was uploaded.',
+  })
+  if (archiveError) {
+    await supabase.storage.from(TOOL_CERT_BUCKET).remove([path])
+    return { row: null, error: archiveError }
   }
 
   const notes = input.notes?.trim()
@@ -417,6 +410,72 @@ export async function loadToolCalibrationEvents(
   return { events: (data ?? []).map((row) => mapEvent(row as Record<string, unknown>)), error: null }
 }
 
+export function toolHasCalibrationRecord(tool: ToolCalibration): boolean {
+  return Boolean(
+    tool.calibration_date ||
+      tool.expiration_date ||
+      tool.certificate_storage_path ||
+      tool.certificate_number,
+  )
+}
+
+/**
+ * Snapshot the tool's current calibration into history when that state is not
+ * already the latest event (covers seeded / manually edited records).
+ */
+export async function archivePriorToolCalibration(
+  tool: ToolCalibration,
+  options?: { procedureRef?: string; reason?: string },
+): Promise<{ archived: boolean; error: string | null }> {
+  if (!toolHasCalibrationRecord(tool)) return { archived: false, error: null }
+
+  const { events, error: loadError } = await loadToolCalibrationEvents(tool.id)
+  if (loadError) return { archived: false, error: loadError }
+
+  const latest = events[0]
+  const alreadyRecorded =
+    latest &&
+    latest.calibrated_at === (tool.calibration_date ?? '') &&
+    latest.next_due_at === (tool.expiration_date ?? '') &&
+    (latest.certificate_number ?? null) === (tool.certificate_number ?? null) &&
+    (latest.certificate_storage_path ?? null) === (tool.certificate_storage_path ?? null)
+
+  if (alreadyRecorded) return { archived: false, error: null }
+
+  const { error } = await supabase.from('tool_calibration_events').insert({
+    tool_id: tool.id,
+    calibrated_at: tool.calibration_date || todayFallback(),
+    next_due_at: tool.expiration_date || tool.calibration_date || todayFallback(),
+    tech_initials: 'ARCH',
+    technician_name: 'Archived prior calibration',
+    signed_off_at: tool.calibration_date,
+    procedure_ref: options?.procedureRef ?? 'Prior calibration (archived)',
+    result: 'pass',
+    notes: [
+      options?.reason ?? 'Archived when a new calibration was recorded.',
+      tool.certificate_number ? `Prior cert # ${tool.certificate_number}` : null,
+      tool.certificate_file_name ? `Prior file: ${tool.certificate_file_name}` : null,
+      tool.notes?.trim() || null,
+    ]
+      .filter(Boolean)
+      .join('\n'),
+    measurements: [],
+    certificate_number: tool.certificate_number,
+    certificate_storage_path: tool.certificate_storage_path,
+    certificate_file_name: tool.certificate_file_name,
+  })
+
+  return { archived: !error, error: error?.message ?? null }
+}
+
+function todayFallback() {
+  const d = new Date()
+  const y = d.getFullYear()
+  const m = String(d.getMonth() + 1).padStart(2, '0')
+  const day = String(d.getDate()).padStart(2, '0')
+  return `${y}-${m}-${day}`
+}
+
 /**
  * Record an in-house recalibration (SOP 2010), update the tool's dates/status,
  * and return the saved event for certificate printing.
@@ -436,6 +495,12 @@ export async function completeToolRecalibration(
   if (!input.gaugeBlockNextDue.trim()) {
     return { event: null, error: 'Gauge block set next calibration due date is required.' }
   }
+
+  const { error: archiveError } = await archivePriorToolCalibration(tool, {
+    procedureRef: 'SOP 2010 (archived)',
+    reason: 'Archived when a new in-house calibration was recorded.',
+  })
+  if (archiveError) return { event: null, error: archiveError }
 
   const passed = input.result === 'pass'
   const failNote = input.notes.trim()
@@ -463,6 +528,9 @@ export async function completeToolRecalibration(
       result: input.result,
       notes: nullIfBlank(input.notes),
       measurements: input.measurements,
+      certificate_number: tool.certificate_number,
+      certificate_storage_path: tool.certificate_storage_path,
+      certificate_file_name: tool.certificate_file_name,
     })
     .select(EVENT_SELECT)
     .single()

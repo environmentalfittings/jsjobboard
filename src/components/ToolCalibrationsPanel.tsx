@@ -1,6 +1,7 @@
 import { Fragment, useCallback, useEffect, useMemo, useState } from 'react'
 import { useToast } from './ToastNotification'
 import { TestLogColumnHeader } from './testLog/TestLogColumnHeader'
+import { ToolCalibrationHistoryModal } from './ToolCalibrationHistoryModal'
 import { ToolExternalCertModal } from './ToolExternalCertModal'
 import { ToolRecalibrateModal } from './ToolRecalibrateModal'
 import {
@@ -267,6 +268,7 @@ export function ToolCalibrationsPanel() {
   const [categorySavingId, setCategorySavingId] = useState<number | null>(null)
   const [recalibrateTool, setRecalibrateTool] = useState<ToolCalibration | null>(null)
   const [externalCertTool, setExternalCertTool] = useState<ToolCalibration | null>(null)
+  const [historyTool, setHistoryTool] = useState<ToolCalibration | null>(null)
   const [certBusyId, setCertBusyId] = useState<number | null>(null)
 
   const reload = useCallback(async () => {
@@ -316,7 +318,8 @@ export function ToolCalibrationsPanel() {
   const saveRow = async () => {
     setSaving(true)
     if (editingId != null) {
-      const { error } = await updateToolCalibration(editingId, form)
+      const previous = rows.find((row) => row.id === editingId) ?? null
+      const { error } = await updateToolCalibration(editingId, form, previous)
       setSaving(false)
       if (error) {
         showToast(error)
@@ -663,8 +666,9 @@ export function ToolCalibrationsPanel() {
       <p className="placeholder-copy resources-hint">
         Shop MTE tools (micrometers, calipers, etc.). Use <strong>Recalibrate</strong> for in-house SOP 2010
         checks. Torque wrenches, deadweight testers, and gauge block standards use{' '}
-        <strong>Upload cert</strong> for outside-lab certificates. Active tools are shown by default — click a
-        summary card to focus due windows. Use column filters for Category, Department, or Status.
+        <strong>Upload cert</strong> for outside-lab certificates. Prior calibrations are archived for every
+        tool — use <strong>History</strong> to review them. Active tools are shown by default — click a summary
+        card to focus due windows. Use column filters for Category, Department, or Status.
       </p>
 
       <div className="dashboard-kpis tool-cal-kpis" aria-label="Tool calibration summary">
@@ -888,6 +892,9 @@ export function ToolCalibrationsPanel() {
                             Recalibrate
                           </button>
                         )}
+                        <button type="button" className="link-button" onClick={() => setHistoryTool(row)}>
+                          History
+                        </button>
                         <button type="button" className="link-button" onClick={() => startEdit(row)}>
                           {isEditingRow ? 'Close' : 'Edit'}
                         </button>
@@ -950,6 +957,14 @@ export function ToolCalibrationsPanel() {
           onSaved={() => {
             void reload()
           }}
+        />
+      ) : null}
+
+      {historyTool ? (
+        <ToolCalibrationHistoryModal
+          tool={historyTool}
+          showToast={showToast}
+          onClose={() => setHistoryTool(null)}
         />
       ) : null}
     </section>

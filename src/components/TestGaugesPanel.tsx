@@ -1,6 +1,7 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useToast } from './ToastNotification'
 import { TestLogColumnHeader } from './testLog/TestLogColumnHeader'
+import { TestGaugeExternalCertModal } from './TestGaugeExternalCertModal'
 import {
   attachTestGaugeCertificate,
   createTestGauge,
@@ -238,11 +239,12 @@ export function TestGaugesPanel() {
   const [rows, setRows] = useState<TestGauge[]>([])
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
-  const [uploadingId, setUploadingId] = useState<string | null>(null)
   const [editingId, setEditingId] = useState<string | null>(null)
   const [formOpen, setFormOpen] = useState(false)
   const [form, setForm] = useState<TestGaugeFormState>(emptyTestGaugeForm())
   const [pendingCertGaugeId, setPendingCertGaugeId] = useState<string | null>(null)
+  const [externalCertGauge, setExternalCertGauge] = useState<TestGauge | null>(null)
+  const [externalCertTab, setExternalCertTab] = useState<'new' | 'history'>('new')
   const [search, setSearch] = useState('')
   const [sortKey, setSortKey] = useState<SortKey>('gauge_number')
   const [sortDir, setSortDir] = useState<SortDir>('asc')
@@ -282,6 +284,10 @@ export function TestGaugesPanel() {
   }
 
   const startEdit = (row: TestGauge) => {
+    if (editingId === row.id && formOpen) {
+      resetForm()
+      return
+    }
     setEditingId(row.id)
     setForm(testGaugeToForm(row))
     setFormOpen(true)
@@ -290,7 +296,8 @@ export function TestGaugesPanel() {
   const saveGauge = async () => {
     setSaving(true)
     if (editingId) {
-      const { error } = await updateTestGauge(editingId, form)
+      const previous = rows.find((row) => row.id === editingId) ?? null
+      const { error } = await updateTestGauge(editingId, form, previous)
       setSaving(false)
       if (error) {
         showToast(error)
@@ -306,9 +313,7 @@ export function TestGaugesPanel() {
       }
       showToast('Test gauge added')
       if (pendingCertGaugeId === 'new' && certInputRef.current?.files?.[0]) {
-        setUploadingId(row.id)
         const { error: certError } = await attachTestGaugeCertificate(row, certInputRef.current.files[0])
-        setUploadingId(null)
         if (certError) showToast(certError)
         if (certInputRef.current) certInputRef.current.value = ''
       }
@@ -380,21 +385,8 @@ export function TestGaugesPanel() {
     showToast(active ? 'Gauge set to Active' : 'Gauge set to Inactive')
   }
 
-  const uploadCert = async (row: TestGauge, file: File | undefined) => {
-    if (!file) return
-    setUploadingId(row.id)
-    const { error } = await attachTestGaugeCertificate(row, file)
-    setUploadingId(null)
-    if (error) {
-      showToast(error)
-      return
-    }
-    showToast('Calibration certificate uploaded')
-    await reload()
-  }
-
   const clearCert = async (row: TestGauge) => {
-    if (!window.confirm('Remove calibration certificate?')) return
+    if (!window.confirm('Remove the current calibration certificate file from this gauge?')) return
     const { error } = await removeTestGaugeCertificate(row)
     if (error) {
       showToast(error)
@@ -402,6 +394,11 @@ export function TestGaugesPanel() {
     }
     showToast('Certificate removed')
     await reload()
+  }
+
+  const openExternalCert = (row: TestGauge, tab: 'new' | 'history' = 'new') => {
+    setExternalCertTab(tab)
+    setExternalCertGauge(row)
   }
 
   const toggleSort = (key: SortKey) => {
@@ -515,12 +512,84 @@ export function TestGaugesPanel() {
     />
   )
 
+  const gaugeFormFields = (
+    <div className="test-gauge-admin-grid">
+      <label>
+        Gauge number
+        <input
+          type="text"
+          value={form.gauge_number}
+          onChange={(e) => setForm((f) => ({ ...f, gauge_number: e.target.value }))}
+          placeholder="e.g. JS284"
+        />
+      </label>
+      <label>
+        Manufacturer
+        <input
+          type="text"
+          value={form.manufacturer}
+          onChange={(e) => setForm((f) => ({ ...f, manufacturer: e.target.value }))}
+        />
+      </label>
+      <label>
+        Type
+        <input
+          type="text"
+          list="test-gauge-type-suggestions"
+          value={form.gauge_type}
+          onChange={(e) => setForm((f) => ({ ...f, gauge_type: e.target.value }))}
+          placeholder="e.g. Pressure, Helium, Chart recorder"
+        />
+        <datalist id="test-gauge-type-suggestions">
+          {SUGGESTED_GAUGE_TYPES.map((type) => (
+            <option key={type} value={type} />
+          ))}
+        </datalist>
+      </label>
+      <label>
+        Last calibration date
+        <input
+          type="date"
+          value={form.last_calibration_date}
+          onChange={(e) => setForm((f) => ({ ...f, last_calibration_date: e.target.value }))}
+        />
+      </label>
+      <label>
+        Next calibration date
+        <input
+          type="date"
+          value={form.next_calibration_date}
+          onChange={(e) => setForm((f) => ({ ...f, next_calibration_date: e.target.value }))}
+        />
+      </label>
+      <label>
+        Certificate number
+        <input
+          type="text"
+          value={form.certificate_number}
+          placeholder="Lab certificate #"
+          onChange={(e) => setForm((f) => ({ ...f, certificate_number: e.target.value }))}
+        />
+      </label>
+      <label className="test-gauge-admin-active">
+        <input
+          type="checkbox"
+          checked={form.active}
+          onChange={(e) => setForm((f) => ({ ...f, active: e.target.checked }))}
+        />
+        Active (show in test log dropdowns)
+      </label>
+    </div>
+  )
+
   return (
     <section className="dashboard-panel admin-lists-panel">
       <h3>Test gauges</h3>
       <p className="placeholder-copy resources-hint">
-        Calibrated test gauges and chart recorders for the test log. Active gauges are shown by default — click a
-        summary card to focus due windows. Use column filters for Type or Status.
+        Calibrated test gauges and chart recorders for the test log. Gauges are calibrated by an outside lab —
+        use <strong>Upload cert</strong> to record a new certificate (prior calibrations are archived). Use{' '}
+        <strong>History</strong> to review archived certificates. Active gauges are shown by default — click a
+        summary card to focus due windows.
       </p>
 
       <div className="dashboard-kpis tool-cal-kpis" aria-label="Test gauge calibration summary">
@@ -572,7 +641,7 @@ export function TestGaugesPanel() {
       </div>
 
       <div className="test-gauge-admin-actions" style={{ marginBottom: 12 }}>
-        {!formOpen ? (
+        {!(formOpen && editingId == null) ? (
           <button type="button" className="button-primary" onClick={openAddForm}>
             Add gauge
           </button>
@@ -597,86 +666,25 @@ export function TestGaugesPanel() {
         </button>
       </div>
 
-      {formOpen ? (
+      {formOpen && editingId == null ? (
         <div className="test-gauge-admin-form">
-          <h4>{editingId ? 'Edit gauge' : 'Add gauge'}</h4>
-          <div className="test-gauge-admin-grid">
-            <label>
-              Gauge number
-              <input
-                type="text"
-                value={form.gauge_number}
-                onChange={(e) => setForm((f) => ({ ...f, gauge_number: e.target.value }))}
-                placeholder="e.g. JS284"
-              />
-            </label>
-            <label>
-              Manufacturer
-              <input
-                type="text"
-                value={form.manufacturer}
-                onChange={(e) => setForm((f) => ({ ...f, manufacturer: e.target.value }))}
-              />
-            </label>
-            <label>
-              Type
-              <input
-                type="text"
-                list="test-gauge-type-suggestions"
-                value={form.gauge_type}
-                onChange={(e) => setForm((f) => ({ ...f, gauge_type: e.target.value }))}
-                placeholder="e.g. Pressure, Helium, Chart recorder"
-              />
-              <datalist id="test-gauge-type-suggestions">
-                {SUGGESTED_GAUGE_TYPES.map((type) => (
-                  <option key={type} value={type} />
-                ))}
-              </datalist>
-            </label>
-            <label>
-              Last calibration date
-              <input
-                type="date"
-                value={form.last_calibration_date}
-                onChange={(e) => setForm((f) => ({ ...f, last_calibration_date: e.target.value }))}
-              />
-            </label>
-            <label>
-              Next calibration date
-              <input
-                type="date"
-                value={form.next_calibration_date}
-                onChange={(e) => setForm((f) => ({ ...f, next_calibration_date: e.target.value }))}
-              />
-            </label>
-            <label className="test-gauge-admin-active">
-              <input
-                type="checkbox"
-                checked={form.active}
-                onChange={(e) => setForm((f) => ({ ...f, active: e.target.checked }))}
-              />
-              Active (show in test log dropdowns)
-            </label>
-          </div>
-
-          {!editingId ? (
-            <label className="test-gauge-cert-upload">
-              Calibration certificate (optional)
-              <input
-                ref={certInputRef}
-                type="file"
-                accept=".pdf,image/*"
-                onChange={() => setPendingCertGaugeId('new')}
-              />
-            </label>
-          ) : null}
-
+          <h4>Add gauge</h4>
+          {gaugeFormFields}
+          <label className="test-gauge-cert-upload">
+            Calibration certificate (optional)
+            <input
+              ref={certInputRef}
+              type="file"
+              accept=".pdf,image/*"
+              onChange={() => setPendingCertGaugeId('new')}
+            />
+          </label>
           <div className="test-gauge-admin-actions">
             <button type="button" className="button-primary" disabled={saving} onClick={() => void saveGauge()}>
-              {saving ? 'Saving…' : editingId ? 'Save changes' : 'Add gauge'}
+              {saving ? 'Saving…' : 'Add gauge'}
             </button>
             <button type="button" className="button-secondary" onClick={resetForm}>
-              {editingId ? 'Cancel edit' : 'Cancel'}
+              Cancel
             </button>
           </div>
         </div>
@@ -738,96 +746,142 @@ export function TestGaugesPanel() {
               {sortedRows.map((row) => {
                 const certUrl = testGaugeCertificateUrl(row.certificate_storage_path)
                 const calStatus = getGaugeCalibrationStatus(row)
+                const isEditingRow = formOpen && editingId === row.id
                 return (
-                  <tr key={row.id} className={calStatus !== 'ok' ? `test-gauge-row--${calStatus}` : undefined}>
-                    <td>{row.gauge_number}</td>
-                    <td>{row.manufacturer ?? '—'}</td>
-                    <td>
-                      <InlineTypeCell
-                        row={row}
-                        disabled={typeSavingId != null && typeSavingId !== row.id}
-                        onSave={(gaugeType) => saveTypeInline(row, gaugeType)}
-                      />
-                    </td>
-                    <td>{row.last_calibration_date ?? '—'}</td>
-                    <td className={calStatus !== 'ok' ? `test-gauge-cal-cell--${calStatus}` : undefined}>
-                      {row.next_calibration_date ?? '—'}
-                      {calStatus === 'critical' || calStatus === 'due' ? (
-                        <span className="test-gauge-expired-badge">Expired</span>
-                      ) : calStatus === 'expiring' ? (
-                        <span className={`test-gauge-cal-badge test-gauge-cal-badge--${calStatus}`}>
-                          {formatGaugeCalibrationAlert(row)}
-                        </span>
-                      ) : null}
-                    </td>
-                    <td className="test-gauge-cert-cell">
-                      {certUrl ? (
-                        <a href={certUrl} target="_blank" rel="noreferrer">
-                          {row.certificate_file_name ?? 'View'}
-                        </a>
-                      ) : (
-                        '—'
-                      )}
-                      <div className="test-gauge-cert-actions">
-                        <label className="test-gauge-cert-inline-upload">
-                          {uploadingId === row.id ? 'Uploading…' : 'Upload'}
-                          <input
-                            type="file"
-                            accept=".pdf,image/*"
-                            disabled={uploadingId === row.id}
-                            onChange={(e) => {
-                              void uploadCert(row, e.target.files?.[0])
-                              e.currentTarget.value = ''
-                            }}
-                          />
-                        </label>
-                        {certUrl ? (
-                          <button type="button" className="link-button" onClick={() => void clearCert(row)}>
-                            Remove
-                          </button>
+                  <Fragment key={row.id}>
+                    <tr className={calStatus !== 'ok' ? `test-gauge-row--${calStatus}` : undefined}>
+                      <td>{row.gauge_number}</td>
+                      <td>{row.manufacturer ?? '—'}</td>
+                      <td>
+                        <InlineTypeCell
+                          row={row}
+                          disabled={typeSavingId != null && typeSavingId !== row.id}
+                          onSave={(gaugeType) => saveTypeInline(row, gaugeType)}
+                        />
+                      </td>
+                      <td>{row.last_calibration_date ?? '—'}</td>
+                      <td className={calStatus !== 'ok' ? `test-gauge-cal-cell--${calStatus}` : undefined}>
+                        {row.next_calibration_date ?? '—'}
+                        {calStatus === 'critical' || calStatus === 'due' ? (
+                          <span className="test-gauge-expired-badge">Expired</span>
+                        ) : calStatus === 'expiring' ? (
+                          <span className={`test-gauge-cal-badge test-gauge-cal-badge--${calStatus}`}>
+                            {formatGaugeCalibrationAlert(row)}
+                          </span>
                         ) : null}
-                      </div>
-                    </td>
-                    <td>
-                      <select
-                        className="tool-cal-inline-category-select"
-                        value={row.active ? 'Active' : 'Inactive'}
-                        disabled={statusSavingId === row.id}
-                        aria-label={`Status for ${row.gauge_number}`}
-                        onChange={(e) => {
-                          void saveStatusInline(row, e.target.value === 'Active')
-                        }}
-                      >
-                        <option value="Active">Active</option>
-                        <option value="Inactive">Inactive</option>
-                      </select>
-                    </td>
-                    <td className="test-gauge-row-actions">
-                      <button type="button" className="link-button" onClick={() => startEdit(row)}>
-                        Edit
-                      </button>
-                      <button
-                        type="button"
-                        className="link-button"
-                        onClick={() => void moveGaugeToToolLog(row)}
-                      >
-                        To tool log
-                      </button>
-                      <button
-                        type="button"
-                        className="link-button link-button-danger"
-                        onClick={() => void removeGauge(row)}
-                      >
-                        Delete
-                      </button>
-                    </td>
-                  </tr>
+                      </td>
+                      <td className="test-gauge-cert-cell">
+                        {row.certificate_number?.trim() ? (
+                          <div className="tool-cal-cert-number">#{row.certificate_number.trim()}</div>
+                        ) : null}
+                        {certUrl ? (
+                          <a href={certUrl} target="_blank" rel="noreferrer">
+                            {row.certificate_file_name ?? 'View'}
+                          </a>
+                        ) : row.certificate_number?.trim() ? null : (
+                          '—'
+                        )}
+                        {certUrl ? (
+                          <div className="test-gauge-cert-actions">
+                            <button type="button" className="link-button" onClick={() => void clearCert(row)}>
+                              Remove
+                            </button>
+                          </div>
+                        ) : null}
+                      </td>
+                      <td>
+                        <select
+                          className="tool-cal-inline-category-select"
+                          value={row.active ? 'Active' : 'Inactive'}
+                          disabled={statusSavingId === row.id}
+                          aria-label={`Status for ${row.gauge_number}`}
+                          onChange={(e) => {
+                            void saveStatusInline(row, e.target.value === 'Active')
+                          }}
+                        >
+                          <option value="Active">Active</option>
+                          <option value="Inactive">Inactive</option>
+                        </select>
+                      </td>
+                      <td className="test-gauge-row-actions">
+                        <button
+                          type="button"
+                          className="link-button"
+                          onClick={() => openExternalCert(row, 'new')}
+                        >
+                          Upload cert
+                        </button>
+                        <button
+                          type="button"
+                          className="link-button"
+                          onClick={() => openExternalCert(row, 'history')}
+                        >
+                          History
+                        </button>
+                        <button type="button" className="link-button" onClick={() => startEdit(row)}>
+                          {isEditingRow ? 'Close' : 'Edit'}
+                        </button>
+                        <button
+                          type="button"
+                          className="link-button"
+                          onClick={() => void moveGaugeToToolLog(row)}
+                        >
+                          To tool log
+                        </button>
+                        <button
+                          type="button"
+                          className="link-button link-button-danger"
+                          onClick={() => void removeGauge(row)}
+                        >
+                          Delete
+                        </button>
+                      </td>
+                    </tr>
+                    {isEditingRow ? (
+                      <tr className="tool-cal-inline-edit-row">
+                        <td colSpan={8}>
+                          <div className="test-gauge-admin-form tool-cal-inline-edit-form">
+                            <h4>Edit gauge — {row.gauge_number}</h4>
+                            <p className="placeholder-copy resources-hint">
+                              Changing calibration dates or certificate number archives the prior record. Prefer{' '}
+                              <strong>Upload cert</strong> when recording a new outside-lab certificate.
+                            </p>
+                            {gaugeFormFields}
+                            <div className="test-gauge-admin-actions">
+                              <button
+                                type="button"
+                                className="button-primary"
+                                disabled={saving}
+                                onClick={() => void saveGauge()}
+                              >
+                                {saving ? 'Saving…' : 'Save changes'}
+                              </button>
+                              <button type="button" className="button-secondary" onClick={resetForm}>
+                                Cancel
+                              </button>
+                            </div>
+                          </div>
+                        </td>
+                      </tr>
+                    ) : null}
+                  </Fragment>
                 )
               })}
             </tbody>
           </table>
         </div>
       )}
+
+      {externalCertGauge ? (
+        <TestGaugeExternalCertModal
+          key={`${externalCertGauge.id}-${externalCertTab}`}
+          gauge={externalCertGauge}
+          initialTab={externalCertTab}
+          onClose={() => setExternalCertGauge(null)}
+          onSaved={() => void reload()}
+          showToast={showToast}
+        />
+      ) : null}
     </section>
   )
 }
