@@ -130,7 +130,8 @@ export function DailyPriorityWorksheet({
     [techFilterActive, filterUnassigned, technicianFilterIds],
   )
 
-  const load = useCallback(async () => {
+  /** Full catalog fetch — only on mount / Refresh, not on every filter click. */
+  const refreshCatalog = useCallback(async () => {
     setLoading(true)
     const [{ data, error }, techRes, lookupMap] = await Promise.all([
       fetchAllValves(),
@@ -151,55 +152,59 @@ export function DailyPriorityWorksheet({
     }
     if (!techRes.error && techRes.data) setTechnicians(techRes.data as Technician[])
     if (lookupMap.finish_cell?.length) setFinishCellLookups(lookupMap.finish_cell)
-    const all = data ?? []
-    setValves(all)
-    const inScope = valvesForHandoutFilters(all, departmentIds, selectedCells)
-    const closed = filterClosedYesterday(all, departmentIds)
-    setYesterdayClosed(closed)
-    const byWo = new Map(all.map((v) => [v.valve_id, v]))
-    const { moves, error: movesError } = await loadYesterdayStatusMoves(departmentIds, byWo)
-    if (movesError) {
-      showToast(
-        movesError.includes('permission') || movesError.includes('policy')
-          ? 'Run migration-valve-change-log-authenticated-read.sql in Supabase for yesterday moves'
-          : `Could not load yesterday moves: ${movesError}`,
-      )
-      setYesterdayMoves([])
-    } else {
-      setYesterdayMoves(moves)
-    }
-    const jobTechByRowId = await loadJobTechnicianIdsByValveRowId(inScope.map((v) => v.id))
-    try {
-      const saved = await loadHandoutAssignments(scope)
-      const merged = mergeHandoutAssignments(saved, inScope).map((row) => {
-        const valve = inScope.find((v) => v.valve_id === row.valve_id)
-        if (!valve) return row
-        const fromJob =
-          jobTechByRowId[valve.id] ?? parseAssignedTechnicianIds(valve.assigned_technician_ids)
-        // Job card is source of truth for technicians; handout keeps order/notes.
-        return {
-          ...row,
-          assigned_technician_ids: fromJob.length ? fromJob : row.assigned_technician_ids,
-        }
-      })
-      setAssignments(merged)
-    } catch {
-      setAssignments(
-        mergeHandoutAssignments([], inScope).map((row) => {
+    setValves(data ?? [])
+    setLoading(false)
+  }, [showToast])
+
+  /** Apply department/cell scope using valves already in memory. */
+  const applyScope = useCallback(
+    async (allValves: Valve[]) => {
+      const inScope = valvesForHandoutFilters(allValves, departmentIds, selectedCells)
+      setYesterdayClosed(filterClosedYesterday(allValves, departmentIds))
+      const byWo = new Map(allValves.map((v) => [v.valve_id, v]))
+      const { moves, error: movesError } = await loadYesterdayStatusMoves(departmentIds, byWo)
+      if (movesError) {
+        showToast(
+          movesError.includes('permission') || movesError.includes('policy')
+            ? 'Run migration-valve-change-log-authenticated-read.sql in Supabase for yesterday moves'
+            : `Could not load yesterday moves: ${movesError}`,
+        )
+        setYesterdayMoves([])
+      } else {
+        setYesterdayMoves(moves)
+      }
+
+      const jobTechByRowId = await loadJobTechnicianIdsByValveRowId(inScope.map((v) => v.id))
+      const mergeWithJobTechs = (rows: HandoutAssignment[]) =>
+        rows.map((row) => {
           const valve = inScope.find((v) => v.valve_id === row.valve_id)
           if (!valve) return row
           const fromJob =
             jobTechByRowId[valve.id] ?? parseAssignedTechnicianIds(valve.assigned_technician_ids)
-          return { ...row, assigned_technician_ids: fromJob }
-        }),
-      )
-    }
-    setLoading(false)
-  }, [departmentIds, selectedCells, scope, showToast])
+          return {
+            ...row,
+            assigned_technician_ids: fromJob.length ? fromJob : row.assigned_technician_ids,
+          }
+        })
+
+      try {
+        const saved = await loadHandoutAssignments(scope)
+        setAssignments(mergeWithJobTechs(mergeHandoutAssignments(saved, inScope)))
+      } catch {
+        setAssignments(mergeWithJobTechs(mergeHandoutAssignments([], inScope)))
+      }
+    },
+    [departmentIds, selectedCells, scope, showToast],
+  )
 
   useEffect(() => {
-    void load()
-  }, [load])
+    void refreshCatalog()
+  }, [refreshCatalog])
+
+  useEffect(() => {
+    if (loading && valves.length === 0) return
+    void applyScope(valves)
+  }, [valves, applyScope, loading])
 
   const rows = useMemo(() => {
     const inScope = valvesForHandoutFilters(valves, departmentIds, selectedCells)
@@ -236,7 +241,7 @@ export function DailyPriorityWorksheet({
             ? 'Run migration-status-priority-departments.sql in Supabase'
             : `Could not save: ${error}`,
       )
-      void load()
+      void applyScope(valves)
     }
   }
 
@@ -270,7 +275,11 @@ export function DailyPriorityWorksheet({
       if (valve) {
         const { error } = await replaceJobTechnicians(valve.id, patch.assigned_technician_ids)
         if (error) {
-          showToast(`Could not update job card technicians: ${error}`)
+          showToast(
+            error.includes('job_assignment_history')
+              ? 'Run migration-fix-job-assignment-history-rls.sql in Supabase, then try again'
+              : `Could not update job card technicians: ${error}`,
+          )
           return
         }
       }
@@ -326,7 +335,7 @@ export function DailyPriorityWorksheet({
           ) : null}
           <h2 className="dashboard-title">Daily priorities</h2>
           <p className="placeholder-copy resources-hint">
-            Department presets load by default — select one or more departments and finish cells.
+            Pick one or more departments and finish cells. Clear departments to include all.
             Technician assignments update the job card across the app; notes stay on this handout.
           </p>
         </div>
@@ -334,7 +343,7 @@ export function DailyPriorityWorksheet({
           <button type="button" className="button-primary" onClick={printReport} disabled={loading}>
             Print daily report
           </button>
-          <button type="button" onClick={() => void load()} disabled={loading}>
+          <button type="button" onClick={() => void refreshCatalog()} disabled={loading}>
             {loading ? 'Loading…' : 'Refresh'}
           </button>
         </div>
@@ -345,7 +354,9 @@ export function DailyPriorityWorksheet({
           <fieldset className="daily-priority-multiselect">
             <legend>Departments</legend>
             <p className="daily-priority-filter-hint">
-              Defaults: {defaultStatuses.join(', ') || '—'}
+              {departmentIds.length
+                ? `Selected statuses: ${defaultStatuses.join(', ') || '—'}`
+                : 'None selected = all departments'}
             </p>
             <label className="daily-priority-check daily-priority-check-all">
               <input
@@ -353,7 +364,7 @@ export function DailyPriorityWorksheet({
                 checked={allDepartmentsSelected}
                 onChange={() => {
                   if (allDepartmentsSelected) {
-                    setDepartmentIds(['teardown'])
+                    setDepartmentIds([])
                   } else {
                     setDepartmentIds(PRIORITY_DEPARTMENTS.map((dept) => dept.id))
                   }
@@ -368,8 +379,7 @@ export function DailyPriorityWorksheet({
                     type="checkbox"
                     checked={departmentIds.includes(dept.id)}
                     onChange={() => {
-                      const next = toggleId(departmentIds, dept.id)
-                      setDepartmentIds(next.length ? next : [dept.id])
+                      setDepartmentIds(toggleId(departmentIds, dept.id))
                     }}
                   />
                   <span>{dept.label}</span>

@@ -3,6 +3,7 @@ import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { CopyJobModal } from '../components/CopyJobModal'
 import { DueDateChangeModal } from '../components/DueDateChangeModal'
 import { StatusBadge } from '../components/StatusBadge'
+import { FinishCellBadge } from '../components/FinishCellBadge'
 import { TechnicianAvatars } from '../components/TechnicianAvatars'
 import { StatusChangeModal } from '../components/StatusChangeModal'
 import { useToast } from '../components/ToastNotification'
@@ -234,7 +235,7 @@ function KanbanJobCard({
         ) : null}
         <div className="job-id">{valve.valve_id}</div>
         <div className="job-muted truncate">{valve.customer ?? 'Unknown customer'}</div>
-        <div className="job-muted small">{valve.cell ?? 'No cell'}</div>
+        <div className="job-muted small"><FinishCellBadge cell={valve.cell} /></div>
         <div className="job-muted small">
           {(() => {
             const rawSize = (valve.size ?? '').trim()
@@ -1293,7 +1294,7 @@ export function JobBoardPage({ role, username }: { role?: UserRole; username?: s
                   <tr key={valve.id} onClick={() => openModal(valve)}>
                     <td>{valve.valve_id}</td>
                     <td>{valve.customer ?? '-'}</td>
-                    <td>{valve.cell ?? '-'}</td>
+                    <td><FinishCellBadge cell={valve.cell} /></td>
                     <td>{valve.size ?? '-'}</td>
                     <td>{isTurnaroundValve(valve) ? 'Yes' : '—'}</td>
                     <td>

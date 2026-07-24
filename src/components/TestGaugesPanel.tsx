@@ -12,6 +12,7 @@ import {
   testGaugeCertificateUrl,
   updateTestGauge,
 } from '../lib/testGaugeRegistry'
+import { moveGaugeCategoryToolsToTestGauges } from '../lib/moveToolGaugesToTestGauges'
 import { emptyTestGaugeForm, testGaugeToForm, type TestGauge, type TestGaugeFormState } from '../types/testGauge'
 
 export function TestGaugesPanel() {
@@ -20,6 +21,7 @@ export function TestGaugesPanel() {
   const [rows, setRows] = useState<TestGauge[]>([])
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
+  const [moving, setMoving] = useState(false)
   const [uploadingId, setUploadingId] = useState<string | null>(null)
   const [editingId, setEditingId] = useState<string | null>(null)
   const [form, setForm] = useState<TestGaugeFormState>(emptyTestGaugeForm())
@@ -118,6 +120,35 @@ export function TestGaugesPanel() {
     await reload()
   }
 
+  const moveFromToolLog = async () => {
+    if (
+      !window.confirm(
+        'Move all Tool log items with category Gauges or Load Cells into Test gauges?\n\n' +
+          'Existing gauges (same number/serial/JS ID) are skipped so nothing is duplicated. ' +
+          'Moved items are removed from the Tool calibration log.',
+      )
+    ) {
+      return
+    }
+    setMoving(true)
+    const result = await moveGaugeCategoryToolsToTestGauges()
+    setMoving(false)
+    if (result.error) {
+      showToast(result.error)
+      await reload()
+      return
+    }
+    if (result.moved === 0 && result.skippedDuplicates === 0 && result.removedFromToolLog === 0) {
+      showToast('No Gauges or Load Cells found in the tool log to move')
+      return
+    }
+    showToast(
+      `Moved ${result.moved} · skipped ${result.skippedDuplicates} duplicate${result.skippedDuplicates === 1 ? '' : 's'} · removed ${result.removedFromToolLog} from tool log` +
+        (result.skippedInvalid ? ` · ${result.skippedInvalid} missing ID left in tool log` : ''),
+    )
+    await reload()
+  }
+
   return (
     <section className="dashboard-panel admin-lists-panel">
       <h3>Test gauges</h3>
@@ -126,6 +157,17 @@ export function TestGaugesPanel() {
         <strong>Chart recorder</strong> for 4-hour shell chart equipment; other types appear in the pressure and
         helium gauge pickers.
       </p>
+
+      <div className="test-gauge-admin-actions" style={{ marginBottom: 12 }}>
+        <button
+          type="button"
+          className="button-secondary"
+          disabled={moving || loading}
+          onClick={() => void moveFromToolLog()}
+        >
+          {moving ? 'Moving…' : 'Move Gauges & Load Cells from tool log'}
+        </button>
+      </div>
 
       <div className="test-gauge-admin-form">
         <h4>{editingId ? 'Edit gauge' : 'Add gauge'}</h4>

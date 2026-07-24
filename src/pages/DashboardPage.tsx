@@ -218,18 +218,19 @@ export function DashboardPage() {
             {criticalGauges.length === 1 ? (
               <>
                 Gauge <strong>{criticalGauges[0].gauge_number}</strong> is more than 30 days past its calibration due
-                date ({criticalGauges[0].next_calibration_date}). Do not use until recalibrated.
+                date ({criticalGauges[0].next_calibration_date}). Do not use until recalibrated. Update dates in Admin
+                → MTE Calibrations.
               </>
             ) : (
               <>
                 <strong>{criticalGauges.length} gauges</strong> are more than 30 days past calibration:{' '}
-                {criticalGauges.map((g) => g.gauge_number).join(', ')}. Update calibration dates in Admin → Test
-                gauges.
+                {criticalGauges.map((g) => g.gauge_number).join(', ')}. Update calibration dates in Admin → MTE
+                Calibrations.
               </>
             )}
           </p>
-          <Link className="dashboard-gauge-cal-alert-link" to="/admin/lists">
-            Open test gauges
+          <Link className="dashboard-gauge-cal-alert-link" to="/admin/mte-calibrations">
+            Open MTE Calibrations
           </Link>
         </div>
       ) : null}

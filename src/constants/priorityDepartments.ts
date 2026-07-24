@@ -130,8 +130,12 @@ export function getPriorityDepartment(id: string | null | undefined): PriorityDe
 }
 
 export function statusesForDepartments(departmentIds: readonly string[]): string[] {
+  const ids =
+    departmentIds.length > 0
+      ? departmentIds
+      : PRIORITY_DEPARTMENTS.map((dept) => dept.id)
   const set = new Set<string>()
-  for (const id of departmentIds) {
+  for (const id of ids) {
     const dept = getPriorityDepartment(id)
     if (!dept) continue
     for (const status of dept.statuses) set.add(status)

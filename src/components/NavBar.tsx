@@ -160,6 +160,12 @@ export function NavBar({ role, username, userId, onLogout }: NavBarProps) {
       label: 'Employees',
     },
     {
+      to: '/admin/mte-calibrations',
+      label: 'MTE Calibrations',
+      disabled: !can(role, 'manageLists'),
+      disabledReason: permissionDeniedReason('manageLists'),
+    },
+    {
       to: '/admin/lists',
       label: 'Manage lists',
       disabled: !can(role, 'manageLists'),

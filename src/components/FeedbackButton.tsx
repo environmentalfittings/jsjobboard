@@ -9,7 +9,7 @@ import {
   uploadFeedbackResolutionPhoto,
   type FeedbackResolutionImage,
 } from '../lib/feedbackResolutionPhotos'
-import { canWriteShop } from '../lib/roles'
+import { isShopRole } from '../lib/roles'
 import { supabase } from '../lib/supabase'
 import type { UserRole } from '../pages/LoginPage'
 
@@ -94,8 +94,8 @@ export function FeedbackButton({ username, role }: FeedbackButtonProps) {
   }
 
   const submit = async () => {
-    if (!canWriteShop(role)) {
-      showToast('View only — ask an Admin or Manager to make changes')
+    if (!isShopRole(role)) {
+      showToast('Sign in to send feedback')
       return
     }
     const text = message.trim()
@@ -108,6 +108,11 @@ export function FeedbackButton({ username, role }: FeedbackButtonProps) {
     const {
       data: { user },
     } = await supabase.auth.getUser()
+    if (!user?.id) {
+      setSaving(false)
+      showToast('Sign in with your shop account to send feedback (local Admin cannot submit)')
+      return
+    }
     const { data: inserted, error } = await supabase
       .from('app_feedback')
       .insert({
@@ -115,7 +120,7 @@ export function FeedbackButton({ username, role }: FeedbackButtonProps) {
         page_url: pageUrl,
         user_name: username.trim() || null,
         user_role: role ?? null,
-        submitted_by_user_id: user?.id ?? null,
+        submitted_by_user_id: user.id,
       })
       .select('id')
       .single()
@@ -131,18 +136,18 @@ export function FeedbackButton({ username, role }: FeedbackButtonProps) {
     }
 
     const uploaded: FeedbackResolutionImage[] = []
+    let photoError: string | null = null
     for (const draft of photoDrafts) {
       const { image, error: uploadError } = await uploadFeedbackResolutionPhoto(inserted.id, draft.file)
       if (uploadError || !image) {
         await deleteFeedbackResolutionPhotos(uploaded)
-        setSaving(false)
-        showToast(uploadError ?? 'Could not upload image')
-        return
+        photoError = uploadError ?? 'Could not upload image'
+        break
       }
       uploaded.push(image)
     }
 
-    if (uploaded.length > 0) {
+    if (!photoError && uploaded.length > 0) {
       const { error: updateError } = await supabase
         .from('app_feedback')
         .update({ submission_images: uploaded })
@@ -150,19 +155,21 @@ export function FeedbackButton({ username, role }: FeedbackButtonProps) {
 
       if (updateError) {
         await deleteFeedbackResolutionPhotos(uploaded)
-        setSaving(false)
         if (/submission_images|column.*does not exist/i.test(updateError.message)) {
-          showToast('Run supabase/migration-app-feedback-submission-images.sql in Supabase SQL Editor')
+          photoError = 'Run supabase/migration-app-feedback-submission-images.sql in Supabase SQL Editor'
         } else {
-          showToast(`Could not save images: ${updateError.message}`)
+          photoError = `Could not save images: ${updateError.message}`
         }
-        return
       }
     }
 
     setSaving(false)
     setOpen(false)
     resetForm()
+    if (photoError) {
+      showToast(`Feedback saved, but screenshots failed: ${photoError}`)
+      return
+    }
     showToast('Thanks — feedback sent')
   }
 

@@ -4,4 +4,11 @@ import react from '@vitejs/plugin-react'
 // https://vite.dev/config/
 export default defineConfig({
   plugins: [react()],
+  server: {
+    // Project lives under OneDrive; native file watching often stalls / "not responding".
+    watch: {
+      usePolling: true,
+      interval: 1000,
+    },
+  },
 })

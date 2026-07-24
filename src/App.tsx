@@ -27,6 +27,7 @@ import { TravelerInspectionPage } from './pages/TravelerInspectionPage'
 import { FeedbackInboxPage } from './pages/FeedbackInboxPage'
 import { MessagesPage } from './pages/MessagesPage'
 import { ManagerDashboardPage } from './pages/ManagerDashboardPage'
+import { MteCalibrationsPage } from './pages/MteCalibrationsPage'
 import { can, canAccessEmployeesPage, canAccessTestLog, defaultHomePath, isShopRole } from './lib/roles'
 
 function ShopRoute({ children }: { children: React.ReactNode }) {
@@ -225,6 +226,18 @@ function AppRoutes() {
               element={
                 can(role, 'manageTechnicians') || can(role, 'openAdminTools') ? (
                   <TechniciansPage />
+                ) : role ? (
+                  <Navigate to={defaultHomePath(role)} replace />
+                ) : (
+                  <Navigate to="/login" replace />
+                )
+              }
+            />
+            <Route
+              path="/admin/mte-calibrations"
+              element={
+                can(role, 'manageLists') ? (
+                  <MteCalibrationsPage />
                 ) : role ? (
                   <Navigate to={defaultHomePath(role)} replace />
                 ) : (

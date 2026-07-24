@@ -38,7 +38,7 @@ export function filterChartRecorderGauges(gauges: TestGauge[]): TestGauge[] {
   return gauges.filter(isChartRecorderGauge)
 }
 
-export const SUGGESTED_GAUGE_TYPES = ['Pressure', 'Helium', 'Chart recorder'] as const
+export const SUGGESTED_GAUGE_TYPES = ['Pressure', 'Helium', 'Load Cell', 'Chart recorder'] as const
 
 /** Orange warning when calibration is within ~3 months. */
 export const GAUGE_CALIBRATION_WARNING_DAYS = 90

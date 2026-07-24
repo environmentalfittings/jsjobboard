@@ -1,6 +1,5 @@
 import {
   getPriorityDepartment,
-  parsePriorityDepartmentId,
   PRIORITY_DEPARTMENTS,
   statusesForDepartments,
   type PriorityDepartment,
@@ -43,9 +42,9 @@ export function scopeLabel(scope: PriorityScope): string {
 
 export function handoutScopeLabel(scopeKey: string): string {
   const { departmentIds, cells } = parseHandoutScopeKey(scopeKey)
-  const deptLabels = departmentIds
-    .map((id) => getPriorityDepartment(id)?.label ?? id)
-    .join(' + ')
+  const deptLabels = departmentIds.length
+    ? departmentIds.map((id) => getPriorityDepartment(id)?.label ?? id).join(' + ')
+    : 'All departments'
   if (!cells.length) return deptLabels || scopeKey
   return `${deptLabels} · ${cells.join(', ')}`
 }
@@ -55,10 +54,17 @@ export function buildHandoutScopeKey(
   departmentIds: readonly string[],
   cells: readonly string[] = [],
 ): PriorityScope {
-  const depts = [...new Set(departmentIds.map((id) => parsePriorityDepartmentId(id)))].sort()
+  const depts = [
+    ...new Set(
+      departmentIds
+        .map((id) => getPriorityDepartment(id)?.id)
+        .filter((id): id is PriorityDepartmentId => Boolean(id)),
+    ),
+  ].sort()
   const cellKeys = [...new Set(cells.map((c) => c.trim()).filter(Boolean))].sort()
-  const key = cellKeys.length ? `${depts.join('+')}::${cellKeys.join('+')}` : depts.join('+')
-  return { kind: 'department', key: key || 'teardown' }
+  const deptKey = depts.length ? depts.join('+') : 'all'
+  const key = cellKeys.length ? `${deptKey}::${cellKeys.join('+')}` : deptKey
+  return { kind: 'department', key }
 }
 
 export function parseHandoutScopeKey(key: string): {
@@ -66,10 +72,19 @@ export function parseHandoutScopeKey(key: string): {
   cells: string[]
 } {
   const trimmed = key.trim()
-  if (!trimmed) return { departmentIds: ['teardown'], cells: [] }
+  if (!trimmed || trimmed === 'all') return { departmentIds: [], cells: [] }
   const sep = trimmed.indexOf('::')
   const deptPart = sep >= 0 ? trimmed.slice(0, sep) : trimmed
   const cellPart = sep >= 0 ? trimmed.slice(sep + 2) : ''
+  if (deptPart === 'all') {
+    return {
+      departmentIds: [],
+      cells: cellPart
+        .split('+')
+        .map((c) => c.trim())
+        .filter(Boolean),
+    }
+  }
   const departmentIds = deptPart
     .split('+')
     .map((p) => getPriorityDepartment(p.trim())?.id)
@@ -79,7 +94,7 @@ export function parseHandoutScopeKey(key: string): {
     .map((c) => c.trim())
     .filter(Boolean)
   return {
-    departmentIds: departmentIds.length ? departmentIds : ['teardown'],
+    departmentIds,
     cells,
   }
 }

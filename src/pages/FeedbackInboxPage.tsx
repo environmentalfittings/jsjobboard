@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { useToast } from '../components/ToastNotification'
+import { useAuth } from '../contexts/AuthContext'
 import { isFeedbackEnabled } from '../lib/feedbackEnabled'
 import {
   deleteFeedbackResolutionPhotos,
@@ -119,6 +120,7 @@ function FeedbackPhotoGallery({
 
 export function FeedbackInboxPage() {
   const { showToast } = useToast()
+  const { user } = useAuth()
   const [rows, setRows] = useState<FeedbackRow[]>([])
   const [loading, setLoading] = useState(true)
   const [filter, setFilter] = useState<'open' | 'resolved' | 'all'>('open')
@@ -373,6 +375,13 @@ export function FeedbackInboxPage() {
         </p>
       )}
 
+      {!user ? (
+        <p className="placeholder-copy" style={{ color: '#b45309' }}>
+          You are using local Admin. Sign in as a real shop Admin (for example <strong>ghensley</strong>) to see feedback
+          stored in Supabase.
+        </p>
+      ) : null}
+
       <div className="feedback-inbox-filters">
         {(['open', 'resolved', 'all'] as const).map((value) => (
           <button
@@ -389,7 +398,13 @@ export function FeedbackInboxPage() {
       {loading ? (
         <p className="placeholder-copy">Loading…</p>
       ) : filtered.length === 0 ? (
-        <p className="placeholder-copy">No feedback yet.</p>
+        <p className="placeholder-copy">
+          {!user
+            ? 'No feedback visible without a shop Admin login.'
+            : filter === 'open'
+              ? 'No open feedback. Try All in case it was already marked resolved.'
+              : 'No feedback yet.'}
+        </p>
       ) : (
         <div className="feedback-inbox-list">
           {filtered.map((row) => {

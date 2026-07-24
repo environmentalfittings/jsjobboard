@@ -75,16 +75,16 @@ export function ManagerDashboardPage() {
       setLeaderboard(parsed.leaderboard)
     }
 
-    // Recent history (30 days) for dwell time in current status.
+    // Recent history for dwell — only status-changing rows need full json; keep payload small.
     const dwellStart = new Date()
-    dwellStart.setDate(dwellStart.getDate() - 30)
+    dwellStart.setDate(dwellStart.getDate() - 14)
     const dwellRes = await supabase
       .from('valve_change_log')
       .select('valve_row_id,changed_at,old_row,new_row')
       .eq('action', 'update')
       .gte('changed_at', dwellStart.toISOString())
-      .order('changed_at', { ascending: true })
-      .limit(5000)
+      .order('changed_at', { ascending: false })
+      .limit(1500)
 
     if (!dwellRes.error && dwellRes.data) {
       setStatusEnteredAt(
@@ -167,7 +167,7 @@ export function ManagerDashboardPage() {
           ) : leaderboard.length === 0 ? (
             <p className="placeholder-copy">No status moves logged today.</p>
           ) : (
-            <div className="dashboard-table-wrap">
+            <div className="dashboard-table-wrap manager-dashboard-scroll">
               <table className="dashboard-table">
                 <thead>
                   <tr>
@@ -197,7 +197,7 @@ export function ManagerDashboardPage() {
           ) : lateJobs.length === 0 ? (
             <p className="placeholder-copy">No late open jobs.</p>
           ) : (
-            <div className="dashboard-table-wrap">
+            <div className="dashboard-table-wrap manager-dashboard-scroll">
               <table className="dashboard-table">
                 <thead>
                   <tr>
@@ -235,7 +235,7 @@ export function ManagerDashboardPage() {
         ) : movesToday.length === 0 ? (
           <p className="placeholder-copy">No status moves today.</p>
         ) : (
-          <div className="dashboard-table-wrap">
+          <div className="dashboard-table-wrap manager-dashboard-scroll manager-dashboard-scroll--tall">
             <table className="dashboard-table">
               <thead>
                 <tr>
@@ -273,7 +273,7 @@ export function ManagerDashboardPage() {
         {loading ? (
           <p className="placeholder-copy">Loading…</p>
         ) : (
-          <div className="dashboard-table-wrap">
+          <div className="dashboard-table-wrap manager-dashboard-scroll manager-dashboard-scroll--tall">
             <table className="dashboard-table">
               <thead>
                 <tr>

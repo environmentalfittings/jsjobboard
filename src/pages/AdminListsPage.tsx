@@ -2,13 +2,8 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { useToast } from '../components/ToastNotification'
 import { ValveTypeProceduresPanel } from '../components/ValveTypeProceduresPanel'
-import { TestGaugesPanel } from '../components/TestGaugesPanel'
 import { JOB_TYPES, normalizeJobType } from '../constants/jobTypes'
 import { LOOKUP_CATEGORY_DEFS, type LookupCategory } from '../constants/lookupCategories'
-import {
-  buildSeedLookupValueRows,
-  SPREADSHEET_CUSTOMER_NAMES,
-} from '../constants/seedSpreadsheetDefaults'
 import {
   normalizeNps,
   normalizePressureClass,
@@ -30,7 +25,7 @@ import {
 import type { LookupValueRow } from '../lib/lookupValues'
 import { supabase } from '../lib/supabase'
 
-type Tab = 'lookups' | 'customers' | 'itpTemplates' | 'valveTypes' | 'testGauges' | 'flangeThickness' | 'b1610' | 'b1634'
+type Tab = 'lookups' | 'customers' | 'itpTemplates' | 'valveTypes' | 'flangeThickness' | 'b1610' | 'b1634'
 
 type CustomerRow = { id: number; name: string }
 type ItpTemplateRow = {
@@ -98,7 +93,6 @@ export function AdminListsPage() {
   const [editingCustomerId, setEditingCustomerId] = useState<number | null>(null)
   const [customerDraft, setCustomerDraft] = useState('')
   const [savingCustomer, setSavingCustomer] = useState(false)
-  const [seedingDefaults, setSeedingDefaults] = useState(false)
   const [itpRows, setItpRows] = useState<ItpTemplateRow[]>([])
   const [itpLoading, setItpLoading] = useState(true)
 
@@ -446,43 +440,6 @@ export function AdminListsPage() {
     }
     showToast('Removed')
     loadCustomers()
-  }
-
-  const seedSpreadsheetDefaults = async () => {
-    if (
-      !window.confirm(
-        'Add any missing job dropdown options and customers from the Excel Lists sheet? Existing rows are left unchanged. Safe to run more than once.',
-      )
-    ) {
-      return
-    }
-    setSeedingDefaults(true)
-    const lookupRows = buildSeedLookupValueRows()
-    const customerRows = SPREADSHEET_CUSTOMER_NAMES.map((name) => ({ name }))
-
-    const { error: lookupError } = await supabase.from('lookup_values').upsert(lookupRows, {
-      onConflict: 'category,value',
-      ignoreDuplicates: true,
-    })
-    if (lookupError) {
-      setSeedingDefaults(false)
-      showToast('Could not seed job lists: ' + (lookupError.message || 'unknown error'))
-      return
-    }
-
-    const { error: customerError } = await supabase.from('customers').upsert(customerRows, {
-      onConflict: 'name',
-      ignoreDuplicates: true,
-    })
-    setSeedingDefaults(false)
-    if (customerError) {
-      showToast('Job lists updated; customers failed: ' + (customerError.message || 'unknown error'))
-      await loadLookups()
-      return
-    }
-
-    showToast('Spreadsheet defaults loaded')
-    await Promise.all([loadLookups(), loadCustomers()])
   }
 
   const addItpStep = async () => {
@@ -899,21 +856,9 @@ export function AdminListsPage() {
       </div>
 
       <p className="placeholder-copy admin-lists-intro">
-        Admin only. Changes apply to New job dropdowns for everyone. Use the button below to load the same options as
-        the Excel Lists sheet (or run <code>seed-lookup-values.sql</code> / <code>seed-customers-from-spreadsheet.sql</code>{' '}
-        in Supabase if you prefer SQL).
+        Admin only. Changes apply to New job dropdowns for everyone. Edit each list tab below to add, rename, or
+        remove options.
       </p>
-
-      <div className="admin-seed-row">
-        <button
-          type="button"
-          className="button-primary"
-          disabled={seedingDefaults || lookupLoading || customersLoading}
-          onClick={() => void seedSpreadsheetDefaults()}
-        >
-          {seedingDefaults ? 'Loading…' : 'Load spreadsheet defaults'}
-        </button>
-      </div>
 
       <div className="admin-lists-tabs" role="tablist">
         <button
@@ -951,15 +896,6 @@ export function AdminListsPage() {
           onClick={() => setTab('valveTypes')}
         >
           Valve Types
-        </button>
-        <button
-          type="button"
-          role="tab"
-          aria-selected={tab === 'testGauges'}
-          className={`admin-lists-tab ${tab === 'testGauges' ? 'active' : ''}`}
-          onClick={() => setTab('testGauges')}
-        >
-          Test gauges
         </button>
         <button
           type="button"
@@ -1379,8 +1315,6 @@ export function AdminListsPage() {
           <ValveTypeProceduresPanel key={valveTypeReloadTick} variant="page" />
         </section>
       )}
-
-      {tab === 'testGauges' && <TestGaugesPanel />}
 
       {tab === 'flangeThickness' && (
         <section className="dashboard-panel admin-lists-panel">

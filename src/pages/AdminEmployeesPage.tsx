@@ -66,10 +66,18 @@ export function AdminEmployeesPage({ isAdmin }: { isAdmin: boolean }) {
 
   const [deactivateTarget, setDeactivateTarget] = useState<Employee | null>(null)
 
-  const [bulkOpen, setBulkOpen] = useState(false)
-  const [bulkPassword, setBulkPassword] = useState('')
-  const [bulkConfirm, setBulkConfirm] = useState('')
-  const [bulkProgress, setBulkProgress] = useState<{ done: number; total: number } | null>(null)
+  const [addOpen, setAddOpen] = useState(false)
+  const [addForm, setAddForm] = useState({
+    employee_no: '',
+    first_name: '',
+    last_name: '',
+    username: '',
+    initials: '',
+    is_tester: false,
+    createLogin: false,
+    password: '',
+    confirmPassword: '',
+  })
 
   const loadStatus = useCallback(async (rows: Employee[]) => {
     setStatusLoading(true)
@@ -112,6 +120,15 @@ export function AdminEmployeesPage({ isAdmin }: { isAdmin: boolean }) {
     [employees],
   )
 
+  const nextEmployeeNo = useMemo(() => {
+    let max = 0
+    for (const row of employees) {
+      const n = Number.parseInt(String(row.employee_no).replace(/\D/g, ''), 10)
+      if (Number.isFinite(n) && n > max) max = n
+    }
+    return String(max + 1)
+  }, [employees])
+
   const filteredEmployees = useMemo(() => {
     const q = search.trim().toLowerCase()
     return employees.filter((employee) => {
@@ -128,6 +145,135 @@ export function AdminEmployeesPage({ isAdmin }: { isAdmin: boolean }) {
 
   const refreshAll = async () => {
     await reload()
+  }
+
+  const openAddEmployee = () => {
+    setAddForm({
+      employee_no: nextEmployeeNo,
+      first_name: '',
+      last_name: '',
+      username: '',
+      initials: '',
+      is_tester: false,
+      createLogin: false,
+      password: '',
+      confirmPassword: '',
+    })
+    setAddOpen(true)
+  }
+
+  const patchAddName = (field: 'first_name' | 'last_name', value: string) => {
+    setAddForm((prev) => {
+      const next = { ...prev, [field]: value }
+      const first = field === 'first_name' ? value : next.first_name
+      const last = field === 'last_name' ? value : next.last_name
+      const autoUsername =
+        `${first.trim().charAt(0)}${last.trim()}`.toLowerCase().replace(/[^a-z0-9]/g, '') || ''
+      const autoInitials =
+        `${first.trim().charAt(0)}${last.trim().charAt(0)}`.toUpperCase().replace(/[^A-Z]/g, '') || ''
+      // Only auto-fill username/initials while they still match the previous suggestion pattern
+      // or are empty — keep manual edits if user changed them.
+      const prevAutoUser =
+        `${prev.first_name.trim().charAt(0)}${prev.last_name.trim()}`
+          .toLowerCase()
+          .replace(/[^a-z0-9]/g, '') || ''
+      const prevAutoInit =
+        `${prev.first_name.trim().charAt(0)}${prev.last_name.trim().charAt(0)}`
+          .toUpperCase()
+          .replace(/[^A-Z]/g, '') || ''
+      return {
+        ...next,
+        username: !prev.username || prev.username === prevAutoUser ? autoUsername : prev.username,
+        initials: !prev.initials || prev.initials === prevAutoInit ? autoInitials : prev.initials,
+      }
+    })
+  }
+
+  const handleAddEmployee = async () => {
+    if (!isAdmin) {
+      showToast('Only Admin can add employees')
+      return
+    }
+    const employee_no = addForm.employee_no.trim()
+    const first_name = addForm.first_name.trim()
+    const last_name = addForm.last_name.trim()
+    const username = addForm.username.trim().toLowerCase()
+    const initials = addForm.initials.trim().toUpperCase()
+    if (!employee_no || !first_name || !last_name || !username || !initials) {
+      showToast('Employee #, name, username, and initials are required')
+      return
+    }
+    if (employees.some((e) => e.username.toLowerCase() === username)) {
+      showToast('That username is already in use')
+      return
+    }
+    if (employees.some((e) => e.employee_no === employee_no)) {
+      showToast('That employee # is already in use')
+      return
+    }
+    if (addForm.createLogin) {
+      const validation = validateEmployeePassword(addForm.password, addForm.confirmPassword)
+      if (validation) {
+        showToast(validation)
+        return
+      }
+    }
+
+    setBusy(true)
+    const full_name = `${first_name} ${last_name}`.trim()
+    const payload = {
+      employee_no,
+      first_name,
+      last_name,
+      full_name,
+      username,
+      initials,
+      company: 'J-S Machine & Valve, Inc.',
+      is_active: true,
+      is_tester: addForm.is_tester,
+      auth_user_id: null as string | null,
+    }
+
+    const { data, error } = await supabase.from('employees').insert(payload).select('id,full_name,username').single()
+    if (error || !data) {
+      setBusy(false)
+      showToast(
+        error?.message?.includes('policy') || error?.message?.includes('RLS')
+          ? 'Run migration-employees-write-policies.sql in Supabase, then try again'
+          : error?.message ?? 'Could not add employee',
+      )
+      return
+    }
+
+    if (addForm.createLogin) {
+      try {
+        await invokeManageEmployeeAccount({
+          action: 'create',
+          employee_id: data.id,
+          username: data.username,
+          password: addForm.password,
+          full_name: data.full_name,
+        })
+        showToast(`Employee added and login created — username: ${data.username}`)
+      } catch (err) {
+        const message = err instanceof Error ? err.message : 'Login create failed'
+        showToast(
+          isDeployError(message)
+            ? `Employee added, but deploy manage-employee-account to create login for ${data.username}`
+            : `Employee added, but login failed: ${message}`,
+        )
+        setBusy(false)
+        setAddOpen(false)
+        await refreshAll()
+        return
+      }
+    } else {
+      showToast(`Employee added: ${full_name}`)
+    }
+
+    setBusy(false)
+    setAddOpen(false)
+    await refreshAll()
   }
 
   const handleCreate = async () => {
@@ -246,55 +392,6 @@ export function AdminEmployeesPage({ isAdmin }: { isAdmin: boolean }) {
     await reload()
   }
 
-  const handleBulkCreate = async () => {
-    if (!isAdmin) {
-      showToast('Only Admin can create employee accounts')
-      return
-    }
-    const validation = validateEmployeePassword(bulkPassword, bulkConfirm)
-    if (validation) {
-      showToast(validation)
-      return
-    }
-    if (!missingAccounts.length) {
-      showToast('No missing accounts')
-      return
-    }
-
-    setBusy(true)
-    setBulkProgress({ done: 0, total: missingAccounts.length })
-    let created = 0
-
-    for (let i = 0; i < missingAccounts.length; i += 1) {
-      const employee = missingAccounts[i]
-      try {
-        await invokeManageEmployeeAccount({
-          action: 'create',
-          employee_id: employee.id,
-          username: employee.username,
-          password: bulkPassword,
-          full_name: employee.full_name,
-        })
-        created += 1
-      } catch {
-        // continue with remaining employees
-      }
-      setBulkProgress({ done: i + 1, total: missingAccounts.length })
-    }
-
-    setBusy(false)
-    setBulkOpen(false)
-    setBulkPassword('')
-    setBulkConfirm('')
-    setBulkProgress(null)
-    showToast(
-      created === missingAccounts.length
-        ? 'All accounts created. Hand out the username list and temporary password.'
-        : `Created ${created} of ${missingAccounts.length} accounts`,
-    )
-    await refreshAll()
-  }
-
   return (
     <section className="dashboard-page admin-employees-page">
       <div className="dashboard-title-row">
@@ -304,13 +401,8 @@ export function AdminEmployeesPage({ isAdmin }: { isAdmin: boolean }) {
             Print usernames
           </Link>
           {isAdmin ? (
-            <button
-              type="button"
-              className="button-primary"
-              disabled={busy || missingAccounts.length === 0}
-              onClick={() => setBulkOpen(true)}
-            >
-              Create All Missing Accounts
+            <button type="button" className="button-primary" disabled={busy} onClick={openAddEmployee}>
+              Add employee
             </button>
           ) : null}
         </div>
@@ -318,7 +410,7 @@ export function AdminEmployeesPage({ isAdmin }: { isAdmin: boolean }) {
 
       <p className="placeholder-copy">
         {isAdmin
-          ? 'Create shop logins for J-S Machine & Valve staff. Employees sign in with their username and password only. Mike can reset passwords at any time.'
+          ? 'Add staff to the roster and create shop logins. Employees sign in with their username and password only.'
           : 'Shop employee roster and login status. Contact an admin if you need a new account or a password reset.'}
       </p>
 
@@ -573,40 +665,107 @@ export function AdminEmployeesPage({ isAdmin }: { isAdmin: boolean }) {
         </div>
       ) : null}
 
-      {isAdmin && bulkOpen ? (
-        <div className="modal-overlay" role="presentation" onClick={() => !busy && setBulkOpen(false)}>
+      {isAdmin && addOpen ? (
+        <div className="modal-overlay" role="presentation" onClick={() => !busy && setAddOpen(false)}>
           <div className="modal-card modal-card-wide" role="dialog" aria-modal="true" onClick={(e) => e.stopPropagation()}>
             <div className="technician-modal-head">
-              <h3>Create accounts for {missingAccounts.length} employees</h3>
+              <h3>Add employee</h3>
             </div>
             <div className="technician-modal-body">
-              <ul className="admin-employees-bulk-list">
-                {missingAccounts.map((employee) => (
-                  <li key={employee.id}>
-                    {employee.full_name} — <code>{employee.username}</code>
-                  </li>
-                ))}
-              </ul>
-              <label>
-                Set the same temporary password for all
-                <input type="password" value={bulkPassword} onChange={(e) => setBulkPassword(e.target.value)} />
-              </label>
-              <label>
-                Confirm Password
-                <input type="password" value={bulkConfirm} onChange={(e) => setBulkConfirm(e.target.value)} />
-              </label>
-              {bulkProgress ? (
-                <p className="admin-employees-bulk-progress">
-                  Created {bulkProgress.done} of {bulkProgress.total}…
+              <div className="admin-employees-add-grid">
+                <label>
+                  Employee #
+                  <input
+                    type="text"
+                    value={addForm.employee_no}
+                    onChange={(e) => setAddForm((f) => ({ ...f, employee_no: e.target.value }))}
+                  />
+                </label>
+                <label>
+                  First name
+                  <input
+                    type="text"
+                    value={addForm.first_name}
+                    onChange={(e) => patchAddName('first_name', e.target.value)}
+                    autoFocus
+                  />
+                </label>
+                <label>
+                  Last name
+                  <input
+                    type="text"
+                    value={addForm.last_name}
+                    onChange={(e) => patchAddName('last_name', e.target.value)}
+                  />
+                </label>
+                <label>
+                  Username
+                  <input
+                    type="text"
+                    value={addForm.username}
+                    onChange={(e) => setAddForm((f) => ({ ...f, username: e.target.value }))}
+                  />
+                </label>
+                <label>
+                  Initials
+                  <input
+                    type="text"
+                    value={addForm.initials}
+                    onChange={(e) => setAddForm((f) => ({ ...f, initials: e.target.value.toUpperCase() }))}
+                    maxLength={4}
+                  />
+                </label>
+                <label className="admin-employees-add-check">
+                  <input
+                    type="checkbox"
+                    checked={addForm.is_tester}
+                    onChange={(e) => setAddForm((f) => ({ ...f, is_tester: e.target.checked }))}
+                  />
+                  Tester (show in Test Log)
+                </label>
+                <label className="admin-employees-add-check">
+                  <input
+                    type="checkbox"
+                    checked={addForm.createLogin}
+                    onChange={(e) => setAddForm((f) => ({ ...f, createLogin: e.target.checked }))}
+                  />
+                  Also create login account
+                </label>
+              </div>
+              {addForm.createLogin ? (
+                <>
+                  <label>
+                    Temporary password
+                    <input
+                      type="password"
+                      value={addForm.password}
+                      onChange={(e) => setAddForm((f) => ({ ...f, password: e.target.value }))}
+                    />
+                  </label>
+                  <label>
+                    Confirm password
+                    <input
+                      type="password"
+                      value={addForm.confirmPassword}
+                      onChange={(e) => setAddForm((f) => ({ ...f, confirmPassword: e.target.value }))}
+                    />
+                  </label>
+                </>
+              ) : (
+                <p className="placeholder-copy">
+                  You can create their login later with <strong>Create Account</strong> on their row.
+                  {missingAccounts.length
+                    ? ` (${missingAccounts.length} existing employees still need accounts.)`
+                    : ''}
                 </p>
-              ) : null}
+              )}
             </div>
             <div className="technician-modal-footer">
-              <button type="button" className="button-secondary" onClick={() => setBulkOpen(false)} disabled={busy}>
+              <button type="button" className="button-secondary" onClick={() => setAddOpen(false)} disabled={busy}>
                 Cancel
               </button>
-              <button type="button" className="button-primary" disabled={busy} onClick={() => void handleBulkCreate()}>
-                {busy ? 'Creating…' : 'Create All'}
+              <button type="button" className="button-primary" disabled={busy} onClick={() => void handleAddEmployee()}>
+                {busy ? 'Saving…' : 'Add employee'}
               </button>
             </div>
           </div>

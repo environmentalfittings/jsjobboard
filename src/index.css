@@ -3612,6 +3612,147 @@ a.test-log-reports-item-name:hover {
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 1rem;
   margin-bottom: 1rem;
+  align-items: start;
+}
+
+.manager-dashboard-page .manager-dashboard-scroll {
+  max-height: 220px;
+  overflow: auto;
+  overscroll-behavior: contain;
+}
+
+.manager-dashboard-page .manager-dashboard-scroll--tall {
+  max-height: 280px;
+}
+
+.tool-cal-filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px 16px;
+  align-items: flex-end;
+  margin: 12px 0;
+}
+
+.tool-cal-kpis {
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  margin: 12px 0 4px;
+}
+
+.tool-cal-kpi-btn {
+  display: block;
+  width: 100%;
+  margin: 0;
+  text-align: left;
+  cursor: pointer;
+  font: inherit;
+  color: inherit;
+  transition: border-color 120ms ease, box-shadow 120ms ease, background 120ms ease;
+}
+
+.tool-cal-kpi-btn:hover {
+  border-color: #93c5fd;
+  box-shadow: 0 8px 18px rgba(37, 99, 235, 0.1);
+}
+
+.tool-cal-kpi-btn.is-active {
+  border-color: #2563eb;
+  background: #eff6ff;
+  box-shadow: 0 0 0 1px #2563eb inset;
+}
+
+.tool-cal-kpi-btn--critical.is-active {
+  border-color: #dc2626;
+  background: #fef2f2;
+  box-shadow: 0 0 0 1px #dc2626 inset;
+}
+
+@media (max-width: 1100px) {
+  .tool-cal-kpis {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 700px) {
+  .tool-cal-kpis {
+    grid-template-columns: 1fr 1fr;
+  }
+}
+
+.tool-cal-filters label {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 13px;
+}
+
+.tool-cal-filters input,
+.tool-cal-filters select {
+  min-width: 12rem;
+}
+
+.tool-cal-count {
+  color: #64748b;
+  font-size: 13px;
+  padding-bottom: 6px;
+}
+
+.tool-cal-sortable-table thead th {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  background: #f8fafc;
+  vertical-align: middle;
+}
+
+.tool-cal-sortable-table .list-col-header {
+  min-width: 0;
+}
+
+.tool-cal-inline-category {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 9.5rem;
+}
+
+.tool-cal-inline-category-select,
+.tool-cal-inline-category-other {
+  width: 100%;
+  min-width: 0;
+  margin: 0;
+  padding: 4px 6px;
+  border: 1px solid #cbd5e1;
+  border-radius: 6px;
+  background: #fff;
+  font: inherit;
+  font-size: 12px;
+  color: #0f172a;
+}
+
+.tool-cal-inline-category-select:focus,
+.tool-cal-inline-category-other:focus {
+  outline: 2px solid #93c5fd;
+  outline-offset: 1px;
+}
+
+.tool-cal-inline-category-select:disabled,
+.tool-cal-inline-category-other:disabled {
+  opacity: 0.65;
+}
+
+.tool-cal-admin-grid {
+  grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+}
+
+.mte-calibrations-page .admin-lists-tabs {
+  margin-bottom: 12px;
+}
+
+.manager-dashboard-page .manager-dashboard-scroll thead th {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  background: #f8fafc;
 }
 
 @media (max-width: 900px) {
@@ -6817,6 +6958,26 @@ tbody tr:hover {
   border-radius: 999px;
   font-size: 12px;
   padding: 2px 8px;
+  font-weight: 600;
+}
+
+.finish-cell-badge {
+  display: inline-block;
+  max-width: 100%;
+  border-radius: 6px;
+  font-size: 12px;
+  padding: 2px 8px;
+  font-weight: 700;
+  line-height: 1.3;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  vertical-align: middle;
+}
+
+.finish-cell-badge--plain {
+  background: #f3f4f6;
+  color: #374151;
   font-weight: 600;
 }
 
@@ -10239,6 +10400,20 @@ tbody tr:hover {
   display: flex;
   gap: 8px;
   flex-wrap: wrap;
+}
+
+.admin-employees-add-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
+.admin-employees-add-check {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 1.5rem;
 }
 
 .admin-employees-status-filter {
