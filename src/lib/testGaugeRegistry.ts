@@ -1,12 +1,18 @@
 import { supabase } from './supabase'
 import { technicianInitials } from './technicianInitials'
-import type { TestGauge, TestGaugeCalibrationEvent, TestGaugeFormState } from '../types/testGauge'
+import {
+  resolveGaugeDepartment,
+  resolveGaugeType,
+  type TestGauge,
+  type TestGaugeCalibrationEvent,
+  type TestGaugeFormState,
+} from '../types/testGauge'
 
 export const TEST_GAUGE_CERT_BUCKET = 'valve-attachments'
 const MAX_CERT_BYTES = 20 * 1024 * 1024
 
 const GAUGE_SELECT =
-  'id,gauge_number,manufacturer,gauge_type,last_calibration_date,next_calibration_date,certificate_storage_path,certificate_file_name,certificate_mime_type,certificate_number,active,created_at,updated_at'
+  'id,gauge_number,manufacturer,gauge_type,department,notes,last_calibration_date,next_calibration_date,certificate_storage_path,certificate_file_name,certificate_mime_type,certificate_number,active,created_at,updated_at'
 
 const EVENT_SELECT =
   'id,gauge_id,calibrated_at,next_due_at,tech_initials,technician_id,technician_name,signed_off_at,procedure_ref,result,notes,certificate_number,certificate_storage_path,certificate_file_name,created_at'
@@ -34,15 +40,43 @@ export function isChartRecorderGauge(gauge: TestGauge): boolean {
   return /chart\s*recorder/i.test(String(gauge.gauge_type ?? ''))
 }
 
+/** Types allowed on the Test gauges registry (not shop measuring tools). */
+export const SUGGESTED_GAUGE_TYPES = [
+  'Pressure',
+  'Load Cell',
+  'Chart recorder',
+  'Dead Weight Tester',
+] as const
+
+export type SuggestedGaugeType = (typeof SUGGESTED_GAUGE_TYPES)[number]
+
+export function normalizeSuggestedGaugeType(value: string | null | undefined): SuggestedGaugeType | null {
+  const raw = String(value ?? '').trim()
+  if (!raw) return null
+  const matched = SUGGESTED_GAUGE_TYPES.find((opt) => opt.toLowerCase() === raw.toLowerCase())
+  if (matched) return matched
+  if (/chart\s*recorder/i.test(raw)) return 'Chart recorder'
+  if (/load\s*cell/i.test(raw)) return 'Load Cell'
+  if (/dead\s*weight/i.test(raw)) return 'Dead Weight Tester'
+  if (/^pressure$/i.test(raw) || /pressure\s*(gauge|transducer)/i.test(raw)) return 'Pressure'
+  return null
+}
+
+export function isAllowedTestGaugeType(gauge: TestGauge): boolean {
+  return normalizeSuggestedGaugeType(gauge.gauge_type) != null
+}
+
+export function filterAllowedTestGauges(gauges: TestGauge[]): TestGauge[] {
+  return gauges.filter(isAllowedTestGaugeType)
+}
+
 export function filterPressureTestGauges(gauges: TestGauge[]): TestGauge[] {
-  return gauges.filter((g) => !isChartRecorderGauge(g))
+  return filterAllowedTestGauges(gauges).filter((g) => !isChartRecorderGauge(g))
 }
 
 export function filterChartRecorderGauges(gauges: TestGauge[]): TestGauge[] {
-  return gauges.filter(isChartRecorderGauge)
+  return filterAllowedTestGauges(gauges).filter(isChartRecorderGauge)
 }
-
-export const SUGGESTED_GAUGE_TYPES = ['Pressure', 'Helium', 'Load Cell', 'Chart recorder'] as const
 
 /** Orange warning when calibration is within ~3 months. */
 export const GAUGE_CALIBRATION_WARNING_DAYS = 90
@@ -137,7 +171,9 @@ export async function createTestGauge(form: TestGaugeFormState): Promise<{ row: 
       gauge_number,
       gauge_id: gauge_number,
       manufacturer: form.manufacturer.trim() || null,
-      gauge_type: form.gauge_type.trim() || null,
+      gauge_type: resolveGaugeType(form),
+      department: resolveGaugeDepartment(form),
+      notes: form.notes.trim() || null,
       last_calibration_date: form.last_calibration_date || null,
       next_calibration_date: form.next_calibration_date || null,
       certificate_number: form.certificate_number.trim() || null,
@@ -181,7 +217,9 @@ export async function updateTestGauge(
       gauge_number,
       gauge_id: gauge_number,
       manufacturer: form.manufacturer.trim() || null,
-      gauge_type: form.gauge_type.trim() || null,
+      gauge_type: resolveGaugeType(form),
+      department: resolveGaugeDepartment(form),
+      notes: form.notes.trim() || null,
       last_calibration_date: form.last_calibration_date || null,
       next_calibration_date: form.next_calibration_date || null,
       certificate_number: form.certificate_number.trim() || null,
@@ -201,6 +239,20 @@ export async function updateTestGaugeType(
     .from('test_gauges')
     .update({
       gauge_type: gauge_type?.trim() ? gauge_type.trim() : null,
+      updated_at: new Date().toISOString(),
+    })
+    .eq('id', id)
+  return { error: error?.message ?? null }
+}
+
+export async function updateTestGaugeDepartment(
+  id: string,
+  department: string | null,
+): Promise<{ error: string | null }> {
+  const { error } = await supabase
+    .from('test_gauges')
+    .update({
+      department: department?.trim() ? department.trim() : null,
       updated_at: new Date().toISOString(),
     })
     .eq('id', id)

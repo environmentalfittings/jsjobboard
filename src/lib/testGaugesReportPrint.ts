@@ -49,7 +49,7 @@ function buildTestGaugesReportHtml(
   const filterNote = options?.filterNote?.trim() || ''
   const bodyRows =
     rows.length === 0
-      ? `<tr><td colspan="7" class="empty">No gauges match the current filters.</td></tr>`
+      ? `<tr><td colspan="8" class="empty">No gauges match the current filters.</td></tr>`
       : rows
           .map((row, index) => {
             const calStatus = getGaugeCalibrationStatus(row)
@@ -65,6 +65,7 @@ function buildTestGaugesReportHtml(
         <td class="gauge">${escapeHtml(row.gauge_number)}</td>
         <td>${escapeHtml(display(row.manufacturer))}</td>
         <td>${escapeHtml(display(row.gauge_type))}</td>
+        <td>${escapeHtml(display(row.department))}</td>
         <td class="date">${escapeHtml(formatDate(row.last_calibration_date))}</td>
         <td class="date ${dueClass}">${escapeHtml(formatDate(row.next_calibration_date))}${
               note ? `<div class="due-note">${escapeHtml(note)}</div>` : ''
@@ -150,6 +151,7 @@ function buildTestGaugesReportHtml(
           <th>Gauge #</th>
           <th>Manufacturer</th>
           <th>Type</th>
+          <th>Dept</th>
           <th>Calibrated</th>
           <th>Expires</th>
           <th>Status</th>

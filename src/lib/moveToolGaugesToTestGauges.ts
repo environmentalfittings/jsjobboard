@@ -46,9 +46,10 @@ export function resolveGaugeNumber(tool: ToolCalibration): string | null {
 
 function resolveGaugeType(tool: ToolCalibration): string {
   if ((tool.category ?? '').trim().toLowerCase() === 'load cells') return 'Load Cell'
-  const hay = `${tool.tool_type ?? ''} ${tool.model ?? ''}`.toLowerCase()
-  if (/helium/.test(hay)) return 'Helium'
+  const hay = `${tool.tool_type ?? ''} ${tool.model ?? ''} ${tool.category ?? ''}`.toLowerCase()
+  if (/dead\s*weight/.test(hay)) return 'Dead Weight Tester'
   if (/chart\s*recorder/.test(hay)) return 'Chart recorder'
+  if (/load\s*cell/.test(hay)) return 'Load Cell'
   if (/pressure|transducer/.test(hay)) return 'Pressure'
   return (tool.tool_type ?? '').trim() || 'Pressure'
 }
@@ -72,6 +73,8 @@ function toolFormFromTestGauge(gauge: TestGauge): ToolCalibrationFormState {
   form.calibration_date = gauge.last_calibration_date ?? ''
   form.expiration_date = gauge.next_calibration_date ?? ''
   form.certificate_number = gauge.certificate_number ?? ''
+  form.notes = gauge.notes ?? ''
+  form.department = gauge.department ?? ''
   form.status = gauge.active ? 'active' : 'out_of_service'
   form.active = gauge.active
   if (inferred && isPresetToolCategory(inferred)) {
@@ -155,10 +158,33 @@ export async function moveGaugeCategoryToolsToTestGauges(): Promise<MoveToolGaug
       continue
     }
 
+    const gaugeType = resolveGaugeType(tool)
+    const department = (tool.department ?? '').trim()
+    const presetDepts = new Set([
+      'MACHINE SHOP',
+      'TESTING',
+      'TOOL ROOM',
+      'CALIBRATION',
+      'DURCO/TWIN SEAL',
+      'FIELD SERVICE',
+      'FITTING',
+      'WELDING',
+      'INSPECTION',
+      'TEARDOWN',
+      'ACTUATION',
+      'BALL VALVE',
+      'PRV',
+    ])
+    const typePresets = new Set(['Pressure', 'Load Cell', 'Chart recorder', 'Dead Weight Tester'])
+
     const { error } = await createTestGauge({
       gauge_number: gaugeNumber,
       manufacturer: tool.manufacturer ?? '',
-      gauge_type: resolveGaugeType(tool),
+      typeSelect: typePresets.has(gaugeType) ? gaugeType : gaugeType ? 'Other' : '',
+      typeOther: typePresets.has(gaugeType) ? '' : gaugeType,
+      departmentSelect: presetDepts.has(department) ? department : department ? 'Other' : '',
+      departmentOther: presetDepts.has(department) ? '' : department,
+      notes: tool.notes ?? '',
       last_calibration_date: tool.calibration_date ?? '',
       next_calibration_date: tool.expiration_date ?? '',
       certificate_number: tool.certificate_number ?? '',

@@ -4000,11 +4000,21 @@ a.test-log-reports-item-name:hover {
 
 .test-gauge-admin-grid input[type='text'],
 .test-gauge-admin-grid input[type='date'],
+.test-gauge-admin-grid textarea,
 .test-gauge-cert-upload input[type='file'] {
   font: inherit;
   border: 1px solid #d1d5db;
   border-radius: 8px;
   padding: 7px 9px;
+}
+
+.test-gauge-admin-notes {
+  grid-column: 1 / -1;
+}
+
+.test-gauge-admin-notes textarea {
+  resize: vertical;
+  min-height: 72px;
 }
 
 .test-gauge-admin-active {

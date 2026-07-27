@@ -7,19 +7,21 @@ import {
   createTestGauge,
   daysUntilGaugeCalibrationDue,
   deleteTestGauge,
+  filterAllowedTestGauges,
   formatGaugeCalibrationAlert,
   getGaugeCalibrationStatus,
   loadTestGauges,
+  normalizeSuggestedGaugeType,
   removeTestGaugeCertificate,
   SUGGESTED_GAUGE_TYPES,
   testGaugeCertificateUrl,
   updateTestGauge,
-  updateTestGaugeActive,
+  updateTestGaugeDepartment,
   updateTestGaugeType,
 } from '../lib/testGaugeRegistry'
 import { moveTestGaugeToToolLog } from '../lib/moveToolGaugesToTestGauges'
 import { openTestGaugesReportPrint } from '../lib/testGaugesReportPrint'
-import { emptyTestGaugeForm, testGaugeToForm, type TestGauge, type TestGaugeFormState } from '../types/testGauge'
+import { emptyTestGaugeForm, testGaugeToForm, SUGGESTED_DEPARTMENTS, type TestGauge, type TestGaugeFormState } from '../types/testGauge'
 
 const BLANK_FILTER = '(Blank)'
 const STATUS_FILTER_OPTIONS = ['Active', 'Inactive'] as const
@@ -31,21 +33,25 @@ type SortKey =
   | 'gauge_number'
   | 'manufacturer'
   | 'gauge_type'
+  | 'department'
   | 'last_calibration_date'
   | 'next_calibration_date'
   | 'active'
 type SortDir = 'asc' | 'desc'
 type ColumnFilters = {
   gauge_type: string[]
+  department: string[]
   status: string[]
 }
 
 const DEFAULT_COLUMN_FILTERS: ColumnFilters = {
   gauge_type: [],
+  department: [],
   status: ['Active'],
 }
 
 const TYPE_OPTIONS = [...SUGGESTED_GAUGE_TYPES] as string[]
+const DEPARTMENT_OPTIONS = [...SUGGESTED_DEPARTMENTS] as string[]
 
 function uniqueSortedValues(
   rows: TestGauge[],
@@ -94,6 +100,7 @@ const SORT_KEY_LABELS: Record<SortKey, string> = {
   gauge_number: 'gauge number',
   manufacturer: 'manufacturer',
   gauge_type: 'type',
+  department: 'department',
   last_calibration_date: 'calibrated date',
   next_calibration_date: 'expires date',
   active: 'status',
@@ -111,6 +118,9 @@ function buildPrintFilterNote(options: {
   if (q) parts.push(`search “${q}”`)
   if (options.columnFilters.gauge_type.length > 0) {
     parts.push(`type: ${options.columnFilters.gauge_type.join(', ')}`)
+  }
+  if (options.columnFilters.department.length > 0) {
+    parts.push(`dept: ${options.columnFilters.department.join(', ')}`)
   }
   if (options.columnFilters.status.length > 0) {
     parts.push(`status: ${options.columnFilters.status.join(', ')}`)
@@ -146,9 +156,7 @@ function sortValue(row: TestGauge, key: SortKey): string | null {
 }
 
 function typeSelectValue(gaugeType: string | null | undefined): string {
-  const value = (gaugeType ?? '').trim()
-  if (!value) return ''
-  return TYPE_OPTIONS.includes(value) ? value : TYPE_OTHER
+  return normalizeSuggestedGaugeType(gaugeType) ?? ''
 }
 
 function InlineTypeCell({
@@ -161,16 +169,10 @@ function InlineTypeCell({
   onSave: (gaugeType: string | null) => Promise<boolean>
 }) {
   const [selectValue, setSelectValue] = useState(() => typeSelectValue(row.gauge_type))
-  const [otherText, setOtherText] = useState(() => {
-    const value = (row.gauge_type ?? '').trim()
-    return TYPE_OPTIONS.includes(value) ? '' : value
-  })
   const [saving, setSaving] = useState(false)
 
   useEffect(() => {
     setSelectValue(typeSelectValue(row.gauge_type))
-    const value = (row.gauge_type ?? '').trim()
-    setOtherText(TYPE_OPTIONS.includes(value) ? '' : value)
   }, [row.id, row.gauge_type])
 
   const persist = async (gaugeType: string | null) => {
@@ -179,8 +181,6 @@ function InlineTypeCell({
     setSaving(false)
     if (!ok) {
       setSelectValue(typeSelectValue(row.gauge_type))
-      const value = (row.gauge_type ?? '').trim()
-      setOtherText(TYPE_OPTIONS.includes(value) ? '' : value)
     }
   }
 
@@ -194,6 +194,69 @@ function InlineTypeCell({
         onChange={(e) => {
           const next = e.target.value
           setSelectValue(next)
+          void persist(next || null)
+        }}
+      >
+        <option value="">—</option>
+        {TYPE_OPTIONS.map((opt) => (
+          <option key={opt} value={opt}>
+            {opt}
+          </option>
+        ))}
+      </select>
+    </div>
+  )
+}
+
+function departmentSelectValue(department: string | null | undefined): string {
+  const value = (department ?? '').trim()
+  if (!value) return ''
+  return DEPARTMENT_OPTIONS.includes(value) ? value : TYPE_OTHER
+}
+
+function InlineDepartmentCell({
+  row,
+  disabled,
+  onSave,
+}: {
+  row: TestGauge
+  disabled: boolean
+  onSave: (department: string | null) => Promise<boolean>
+}) {
+  const [selectValue, setSelectValue] = useState(() => departmentSelectValue(row.department))
+  const [otherText, setOtherText] = useState(() => {
+    const value = (row.department ?? '').trim()
+    return DEPARTMENT_OPTIONS.includes(value) ? '' : value
+  })
+  const [saving, setSaving] = useState(false)
+
+  useEffect(() => {
+    setSelectValue(departmentSelectValue(row.department))
+    const value = (row.department ?? '').trim()
+    setOtherText(DEPARTMENT_OPTIONS.includes(value) ? '' : value)
+  }, [row.id, row.department])
+
+  const persist = async (department: string | null) => {
+    setSaving(true)
+    const ok = await onSave(department)
+    setSaving(false)
+    if (!ok) {
+      setSelectValue(departmentSelectValue(row.department))
+      const value = (row.department ?? '').trim()
+      setOtherText(DEPARTMENT_OPTIONS.includes(value) ? '' : value)
+    }
+  }
+
+  return (
+    <div className="tool-cal-inline-category">
+      <select
+        className="tool-cal-inline-category-select"
+        value={selectValue}
+        disabled={disabled || saving}
+        aria-label={`Department for ${row.gauge_number}`}
+        onChange={(e) => {
+          const next = e.target.value
+          setSelectValue(next)
           if (next === TYPE_OTHER) {
             if (otherText.trim()) void persist(otherText.trim())
             return
@@ -202,7 +265,7 @@ function InlineTypeCell({
         }}
       >
         <option value="">—</option>
-        {TYPE_OPTIONS.map((opt) => (
+        {DEPARTMENT_OPTIONS.map((opt) => (
           <option key={opt} value={opt}>
             {opt}
           </option>
@@ -215,12 +278,12 @@ function InlineTypeCell({
           className="tool-cal-inline-category-other"
           value={otherText}
           disabled={disabled || saving}
-          placeholder="Type…"
-          aria-label={`Other type for ${row.gauge_number}`}
+          placeholder="Type department…"
+          aria-label={`Other department for ${row.gauge_number}`}
           onChange={(e) => setOtherText(e.target.value)}
           onBlur={() => {
             const next = otherText.trim()
-            const current = (row.gauge_type ?? '').trim()
+            const current = (row.department ?? '').trim()
             if (next === current) return
             void persist(next || null)
           }}
@@ -251,12 +314,12 @@ export function TestGaugesPanel() {
   const [columnFilters, setColumnFilters] = useState<ColumnFilters>(DEFAULT_COLUMN_FILTERS)
   const [dueFocus, setDueFocus] = useState<DueFocus | null>(null)
   const [typeSavingId, setTypeSavingId] = useState<string | null>(null)
-  const [statusSavingId, setStatusSavingId] = useState<string | null>(null)
+  const [departmentSavingId, setDepartmentSavingId] = useState<string | null>(null)
 
   const reload = useCallback(async () => {
     setLoading(true)
     try {
-      setRows(await loadTestGauges(true))
+      setRows(filterAllowedTestGauges(await loadTestGauges(true)))
     } catch (error) {
       showToast(error instanceof Error ? error.message : 'Could not load test gauges')
       setRows([])
@@ -370,19 +433,16 @@ export function TestGaugesPanel() {
     return true
   }
 
-  const saveStatusInline = async (row: TestGauge, active: boolean) => {
-    if (row.active === active) return
-    setStatusSavingId(row.id)
-    const previous = row.active
-    setRows((prev) => prev.map((item) => (item.id === row.id ? { ...item, active } : item)))
-    const { error } = await updateTestGaugeActive(row.id, active)
-    setStatusSavingId(null)
+  const saveDepartmentInline = async (row: TestGauge, department: string | null) => {
+    setDepartmentSavingId(row.id)
+    const { error } = await updateTestGaugeDepartment(row.id, department)
+    setDepartmentSavingId(null)
     if (error) {
-      setRows((prev) => prev.map((item) => (item.id === row.id ? { ...item, active: previous } : item)))
       showToast(error)
-      return
+      return false
     }
-    showToast(active ? 'Gauge set to Active' : 'Gauge set to Inactive')
+    setRows((prev) => prev.map((item) => (item.id === row.id ? { ...item, department } : item)))
+    return true
   }
 
   const clearCert = async (row: TestGauge) => {
@@ -454,6 +514,7 @@ export function TestGaugesPanel() {
   const filterOptions = useMemo(
     () => ({
       gauge_type: uniqueSortedValues(rows, (row) => row.gauge_type),
+      department: uniqueSortedValues(rows, (row) => row.department),
       status: [...STATUS_FILTER_OPTIONS],
     }),
     [rows],
@@ -467,10 +528,22 @@ export function TestGaugesPanel() {
       ) {
         return false
       }
+      if (
+        !matchesMultiFilter(columnFilters.department, (row.department ?? '').trim() || BLANK_FILTER)
+      ) {
+        return false
+      }
       if (!matchesMultiFilter(columnFilters.status, statusFilterLabel(row.active))) return false
       if (!matchesDueFocus(row, dueFocus)) return false
       if (!q) return true
-      const hay = [row.gauge_number, row.manufacturer, row.gauge_type, row.active ? 'active' : 'inactive']
+      const hay = [
+        row.gauge_number,
+        row.manufacturer,
+        row.gauge_type,
+        row.department,
+        row.notes,
+        row.active ? 'active' : 'inactive',
+      ]
         .filter(Boolean)
         .join(' ')
         .toLowerCase()
@@ -487,6 +560,7 @@ export function TestGaugesPanel() {
 
   const activeColumnFilterCount =
     columnFilters.gauge_type.length +
+    columnFilters.department.length +
     (columnFilters.status.length === 1 && columnFilters.status[0] === 'Active'
       ? 0
       : columnFilters.status.length > 0
@@ -498,6 +572,7 @@ export function TestGaugesPanel() {
     columnFilters.status.length === 1 &&
     columnFilters.status[0] === 'Active' &&
     columnFilters.gauge_type.length === 0 &&
+    columnFilters.department.length === 0 &&
     !dueFocus
 
   const header = (key: SortKey, label: string, filterKey?: keyof ColumnFilters) => (
@@ -533,19 +608,58 @@ export function TestGaugesPanel() {
       </label>
       <label>
         Type
-        <input
-          type="text"
-          list="test-gauge-type-suggestions"
-          value={form.gauge_type}
-          onChange={(e) => setForm((f) => ({ ...f, gauge_type: e.target.value }))}
-          placeholder="e.g. Pressure, Helium, Chart recorder"
-        />
-        <datalist id="test-gauge-type-suggestions">
-          {SUGGESTED_GAUGE_TYPES.map((type) => (
-            <option key={type} value={type} />
+        <select
+          value={form.typeSelect}
+          onChange={(e) => {
+            const typeSelect = e.target.value
+            setForm((f) => ({
+              ...f,
+              typeSelect,
+              typeOther: '',
+            }))
+          }}
+        >
+          <option value="">Select type…</option>
+          {TYPE_OPTIONS.map((type) => (
+            <option key={type} value={type}>
+              {type}
+            </option>
           ))}
-        </datalist>
+        </select>
       </label>
+      <label>
+        Department
+        <select
+          value={form.departmentSelect}
+          onChange={(e) => {
+            const departmentSelect = e.target.value
+            setForm((f) => ({
+              ...f,
+              departmentSelect,
+              departmentOther: departmentSelect === TYPE_OTHER ? f.departmentOther : '',
+            }))
+          }}
+        >
+          <option value="">Select department…</option>
+          {DEPARTMENT_OPTIONS.map((dept) => (
+            <option key={dept} value={dept}>
+              {dept}
+            </option>
+          ))}
+          <option value={TYPE_OTHER}>{TYPE_OTHER}</option>
+        </select>
+      </label>
+      {form.departmentSelect === TYPE_OTHER ? (
+        <label>
+          Other department
+          <input
+            type="text"
+            value={form.departmentOther}
+            placeholder="Type department…"
+            onChange={(e) => setForm((f) => ({ ...f, departmentOther: e.target.value }))}
+          />
+        </label>
+      ) : null}
       <label>
         Last calibration date
         <input
@@ -571,6 +685,15 @@ export function TestGaugesPanel() {
           onChange={(e) => setForm((f) => ({ ...f, certificate_number: e.target.value }))}
         />
       </label>
+      <label>
+        Notes
+        <input
+          type="text"
+          value={form.notes}
+          onChange={(e) => setForm((f) => ({ ...f, notes: e.target.value }))}
+          placeholder="Optional notes"
+        />
+      </label>
       <label className="test-gauge-admin-active">
         <input
           type="checkbox"
@@ -586,10 +709,12 @@ export function TestGaugesPanel() {
     <section className="dashboard-panel admin-lists-panel">
       <h3>Test gauges</h3>
       <p className="placeholder-copy resources-hint">
-        Calibrated test gauges and chart recorders for the test log. Gauges are calibrated by an outside lab —
-        use <strong>Upload cert</strong> to record a new certificate (prior calibrations are archived). Use{' '}
-        <strong>History</strong> to review archived certificates. Active gauges are shown by default — click a
-        summary card to focus due windows.
+        Calibrated test gauges and chart recorders for the test log. Only{' '}
+        <strong>Pressure</strong>, <strong>Load Cell</strong>, <strong>Chart recorder</strong>, and{' '}
+        <strong>Dead Weight Tester</strong> types are shown here — shop tools like depth gauges belong on the
+        tool calibration log. Use <strong>Upload cert</strong> to record a new certificate (prior calibrations
+        are archived). Use <strong>History</strong> to review archived certificates. Active gauges are shown by
+        default — click a summary card to focus due windows. Use column filters for Type, Department, or Status.
       </p>
 
       <div className="dashboard-kpis tool-cal-kpis" aria-label="Test gauge calibration summary">
@@ -696,7 +821,7 @@ export function TestGaugesPanel() {
           <input
             type="search"
             value={search}
-            placeholder="Gauge #, manufacturer, type…"
+            placeholder="Gauge #, manufacturer, type, department…"
             onChange={(e) => setSearch(e.target.value)}
           />
         </label>
@@ -735,6 +860,7 @@ export function TestGaugesPanel() {
                 <th>{header('gauge_number', 'Gauge #')}</th>
                 <th>{header('manufacturer', 'Manufacturer')}</th>
                 <th>{header('gauge_type', 'Type', 'gauge_type')}</th>
+                <th>{header('department', 'Dept', 'department')}</th>
                 <th>{header('last_calibration_date', 'Calibrated')}</th>
                 <th>{header('next_calibration_date', 'Expires')}</th>
                 <th>Certificate</th>
@@ -757,6 +883,13 @@ export function TestGaugesPanel() {
                           row={row}
                           disabled={typeSavingId != null && typeSavingId !== row.id}
                           onSave={(gaugeType) => saveTypeInline(row, gaugeType)}
+                        />
+                      </td>
+                      <td>
+                        <InlineDepartmentCell
+                          row={row}
+                          disabled={departmentSavingId != null && departmentSavingId !== row.id}
+                          onSave={(department) => saveDepartmentInline(row, department)}
                         />
                       </td>
                       <td>{row.last_calibration_date ?? '—'}</td>
@@ -789,20 +922,7 @@ export function TestGaugesPanel() {
                           </div>
                         ) : null}
                       </td>
-                      <td>
-                        <select
-                          className="tool-cal-inline-category-select"
-                          value={row.active ? 'Active' : 'Inactive'}
-                          disabled={statusSavingId === row.id}
-                          aria-label={`Status for ${row.gauge_number}`}
-                          onChange={(e) => {
-                            void saveStatusInline(row, e.target.value === 'Active')
-                          }}
-                        >
-                          <option value="Active">Active</option>
-                          <option value="Inactive">Inactive</option>
-                        </select>
-                      </td>
+                      <td>{row.active ? 'Active' : 'Inactive'}</td>
                       <td className="test-gauge-row-actions">
                         <button
                           type="button"
@@ -839,7 +959,7 @@ export function TestGaugesPanel() {
                     </tr>
                     {isEditingRow ? (
                       <tr className="tool-cal-inline-edit-row">
-                        <td colSpan={8}>
+                        <td colSpan={9}>
                           <div className="test-gauge-admin-form tool-cal-inline-edit-form">
                             <h4>Edit gauge — {row.gauge_number}</h4>
                             <p className="placeholder-copy resources-hint">
