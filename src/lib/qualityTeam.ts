@@ -246,45 +246,63 @@ export async function loadQualityTeamMembers(): Promise<{
   // Server-side .neq('quality_team_level','none') was returning an empty list for some sessions.
   const fullSelect =
     'id,employee_no,first_name,last_name,full_name,username,initials,company,is_active,is_tester,quality_team_level,auth_user_id'
-  const withTester =
-    'id,employee_no,first_name,last_name,full_name,username,initials,company,is_active,is_tester,auth_user_id'
+  const withoutTester =
+    'id,employee_no,first_name,last_name,full_name,username,initials,company,is_active,quality_team_level,auth_user_id'
   const baseSelect =
     'id,employee_no,first_name,last_name,full_name,username,initials,company,is_active,auth_user_id'
 
-  let primary = await supabase
+  let rows: Record<string, unknown>[] | null = null
+  let errorMessage: string | null = null
+
+  const full = await supabase
     .from('employees')
     .select(fullSelect)
     .order('last_name', { ascending: true })
     .order('first_name', { ascending: true })
 
-  if (primary.error && /quality_team_level/i.test(primary.error.message)) {
+  if (!full.error) {
+    rows = (full.data as Record<string, unknown>[] | null) ?? []
+  } else if (/quality_team_level/i.test(full.error.message)) {
     return {
       members: [],
       error: 'Run migration-employee-quality-team.sql in Supabase to enable Quality Team',
     }
-  }
-
-  if (primary.error && /is_tester/i.test(primary.error.message)) {
-    primary = await supabase
+  } else if (/is_tester/i.test(full.error.message)) {
+    const next = await supabase
       .from('employees')
-      .select(withTester)
+      .select(withoutTester)
       .order('last_name', { ascending: true })
       .order('first_name', { ascending: true })
+    if (!next.error) {
+      rows = (next.data as Record<string, unknown>[] | null) ?? []
+    } else if (/quality_team_level/i.test(next.error.message)) {
+      return {
+        members: [],
+        error: 'Run migration-employee-quality-team.sql in Supabase to enable Quality Team',
+      }
+    } else if (/is_tester/i.test(next.error.message)) {
+      const base = await supabase
+        .from('employees')
+        .select(baseSelect)
+        .order('last_name', { ascending: true })
+        .order('first_name', { ascending: true })
+      if (base.error) {
+        errorMessage = base.error.message
+      } else {
+        rows = (base.data as Record<string, unknown>[] | null) ?? []
+      }
+    } else {
+      errorMessage = next.error.message
+    }
+  } else {
+    errorMessage = full.error.message
   }
 
-  if (primary.error && /is_tester|quality_team_level/i.test(primary.error.message)) {
-    primary = await supabase
-      .from('employees')
-      .select(baseSelect)
-      .order('last_name', { ascending: true })
-      .order('first_name', { ascending: true })
+  if (errorMessage) {
+    return { members: [], error: errorMessage }
   }
 
-  if (primary.error) {
-    return { members: [], error: primary.error.message }
-  }
-
-  const employees = ((primary.data as Record<string, unknown>[] | null) ?? []).map(mapEmployeeRow)
+  const employees = (rows ?? []).map(mapEmployeeRow)
   return { members: qualityTeamMembersFromEmployees(employees), error: null }
 }
 
