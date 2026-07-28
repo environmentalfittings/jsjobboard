@@ -9,9 +9,11 @@ import type { Valve } from '../types'
 interface WorkOrderFilterBarProps {
   valves: Valve[]
   query: string
+  descriptionQuery: string
   selectedValveId: string
   sort: ValveListSort
   onQueryChange: (value: string) => void
+  onDescriptionQueryChange: (value: string) => void
   onSelect: (valve: Valve) => void
   onClear: () => void
   onSortChange: (sort: ValveListSort) => void
@@ -22,9 +24,11 @@ interface WorkOrderFilterBarProps {
 export function WorkOrderFilterBar({
   valves,
   query,
+  descriptionQuery,
   selectedValveId,
   sort,
   onQueryChange,
+  onDescriptionQueryChange,
   onSelect,
   onClear,
   onSortChange,
@@ -125,6 +129,28 @@ export function WorkOrderFilterBar({
                 No jobs match “{query.trim()}”. If New Job says it already exists, try List → Closed
                 valves.
               </div>
+            ) : null}
+          </div>
+        </label>
+
+        <label className="job-board-wo-filter-field job-board-wo-filter-field--description">
+          <span>Description</span>
+          <div className="job-board-wo-combobox">
+            <input
+              type="search"
+              placeholder="Search description text…"
+              value={descriptionQuery}
+              onChange={(event) => onDescriptionQueryChange(event.target.value)}
+            />
+            {descriptionQuery.trim() ? (
+              <button
+                type="button"
+                className="job-board-wo-clear"
+                onClick={() => onDescriptionQueryChange('')}
+                aria-label="Clear description filter"
+              >
+                ×
+              </button>
             ) : null}
           </div>
         </label>

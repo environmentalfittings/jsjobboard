@@ -5,9 +5,11 @@ import {
   hasItpInspectionData,
   hasLegacyProcessPlan,
 } from './valveItpStorage'
+import { notifyQualityTeamItpReviewRequested } from './messages'
 import { supabase } from './supabase'
 import {
   createEmptyItpLibraryPlan,
+  emptyQcReview,
   normalizeItpLibraryPlan,
   valveToLibrarySnapshot,
   type ItpLibraryPlanPayload,
@@ -70,7 +72,13 @@ export async function loadItpLibraryPlan(valve: Valve): Promise<{
   }
 }
 
-export async function saveItpLibraryPlan(valve: Valve, plan: ItpLibraryPlanPayload): Promise<void> {
+export async function saveItpLibraryPlan(
+  valve: Valve,
+  plan: ItpLibraryPlanPayload,
+  options?: {
+    notifyQc?: { senderUserId: string; senderName: string }
+  },
+): Promise<{ plan: ItpLibraryPlanPayload; generatedForReview: boolean; notified: number }> {
   const { data: existing, error: loadError } = await supabase
     .from('valve_itp')
     .select('itp_data')
@@ -78,14 +86,40 @@ export async function saveItpLibraryPlan(valve: Valve, plan: ItpLibraryPlanPaylo
     .maybeSingle()
   if (loadError) throw loadError
 
-  const payload = normalizeItpLibraryPlan(
+  const hadLibraryPlan = Boolean(extractLibraryPlanFromItpData(existing?.itp_data))
+  const now = new Date().toISOString()
+
+  let payload = normalizeItpLibraryPlan(
     {
       ...plan,
       valveSnapshot: valveToLibrarySnapshot(valve),
-      updatedAt: new Date().toISOString(),
+      updatedAt: now,
     },
     valve,
   )
+
+  const qcReview = { ...(payload.qcReview ?? emptyQcReview()) }
+  let generatedForReview = false
+
+  if (!hadLibraryPlan || (!qcReview.generatedAt && qcReview.status === 'draft')) {
+    qcReview.status = 'pending_review'
+    qcReview.generatedAt = qcReview.generatedAt ?? now
+    if (!qcReview.generatedByName && options?.notifyQc) {
+      qcReview.generatedByUserId = options.notifyQc.senderUserId
+      qcReview.generatedByName = options.notifyQc.senderName.trim() || 'Shop'
+    }
+    generatedForReview = !hadLibraryPlan || !plan.qcReview?.notifiedAt
+  } else if (
+    qcReview.generatedAt &&
+    !qcReview.generatedByName &&
+    options?.notifyQc?.senderName
+  ) {
+    // Backfill generator on older ITPs the next time the creator saves with notify context.
+    qcReview.generatedByUserId = options.notifyQc.senderUserId
+    qcReview.generatedByName = options.notifyQc.senderName.trim() || 'Shop'
+  }
+
+  payload = { ...payload, qcReview }
 
   const included = Object.values(payload.sel).filter((s) => s.included).length
   const itp_data = buildItpDataForSave({
@@ -99,4 +133,54 @@ export async function saveItpLibraryPlan(valve: Valve, plan: ItpLibraryPlanPaylo
   }
   const { error } = await supabase.from('valve_itp').upsert(row, { onConflict: 'valve_row_id' })
   if (error) throw error
+
+  let notified = 0
+  if (
+    generatedForReview &&
+    options?.notifyQc?.senderUserId &&
+    !payload.qcReview.notifiedAt
+  ) {
+    const result = await notifyQualityTeamItpReviewRequested({
+      valveRowId: valve.id,
+      valveId: valve.valve_id,
+      customer: valve.customer,
+      senderUserId: options.notifyQc.senderUserId,
+      senderName: options.notifyQc.senderName,
+    })
+    notified = result.notified
+    if (!result.error) {
+      const withNotify = {
+        ...payload,
+        qcReview: {
+          ...payload.qcReview,
+          notifiedAt: now,
+          status: 'pending_review' as const,
+          generatedByUserId:
+            payload.qcReview.generatedByUserId ?? options.notifyQc.senderUserId,
+          generatedByName:
+            payload.qcReview.generatedByName ??
+            (options.notifyQc.senderName.trim() || 'Shop'),
+        },
+        updatedAt: new Date().toISOString(),
+      }
+      const notifyData = buildItpDataForSave({
+        existing: itp_data,
+        libraryPlan: withNotify,
+      })
+      await supabase.from('valve_itp').upsert(
+        {
+          valve_row_id: valve.id,
+          content: row.content,
+          itp_data: notifyData,
+        },
+        { onConflict: 'valve_row_id' },
+      )
+      payload = withNotify
+    } else if (result.error) {
+      // Persist review state even if messaging fails; surface error via throw only for hard failures.
+      console.warn(result.error)
+    }
+  }
+
+  return { plan: payload, generatedForReview, notified }
 }

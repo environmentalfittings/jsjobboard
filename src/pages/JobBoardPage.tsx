@@ -9,6 +9,7 @@ import { StatusChangeModal } from '../components/StatusChangeModal'
 import { useToast } from '../components/ToastNotification'
 import { normalizeJobType } from '../constants/jobTypes'
 import { ColumnFilterCombobox } from '../components/ColumnFilterCombobox'
+import { ColumnFilterStatusChecklist } from '../components/ColumnFilterStatusChecklist'
 import { WorkOrderFilterBar } from '../components/WorkOrderFilterBar'
 import {
   DONE_STATUSES,
@@ -21,6 +22,7 @@ import { displayJobStatus, isActiveOrderType, isActiveShopWork, isClosedWorkOrde
 import { valveStatusPatch } from '../lib/valveStatusPatch'
 import {
   compareValvesBySort,
+  valveMatchesDescriptionSearch,
   valveMatchesWorkOrderFilter,
   type ValveListSort,
 } from '../lib/valveWorkOrderSearch'
@@ -35,7 +37,7 @@ import {
   type ColumnFilterState,
 } from '../lib/jobBoardListColumns'
 import { recordDueDateChange, resolveChangedByName } from '../lib/dueDateChanges'
-import { isEligiblePriorityValve, syncPriorityQueueWithValves, compareValvesWithPriorityOrder } from '../lib/priorityQueue'
+import { isEligiblePriorityValve, syncPriorityQueueWithValves, compareValvesWithPriorityOrder, persistPriorityQueueOrder, reorderPriorityQueueIds } from '../lib/priorityQueue'
 import { supabase } from '../lib/supabase'
 import type { JobCardSaveFields } from '../lib/jobCardSave'
 import { can, canWriteShop, permissionDeniedReason } from '../lib/roles'
@@ -217,6 +219,9 @@ function KanbanJobCard({
         {isTurnaroundValve(valve) ? (
           <div className="job-card-turnaround-flag">Turnaround</div>
         ) : null}
+        {valve.needs_failure_analysis === true ? (
+          <div className="job-card-failure-analysis-flag">Failure analysis</div>
+        ) : null}
         <div className="job-card-job-type-badge">{normalizeJobType(valve.job_type)}</div>
         {isInTesting || showTestedBadge ? (
           <div className="job-card-test-flags">
@@ -361,6 +366,7 @@ export function JobBoardPage({ role, username }: { role?: UserRole; username?: s
   const [isSaving, setIsSaving] = useState(false)
   const [attachmentCounts, setAttachmentCounts] = useState<Record<number, number>>({})
   const [workOrderQuery, setWorkOrderQuery] = useState('')
+  const [descriptionQuery, setDescriptionQuery] = useState('')
   const [selectedWorkOrder, setSelectedWorkOrder] = useState('')
   const [listSort, setListSort] = useState<ValveListSort>('default')
   const [columnFilters, setColumnFilters] = useState(() => {
@@ -432,7 +438,7 @@ export function JobBoardPage({ role, username }: { role?: UserRole; username?: s
     () =>
       LIST_FILTER_COLUMNS.filter(({ key }) => {
         const f = columnFilters[key]
-        return Boolean(f.selected || f.query.trim())
+        return Boolean(f.selected || f.query.trim() || (f.checked?.length ?? 0) > 0)
       }).length,
     [columnFilters],
   )
@@ -723,9 +729,13 @@ export function JobBoardPage({ role, username }: { role?: UserRole; username?: s
     return scopeBaseValves
       .filter((v) => valveMatchesAllColumnFilters(v, columnFilters, listColumnContext))
       .filter((v) => valveMatchesWorkOrderFilter(v, workOrderQuery, selectedWorkOrder))
-      .sort((a, b) =>
-        compareValvesByListColumn(a, b, listColumnSort, listColumnContext, compareValvesForDisplay),
-      )
+      .filter((v) => valveMatchesDescriptionSearch(v, descriptionQuery))
+      .sort((a, b) => {
+        if (listSort !== 'default') {
+          return compareValvesBySort(a, b, listSort, compareValvesForDisplay)
+        }
+        return compareValvesByListColumn(a, b, listColumnSort, listColumnContext, compareValvesForDisplay)
+      })
   }, [
     scopeBaseValves,
     columnFilters,
@@ -734,6 +744,8 @@ export function JobBoardPage({ role, username }: { role?: UserRole; username?: s
     compareValvesForDisplay,
     workOrderQuery,
     selectedWorkOrder,
+    listSort,
+    descriptionQuery,
   ])
 
   const openModal = (valve: Valve) => {
@@ -831,6 +843,7 @@ export function JobBoardPage({ role, username }: { role?: UserRole; username?: s
       bowl_type: fields.bowlType?.trim() || null,
       valve_type: fields.valveType?.trim() || null,
       is_turnaround: fields.isTurnaround,
+      needs_failure_analysis: fields.needsFailureAnalysis,
       assigned_technician_id: fields.assignedTechnicianId,
       pressure_class: fields.pressureClass,
       body_material: fields.bodyMaterial,
@@ -912,6 +925,33 @@ export function JobBoardPage({ role, username }: { role?: UserRole; username?: s
     showToast(`${valve.valve_id} added to priority`)
   }
 
+  const [savingPriorityOrder, setSavingPriorityOrder] = useState(false)
+
+  const movePriorityInQueue = useCallback(
+    async (valveId: string, direction: 'top' | 'up' | 'down') => {
+      if (!canWrite) {
+        showToast(permissionDeniedReason('shopWrite'))
+        return
+      }
+      const reordered = reorderPriorityQueueIds(priorityQueueIds, valveId, direction)
+      if (!reordered) return
+
+      const previous = priorityQueueIds
+      setPriorityQueueIds(reordered)
+      setSavingPriorityOrder(true)
+      const { error } = await persistPriorityQueueOrder(previous, reordered)
+      setSavingPriorityOrder(false)
+
+      if (error) {
+        setPriorityQueueIds(previous)
+        showToast('Could not reorder priorities')
+        return
+      }
+      showToast('Priority order updated')
+    },
+    [canWrite, priorityQueueIds, showToast],
+  )
+
   const isValveInPhase = (valve: Valve, phaseKey: PhaseKey) => {
     const status = displayJobStatus(valve)
     if (phaseKey === 'done') return DONE_STATUSES.has(status)
@@ -963,6 +1003,9 @@ export function JobBoardPage({ role, username }: { role?: UserRole; username?: s
       let base = baseItemsForPhase(phaseKey).filter((valve) =>
         valveMatchesWorkOrderFilter(valve, workOrderQuery, selectedWorkOrder),
       )
+      if (descriptionQuery.trim()) {
+        base = base.filter((valve) => valveMatchesDescriptionSearch(valve, descriptionQuery))
+      }
 
       if (listSort !== 'default') {
         return sortValves(base)
@@ -985,7 +1028,7 @@ export function JobBoardPage({ role, username }: { role?: UserRole; username?: s
       const rest = sortValves([...byId.values()])
       return [...ordered, ...rest]
     },
-    [baseItemsForPhase, phaseOrder, workOrderQuery, selectedWorkOrder, listSort, sortValves],
+    [baseItemsForPhase, phaseOrder, workOrderQuery, selectedWorkOrder, listSort, sortValves, descriptionQuery],
   )
 
   const placeInPhaseOrder = useCallback(
@@ -1135,10 +1178,12 @@ export function JobBoardPage({ role, username }: { role?: UserRole; username?: s
         <WorkOrderFilterBar
           valves={valves}
           query={workOrderQuery}
+          descriptionQuery={descriptionQuery}
           selectedValveId={selectedWorkOrder}
           sort={listSort}
           statusMessage={tab === 'kanban' ? workOrderSearchStatus : null}
           onQueryChange={setWorkOrderQuery}
+          onDescriptionQueryChange={setDescriptionQuery}
           onSelect={(valve) => {
             setSelectedWorkOrder(valve.valve_id)
             setWorkOrderQuery(valve.valve_id)
@@ -1220,13 +1265,18 @@ export function JobBoardPage({ role, username }: { role?: UserRole; username?: s
               onClick={() => {
                 setColumnFilters(emptyColumnFilters())
                 setListColumnSort({ column: 'default', direction: 'asc' })
+                setDescriptionQuery('')
                 setSearchParams((prev) => {
                   const next = new URLSearchParams(prev)
                   next.delete('cell')
                   return next
                 })
               }}
-              disabled={activeColumnFilterCount === 0 && listColumnSort.column === 'default'}
+              disabled={
+                activeColumnFilterCount === 0 &&
+                listColumnSort.column === 'default' &&
+                !descriptionQuery.trim()
+              }
             >
               {activeColumnFilterCount > 0
                 ? `Clear ${activeColumnFilterCount} filter${activeColumnFilterCount === 1 ? '' : 's'}`
@@ -1248,7 +1298,12 @@ export function JobBoardPage({ role, username }: { role?: UserRole; username?: s
             <p className="list-view-completed-hint">
               Includes Completed, Junked, and Replaced. Open a card to change status if one was marked by mistake.
             </p>
-          ) : null}
+          ) : (
+            <p className="list-view-priority-hint">
+              Sort by <strong>Default (priority)</strong> to match shop priority order. Use <strong>Add priority</strong>{' '}
+              on a row, then ⇈ ↑ ↓ to reorder. On Hold jobs can be prioritized.
+            </p>
+          )}
           <div className="table-wrap list-table-wrap">
             <table className="list-view-table">
               <thead>
@@ -1275,14 +1330,23 @@ export function JobBoardPage({ role, username }: { role?: UserRole; username?: s
                               : '↕'}
                           </span>
                         </button>
-                        <ColumnFilterCombobox
-                          column={key}
-                          label={label}
-                          valves={key === 'valve_id' ? valves : scopeBaseValves}
-                          filter={columnFilters[key]}
-                          context={listColumnContext}
-                          onChange={(next) => setColumnFilter(key, next)}
-                        />
+                        {key === 'status' ? (
+                          <ColumnFilterStatusChecklist
+                            label={label}
+                            valves={scopeBaseValves}
+                            filter={columnFilters[key]}
+                            onChange={(next) => setColumnFilter(key, next)}
+                          />
+                        ) : (
+                          <ColumnFilterCombobox
+                            column={key}
+                            label={label}
+                            valves={key === 'valve_id' ? valves : scopeBaseValves}
+                            filter={columnFilters[key]}
+                            context={listColumnContext}
+                            onChange={(next) => setColumnFilter(key, next)}
+                          />
+                        )}
                       </div>
                     </th>
                   ))}
@@ -1290,8 +1354,15 @@ export function JobBoardPage({ role, username }: { role?: UserRole; username?: s
                 </tr>
               </thead>
               <tbody>
-                {tableRows.map((valve) => (
-                  <tr key={valve.id} onClick={() => openModal(valve)}>
+                {tableRows.map((valve) => {
+                  const priorityIndex = priorityQueueIds.indexOf(valve.valve_id)
+                  const inPriorityQueue = priorityIndex >= 0
+                  return (
+                  <tr
+                    key={valve.id}
+                    className={inPriorityQueue ? 'list-view-row-priority' : undefined}
+                    onClick={() => openModal(valve)}
+                  >
                     <td>{valve.valve_id}</td>
                     <td>{valve.customer ?? '-'}</td>
                     <td><FinishCellBadge cell={valve.cell} /></td>
@@ -1345,26 +1416,74 @@ export function JobBoardPage({ role, username }: { role?: UserRole; username?: s
                     </td>
                     <td className="table-cell-clamp">{valve.description ?? '-'}</td>
                     <td className="table-cell-clamp">{valve.notes ?? '-'}</td>
-                    <td>
+                    <td className="list-col-actions-cell" onClick={(e) => e.stopPropagation()}>
                       {viewingCompletedValves ? (
                         <button
                           type="button"
                           className="job-list-quick-action"
-                          onClick={(e) => {
-                            e.stopPropagation()
-                            openModal(valve)
-                          }}
+                          onClick={() => openModal(valve)}
                         >
                           Open card
                         </button>
-                      ) : valve.status === 'Not Arrived' ? (
+                      ) : inPriorityQueue && canWrite ? (
+                        <div className="job-list-priority-actions">
+                          <span className="job-list-priority-label">Priority</span>
+                          <div className="job-card-reorder-buttons">
+                            <button
+                              type="button"
+                              className="job-card-reorder-btn job-card-reorder-btn--top"
+                              title="Move to top of priority"
+                              aria-label={`Move ${valve.valve_id} to top of priority`}
+                              disabled={savingPriorityOrder || priorityIndex === 0}
+                              onClick={() => void movePriorityInQueue(valve.valve_id, 'top')}
+                            >
+                              ⇈
+                            </button>
+                            <button
+                              type="button"
+                              className="job-card-reorder-btn"
+                              title="Move up in priority"
+                              aria-label={`Move ${valve.valve_id} up in priority`}
+                              disabled={savingPriorityOrder || priorityIndex === 0}
+                              onClick={() => void movePriorityInQueue(valve.valve_id, 'up')}
+                            >
+                              ↑
+                            </button>
+                            <button
+                              type="button"
+                              className="job-card-reorder-btn"
+                              title="Move down in priority"
+                              aria-label={`Move ${valve.valve_id} down in priority`}
+                              disabled={
+                                savingPriorityOrder || priorityIndex >= priorityQueueIds.length - 1
+                              }
+                              onClick={() => void movePriorityInQueue(valve.valve_id, 'down')}
+                            >
+                              ↓
+                            </button>
+                          </div>
+                          <button
+                            type="button"
+                            className="job-list-priority-remove"
+                            disabled={savingPriorityOrder}
+                            onClick={() => void togglePriority(valve)}
+                          >
+                            Remove
+                          </button>
+                        </div>
+                      ) : canWrite && isEligiblePriorityValve(valve) ? (
                         <button
                           type="button"
                           className="job-list-quick-action"
-                          onClick={(e) => {
-                            e.stopPropagation()
-                            void quickMarkArrived(valve)
-                          }}
+                          onClick={() => void togglePriority(valve)}
+                        >
+                          Add priority
+                        </button>
+                      ) : valve.status === 'Not Arrived' && canWrite ? (
+                        <button
+                          type="button"
+                          className="job-list-quick-action"
+                          onClick={() => void quickMarkArrived(valve)}
                         >
                           Mark arrived
                         </button>
@@ -1373,7 +1492,7 @@ export function JobBoardPage({ role, username }: { role?: UserRole; username?: s
                       )}
                     </td>
                   </tr>
-                ))}
+                )})}
               </tbody>
             </table>
           </div>

@@ -5,6 +5,10 @@ import {
   uploadMessageAttachment,
   type MessageAttachment,
 } from './messageAttachments'
+import { loadTechniciansForMessages } from './messageRecipients'
+import { normalizeEmployeeUsername } from './employeeAuth'
+import { isQualityTeamMember } from './qualityTeam'
+import { normalizeQualityTeamLevel } from '../types/employees'
 import { supabase } from './supabase'
 
 export type { MessageAttachment }
@@ -351,15 +355,21 @@ export async function sendDirectMessage(options: {
   }
 
   if (uploaded.length > 0) {
-    const { error: updateError } = await supabase
+    const { data: updated, error: updateError } = await supabase
       .from('app_messages')
       .update({ attachments: uploaded })
       .eq('id', inserted.id)
+      .select('attachments')
+      .single()
     if (updateError) {
       if (/attachments|column.*does not exist/i.test(updateError.message)) {
         return 'Run supabase/migration-app-messages-archive-attachments.sql in Supabase SQL Editor'
       }
       return updateError.message
+    }
+    const saved = parseMessageAttachments(updated?.attachments)
+    if (saved.length !== uploaded.length) {
+      return 'Message sent but attachments could not be saved. Ask an admin to run message attachment migrations.'
     }
   }
 
@@ -397,5 +407,311 @@ export async function createFeedbackResolvedNotification(options: {
     return error.message
   }
 
+  return null
+}
+
+/**
+ * Auth user ids for every active Quality Team member who can receive Messages.
+ * Uses employees.auth_user_id, with technicians.user_id as fallback when the roster link is missing.
+ */
+async function loadQualityTeamRecipientAuthIds(options?: {
+  /** When set, omit this auth user from recipients (e.g. ITP review requests). */
+  excludeUserId?: string | null
+}): Promise<{ recipientIds: string[]; memberCount: number; error: string | null }> {
+  const excludeUserId = options?.excludeUserId?.trim() || null
+  const { data: employees, error: loadError } = await supabase
+    .from('employees')
+    .select('id,employee_no,username,is_active,quality_team_level,auth_user_id')
+
+  if (loadError) {
+    if (isMissingMessagesTable(loadError.message)) {
+      return { recipientIds: [], memberCount: 0, error: null }
+    }
+    if (/quality_team_level/i.test(loadError.message)) {
+      return {
+        recipientIds: [],
+        memberCount: 0,
+        error: 'Run migration-employee-quality-team.sql in Supabase to enable Quality Team alerts',
+      }
+    }
+    return { recipientIds: [], memberCount: 0, error: loadError.message }
+  }
+
+  const qualityMembers = ((employees as Record<string, unknown>[] | null) ?? []).filter((row) => {
+    if (!Boolean(row.is_active)) return false
+    return isQualityTeamMember(normalizeQualityTeamLevel(row.quality_team_level))
+  })
+
+  if (qualityMembers.length === 0) {
+    return { recipientIds: [], memberCount: 0, error: null }
+  }
+
+  const technicians = await loadTechniciansForMessages()
+  const techByEmployeeId = new Map<string, string>()
+  const techByEmployeeNo = new Map<string, string>()
+  const techByUsername = new Map<string, string>()
+  for (const tech of technicians) {
+    if (!tech.user_id) continue
+    const employeeKey = tech.employee_id?.trim()
+    if (employeeKey) {
+      techByEmployeeId.set(employeeKey, tech.user_id)
+      techByEmployeeNo.set(employeeKey, tech.user_id)
+    }
+    const login = tech.login_username?.trim()
+    if (login) techByUsername.set(normalizeEmployeeUsername(login), tech.user_id)
+  }
+
+  const recipientIds = [
+    ...new Set(
+      qualityMembers
+        .map((row) => {
+          const direct = row.auth_user_id == null ? null : String(row.auth_user_id)
+          if (direct) return direct
+          const employeeId = String(row.id ?? '').trim()
+          const employeeNo = String(row.employee_no ?? '').trim()
+          const username = normalizeEmployeeUsername(String(row.username ?? ''))
+          return (
+            techByEmployeeId.get(employeeId) ??
+            techByEmployeeNo.get(employeeNo) ??
+            techByUsername.get(username) ??
+            null
+          )
+        })
+        .filter((id): id is string => Boolean(id && (!excludeUserId || id !== excludeUserId))),
+    ),
+  ]
+
+  return { recipientIds, memberCount: qualityMembers.length, error: null }
+}
+
+async function insertAppNotifications(options: {
+  recipientIds: string[]
+  senderUserId: string
+  senderName: string
+  subject: string
+  body: string
+  notificationKind: string
+  metadata: Record<string, unknown>
+}): Promise<{ notified: number; error: string | null }> {
+  if (options.recipientIds.length === 0) return { notified: 0, error: null }
+
+  const { data: rpcCount, error: rpcError } = await supabase.rpc('send_app_notifications', {
+    p_recipient_user_ids: options.recipientIds,
+    p_subject: options.subject,
+    p_body: options.body,
+    p_notification_kind: options.notificationKind,
+    p_sender_name: options.senderName.trim() || 'JS Valve',
+    p_metadata: options.metadata,
+  })
+
+  if (!rpcError) {
+    const notified = typeof rpcCount === 'number' ? rpcCount : Number(rpcCount) || 0
+    return { notified, error: null }
+  }
+
+  const rpcMissing = /send_app_notifications|Could not find the function|schema cache|does not exist/i.test(
+    rpcError.message,
+  )
+
+  const rows = options.recipientIds.map((recipientUserId) => ({
+    sender_user_id: options.senderUserId,
+    recipient_user_id: recipientUserId,
+    sender_name: options.senderName.trim() || 'JS Valve',
+    subject: options.subject,
+    body: options.body,
+    category: 'notification',
+    notification_kind: options.notificationKind,
+    related_feedback_id: null,
+    metadata: options.metadata,
+  }))
+
+  const { error } = await supabase.from('app_messages').insert(rows)
+  if (error) {
+    if (isMissingMessagesTable(error.message)) return { notified: 0, error: null }
+    if (/row-level security|rls|policy/i.test(error.message) || rpcMissing) {
+      return {
+        notified: 0,
+        error:
+          'Run migration-app-messages-send-notifications-rpc.sql in Supabase so flag notifications can be sent',
+      }
+    }
+    return {
+      notified: 0,
+      error: rpcMissing ? error.message : `${error.message} (RPC: ${rpcError.message})`,
+    }
+  }
+
+  return { notified: options.recipientIds.length, error: null }
+}
+
+/** Notify every Quality Team member with a login that an ITP needs review. */
+export async function notifyQualityTeamItpReviewRequested(options: {
+  valveRowId: number
+  valveId: string
+  customer: string | null
+  senderUserId: string
+  senderName: string
+}): Promise<{ notified: number; error: string | null }> {
+  const { recipientIds, memberCount, error: loadError } = await loadQualityTeamRecipientAuthIds({
+    excludeUserId: options.senderUserId,
+  })
+  if (loadError) return { notified: 0, error: loadError }
+
+  if (recipientIds.length === 0) {
+    if (memberCount === 0) {
+      return {
+        notified: 0,
+        error: 'No Quality Team members are assigned on Employees yet',
+      }
+    }
+    return {
+      notified: 0,
+      error:
+        'Quality Team members need linked logins (Employees auth link or technician user_id) to receive Messages',
+    }
+  }
+
+  const customer = options.customer?.trim() || '—'
+  const subject = `ITP ready for QC review — ${options.valveId}`
+  const body = [
+    `An ITP was generated and needs Quality Team review.`,
+    ``,
+    `Valve: ${options.valveId}`,
+    `Customer: ${customer}`,
+    ``,
+    `Open Quality Team: /quality-team`,
+    `Open ITP: /itp/${options.valveRowId}`,
+  ].join('\n')
+
+  return insertAppNotifications({
+    recipientIds,
+    senderUserId: options.senderUserId,
+    senderName: options.senderName,
+    subject,
+    body,
+    notificationKind: 'itp_qc_review_requested',
+    metadata: {
+      valve_row_id: options.valveRowId,
+      valve_id: options.valveId,
+      customer,
+    },
+  })
+}
+
+/** Notify Quality Team that a technician flagged an ITP checklist item. */
+export async function notifyQualityTeamItpItemFlagged(options: {
+  valveRowId: number
+  valveId: string
+  customer: string | null
+  itemName: string
+  flagReason: string
+  photoCount: number
+  senderUserId: string
+  senderName: string
+}): Promise<{ notified: number; error: string | null }> {
+  // Always include the flagger so the alert appears in their Messages inbox, even if
+  // their Employees row is not linked via auth_user_id yet. Also notify other QT logins.
+  const { recipientIds, memberCount, error: loadError } = await loadQualityTeamRecipientAuthIds()
+  if (loadError) return { notified: 0, error: loadError }
+
+  const recipients = [
+    ...new Set(
+      [...recipientIds, options.senderUserId.trim()].filter((id): id is string => Boolean(id)),
+    ),
+  ]
+
+  if (recipients.length === 0) {
+    if (memberCount === 0) {
+      return {
+        notified: 0,
+        error: 'Flag saved on the QC dashboard, but no Quality Team members are assigned on Employees yet',
+      }
+    }
+    return {
+      notified: 0,
+      error:
+        'Flag saved on the QC dashboard, but Quality Team members need linked logins (Employees auth link or technician user_id) to receive Messages',
+    }
+  }
+
+  const customer = options.customer?.trim() || '—'
+  const subject = `ITP item flagged — ${options.valveId}`
+  const body = [
+    `A checklist item was flagged and needs Quality Team review in QA/QC.`,
+    ``,
+    `Valve: ${options.valveId}`,
+    `Customer: ${customer}`,
+    `Item: ${options.itemName}`,
+    `Flagged by: ${options.senderName.trim() || 'Technician'}`,
+    `Reason: ${options.flagReason.trim()}`,
+    `Photos: ${options.photoCount}`,
+    ``,
+    `Open QA/QC flags: /quality-team`,
+    `Open ITP: /itp/${options.valveRowId}`,
+  ].join('\n')
+
+  return insertAppNotifications({
+    recipientIds: recipients,
+    senderUserId: options.senderUserId,
+    senderName: options.senderName,
+    subject,
+    body,
+    notificationKind: 'itp_item_flagged',
+    metadata: {
+      valve_row_id: options.valveRowId,
+      valve_id: options.valveId,
+      customer,
+      item_name: options.itemName,
+      flag_reason: options.flagReason.trim(),
+      photo_count: options.photoCount,
+    },
+  })
+}
+
+/** Notify the technician who flagged an item that QC issued a resolution. */
+export async function notifyFlaggerItpResolution(options: {
+  valveRowId: number
+  valveId: string
+  itemName: string
+  flagReason: string
+  resolution: string
+  ownerName: string
+  recipientUserId: string
+  senderUserId: string
+  senderName: string
+}): Promise<string | null> {
+  if (!options.recipientUserId.trim()) return null
+
+  const subject = `Flag resolution issued — ${options.valveId}`
+  const body = [
+    `Quality Team issued a resolution for a flagged ITP item.`,
+    ``,
+    `Valve: ${options.valveId}`,
+    `Item: ${options.itemName}`,
+    `Your flag reason: ${options.flagReason.trim() || '—'}`,
+    `Owner: ${options.ownerName.trim() || 'Quality Team'}`,
+    `Resolution: ${options.resolution.trim()}`,
+    ``,
+    `Open ITP: /itp/${options.valveRowId}`,
+  ].join('\n')
+
+  const { notified, error } = await insertAppNotifications({
+    recipientIds: [options.recipientUserId],
+    senderUserId: options.senderUserId,
+    senderName: options.senderName.trim() || 'Quality Team',
+    subject,
+    body,
+    notificationKind: 'itp_flag_resolved',
+    metadata: {
+      valve_row_id: options.valveRowId,
+      valve_id: options.valveId,
+      item_name: options.itemName,
+      flag_reason: options.flagReason.trim(),
+      resolution: options.resolution.trim(),
+    },
+  })
+
+  if (error) return error
+  if (notified === 0) return 'Could not send resolution message'
   return null
 }

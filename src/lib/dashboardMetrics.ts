@@ -1,5 +1,5 @@
 import type { Valve } from '../types'
-import { completionDateForValve, displayJobStatus, isClosedWorkOrder, isCompletedForMetrics } from './jobDisplayStatus'
+import { metricsCompletionDateForValve, displayJobStatus, isClosedWorkOrder, isCompletedForMetrics } from './jobDisplayStatus'
 
 /** KPI cards — matches Excel Dashboard sheet on the Valve Status workbook. */
 export function calcDashboardKpis(valves: Valve[]) {
@@ -74,7 +74,7 @@ export function calcCompletedMetrics(valves: Valve[], now = new Date()) {
 
   valves.forEach((v) => {
     if (!isCompletedForMetrics(v)) return
-    const closed = completionDateForValve(v)
+    const closed = metricsCompletionDateForValve(v, now)
     if (!closed) {
       missingCloseDateCount += 1
       return
@@ -113,7 +113,7 @@ export function calcCompletedMonthlyBars(valves: Valve[], now = new Date(), mont
   const counts = new Map<string, number>()
   valves.forEach((v) => {
     if (!isCompletedForMetrics(v)) return
-    const closed = completionDateForValve(v)
+    const closed = metricsCompletionDateForValve(v, now)
     if (!closed) return
     const key = `${closed.getFullYear()}-${String(closed.getMonth() + 1).padStart(2, '0')}`
     counts.set(key, (counts.get(key) ?? 0) + 1)

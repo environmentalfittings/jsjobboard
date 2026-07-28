@@ -160,12 +160,6 @@ export function NavBar({ role, username, userId, onLogout }: NavBarProps) {
       label: 'Employees',
     },
     {
-      to: '/admin/mte-calibrations',
-      label: 'MTE Calibrations',
-      disabled: !can(role, 'manageLists'),
-      disabledReason: permissionDeniedReason('manageLists'),
-    },
-    {
       to: '/admin/lists',
       label: 'Manage lists',
       disabled: !can(role, 'manageLists'),
@@ -197,6 +191,18 @@ export function NavBar({ role, username, userId, onLogout }: NavBarProps) {
           <NavLink to="/job-board" className={navLinkClass}>
             Status board
           </NavLink>
+          <NavDropdown
+            label="Quality Team"
+            items={[
+              { to: '/quality-team', label: 'ITP review & flags', end: true },
+              {
+                to: '/quality-team/mte-calibrations',
+                label: 'MTE Calibrations',
+                disabled: !can(role, 'manageLists'),
+                disabledReason: permissionDeniedReason('manageLists'),
+              },
+            ]}
+          />
           <RestrictedNavLink to="/new-job" role={role} permission="createJob">
             New job
           </RestrictedNavLink>

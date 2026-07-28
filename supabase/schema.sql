@@ -22,6 +22,7 @@ create table if not exists public.valves (
   description text,
   notes text,
   is_turnaround boolean not null default false,
+  needs_failure_analysis boolean not null default false,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
 );

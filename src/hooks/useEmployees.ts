@@ -1,7 +1,11 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { supabase } from '../lib/supabase'
 import type { EmployeeInitialsLookupRow } from '../lib/employeeAuth'
-import type { Employee, Profile } from '../types/employees'
+import {
+  normalizeQualityTeamLevel,
+  type Employee,
+  type Profile,
+} from '../types/employees'
 
 type EmployeesSnapshot = {
   employees: Employee[]
@@ -12,20 +16,39 @@ type EmployeesSnapshot = {
 let sharedSnapshot: EmployeesSnapshot | null = null
 let sharedLoadPromise: Promise<EmployeesSnapshot> | null = null
 
+const EMPLOYEE_SELECT_FULL =
+  'id,employee_no,first_name,last_name,full_name,username,initials,company,is_active,is_tester,quality_team_level,auth_user_id'
 const EMPLOYEE_SELECT_WITH_TESTER =
   'id,employee_no,first_name,last_name,full_name,username,initials,company,is_active,is_tester,auth_user_id'
 const EMPLOYEE_SELECT_BASE =
   'id,employee_no,first_name,last_name,full_name,username,initials,company,is_active,auth_user_id'
 
-function isMissingIsTesterColumn(message: string | null | undefined) {
-  return /is_tester/i.test(String(message ?? '')) && /column|schema|does not exist/i.test(String(message ?? ''))
+function isMissingColumn(message: string | null | undefined, column: string) {
+  return new RegExp(column, 'i').test(String(message ?? '')) && /column|schema|does not exist/i.test(String(message ?? ''))
+}
+
+function mapEmployeeRow(row: Record<string, unknown>): Employee {
+  return {
+    id: String(row.id),
+    employee_no: String(row.employee_no ?? ''),
+    first_name: String(row.first_name ?? ''),
+    last_name: String(row.last_name ?? ''),
+    full_name: String(row.full_name ?? ''),
+    username: String(row.username ?? ''),
+    initials: String(row.initials ?? ''),
+    company: String(row.company ?? ''),
+    is_active: Boolean(row.is_active),
+    is_tester: Boolean(row.is_tester),
+    quality_team_level: normalizeQualityTeamLevel(row.quality_team_level),
+    auth_user_id: row.auth_user_id == null ? null : String(row.auth_user_id),
+  }
 }
 
 async function loadEmployeesSnapshot(): Promise<EmployeesSnapshot> {
   const [employeesResPrimary, userRes] = await Promise.all([
     supabase
       .from('employees')
-      .select(EMPLOYEE_SELECT_WITH_TESTER)
+      .select(EMPLOYEE_SELECT_FULL)
       .order('last_name', { ascending: true })
       .order('first_name', { ascending: true }),
     supabase.auth.getUser(),
@@ -34,7 +57,35 @@ async function loadEmployeesSnapshot(): Promise<EmployeesSnapshot> {
   let rows: Employee[] = []
   let error: string | null = employeesResPrimary.error?.message ?? null
 
-  if (employeesResPrimary.error && isMissingIsTesterColumn(employeesResPrimary.error.message)) {
+  if (employeesResPrimary.error && isMissingColumn(employeesResPrimary.error.message, 'quality_team_level')) {
+    const withTester = await supabase
+      .from('employees')
+      .select(EMPLOYEE_SELECT_WITH_TESTER)
+      .order('last_name', { ascending: true })
+      .order('first_name', { ascending: true })
+
+    if (withTester.error && isMissingColumn(withTester.error.message, 'is_tester')) {
+      const fallback = await supabase
+        .from('employees')
+        .select(EMPLOYEE_SELECT_BASE)
+        .order('last_name', { ascending: true })
+        .order('first_name', { ascending: true })
+
+      if (fallback.error) {
+        error = fallback.error.message
+      } else {
+        error =
+          'Run migration-employee-is-tester.sql and migration-employee-quality-team.sql in Supabase'
+        rows = ((fallback.data as Record<string, unknown>[] | null) ?? []).map(mapEmployeeRow)
+      }
+    } else if (withTester.error) {
+      error = withTester.error.message
+    } else {
+        error =
+          'Run migration-employee-quality-team.sql in Supabase SQL Editor (Tester migration is separate). Then click Refresh.'
+      rows = ((withTester.data as Record<string, unknown>[] | null) ?? []).map(mapEmployeeRow)
+    }
+  } else if (employeesResPrimary.error && isMissingColumn(employeesResPrimary.error.message, 'is_tester')) {
     const fallback = await supabase
       .from('employees')
       .select(EMPLOYEE_SELECT_BASE)
@@ -44,17 +95,13 @@ async function loadEmployeesSnapshot(): Promise<EmployeesSnapshot> {
     if (fallback.error) {
       error = fallback.error.message
     } else {
-      error = 'Run migration-employee-is-tester.sql in Supabase to enable tester designation'
-      rows = ((fallback.data as Employee[] | null) ?? []).map((row) => ({
-        ...row,
-        is_tester: Boolean((row as Employee).is_tester),
-      }))
+      error =
+        'Run migration-employee-is-tester.sql and migration-employee-quality-team.sql in Supabase'
+      rows = ((fallback.data as Record<string, unknown>[] | null) ?? []).map(mapEmployeeRow)
     }
   } else if (!employeesResPrimary.error) {
-    rows = ((employeesResPrimary.data as Employee[] | null) ?? []).map((row) => ({
-      ...row,
-      is_tester: Boolean(row.is_tester),
-    }))
+    error = null
+    rows = ((employeesResPrimary.data as Record<string, unknown>[] | null) ?? []).map(mapEmployeeRow)
   }
 
   const employees = rows
@@ -143,6 +190,8 @@ export function useEmployees() {
 
   const isAdmin = currentUserProfile?.role === 'admin'
 
+  const reload = useCallback(() => load(true), [load])
+
   return useMemo(
     () => ({
       employees,
@@ -151,8 +200,8 @@ export function useEmployees() {
       loading,
       error,
       lookupByInitials,
-      reload: () => load(true),
+      reload,
     }),
-    [employees, currentUserProfile, isAdmin, loading, error, lookupByInitials, load],
+    [employees, currentUserProfile, isAdmin, loading, error, lookupByInitials, reload],
   )
 }

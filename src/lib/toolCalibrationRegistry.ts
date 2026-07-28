@@ -16,7 +16,7 @@ import {
 } from './testGaugeRegistry'
 
 const TOOL_SELECT =
-  'id,js_id,manufacturer,model,tool_type,category,serial_number,calibration_date,expiration_date,department,status,notes,active,certificate_storage_path,certificate_file_name,certificate_mime_type,certificate_number,created_at,updated_at'
+  'id,js_id,manufacturer,model,tool_type,category,serial_number,calibration_date,expiration_date,calibration_frequency,department,status,notes,active,certificate_storage_path,certificate_file_name,certificate_mime_type,certificate_number,created_at,updated_at'
 
 const EVENT_SELECT =
   'id,tool_id,calibrated_at,next_due_at,tech_initials,technician_id,technician_name,signed_off_at,ambient_temp_f,gauge_block_serial,gauge_block_next_due,procedure_ref,result,notes,measurements,certificate_number,certificate_storage_path,certificate_file_name,created_at'
@@ -95,6 +95,7 @@ function formPayload(form: ToolCalibrationFormState) {
     serial_number: nullIfBlank(form.serial_number),
     calibration_date: nullIfBlank(form.calibration_date),
     expiration_date: nullIfBlank(form.expiration_date),
+    calibration_frequency: nullIfBlank(form.calibration_frequency) || 'annually',
     department: nullIfBlank(form.department),
     status: form.status,
     notes: nullIfBlank(form.notes),
@@ -191,6 +192,22 @@ export async function updateToolCalibrationCategory(
   return { error: error?.message ?? null }
 }
 
+export async function updateToolCalibrationFrequency(
+  id: number,
+  calibration_frequency: string,
+  expiration_date: string | null,
+): Promise<{ error: string | null }> {
+  const { error } = await supabase
+    .from('tool_calibrations')
+    .update({
+      calibration_frequency: calibration_frequency.trim() || 'annually',
+      expiration_date,
+      updated_at: new Date().toISOString(),
+    })
+    .eq('id', id)
+  return { error: error?.message ?? null }
+}
+
 export async function deleteToolCalibration(row: ToolCalibration): Promise<{ error: string | null }> {
   if (row.certificate_storage_path) {
     await supabase.storage.from(TOOL_CERT_BUCKET).remove([row.certificate_storage_path])
@@ -279,6 +296,7 @@ export async function recordExternalToolCalibration(
     signedOffAt: string
     certificateNumber: string
     notes?: string
+    frequency?: string
     file: File
   },
 ): Promise<{ row: ToolCalibration | null; error: string | null }> {
@@ -303,11 +321,13 @@ export async function recordExternalToolCalibration(
   }
 
   const notes = input.notes?.trim()
+  const frequency = input.frequency?.trim() || tool.calibration_frequency || 'annually'
   const { data, error } = await supabase
     .from('tool_calibrations')
     .update({
       calibration_date: input.calibratedAt,
       expiration_date: input.nextDueAt,
+      calibration_frequency: frequency,
       status: 'active',
       active: true,
       notes: notes ? notes : tool.notes,
@@ -542,6 +562,7 @@ export async function completeToolRecalibration(
     .update({
       calibration_date: input.calibratedAt,
       expiration_date: input.nextDueAt,
+      calibration_frequency: input.frequency?.trim() || tool.calibration_frequency || 'annually',
       status: passed ? 'active' : 'out_of_service',
       active: passed,
       notes: nextNotes,

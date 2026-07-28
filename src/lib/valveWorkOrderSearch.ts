@@ -9,6 +9,13 @@ export type ValveListSort =
   | 'customer-asc'
   | 'customer-desc'
 
+/** Case-insensitive substring match on job description. */
+export function valveMatchesDescriptionSearch(valve: Valve, rawQuery: string): boolean {
+  const q = rawQuery.trim().toLowerCase()
+  if (!q) return true
+  return (valve.description ?? '').toLowerCase().includes(q)
+}
+
 /** Strip common work-order prefixes for comparison (WO#, WO, R). */
 export function normalizeWorkOrderToken(value: string): string {
   return value

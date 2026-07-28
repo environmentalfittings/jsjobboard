@@ -4,6 +4,7 @@ export type JobCardSaveFields = {
   bowlType: string | null
   valveType: string | null
   isTurnaround: boolean
+  needsFailureAnalysis: boolean
   assignedTechnicianId: number | null
   pressureClass: string | null
   bodyMaterial: string | null

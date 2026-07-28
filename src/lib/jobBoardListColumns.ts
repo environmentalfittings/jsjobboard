@@ -3,6 +3,7 @@ import {
   valveMatchesWorkOrderFilter,
   valveMatchesWorkOrderQuery,
 } from './valveWorkOrderSearch'
+import { STATUS_ORDER } from '../constants/statuses'
 import type { Valve } from '../types'
 
 export type ListColumnKey =
@@ -20,6 +21,8 @@ export type ListColumnKey =
 export type ColumnFilterState = {
   query: string
   selected: string
+  /** Status column: include only rows whose status is in this set. */
+  checked?: string[]
 }
 
 export type ListSortState = {
@@ -51,7 +54,7 @@ export function emptyColumnFilters(): Record<ListColumnKey, ColumnFilterState> {
     cell: { query: '', selected: '' },
     size: { query: '', selected: '' },
     turnaround: { query: '', selected: '' },
-    status: { query: '', selected: '' },
+    status: { query: '', selected: '', checked: [] },
     technician: { query: '', selected: '' },
     due_date: { query: '', selected: '' },
     description: { query: '', selected: '' },
@@ -130,6 +133,25 @@ export function suggestColumnValues(
   )
 }
 
+export function listStatusFilterOptions(valves: Valve[]): { value: string; count: number }[] {
+  const counts = new Map<string, number>()
+  for (const valve of valves) {
+    const status = (valve.status ?? '').trim()
+    if (!status) continue
+    counts.set(status, (counts.get(status) ?? 0) + 1)
+  }
+
+  const ordered: string[] = []
+  for (const status of STATUS_ORDER) {
+    if (counts.has(status)) ordered.push(status)
+  }
+  for (const status of counts.keys()) {
+    if (!ordered.includes(status)) ordered.push(status)
+  }
+
+  return ordered.map((value) => ({ value, count: counts.get(value) ?? 0 }))
+}
+
 export function matchesColumnFilter(
   valve: Valve,
   column: ListColumnKey,
@@ -141,6 +163,9 @@ export function matchesColumnFilter(
   }
 
   const value = getColumnValue(valve, column, context)
+  if (column === 'status' && filter.checked && filter.checked.length > 0) {
+    return filter.checked.includes(value)
+  }
   if (filter.selected) return value === filter.selected
 
   const q = filter.query.trim().toLowerCase()

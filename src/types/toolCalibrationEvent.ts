@@ -27,6 +27,7 @@ export type ToolCalibrationEvent = {
 export type ToolRecalibrationInput = {
   calibratedAt: string
   nextDueAt: string
+  frequency?: string
   technicianId: number | null
   technicianName: string
   signedOffAt: string

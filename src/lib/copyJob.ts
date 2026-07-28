@@ -25,6 +25,7 @@ export function buildCopiedValveInsert(source: Valve, valveId: string) {
     material_spec: valveRelated ? null : source.material_spec?.trim() || null,
     drawing_po_number: valveRelated ? null : source.drawing_po_number?.trim() || null,
     is_turnaround: source.is_turnaround === true,
+    needs_failure_analysis: source.needs_failure_analysis === true,
     assigned_technician_ids: [],
     assigned_technician_id: null,
     assigned_by: null,

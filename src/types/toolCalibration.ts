@@ -9,7 +9,6 @@ export const TOOL_CATEGORY_OPTIONS = [
   'Micrometer',
   'Dial Indicator',
   'Thickness Tester',
-  'Dead Weight Tester',
   'Helium Leak Standard',
   'Gauge Block Standard',
   'Heat Treat Chart Recorder',
@@ -23,7 +22,6 @@ export const TOOL_CATEGORY_OTHER = 'Other'
 /** Categories calibrated by an outside lab — upload certificate instead of in-house SOP form. */
 export const EXTERNAL_CALIBRATION_CATEGORIES: readonly ToolCategoryOption[] = [
   'Torque Wrenches',
-  'Dead Weight Tester',
   'Gauge Block Standard',
 ]
 
@@ -42,6 +40,7 @@ export type ToolCalibration = {
   serial_number: string | null
   calibration_date: string | null
   expiration_date: string | null
+  calibration_frequency: string | null
   department: string | null
   status: ToolCalibrationStatus
   notes: string | null
@@ -66,6 +65,7 @@ export type ToolCalibrationFormState = {
   serial_number: string
   calibration_date: string
   expiration_date: string
+  calibration_frequency: string
   department: string
   status: ToolCalibrationStatus
   notes: string
@@ -97,6 +97,7 @@ export function emptyToolCalibrationForm(): ToolCalibrationFormState {
     serial_number: '',
     calibration_date: '',
     expiration_date: '',
+    calibration_frequency: 'annually',
     department: '',
     status: 'active',
     notes: '',
@@ -118,6 +119,7 @@ export function toolCalibrationToForm(row: ToolCalibration): ToolCalibrationForm
     serial_number: row.serial_number ?? '',
     calibration_date: row.calibration_date ?? '',
     expiration_date: row.expiration_date ?? '',
+    calibration_frequency: (row.calibration_frequency ?? '').trim() || 'annually',
     department: row.department ?? '',
     status: row.status,
     notes: row.notes ?? '',
@@ -135,7 +137,6 @@ export function inferToolCategory(toolType: string | null | undefined, model?: s
   if (/torque/.test(hay)) return 'Torque Wrenches'
   if (/load\s*cell/.test(hay)) return 'Load Cells'
   if (/thickness|surface\s*roughness|roughness\s*ga(?:u)?ge/.test(hay)) return 'Thickness Tester'
-  if (/dead\s*weight/.test(hay)) return 'Dead Weight Tester'
   if (/helium/.test(hay)) return 'Helium Leak Standard'
   if (/gauge\s*block/.test(hay)) return 'Gauge Block Standard'
   if (/chart\s*recorder|heat\s*treat/.test(hay)) return 'Heat Treat Chart Recorder'

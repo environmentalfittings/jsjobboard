@@ -10,7 +10,34 @@ export interface Employee {
   is_active: boolean
   /** When true, employee appears in Test Log tester multi-select. */
   is_tester: boolean
+  /**
+   * Quality Team hierarchy. `none` = not on the team.
+   * Access differences by level will be wired later.
+   */
+  quality_team_level: QualityTeamLevel
   auth_user_id: string | null
+}
+
+export type QualityTeamLevel = 'none' | 'admin' | 'manager' | 'supervisor' | 'technician'
+
+export const QUALITY_TEAM_LEVEL_OPTIONS: { value: QualityTeamLevel; label: string }[] = [
+  { value: 'none', label: '—' },
+  { value: 'admin', label: 'Admin' },
+  { value: 'manager', label: 'Manager' },
+  { value: 'supervisor', label: 'Supervisor' },
+  { value: 'technician', label: 'Technician' },
+]
+
+export function normalizeQualityTeamLevel(value: unknown): QualityTeamLevel {
+  const raw = String(value ?? '')
+    .trim()
+    .toLowerCase()
+  if (raw === 'admin' || raw === 'manager' || raw === 'supervisor' || raw === 'technician') return raw
+  return 'none'
+}
+
+export function qualityTeamLevelLabel(level: QualityTeamLevel): string {
+  return QUALITY_TEAM_LEVEL_OPTIONS.find((opt) => opt.value === level)?.label ?? '—'
 }
 
 export interface Profile {

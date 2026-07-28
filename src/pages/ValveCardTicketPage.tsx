@@ -525,6 +525,10 @@ export function ValveCardTicketPage() {
               <p>
                 <strong>Turnaround:</strong> {selected.is_turnaround === true ? 'Yes' : 'No'}
               </p>
+              <p>
+                <strong>Failure analysis:</strong>{' '}
+                {selected.needs_failure_analysis === true ? 'Yes' : 'No'}
+              </p>
 
               <ValveAttachmentsPanel valveRowId={selected.id} disabled={!canWrite} />
 

@@ -28,6 +28,7 @@ import { FeedbackInboxPage } from './pages/FeedbackInboxPage'
 import { MessagesPage } from './pages/MessagesPage'
 import { ManagerDashboardPage } from './pages/ManagerDashboardPage'
 import { MteCalibrationsPage } from './pages/MteCalibrationsPage'
+import { QualityTeamPage } from './pages/QualityTeamPage'
 import { can, canAccessEmployeesPage, canAccessTestLog, defaultHomePath, isShopRole } from './lib/roles'
 
 function ShopRoute({ children }: { children: React.ReactNode }) {
@@ -235,6 +236,10 @@ function AppRoutes() {
             />
             <Route
               path="/admin/mte-calibrations"
+              element={<Navigate to="/quality-team/mte-calibrations" replace />}
+            />
+            <Route
+              path="/quality-team/mte-calibrations"
               element={
                 can(role, 'manageLists') ? (
                   <MteCalibrationsPage />
@@ -279,6 +284,14 @@ function AppRoutes() {
                 ) : (
                   <Navigate to="/login" replace />
                 )
+              }
+            />
+            <Route
+              path="/quality-team"
+              element={
+                <ShopRoute>
+                  <QualityTeamPage />
+                </ShopRoute>
               }
             />
             <Route

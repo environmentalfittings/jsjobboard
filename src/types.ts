@@ -30,6 +30,8 @@ export interface Valve {
   drawing_po_number?: string | null
   /** Customer turnaround — use for status updates and turnaround reports. */
   is_turnaround?: boolean | null
+  /** Job flagged for failure analysis / engineering review. */
+  needs_failure_analysis?: boolean | null
   pressure_class?: string | null
   body_material?: string | null
 }

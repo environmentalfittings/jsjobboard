@@ -214,12 +214,88 @@ export const CALIBRATION_FREQUENCY_OPTIONS: readonly {
   { value: 'annually', label: 'Annually', months: 12 },
 ] as const
 
+/** Test-gauge frequency UI: 6 Month, Annually, or Other (custom months). */
+export const GAUGE_FREQUENCY_OTHER = 'other'
+
+export const GAUGE_CALIBRATION_FREQUENCY_OPTIONS: readonly {
+  value: '6-month' | 'annually'
+  label: string
+  months: number
+}[] = [
+  { value: '6-month', label: '6 Month', months: 6 },
+  { value: 'annually', label: 'Annually', months: 12 },
+] as const
+
+export type GaugeFrequencySelect = '6-month' | 'annually' | typeof GAUGE_FREQUENCY_OTHER
+
+export function parseGaugeFrequency(value: string | null | undefined): {
+  select: GaugeFrequencySelect
+  otherMonths: number
+} {
+  const raw = String(value ?? '').trim().toLowerCase()
+  if (raw === '6-month' || raw === '6 month' || raw === '6 months') {
+    return { select: '6-month', otherMonths: 6 }
+  }
+  if (raw === 'annually' || raw === 'annual' || raw === '12-month' || raw === '12 months') {
+    return { select: 'annually', otherMonths: 12 }
+  }
+  const match = raw.match(/^(\d+)\s*-?\s*months?$/)
+  if (match) {
+    const months = Number.parseInt(match[1]!, 10)
+    if (Number.isFinite(months) && months > 0) {
+      if (months === 6) return { select: '6-month', otherMonths: 6 }
+      if (months === 12) return { select: 'annually', otherMonths: 12 }
+      return { select: GAUGE_FREQUENCY_OTHER, otherMonths: months }
+    }
+  }
+  if (raw === '3-month' || raw === '3 month' || raw === '3 months') {
+    return { select: GAUGE_FREQUENCY_OTHER, otherMonths: 3 }
+  }
+  return { select: 'annually', otherMonths: 12 }
+}
+
+export function resolveGaugeFrequencyValue(
+  select: GaugeFrequencySelect,
+  otherMonths: number | string,
+): string {
+  if (select === '6-month') return '6-month'
+  if (select === 'annually') return 'annually'
+  const months = typeof otherMonths === 'number' ? otherMonths : Number.parseInt(String(otherMonths), 10)
+  if (!Number.isFinite(months) || months <= 0) return 'annually'
+  if (months === 6) return '6-month'
+  if (months === 12) return 'annually'
+  return `${months}-month`
+}
+
+export function monthsFromGaugeFrequency(value: string | null | undefined): number {
+  const parsed = parseGaugeFrequency(value)
+  if (parsed.select === '6-month') return 6
+  if (parsed.select === 'annually') return 12
+  return parsed.otherMonths > 0 ? parsed.otherMonths : 12
+}
+
+export function formatGaugeFrequencyLabel(value: string | null | undefined): string {
+  const raw = String(value ?? '').trim()
+  if (!raw) return '—'
+  const parsed = parseGaugeFrequency(raw)
+  if (parsed.select === '6-month') return '6 Month'
+  if (parsed.select === 'annually') return 'Annually'
+  return `${parsed.otherMonths} Month`
+}
+
 export function nextDueFromFrequency(
   calibratedAt: string,
   frequency: CalibrationFrequency,
 ): string {
   const option = CALIBRATION_FREQUENCY_OPTIONS.find((o) => o.value === frequency)
   return addMonthsIso(calibratedAt, option?.months ?? 12)
+}
+
+export function nextDueFromGaugeFrequency(
+  calibratedAt: string,
+  frequency: string | null | undefined,
+): string {
+  return addMonthsIso(calibratedAt, monthsFromGaugeFrequency(frequency))
 }
 
 export function todayIsoDate(today = new Date()): string {

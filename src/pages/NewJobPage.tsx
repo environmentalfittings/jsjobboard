@@ -54,6 +54,7 @@ export function NewJobPage({ role }: NewJobPageProps) {
   const [description, setDescription] = useState('')
   const [notes, setNotes] = useState('')
   const [isTurnaround, setIsTurnaround] = useState(false)
+  const [needsFailureAnalysis, setNeedsFailureAnalysis] = useState(false)
   const [addToPriority, setAddToPriority] = useState(false)
   const [saving, setSaving] = useState(false)
   const [createdJob, setCreatedJob] = useState<Valve | null>(null)
@@ -134,6 +135,7 @@ export function NewJobPage({ role }: NewJobPageProps) {
     setDescription('')
     setNotes('')
     setIsTurnaround(false)
+    setNeedsFailureAnalysis(false)
     setAddToPriority(false)
     setStatus('Arrived - Not Started')
   }
@@ -194,6 +196,8 @@ export function NewJobPage({ role }: NewJobPageProps) {
         notes: notes.trim() || null,
         material_spec: valveRelated ? null : materialSpec.trim() || null,
         drawing_po_number: valveRelated ? null : drawingPoNumber.trim() || null,
+        is_turnaround: isTurnaround,
+        needs_failure_analysis: needsFailureAnalysis,
         assigned_technician_ids: [],
       })
       .select('*')
@@ -562,6 +566,17 @@ export function NewJobPage({ role }: NewJobPageProps) {
               <div className="new-job-flag-text">
                 <span className="new-job-flag-title">Priority queue</span>
                 <span className="new-job-flag-desc">Flags job at the top of the board</span>
+              </div>
+            </label>
+            <label className="new-job-flag-card">
+              <input
+                type="checkbox"
+                checked={needsFailureAnalysis}
+                onChange={(e) => setNeedsFailureAnalysis(e.target.checked)}
+              />
+              <div className="new-job-flag-text">
+                <span className="new-job-flag-title">Needs failure analysis</span>
+                <span className="new-job-flag-desc">Flags job for engineering / failure analysis review</span>
               </div>
             </label>
           </div>

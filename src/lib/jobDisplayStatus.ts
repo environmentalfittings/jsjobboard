@@ -38,9 +38,8 @@ export function isActiveShopWork(valve: Valve): boolean {
 
 /** Completed work orders used for dashboard completion metrics. */
 export function isCompletedForMetrics(valve: Valve): boolean {
-  // Order type Completed is the source of truth for closed WOs. Imported rows often
-  // keep a leftover shop status (Testing, Assembly, etc.) even after close.
-  return valve.order_type === 'Completed'
+  // Finished shop work only — not junked/replaced/RTS or rows left on an old shop phase.
+  return valve.order_type === 'Completed' && valve.status === 'Completed'
 }
 
 export function parseCalendarDate(raw: string | null | undefined): Date | null {
@@ -57,4 +56,28 @@ export function parseCalendarDate(raw: string | null | undefined): Date | null {
 
 export function completionDateForValve(valve: Valve): Date | null {
   return parseCalendarDate(valve.date_closed)
+}
+
+/**
+ * Completion month for dashboard KPIs/chart.
+ * Uses the earlier of test and close dates so a bulk admin close stamp does not
+ * inflate "completed this month" when the valve was tested/finished earlier.
+ */
+export function metricsCompletionDateForValve(valve: Valve, now = new Date()): Date | null {
+  const tested = parseCalendarDate(valve.date_tested)
+  const closed = parseCalendarDate(valve.date_closed)
+
+  let candidate: Date | null = null
+  if (tested && closed) {
+    candidate = tested.getTime() <= closed.getTime() ? tested : closed
+  } else {
+    candidate = closed ?? tested
+  }
+
+  if (!candidate) return null
+
+  const endOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59, 999)
+  if (candidate > endOfToday) return null
+
+  return candidate
 }

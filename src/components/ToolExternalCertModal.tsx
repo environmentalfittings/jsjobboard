@@ -5,10 +5,13 @@ import {
   toolCalibrationCertificateUrl,
 } from '../lib/toolCalibrationRegistry'
 import {
-  CALIBRATION_FREQUENCY_OPTIONS,
-  nextDueFromFrequency,
+  GAUGE_CALIBRATION_FREQUENCY_OPTIONS,
+  GAUGE_FREQUENCY_OTHER,
+  nextDueFromGaugeFrequency,
+  parseGaugeFrequency,
+  resolveGaugeFrequencyValue,
   todayIsoDate,
-  type CalibrationFrequency,
+  type GaugeFrequencySelect,
 } from '../lib/toolCalibrationSopPoints'
 import { supabase } from '../lib/supabase'
 import type { Technician } from '../types'
@@ -35,14 +38,22 @@ export function ToolExternalCertModal({ tool, onClose, onSaved, showToast }: Pro
   const fileRef = useRef<HTMLInputElement>(null)
   const [tab, setTab] = useState<Tab>('new')
   const [calibratedAt, setCalibratedAt] = useState(todayIsoDate())
-  const [frequency, setFrequency] = useState<CalibrationFrequency>('annually')
-  const [nextDueAt, setNextDueAt] = useState(() => nextDueFromFrequency(todayIsoDate(), 'annually'))
+  const initialFrequency = parseGaugeFrequency(tool.calibration_frequency)
+  const [frequencySelect, setFrequencySelect] = useState<GaugeFrequencySelect>(initialFrequency.select)
+  const [otherMonths, setOtherMonths] = useState(String(initialFrequency.otherMonths || 18))
+  const frequencyValue = resolveGaugeFrequencyValue(frequencySelect, otherMonths)
+  const [nextDueAt, setNextDueAt] = useState(() =>
+    nextDueFromGaugeFrequency(
+      todayIsoDate(),
+      resolveGaugeFrequencyValue(initialFrequency.select, initialFrequency.otherMonths),
+    ),
+  )
   const [technicians, setTechnicians] = useState<Technician[]>([])
   const [technicianId, setTechnicianId] = useState<number | ''>('')
   const [techniciansLoading, setTechniciansLoading] = useState(true)
   const [signedOffAt, setSignedOffAt] = useState(todayIsoDate())
   const [certificateNumber, setCertificateNumber] = useState('')
-  const [notes, setNotes] = useState('')
+  const [notes, setNotes] = useState(tool.notes ?? '')
   const [file, setFile] = useState<File | null>(null)
   const [saving, setSaving] = useState(false)
   const [history, setHistory] = useState<ToolCalibrationEvent[]>([])
@@ -61,8 +72,8 @@ export function ToolExternalCertModal({ tool, onClose, onSaved, showToast }: Pro
   )
 
   useEffect(() => {
-    setNextDueAt(nextDueFromFrequency(calibratedAt, frequency))
-  }, [calibratedAt, frequency])
+    setNextDueAt(nextDueFromGaugeFrequency(calibratedAt, frequencyValue))
+  }, [calibratedAt, frequencyValue])
 
   useEffect(() => {
     setSignedOffAt(calibratedAt)
@@ -141,6 +152,7 @@ export function ToolExternalCertModal({ tool, onClose, onSaved, showToast }: Pro
       signedOffAt,
       certificateNumber,
       notes,
+      frequency: frequencyValue,
       file,
     })
     setSaving(false)
@@ -230,19 +242,32 @@ export function ToolExternalCertModal({ tool, onClose, onSaved, showToast }: Pro
               <label>
                 Calibration frequency
                 <select
-                  value={frequency}
-                  onChange={(e) => setFrequency(e.target.value as CalibrationFrequency)}
+                  value={frequencySelect}
+                  onChange={(e) => setFrequencySelect(e.target.value as GaugeFrequencySelect)}
                 >
-                  {CALIBRATION_FREQUENCY_OPTIONS.map((opt) => (
+                  {GAUGE_CALIBRATION_FREQUENCY_OPTIONS.map((opt) => (
                     <option key={opt.value} value={opt.value}>
                       {opt.label}
                     </option>
                   ))}
+                  <option value={GAUGE_FREQUENCY_OTHER}>Other</option>
                 </select>
               </label>
+              {frequencySelect === GAUGE_FREQUENCY_OTHER ? (
+                <label>
+                  Other frequency (months)
+                  <input
+                    type="number"
+                    min={1}
+                    value={otherMonths}
+                    onChange={(e) => setOtherMonths(e.target.value)}
+                    placeholder="e.g. 18"
+                  />
+                </label>
+              ) : null}
               <label>
-                Next due
-                <input type="date" value={nextDueAt} onChange={(e) => setNextDueAt(e.target.value)} />
+                Next due (calculated)
+                <input type="date" value={nextDueAt} readOnly title="Calculated from calibrated date + frequency" />
               </label>
               <label>
                 Technician

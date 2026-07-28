@@ -16,6 +16,9 @@ const CARD_PRINT_INSET_IN = 0.15
 /** Content area inside page margins (avoids transform:scale print clipping). */
 const CARD_CONTENT_WIDTH_IN = VALVE_TICKET_CARD_WIDTH_IN - CARD_PRINT_INSET_IN * 2
 const CARD_CONTENT_HEIGHT_IN = VALVE_TICKET_CARD_HEIGHT_IN - CARD_PRINT_INSET_IN * 2
+/** Slightly under page size so subpixel/border overflow does not create a blank 2nd page. */
+const CARD_PRINT_PAGE_WIDTH_IN = VALVE_TICKET_CARD_WIDTH_IN - 0.02
+const CARD_PRINT_PAGE_HEIGHT_IN = VALVE_TICKET_CARD_HEIGHT_IN - 0.02
 
 /** Brother QL-810W continuous tape (optional USB path). */
 export const VALVE_TICKET_LABEL_WIDTH_IN = 2.4
@@ -240,8 +243,9 @@ export function buildValveTicketPrintHtml(valve: Valve, options?: { autoPrint?: 
       html, body {
         margin: 0;
         padding: 0;
-        width: ${VALVE_TICKET_CARD_WIDTH_IN}in;
-        height: ${VALVE_TICKET_CARD_HEIGHT_IN}in;
+        width: ${CARD_PRINT_PAGE_WIDTH_IN}in;
+        height: ${CARD_PRINT_PAGE_HEIGHT_IN}in;
+        overflow: hidden;
       }
 
       body {
@@ -278,9 +282,10 @@ export function buildValveTicketPrintHtml(valve: Valve, options?: { autoPrint?: 
       }
 
       .preview-wrap {
-        width: ${VALVE_TICKET_CARD_WIDTH_IN}in;
-        height: ${VALVE_TICKET_CARD_HEIGHT_IN}in;
+        width: ${CARD_PRINT_PAGE_WIDTH_IN}in;
+        height: ${CARD_PRINT_PAGE_HEIGHT_IN}in;
         padding: ${CARD_PRINT_INSET_IN}in;
+        overflow: hidden;
       }
 
       .card-shell {
@@ -444,8 +449,38 @@ export function buildValveTicketPrintHtml(valve: Valve, options?: { autoPrint?: 
           display: none !important;
         }
 
-        body {
+        html, body {
+          width: ${CARD_PRINT_PAGE_WIDTH_IN}in !important;
+          height: ${CARD_PRINT_PAGE_HEIGHT_IN}in !important;
+          min-height: 0 !important;
+          max-height: ${CARD_PRINT_PAGE_HEIGHT_IN}in !important;
+          margin: 0 !important;
+          padding: 0 !important;
+          overflow: hidden !important;
           background: #fff;
+        }
+
+        .preview-wrap {
+          width: ${CARD_PRINT_PAGE_WIDTH_IN}in !important;
+          height: ${CARD_PRINT_PAGE_HEIGHT_IN}in !important;
+          max-height: ${CARD_PRINT_PAGE_HEIGHT_IN}in !important;
+          padding: ${CARD_PRINT_INSET_IN}in !important;
+          margin: 0 !important;
+          overflow: hidden !important;
+          page-break-after: avoid;
+          break-after: avoid;
+          page-break-inside: avoid;
+          break-inside: avoid;
+        }
+
+        .card-shell,
+        .card {
+          width: 100% !important;
+          height: 100% !important;
+          max-height: 100% !important;
+          overflow: hidden !important;
+          page-break-inside: avoid;
+          break-inside: avoid;
         }
       }
     </style>
@@ -488,7 +523,15 @@ export function buildValveTicketPrintHtml(valve: Valve, options?: { autoPrint?: 
         var scale = Math.max(0.55, avail / el.scrollWidth);
         el.style.transform = 'scale(' + scale.toFixed(3) + ')';
       })();
-      ${autoPrint ? 'window.focus(); window.print();' : ''}
+      ${
+        autoPrint
+          ? `window.addEventListener('load', function () {
+        requestAnimationFrame(function () {
+          setTimeout(function () { window.focus(); window.print(); }, 50);
+        });
+      });`
+          : ''
+      }
     </script>
   </body>
 </html>`

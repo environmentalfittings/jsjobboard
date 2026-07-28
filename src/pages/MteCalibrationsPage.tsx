@@ -13,7 +13,7 @@ export function MteCalibrationsPage() {
       <div className="dashboard-header">
         <div>
           <p className="status-priorities-back">
-            <Link to="/dashboard">← Dashboard</Link>
+            <Link to="/quality-team">← Quality Team</Link>
           </p>
           <h2 className="dashboard-title">MTE Calibrations</h2>
           <p className="placeholder-copy resources-hint">

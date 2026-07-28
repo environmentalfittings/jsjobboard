@@ -12,7 +12,7 @@ export const TEST_GAUGE_CERT_BUCKET = 'valve-attachments'
 const MAX_CERT_BYTES = 20 * 1024 * 1024
 
 const GAUGE_SELECT =
-  'id,gauge_number,manufacturer,gauge_type,department,notes,last_calibration_date,next_calibration_date,certificate_storage_path,certificate_file_name,certificate_mime_type,certificate_number,active,created_at,updated_at'
+  'id,gauge_number,manufacturer,gauge_type,department,notes,calibration_frequency,last_calibration_date,next_calibration_date,certificate_storage_path,certificate_file_name,certificate_mime_type,certificate_number,active,created_at,updated_at'
 
 const EVENT_SELECT =
   'id,gauge_id,calibrated_at,next_due_at,tech_initials,technician_id,technician_name,signed_off_at,procedure_ref,result,notes,certificate_number,certificate_storage_path,certificate_file_name,created_at'
@@ -174,6 +174,7 @@ export async function createTestGauge(form: TestGaugeFormState): Promise<{ row: 
       gauge_type: resolveGaugeType(form),
       department: resolveGaugeDepartment(form),
       notes: form.notes.trim() || null,
+      calibration_frequency: form.calibration_frequency.trim() || 'annually',
       last_calibration_date: form.last_calibration_date || null,
       next_calibration_date: form.next_calibration_date || null,
       certificate_number: form.certificate_number.trim() || null,
@@ -220,6 +221,7 @@ export async function updateTestGauge(
       gauge_type: resolveGaugeType(form),
       department: resolveGaugeDepartment(form),
       notes: form.notes.trim() || null,
+      calibration_frequency: form.calibration_frequency.trim() || 'annually',
       last_calibration_date: form.last_calibration_date || null,
       next_calibration_date: form.next_calibration_date || null,
       certificate_number: form.certificate_number.trim() || null,
@@ -253,6 +255,36 @@ export async function updateTestGaugeDepartment(
     .from('test_gauges')
     .update({
       department: department?.trim() ? department.trim() : null,
+      updated_at: new Date().toISOString(),
+    })
+    .eq('id', id)
+  return { error: error?.message ?? null }
+}
+
+export async function updateTestGaugeFrequency(
+  id: string,
+  calibration_frequency: string,
+  next_calibration_date: string | null,
+): Promise<{ error: string | null }> {
+  const { error } = await supabase
+    .from('test_gauges')
+    .update({
+      calibration_frequency: calibration_frequency.trim() || 'annually',
+      next_calibration_date,
+      updated_at: new Date().toISOString(),
+    })
+    .eq('id', id)
+  return { error: error?.message ?? null }
+}
+
+export async function updateTestGaugeNotes(
+  id: string,
+  notes: string | null,
+): Promise<{ error: string | null }> {
+  const { error } = await supabase
+    .from('test_gauges')
+    .update({
+      notes: notes?.trim() ? notes.trim() : null,
       updated_at: new Date().toISOString(),
     })
     .eq('id', id)
@@ -452,6 +484,7 @@ export async function recordExternalTestGaugeCalibration(
     signedOffAt: string
     certificateNumber: string
     notes?: string
+    frequency?: string
     file: File
   },
 ): Promise<{ row: TestGauge | null; error: string | null }> {
@@ -476,11 +509,14 @@ export async function recordExternalTestGaugeCalibration(
   }
 
   const notes = input.notes?.trim()
+  const frequency = input.frequency?.trim() || gauge.calibration_frequency || 'annually'
   const { data, error } = await supabase
     .from('test_gauges')
     .update({
       last_calibration_date: input.calibratedAt,
       next_calibration_date: input.nextDueAt,
+      calibration_frequency: frequency,
+      notes: notes ? notes : gauge.notes,
       active: true,
       certificate_storage_path: path,
       certificate_file_name: input.file.name.slice(0, 500),

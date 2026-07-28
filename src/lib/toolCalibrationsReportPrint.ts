@@ -42,7 +42,7 @@ function buildToolCalibrationsReportHtml(
   const filterNote = options?.filterNote?.trim() || ''
   const bodyRows =
     rows.length === 0
-      ? `<tr><td colspan="10" class="empty">No tools match the current filters.</td></tr>`
+      ? `<tr><td colspan="12" class="empty">No tools match the current filters.</td></tr>`
       : rows
           .map((row, index) => {
             const dueStatus = getToolCalibrationDueStatus(row)
@@ -62,9 +62,11 @@ function buildToolCalibrationsReportHtml(
         <td>${escapeHtml(display(row.serial_number))}</td>
         <td>${escapeHtml(display(row.department))}</td>
         <td class="date">${escapeHtml(formatDate(row.calibration_date))}</td>
+        <td>${escapeHtml(display(row.calibration_frequency))}</td>
         <td class="date ${dueClass}">${escapeHtml(formatDate(row.expiration_date))}${
               note ? `<div class="due-note">${escapeHtml(note)}</div>` : ''
             }</td>
+        <td>${escapeHtml(display(row.notes))}</td>
         <td>${escapeHtml(statusLabel(row))}</td>
       </tr>`
           })
@@ -151,7 +153,9 @@ function buildToolCalibrationsReportHtml(
           <th>Serial</th>
           <th>Dept</th>
           <th>Calibrated</th>
+          <th>Frequency</th>
           <th>Expires</th>
+          <th>Notes</th>
           <th>Status</th>
         </tr>
       </thead>

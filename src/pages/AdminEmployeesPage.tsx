@@ -5,7 +5,17 @@ import { validateEmployeePassword } from '../lib/auth'
 import { loadEmployeeAccountStatus } from '../lib/employeeAccounts'
 import { supabase } from '../lib/supabase'
 import { useEmployees } from '../hooks/useEmployees'
-import type { Employee, EmployeeAccountStatus, EmployeeAuthStatus } from '../types/employees'
+import type {
+  Employee,
+  EmployeeAccountStatus,
+  EmployeeAuthStatus,
+  QualityTeamLevel,
+} from '../types/employees'
+import {
+  QUALITY_TEAM_LEVEL_OPTIONS,
+  normalizeQualityTeamLevel,
+  qualityTeamLevelLabel,
+} from '../types/employees'
 
 type StatusFilter = 'all' | 'no_account' | 'active'
 
@@ -74,6 +84,7 @@ export function AdminEmployeesPage({ isAdmin }: { isAdmin: boolean }) {
     username: '',
     initials: '',
     is_tester: false,
+    quality_team_level: 'none' as QualityTeamLevel,
     createLogin: false,
     password: '',
     confirmPassword: '',
@@ -155,6 +166,7 @@ export function AdminEmployeesPage({ isAdmin }: { isAdmin: boolean }) {
       username: '',
       initials: '',
       is_tester: false,
+      quality_team_level: 'none',
       createLogin: false,
       password: '',
       confirmPassword: '',
@@ -231,6 +243,7 @@ export function AdminEmployeesPage({ isAdmin }: { isAdmin: boolean }) {
       company: 'J-S Machine & Valve, Inc.',
       is_active: true,
       is_tester: addForm.is_tester,
+      quality_team_level: addForm.quality_team_level,
       auth_user_id: null as string | null,
     }
 
@@ -392,6 +405,40 @@ export function AdminEmployeesPage({ isAdmin }: { isAdmin: boolean }) {
     await reload()
   }
 
+  const setQualityTeamLevel = async (employee: Employee, nextLevel: QualityTeamLevel) => {
+    if (!isAdmin) {
+      showToast('Only Admin can update Quality Team level')
+      return
+    }
+    const level = normalizeQualityTeamLevel(nextLevel)
+    if (level === employee.quality_team_level) return
+    setBusy(true)
+    const { error: rpcError } = await supabase.rpc('set_employee_quality_team_level', {
+      p_employee_id: employee.id,
+      p_quality_team_level: level,
+    })
+    setBusy(false)
+    if (rpcError) {
+      const message = rpcError.message || 'Could not update Quality Team level'
+      showToast(
+        /Only Admin can update quality team level/i.test(message)
+          ? 'Admin check failed in database. Re-run supabase/migration-employee-quality-team.sql, then try again.'
+          : /set_employee_quality_team_level|function|schema cache|does not exist|quality_team_level/i.test(
+                message,
+              )
+            ? 'Run migration-employee-quality-team.sql in Supabase SQL Editor first (not the is_tester migration).'
+            : message,
+      )
+      return
+    }
+    showToast(
+      level === 'none'
+        ? `${employee.full_name} removed from Quality Team`
+        : `${employee.full_name} set to Quality Team ${qualityTeamLevelLabel(level)}`,
+    )
+    await reload()
+  }
+
   return (
     <section className="dashboard-page admin-employees-page">
       <div className="dashboard-title-row">
@@ -416,7 +463,9 @@ export function AdminEmployeesPage({ isAdmin }: { isAdmin: boolean }) {
 
       {error ? <p className="admin-employees-error">{error}</p> : null}
       <p className="admin-employees-tester-hint">
-        Check <strong>Tester</strong> for people who should appear in the Test Log tester dropdown.
+        Check <strong>Tester</strong> for people who should appear in the Test Log tester dropdown. Use{' '}
+        <strong>Quality Team</strong> to assign Admin, Manager, Supervisor, or Technician (access by level comes
+        later).
       </p>
 
       <section className="dashboard-panel admin-employees-panel">
@@ -464,6 +513,7 @@ export function AdminEmployeesPage({ isAdmin }: { isAdmin: boolean }) {
                 <th>Username</th>
                 <th>Initials</th>
                 <th>Tester</th>
+                <th>Quality Team</th>
                 <th>Status</th>
                 <th>Last Sign In</th>
                 <th>Actions</th>
@@ -472,11 +522,11 @@ export function AdminEmployeesPage({ isAdmin }: { isAdmin: boolean }) {
             <tbody>
               {loading ? (
                 <tr>
-                  <td colSpan={8}>Loading employees…</td>
+                  <td colSpan={9}>Loading employees…</td>
                 </tr>
               ) : filteredEmployees.length === 0 ? (
                 <tr>
-                  <td colSpan={8}>No employees match your filters.</td>
+                  <td colSpan={9}>No employees match your filters.</td>
                 </tr>
               ) : (
                 filteredEmployees.map((employee) => {
@@ -504,6 +554,26 @@ export function AdminEmployeesPage({ isAdmin }: { isAdmin: boolean }) {
                           />
                           <span>{employee.is_tester ? 'Yes' : 'No'}</span>
                         </label>
+                      </td>
+                      <td>
+                        <select
+                          className="admin-employees-quality-select"
+                          value={employee.quality_team_level ?? 'none'}
+                          disabled={!isAdmin || busy || !employee.is_active}
+                          aria-label={`Quality Team level for ${employee.full_name}`}
+                          onChange={(e) =>
+                            void setQualityTeamLevel(
+                              employee,
+                              normalizeQualityTeamLevel(e.target.value),
+                            )
+                          }
+                        >
+                          {QUALITY_TEAM_LEVEL_OPTIONS.map((opt) => (
+                            <option key={opt.value} value={opt.value}>
+                              {opt.label}
+                            </option>
+                          ))}
+                        </select>
                       </td>
                       <td>{statusLabel(status)}</td>
                       <td>{statusLoading && employee.auth_user_id ? '…' : formatDateTime(lastSignIn)}</td>
@@ -722,6 +792,24 @@ export function AdminEmployeesPage({ isAdmin }: { isAdmin: boolean }) {
                     onChange={(e) => setAddForm((f) => ({ ...f, is_tester: e.target.checked }))}
                   />
                   Tester (show in Test Log)
+                </label>
+                <label>
+                  Quality Team
+                  <select
+                    value={addForm.quality_team_level}
+                    onChange={(e) =>
+                      setAddForm((f) => ({
+                        ...f,
+                        quality_team_level: normalizeQualityTeamLevel(e.target.value),
+                      }))
+                    }
+                  >
+                    {QUALITY_TEAM_LEVEL_OPTIONS.map((opt) => (
+                      <option key={opt.value} value={opt.value}>
+                        {opt.value === 'none' ? 'Not on Quality Team' : opt.label}
+                      </option>
+                    ))}
+                  </select>
                 </label>
                 <label className="admin-employees-add-check">
                   <input

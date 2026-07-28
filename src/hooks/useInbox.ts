@@ -30,8 +30,19 @@ export function useInbox(userId: string | null | undefined) {
     const onFocus = () => {
       void refresh()
     }
+    const onInboxRefresh = () => {
+      void refresh()
+    }
     window.addEventListener('focus', onFocus)
-    return () => window.removeEventListener('focus', onFocus)
+    window.addEventListener('jsjb-inbox-refresh', onInboxRefresh)
+    const timer = window.setInterval(() => {
+      void refresh()
+    }, 45000)
+    return () => {
+      window.removeEventListener('focus', onFocus)
+      window.removeEventListener('jsjb-inbox-refresh', onInboxRefresh)
+      window.clearInterval(timer)
+    }
   }, [refresh, userId])
 
   const unreadCount = useMemo(() => (userId ? inboxUnreadCount(items, userId) : 0), [items, userId])

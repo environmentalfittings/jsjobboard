@@ -10,7 +10,7 @@ import {
   type ItpLibrarySectionId,
 } from '../constants/itpLibrary'
 
-export const ITP_LIBRARY_PLAN_SCHEMA_VERSION = 4 as const
+export const ITP_LIBRARY_PLAN_SCHEMA_VERSION = 7 as const
 
 export type ItpLibraryItemSel = {
   included: boolean
@@ -31,6 +31,27 @@ export type ItpLibraryItemExec = {
   afterVal: string
   verifyVal: string
   subDone: Record<string, boolean>
+  /** Required when flagged — why the technician raised this issue. */
+  flagReason: string
+  /** Up to 3 photos documenting the flagged issue. */
+  flagPhotos: ItpLibraryAttachment[]
+  flaggedAt: string | null
+  flaggedByUserId: string | null
+  flaggedByName: string | null
+  /** Quality Team member owning this flag ticket. */
+  flagOwnerEmployeeId: string | null
+  flagOwnerUserId: string | null
+  flagOwnerName: string | null
+  /** QC resolution — saved on the ITP and shown on the checklist line. */
+  flagResolution: string
+  flagResolvedAt: string | null
+  flagResolvedByUserId: string | null
+  flagResolvedByName: string | null
+  /** Why the flag was removed (accident / typed other reason). */
+  flagClearReason: string
+  flagClearedAt: string | null
+  flagClearedByUserId: string | null
+  flagClearedByName: string | null
 }
 
 export type ItpLibraryCustomItem = {
@@ -52,6 +73,43 @@ export type ItpLibraryValveSnapshot = {
   dueDate: string | null
 }
 
+export type ItpLibraryAttachment = {
+  id: string
+  fileName: string
+  url: string
+  storagePath: string
+  contentType: string
+  uploadedAt: string
+  /** What this photo/PDF is for (shown on screen and when printing photos). */
+  caption: string
+}
+
+export type ItpQcReviewStatus = 'draft' | 'pending_review' | 'accepted'
+
+export type ItpQcChangeLogEntry = {
+  id: string
+  at: string
+  byUserId: string | null
+  byName: string
+  byLevel: string | null
+  note: string
+  /** Short auto summary, e.g. "Added 2 items, removed 1, updated hold points". */
+  summary: string
+}
+
+export type ItpQcReview = {
+  status: ItpQcReviewStatus
+  generatedAt: string | null
+  generatedByUserId: string | null
+  generatedByName: string | null
+  notifiedAt: string | null
+  acceptedAt: string | null
+  acceptedByUserId: string | null
+  acceptedByName: string | null
+  acceptedByLevel: string | null
+  changeLog: ItpQcChangeLogEntry[]
+}
+
 export type ItpLibraryPlanPayload = {
   v: typeof ITP_LIBRARY_PLAN_SCHEMA_VERSION
   kind: 'library_plan'
@@ -61,6 +119,8 @@ export type ItpLibraryPlanPayload = {
   sel: Record<string, ItpLibraryItemSel>
   custom: ItpLibraryCustomItem[]
   exec: Record<string, ItpLibraryItemExec>
+  attachments: ItpLibraryAttachment[]
+  qcReview: ItpQcReview
   inspector: string
   inspDate: string
   qcMgr: string
@@ -69,10 +129,27 @@ export type ItpLibraryPlanPayload = {
   updatedAt: string
 }
 
+/** Accept current and prior library plan schema versions when loading. */
 export function isItpLibraryPlanPayload(value: unknown): value is ItpLibraryPlanPayload {
   if (!value || typeof value !== 'object') return false
-  const o = value as Partial<ItpLibraryPlanPayload>
-  return o.v === ITP_LIBRARY_PLAN_SCHEMA_VERSION && o.kind === 'library_plan'
+  const o = value as { v?: unknown; kind?: unknown }
+  const version = typeof o.v === 'number' ? o.v : Number(o.v)
+  return (version === 4 || version === 5 || version === 6 || version === 7) && o.kind === 'library_plan'
+}
+
+export function emptyQcReview(): ItpQcReview {
+  return {
+    status: 'draft',
+    generatedAt: null,
+    generatedByUserId: null,
+    generatedByName: null,
+    notifiedAt: null,
+    acceptedAt: null,
+    acceptedByUserId: null,
+    acceptedByName: null,
+    acceptedByLevel: null,
+    changeLog: [],
+  }
 }
 
 export function emptyItemSel(): ItpLibraryItemSel {
@@ -96,6 +173,22 @@ export function emptyItemExec(): ItpLibraryItemExec {
     afterVal: '',
     verifyVal: '',
     subDone: {},
+    flagReason: '',
+    flagPhotos: [],
+    flaggedAt: null,
+    flaggedByUserId: null,
+    flaggedByName: null,
+    flagOwnerEmployeeId: null,
+    flagOwnerUserId: null,
+    flagOwnerName: null,
+    flagResolution: '',
+    flagResolvedAt: null,
+    flagResolvedByUserId: null,
+    flagResolvedByName: null,
+    flagClearReason: '',
+    flagClearedAt: null,
+    flagClearedByUserId: null,
+    flagClearedByName: null,
   }
 }
 
@@ -213,6 +306,8 @@ export function createEmptyItpLibraryPlan(valve: Valve): ItpLibraryPlanPayload {
     sel: {},
     custom: [],
     exec: {},
+    attachments: [],
+    qcReview: emptyQcReview(),
     inspector: '',
     inspDate: '',
     qcMgr: '',
@@ -254,6 +349,113 @@ function normalizeExec(raw: unknown): ItpLibraryItemExec {
     afterVal: String(o.afterVal ?? ''),
     verifyVal: String(o.verifyVal ?? ''),
     subDone,
+    flagReason: String((o as { flagReason?: unknown }).flagReason ?? ''),
+    flagPhotos: normalizeAttachments((o as { flagPhotos?: unknown }).flagPhotos).slice(0, 3),
+    flaggedAt: (o as { flaggedAt?: unknown }).flaggedAt
+      ? String((o as { flaggedAt?: unknown }).flaggedAt)
+      : null,
+    flaggedByUserId: (o as { flaggedByUserId?: unknown }).flaggedByUserId
+      ? String((o as { flaggedByUserId?: unknown }).flaggedByUserId)
+      : null,
+    flaggedByName: (o as { flaggedByName?: unknown }).flaggedByName
+      ? String((o as { flaggedByName?: unknown }).flaggedByName)
+      : null,
+    flagOwnerEmployeeId: (o as { flagOwnerEmployeeId?: unknown }).flagOwnerEmployeeId
+      ? String((o as { flagOwnerEmployeeId?: unknown }).flagOwnerEmployeeId)
+      : null,
+    flagOwnerUserId: (o as { flagOwnerUserId?: unknown }).flagOwnerUserId
+      ? String((o as { flagOwnerUserId?: unknown }).flagOwnerUserId)
+      : null,
+    flagOwnerName: (o as { flagOwnerName?: unknown }).flagOwnerName
+      ? String((o as { flagOwnerName?: unknown }).flagOwnerName)
+      : null,
+    flagResolution: String((o as { flagResolution?: unknown }).flagResolution ?? ''),
+    flagResolvedAt: (o as { flagResolvedAt?: unknown }).flagResolvedAt
+      ? String((o as { flagResolvedAt?: unknown }).flagResolvedAt)
+      : null,
+    flagResolvedByUserId: (o as { flagResolvedByUserId?: unknown }).flagResolvedByUserId
+      ? String((o as { flagResolvedByUserId?: unknown }).flagResolvedByUserId)
+      : null,
+    flagResolvedByName: (o as { flagResolvedByName?: unknown }).flagResolvedByName
+      ? String((o as { flagResolvedByName?: unknown }).flagResolvedByName)
+      : null,
+    flagClearReason: String((o as { flagClearReason?: unknown }).flagClearReason ?? ''),
+    flagClearedAt: (o as { flagClearedAt?: unknown }).flagClearedAt
+      ? String((o as { flagClearedAt?: unknown }).flagClearedAt)
+      : null,
+    flagClearedByUserId: (o as { flagClearedByUserId?: unknown }).flagClearedByUserId
+      ? String((o as { flagClearedByUserId?: unknown }).flagClearedByUserId)
+      : null,
+    flagClearedByName: (o as { flagClearedByName?: unknown }).flagClearedByName
+      ? String((o as { flagClearedByName?: unknown }).flagClearedByName)
+      : null,
+  }
+}
+
+function normalizeAttachment(raw: unknown): ItpLibraryAttachment | null {
+  if (!raw || typeof raw !== 'object') return null
+  const o = raw as Partial<ItpLibraryAttachment>
+  if (!o.id || !o.url || !o.storagePath) return null
+  return {
+    id: String(o.id),
+    fileName: String(o.fileName ?? 'Attachment').slice(0, 500),
+    url: String(o.url),
+    storagePath: String(o.storagePath),
+    contentType: String(o.contentType ?? 'application/octet-stream'),
+    uploadedAt: String(o.uploadedAt ?? new Date().toISOString()),
+    caption: String(o.caption ?? '').slice(0, 500),
+  }
+}
+
+function normalizeAttachments(raw: unknown): ItpLibraryAttachment[] {
+  if (!Array.isArray(raw)) return []
+  return raw.map(normalizeAttachment).filter((row): row is ItpLibraryAttachment => row != null)
+}
+
+function normalizeChangeLogEntry(raw: unknown): ItpQcChangeLogEntry | null {
+  if (!raw || typeof raw !== 'object') return null
+  const o = raw as Partial<ItpQcChangeLogEntry>
+  const note = String(o.note ?? '').trim()
+  const summary = String(o.summary ?? '').trim()
+  if (!note && !summary) return null
+  return {
+    id: String(o.id ?? crypto.randomUUID()),
+    at: String(o.at ?? new Date().toISOString()),
+    byUserId: o.byUserId ? String(o.byUserId) : null,
+    byName: String(o.byName ?? 'Quality Team').trim() || 'Quality Team',
+    byLevel: o.byLevel ? String(o.byLevel) : null,
+    note: note || summary,
+    summary: summary || note,
+  }
+}
+
+function normalizeChangeLog(raw: unknown): ItpQcChangeLogEntry[] {
+  if (!Array.isArray(raw)) return []
+  return raw
+    .map(normalizeChangeLogEntry)
+    .filter((row): row is ItpQcChangeLogEntry => row != null)
+}
+
+function normalizeQcReview(raw: unknown): ItpQcReview {
+  const base = emptyQcReview()
+  if (!raw || typeof raw !== 'object') return base
+  const o = raw as Partial<ItpQcReview> & { changeLog?: unknown }
+  const statusRaw = String(o.status ?? '')
+    .trim()
+    .toLowerCase()
+  const status: ItpQcReviewStatus =
+    statusRaw === 'pending_review' || statusRaw === 'accepted' ? statusRaw : 'draft'
+  return {
+    status,
+    generatedAt: o.generatedAt ? String(o.generatedAt) : null,
+    generatedByUserId: o.generatedByUserId ? String(o.generatedByUserId) : null,
+    generatedByName: o.generatedByName ? String(o.generatedByName) : null,
+    notifiedAt: o.notifiedAt ? String(o.notifiedAt) : null,
+    acceptedAt: o.acceptedAt ? String(o.acceptedAt) : null,
+    acceptedByUserId: o.acceptedByUserId ? String(o.acceptedByUserId) : null,
+    acceptedByName: o.acceptedByName ? String(o.acceptedByName) : null,
+    acceptedByLevel: o.acceptedByLevel ? String(o.acceptedByLevel) : null,
+    changeLog: normalizeChangeLog(o.changeLog),
   }
 }
 
@@ -288,6 +490,8 @@ export function normalizeItpLibraryPlan(raw: unknown, valve: Valve): ItpLibraryP
       sel,
       custom,
       exec,
+      attachments: normalizeAttachments((raw as { attachments?: unknown }).attachments),
+      qcReview: normalizeQcReview((raw as { qcReview?: unknown }).qcReview),
       inspector: String(raw.inspector ?? ''),
       inspDate: String(raw.inspDate ?? ''),
       qcMgr: String(raw.qcMgr ?? ''),

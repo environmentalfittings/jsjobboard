@@ -5,6 +5,7 @@ export type TestGauge = {
   gauge_type: string | null
   department: string | null
   notes: string | null
+  calibration_frequency: string | null
   last_calibration_date: string | null
   next_calibration_date: string | null
   certificate_storage_path: string | null
@@ -48,6 +49,7 @@ export type TestGaugeFormState = {
   /** Used when departmentSelect is Other */
   departmentOther: string
   notes: string
+  calibration_frequency: string
   last_calibration_date: string
   next_calibration_date: string
   certificate_number: string
@@ -99,6 +101,7 @@ export function emptyTestGaugeForm(): TestGaugeFormState {
     departmentSelect: '',
     departmentOther: '',
     notes: '',
+    calibration_frequency: 'annually',
     last_calibration_date: '',
     next_calibration_date: '',
     certificate_number: '',
@@ -111,6 +114,7 @@ export function testGaugeToForm(row: TestGauge): TestGaugeFormState {
   const department = (row.department ?? '').trim()
   const typeIsPreset = (SUGGESTED_GAUGE_TYPES_SET as Set<string>).has(gaugeType)
   const deptIsPreset = (SUGGESTED_DEPARTMENTS as readonly string[]).includes(department)
+  const frequency = (row.calibration_frequency ?? '').trim() || 'annually'
 
   return {
     gauge_number: row.gauge_number,
@@ -120,6 +124,7 @@ export function testGaugeToForm(row: TestGauge): TestGaugeFormState {
     departmentSelect: deptIsPreset ? department : department ? GAUGE_DEPARTMENT_OTHER : '',
     departmentOther: deptIsPreset ? '' : department,
     notes: row.notes ?? '',
+    calibration_frequency: frequency,
     last_calibration_date: row.last_calibration_date ?? '',
     next_calibration_date: row.next_calibration_date ?? '',
     certificate_number: row.certificate_number ?? '',

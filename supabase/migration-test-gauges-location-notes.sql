@@ -1,10 +1,11 @@
--- Add department and notes to the test gauges registry.
+-- Add department, notes, and calibration_frequency to the test gauges registry.
 -- If an earlier "location" column was created, copy it into department.
 begin;
 
 alter table public.test_gauges
   add column if not exists department text,
   add column if not exists notes text,
+  add column if not exists calibration_frequency text,
   add column if not exists location text;
 
 do $$
@@ -21,6 +22,10 @@ begin
     where department is null or trim(department) = '';
   end if;
 end $$;
+
+update public.test_gauges
+set calibration_frequency = 'annually'
+where calibration_frequency is null or trim(calibration_frequency) = '';
 
 alter table public.test_gauges
   drop column if exists location;

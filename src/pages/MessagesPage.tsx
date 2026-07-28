@@ -15,9 +15,15 @@ import {
 import {
   isMessageAttachmentFile,
   MAX_MESSAGE_ATTACHMENTS,
+  resolveMessageAttachmentUrls,
   type MessageAttachment,
 } from '../lib/messageAttachments'
 import { canWriteShop, permissionDeniedReason } from '../lib/roles'
+import {
+  buildMessageRecipients,
+  loadTechniciansForMessages,
+  messageRecipientName,
+} from '../lib/messageRecipients'
 
 interface MessagesPageProps {
   userId: string
@@ -45,8 +51,47 @@ function itemTitle(item: InboxItem) {
   return 'Message'
 }
 
+function itemPreview(body: string) {
+  const compact = body.replace(/\s+/g, ' ').trim()
+  if (compact.length <= 110) return compact
+  return `${compact.slice(0, 107).trimEnd()}…`
+}
+
+function renderMessageBody(body: string) {
+  const lines = body.split('\n')
+  return lines.map((line, index) => {
+    const qualityMatch = line.match(/^Open QA\/QC flags:\s*(\/quality-team\S*)?\s*$/i)
+    if (qualityMatch) {
+      return (
+        <span key={`line-${index}`}>
+          {index > 0 ? '\n' : ''}
+          <Link to={qualityMatch[1] || '/quality-team'}>Open QA/QC flags</Link>
+        </span>
+      )
+    }
+    const itpMatch = line.match(/^Open ITP:\s*(\/itp\/\d+\S*)\s*$/i)
+    if (itpMatch) {
+      return (
+        <span key={`line-${index}`}>
+          {index > 0 ? '\n' : ''}
+          <Link to={itpMatch[1]}>Open ITP</Link>
+        </span>
+      )
+    }
+    return (
+      <span key={`line-${index}`}>
+        {index > 0 ? '\n' : ''}
+        {line}
+      </span>
+    )
+  })
+}
+
 function isImageAttachment(attachment: MessageAttachment) {
-  return attachment.content_type.startsWith('image/') || /\.(jpe?g|png|gif|webp|bmp|heic)$/i.test(attachment.file_name)
+  return (
+    attachment.content_type.startsWith('image/') ||
+    /\.(jpe?g|png|gif|webp|bmp|heic|heif)$/i.test(attachment.file_name)
+  )
 }
 
 export function MessagesPage({ userId, username, homePath }: MessagesPageProps) {
@@ -65,13 +110,17 @@ export function MessagesPage({ userId, username, homePath }: MessagesPageProps) 
   const [attachmentDrafts, setAttachmentDrafts] = useState<AttachmentDraft[]>([])
   const [sending, setSending] = useState(false)
   const [actionBusy, setActionBusy] = useState(false)
+  const [resolvedAttachments, setResolvedAttachments] = useState<MessageAttachment[]>([])
+  const [attachmentsLoading, setAttachmentsLoading] = useState(false)
+  const [technicians, setTechnicians] = useState<Awaited<ReturnType<typeof loadTechniciansForMessages>>>([])
+
+  useEffect(() => {
+    void loadTechniciansForMessages().then(setTechnicians)
+  }, [])
 
   const recipients = useMemo(
-    () =>
-      employees
-        .filter((employee) => employee.is_active && employee.auth_user_id && employee.auth_user_id !== userId)
-        .sort((a, b) => a.full_name.localeCompare(b.full_name)),
-    [employees, userId],
+    () => buildMessageRecipients(employees, technicians, userId),
+    [employees, technicians, userId],
   )
 
   const filteredItems = useMemo(() => {
@@ -124,6 +173,27 @@ export function MessagesPage({ userId, username, homePath }: MessagesPageProps) 
       void refresh()
     })()
   }, [selectedItem, userId, refresh, showToast])
+
+  useEffect(() => {
+    const attachments = selectedItem?.attachments ?? []
+    if (!attachments.length) {
+      setResolvedAttachments([])
+      setAttachmentsLoading(false)
+      return
+    }
+
+    let cancelled = false
+    setAttachmentsLoading(true)
+    void resolveMessageAttachmentUrls(attachments).then((rows) => {
+      if (!cancelled) {
+        setResolvedAttachments(rows)
+        setAttachmentsLoading(false)
+      }
+    })
+    return () => {
+      cancelled = true
+    }
+  }, [selectedItem?.key, selectedItem?.attachments])
 
   const clearSearchParams = () => {
     const next = new URLSearchParams(searchParams)
@@ -316,11 +386,11 @@ export function MessagesPage({ userId, username, homePath }: MessagesPageProps) 
                   </div>
                   <div className="messages-list-item-meta">
                     {filter === 'sent'
-                      ? `To ${recipients.find((employee) => employee.auth_user_id === item.recipientUserId)?.full_name ?? 'employee'}`
+                      ? `To ${messageRecipientName(recipients, item.recipientUserId) ?? 'employee'}`
                       : item.senderName ?? 'System'}
                     {item.attachments.length > 0 ? ` · ${item.attachments.length} attachment${item.attachments.length === 1 ? '' : 's'}` : ''}
                   </div>
-                  <div className="messages-list-item-preview">{item.body.replace(/\s+/g, ' ').trim()}</div>
+                  <div className="messages-list-item-preview">{itemPreview(item.body)}</div>
                 </button>
               ))}
             </div>
@@ -339,9 +409,9 @@ export function MessagesPage({ userId, username, homePath }: MessagesPageProps) 
                   disabled={sending || employeesLoading}
                 >
                   <option value="">Select employee…</option>
-                  {recipients.map((employee) => (
-                    <option key={employee.id} value={employee.auth_user_id ?? ''}>
-                      {employee.full_name}
+                  {recipients.map((recipient) => (
+                    <option key={recipient.key} value={recipient.authUserId}>
+                      {recipient.fullName}
                     </option>
                   ))}
                 </select>
@@ -486,31 +556,35 @@ export function MessagesPage({ userId, username, homePath }: MessagesPageProps) 
                   </button>
                 </div>
               </header>
-              <pre className="messages-detail-body">{selectedItem.body}</pre>
+              <pre className="messages-detail-body">{renderMessageBody(selectedItem.body)}</pre>
               {selectedItem.attachments.length > 0 ? (
                 <div className="messages-attachments-view">
                   <h4 className="messages-attachments-view-title">Attachments</h4>
-                  <div className="messages-attachments-grid">
-                    {selectedItem.attachments.map((attachment) => (
-                      <a
-                        key={attachment.storage_path}
-                        href={attachment.url}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="messages-attachment-link"
-                      >
-                        {isImageAttachment(attachment) ? (
-                          <img src={attachment.url} alt={attachment.file_name} />
-                        ) : (
-                          <div className="messages-attachment-pdf">
-                            <span>PDF</span>
-                            <span className="messages-attachment-pdf-name">{attachment.file_name}</span>
-                          </div>
-                        )}
-                        <span className="messages-attachment-link-name">{attachment.file_name}</span>
-                      </a>
-                    ))}
-                  </div>
+                  {attachmentsLoading ? (
+                    <p className="placeholder-copy">Loading attachments…</p>
+                  ) : (
+                    <div className="messages-attachments-grid">
+                      {resolvedAttachments.map((attachment) => (
+                        <a
+                          key={attachment.storage_path}
+                          href={attachment.url}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="messages-attachment-link"
+                        >
+                          {isImageAttachment(attachment) ? (
+                            <img src={attachment.url} alt={attachment.file_name} loading="lazy" />
+                          ) : (
+                            <div className="messages-attachment-pdf">
+                              <span>PDF</span>
+                              <span className="messages-attachment-pdf-name">{attachment.file_name}</span>
+                            </div>
+                          )}
+                          <span className="messages-attachment-link-name">{attachment.file_name}</span>
+                        </a>
+                      ))}
+                    </div>
+                  )}
                 </div>
               ) : null}
             </article>

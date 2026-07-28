@@ -17,7 +17,7 @@ order by qty desc;
 update public.valves
 set
   status = 'Completed',
-  date_closed = coalesce(date_closed, date_tested, (now() at time zone 'America/Chicago')::date),
+  date_closed = coalesce(date_closed, date_tested),
   updated_at = now()
 where order_type = 'Completed'
   and coalesce(status, '') not in ('Completed', 'Warehouse RTS', 'Junked', 'Replaced');

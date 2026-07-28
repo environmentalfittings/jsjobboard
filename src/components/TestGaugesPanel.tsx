@@ -17,9 +17,20 @@ import {
   testGaugeCertificateUrl,
   updateTestGauge,
   updateTestGaugeDepartment,
+  updateTestGaugeFrequency,
+  updateTestGaugeNotes,
   updateTestGaugeType,
 } from '../lib/testGaugeRegistry'
-import { moveTestGaugeToToolLog } from '../lib/moveToolGaugesToTestGauges'
+import { moveGaugeCategoryToolsToTestGauges, moveTestGaugeToToolLog } from '../lib/moveToolGaugesToTestGauges'
+import {
+  formatGaugeFrequencyLabel,
+  GAUGE_CALIBRATION_FREQUENCY_OPTIONS,
+  GAUGE_FREQUENCY_OTHER,
+  nextDueFromGaugeFrequency,
+  parseGaugeFrequency,
+  resolveGaugeFrequencyValue,
+  type GaugeFrequencySelect,
+} from '../lib/toolCalibrationSopPoints'
 import { openTestGaugesReportPrint } from '../lib/testGaugesReportPrint'
 import { emptyTestGaugeForm, testGaugeToForm, SUGGESTED_DEPARTMENTS, type TestGauge, type TestGaugeFormState } from '../types/testGauge'
 
@@ -34,6 +45,7 @@ type SortKey =
   | 'manufacturer'
   | 'gauge_type'
   | 'department'
+  | 'calibration_frequency'
   | 'last_calibration_date'
   | 'next_calibration_date'
   | 'active'
@@ -101,6 +113,7 @@ const SORT_KEY_LABELS: Record<SortKey, string> = {
   manufacturer: 'manufacturer',
   gauge_type: 'type',
   department: 'department',
+  calibration_frequency: 'frequency',
   last_calibration_date: 'calibrated date',
   next_calibration_date: 'expires date',
   active: 'status',
@@ -155,8 +168,146 @@ function sortValue(row: TestGauge, key: SortKey): string | null {
   return row[key]
 }
 
+function formatFrequencyLabel(value: string | null | undefined): string {
+  return formatGaugeFrequencyLabel(value)
+}
+
 function typeSelectValue(gaugeType: string | null | undefined): string {
   return normalizeSuggestedGaugeType(gaugeType) ?? ''
+}
+
+function InlineFrequencyCell({
+  row,
+  disabled,
+  onSave,
+}: {
+  row: TestGauge
+  disabled: boolean
+  onSave: (frequency: string, nextDue: string | null) => Promise<boolean>
+}) {
+  const initial = parseGaugeFrequency(row.calibration_frequency)
+  const [selectValue, setSelectValue] = useState<GaugeFrequencySelect>(initial.select)
+  const [otherMonths, setOtherMonths] = useState(String(initial.otherMonths || 18))
+  const [saving, setSaving] = useState(false)
+
+  useEffect(() => {
+    const next = parseGaugeFrequency(row.calibration_frequency)
+    setSelectValue(next.select)
+    setOtherMonths(String(next.otherMonths || 18))
+  }, [row.id, row.calibration_frequency])
+
+  const persist = async (select: GaugeFrequencySelect, monthsText: string) => {
+    const frequency = resolveGaugeFrequencyValue(select, monthsText)
+    const nextDue = row.last_calibration_date
+      ? nextDueFromGaugeFrequency(row.last_calibration_date, frequency)
+      : row.next_calibration_date
+    setSaving(true)
+    const ok = await onSave(frequency, nextDue)
+    setSaving(false)
+    if (!ok) {
+      const reset = parseGaugeFrequency(row.calibration_frequency)
+      setSelectValue(reset.select)
+      setOtherMonths(String(reset.otherMonths || 18))
+    }
+  }
+
+  return (
+    <div className="tool-cal-inline-category">
+      <select
+        className="tool-cal-inline-category-select"
+        value={selectValue}
+        disabled={disabled || saving}
+        aria-label={`Calibration frequency for ${row.gauge_number}`}
+        onChange={(e) => {
+          const next = e.target.value as GaugeFrequencySelect
+          setSelectValue(next)
+          if (next === GAUGE_FREQUENCY_OTHER) {
+            if (otherMonths.trim()) void persist(next, otherMonths)
+            return
+          }
+          void persist(next, otherMonths)
+        }}
+      >
+        {GAUGE_CALIBRATION_FREQUENCY_OPTIONS.map((opt) => (
+          <option key={opt.value} value={opt.value}>
+            {opt.label}
+          </option>
+        ))}
+        <option value={GAUGE_FREQUENCY_OTHER}>Other</option>
+      </select>
+      {selectValue === GAUGE_FREQUENCY_OTHER ? (
+        <input
+          type="number"
+          min={1}
+          className="tool-cal-inline-category-other"
+          value={otherMonths}
+          disabled={disabled || saving}
+          placeholder="Months"
+          aria-label={`Other frequency months for ${row.gauge_number}`}
+          onChange={(e) => setOtherMonths(e.target.value)}
+          onBlur={() => {
+            const months = Number.parseInt(otherMonths, 10)
+            if (!Number.isFinite(months) || months <= 0) return
+            const current = resolveGaugeFrequencyValue(GAUGE_FREQUENCY_OTHER, months)
+            if (current === (row.calibration_frequency ?? '').trim()) return
+            void persist(GAUGE_FREQUENCY_OTHER, String(months))
+          }}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter') e.currentTarget.blur()
+          }}
+        />
+      ) : null}
+    </div>
+  )
+}
+
+function InlineNotesCell({
+  row,
+  disabled,
+  onSave,
+}: {
+  row: TestGauge
+  disabled: boolean
+  onSave: (notes: string | null) => Promise<boolean>
+}) {
+  const [value, setValue] = useState(row.notes ?? '')
+  const [saving, setSaving] = useState(false)
+
+  useEffect(() => {
+    setValue(row.notes ?? '')
+  }, [row.id, row.notes])
+
+  const persist = async () => {
+    const next = value.trim() || null
+    const current = (row.notes ?? '').trim() || null
+    if (next === current) return
+    setSaving(true)
+    const ok = await onSave(next)
+    setSaving(false)
+    if (!ok) setValue(row.notes ?? '')
+  }
+
+  return (
+    <input
+      type="text"
+      className="tool-cal-inline-category-other test-gauge-inline-notes"
+      value={value}
+      disabled={disabled || saving}
+      placeholder="Add notes…"
+      aria-label={`Notes for ${row.gauge_number}`}
+      onChange={(e) => setValue(e.target.value)}
+      onBlur={() => {
+        void persist()
+      }}
+      onKeyDown={(e) => {
+        if (e.key === 'Enter') e.currentTarget.blur()
+        if (e.key === 'Escape') {
+          setValue(row.notes ?? '')
+          e.currentTarget.blur()
+        }
+      }}
+    />
+  )
 }
 
 function InlineTypeCell({
@@ -315,10 +466,20 @@ export function TestGaugesPanel() {
   const [dueFocus, setDueFocus] = useState<DueFocus | null>(null)
   const [typeSavingId, setTypeSavingId] = useState<string | null>(null)
   const [departmentSavingId, setDepartmentSavingId] = useState<string | null>(null)
+  const [frequencySavingId, setFrequencySavingId] = useState<string | null>(null)
+  const [notesSavingId, setNotesSavingId] = useState<string | null>(null)
 
   const reload = useCallback(async () => {
     setLoading(true)
     try {
+      const moved = await moveGaugeCategoryToolsToTestGauges()
+      if (moved.error) {
+        showToast(moved.error)
+      } else if (moved.moved > 0) {
+        showToast(
+          `Moved ${moved.moved} item${moved.moved === 1 ? '' : 's'} from tool log to test gauges`,
+        )
+      }
       setRows(filterAllowedTestGauges(await loadTestGauges(true)))
     } catch (error) {
       showToast(error instanceof Error ? error.message : 'Could not load test gauges')
@@ -445,6 +606,40 @@ export function TestGaugesPanel() {
     return true
   }
 
+  const saveFrequencyInline = async (row: TestGauge, frequency: string, nextDue: string | null) => {
+    setFrequencySavingId(row.id)
+    const { error } = await updateTestGaugeFrequency(row.id, frequency, nextDue)
+    setFrequencySavingId(null)
+    if (error) {
+      showToast(error)
+      return false
+    }
+    setRows((prev) =>
+      prev.map((item) =>
+        item.id === row.id
+          ? { ...item, calibration_frequency: frequency, next_calibration_date: nextDue }
+          : item,
+      ),
+    )
+    return true
+  }
+
+  const saveNotesInline = async (row: TestGauge, notes: string | null) => {
+    setNotesSavingId(row.id)
+    const { error } = await updateTestGaugeNotes(row.id, notes)
+    setNotesSavingId(null)
+    if (error) {
+      showToast(
+        error.includes('notes') || error.includes('schema cache')
+          ? 'Run migration-test-gauges-calibration-frequency.sql in Supabase first'
+          : error,
+      )
+      return false
+    }
+    setRows((prev) => prev.map((item) => (item.id === row.id ? { ...item, notes } : item)))
+    return true
+  }
+
   const clearCert = async (row: TestGauge) => {
     if (!window.confirm('Remove the current calibration certificate file from this gauge?')) return
     const { error } = await removeTestGaugeCertificate(row)
@@ -542,6 +737,7 @@ export function TestGaugesPanel() {
         row.gauge_type,
         row.department,
         row.notes,
+        formatFrequencyLabel(row.calibration_frequency),
         row.active ? 'active' : 'inactive',
       ]
         .filter(Boolean)
@@ -665,16 +861,69 @@ export function TestGaugesPanel() {
         <input
           type="date"
           value={form.last_calibration_date}
-          onChange={(e) => setForm((f) => ({ ...f, last_calibration_date: e.target.value }))}
+          onChange={(e) => {
+            const last_calibration_date = e.target.value
+            setForm((f) => ({
+              ...f,
+              last_calibration_date,
+              next_calibration_date: last_calibration_date
+                ? nextDueFromGaugeFrequency(last_calibration_date, f.calibration_frequency)
+                : '',
+            }))
+          }}
         />
       </label>
       <label>
-        Next calibration date
-        <input
-          type="date"
-          value={form.next_calibration_date}
-          onChange={(e) => setForm((f) => ({ ...f, next_calibration_date: e.target.value }))}
-        />
+        Calibration frequency
+        <select
+          value={parseGaugeFrequency(form.calibration_frequency).select}
+          onChange={(e) => {
+            const select = e.target.value as GaugeFrequencySelect
+            const current = parseGaugeFrequency(form.calibration_frequency)
+            const otherMonths = select === GAUGE_FREQUENCY_OTHER ? current.otherMonths || 18 : current.otherMonths
+            const calibration_frequency = resolveGaugeFrequencyValue(select, otherMonths)
+            setForm((f) => ({
+              ...f,
+              calibration_frequency,
+              next_calibration_date: f.last_calibration_date
+                ? nextDueFromGaugeFrequency(f.last_calibration_date, calibration_frequency)
+                : '',
+            }))
+          }}
+        >
+          {GAUGE_CALIBRATION_FREQUENCY_OPTIONS.map((opt) => (
+            <option key={opt.value} value={opt.value}>
+              {opt.label}
+            </option>
+          ))}
+          <option value={GAUGE_FREQUENCY_OTHER}>Other</option>
+        </select>
+      </label>
+      {parseGaugeFrequency(form.calibration_frequency).select === GAUGE_FREQUENCY_OTHER ? (
+        <label>
+          Other frequency (months)
+          <input
+            type="number"
+            min={1}
+            value={parseGaugeFrequency(form.calibration_frequency).otherMonths || ''}
+            placeholder="e.g. 18"
+            onChange={(e) => {
+              const months = e.target.value
+              const calibration_frequency = resolveGaugeFrequencyValue(GAUGE_FREQUENCY_OTHER, months)
+              setForm((f) => ({
+                ...f,
+                calibration_frequency,
+                next_calibration_date: f.last_calibration_date
+                  ? nextDueFromGaugeFrequency(f.last_calibration_date, calibration_frequency)
+                  : '',
+              }))
+            }}
+          />
+        </label>
+      ) : null}
+      <label>
+        Expires (calculated)
+        <input type="date" value={form.next_calibration_date} readOnly title="Calculated from calibrated date + frequency" />
       </label>
       <label>
         Certificate number
@@ -821,7 +1070,7 @@ export function TestGaugesPanel() {
           <input
             type="search"
             value={search}
-            placeholder="Gauge #, manufacturer, type, department…"
+            placeholder="Gauge #, manufacturer, type, department, notes…"
             onChange={(e) => setSearch(e.target.value)}
           />
         </label>
@@ -862,8 +1111,10 @@ export function TestGaugesPanel() {
                 <th>{header('gauge_type', 'Type', 'gauge_type')}</th>
                 <th>{header('department', 'Dept', 'department')}</th>
                 <th>{header('last_calibration_date', 'Calibrated')}</th>
+                <th>{header('calibration_frequency', 'Frequency')}</th>
                 <th>{header('next_calibration_date', 'Expires')}</th>
                 <th>Certificate</th>
+                <th>Notes</th>
                 <th>{header('active', 'Status', 'status')}</th>
                 <th />
               </tr>
@@ -893,6 +1144,13 @@ export function TestGaugesPanel() {
                         />
                       </td>
                       <td>{row.last_calibration_date ?? '—'}</td>
+                      <td>
+                        <InlineFrequencyCell
+                          row={row}
+                          disabled={frequencySavingId != null && frequencySavingId !== row.id}
+                          onSave={(frequency, nextDue) => saveFrequencyInline(row, frequency, nextDue)}
+                        />
+                      </td>
                       <td className={calStatus !== 'ok' ? `test-gauge-cal-cell--${calStatus}` : undefined}>
                         {row.next_calibration_date ?? '—'}
                         {calStatus === 'critical' || calStatus === 'due' ? (
@@ -921,6 +1179,13 @@ export function TestGaugesPanel() {
                             </button>
                           </div>
                         ) : null}
+                      </td>
+                      <td>
+                        <InlineNotesCell
+                          row={row}
+                          disabled={notesSavingId != null && notesSavingId !== row.id}
+                          onSave={(notes) => saveNotesInline(row, notes)}
+                        />
                       </td>
                       <td>{row.active ? 'Active' : 'Inactive'}</td>
                       <td className="test-gauge-row-actions">
@@ -959,7 +1224,7 @@ export function TestGaugesPanel() {
                     </tr>
                     {isEditingRow ? (
                       <tr className="tool-cal-inline-edit-row">
-                        <td colSpan={9}>
+                        <td colSpan={11}>
                           <div className="test-gauge-admin-form tool-cal-inline-edit-form">
                             <h4>Edit gauge — {row.gauge_number}</h4>
                             <p className="placeholder-copy resources-hint">

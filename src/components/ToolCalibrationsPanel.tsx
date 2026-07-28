@@ -15,8 +15,19 @@ import {
   toolCalibrationCertificateUrl,
   updateToolCalibration,
   updateToolCalibrationCategory,
+  updateToolCalibrationFrequency,
 } from '../lib/toolCalibrationRegistry'
+import {
+  formatGaugeFrequencyLabel,
+  GAUGE_CALIBRATION_FREQUENCY_OPTIONS,
+  GAUGE_FREQUENCY_OTHER,
+  nextDueFromGaugeFrequency,
+  parseGaugeFrequency,
+  resolveGaugeFrequencyValue,
+  type GaugeFrequencySelect,
+} from '../lib/toolCalibrationSopPoints'
 import { openToolCalibrationsReportPrint } from '../lib/toolCalibrationsReportPrint'
+import { belongsOnTestGaugesList } from '../lib/moveToolGaugesToTestGauges'
 import {
   emptyToolCalibrationForm,
   isExternalCalibrationCategory,
@@ -44,6 +55,7 @@ type SortKey =
   | 'serial_number'
   | 'department'
   | 'calibration_date'
+  | 'calibration_frequency'
   | 'expiration_date'
   | 'status'
 
@@ -112,6 +124,7 @@ const SORT_KEY_LABELS: Record<SortKey, string> = {
   serial_number: 'serial',
   department: 'department',
   calibration_date: 'calibrated date',
+  calibration_frequency: 'frequency',
   expiration_date: 'expires date',
   status: 'status',
 }
@@ -138,6 +151,91 @@ function buildPrintFilterNote(options: {
   if (options.dueFocus) parts.push(dueFocusLabel(options.dueFocus))
   parts.push(`sorted by ${SORT_KEY_LABELS[options.sortKey]} (${options.sortDir})`)
   return parts.join(' · ')
+}
+
+function InlineFrequencyCell({
+  row,
+  disabled,
+  onSave,
+}: {
+  row: ToolCalibration
+  disabled: boolean
+  onSave: (frequency: string, expirationDate: string | null) => Promise<boolean>
+}) {
+  const initial = parseGaugeFrequency(row.calibration_frequency)
+  const [selectValue, setSelectValue] = useState<GaugeFrequencySelect>(initial.select)
+  const [otherMonths, setOtherMonths] = useState(String(initial.otherMonths || 18))
+  const [saving, setSaving] = useState(false)
+
+  useEffect(() => {
+    const next = parseGaugeFrequency(row.calibration_frequency)
+    setSelectValue(next.select)
+    setOtherMonths(String(next.otherMonths || 18))
+  }, [row.id, row.calibration_frequency])
+
+  const persist = async (select: GaugeFrequencySelect, monthsText: string) => {
+    const frequency = resolveGaugeFrequencyValue(select, monthsText)
+    const expirationDate = row.calibration_date
+      ? nextDueFromGaugeFrequency(row.calibration_date, frequency)
+      : row.expiration_date
+    setSaving(true)
+    const ok = await onSave(frequency, expirationDate)
+    setSaving(false)
+    if (!ok) {
+      const reset = parseGaugeFrequency(row.calibration_frequency)
+      setSelectValue(reset.select)
+      setOtherMonths(String(reset.otherMonths || 18))
+    }
+  }
+
+  return (
+    <div className="tool-cal-inline-category">
+      <select
+        className="tool-cal-inline-category-select"
+        value={selectValue}
+        disabled={disabled || saving}
+        aria-label={`Calibration frequency for ${row.js_id ?? row.id}`}
+        onChange={(e) => {
+          const next = e.target.value as GaugeFrequencySelect
+          setSelectValue(next)
+          if (next === GAUGE_FREQUENCY_OTHER) {
+            if (otherMonths.trim()) void persist(next, otherMonths)
+            return
+          }
+          void persist(next, otherMonths)
+        }}
+      >
+        {GAUGE_CALIBRATION_FREQUENCY_OPTIONS.map((opt) => (
+          <option key={opt.value} value={opt.value}>
+            {opt.label}
+          </option>
+        ))}
+        <option value={GAUGE_FREQUENCY_OTHER}>Other</option>
+      </select>
+      {selectValue === GAUGE_FREQUENCY_OTHER ? (
+        <input
+          type="number"
+          min={1}
+          className="tool-cal-inline-category-other"
+          value={otherMonths}
+          disabled={disabled || saving}
+          placeholder="Months"
+          aria-label={`Other frequency months for ${row.js_id ?? row.id}`}
+          onChange={(e) => setOtherMonths(e.target.value)}
+          onBlur={() => {
+            const months = Number.parseInt(otherMonths, 10)
+            if (!Number.isFinite(months) || months <= 0) return
+            const current = resolveGaugeFrequencyValue(GAUGE_FREQUENCY_OTHER, months)
+            if (current === (row.calibration_frequency ?? '').trim()) return
+            void persist(GAUGE_FREQUENCY_OTHER, String(months))
+          }}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter') e.currentTarget.blur()
+          }}
+        />
+      ) : null}
+    </div>
+  )
 }
 
 function categorySelectValue(category: string | null | undefined): string {
@@ -266,6 +364,7 @@ export function ToolCalibrationsPanel() {
   const [columnFilters, setColumnFilters] = useState<ColumnFilters>(DEFAULT_COLUMN_FILTERS)
   const [dueFocus, setDueFocus] = useState<DueFocus | null>(null)
   const [categorySavingId, setCategorySavingId] = useState<number | null>(null)
+  const [frequencySavingId, setFrequencySavingId] = useState<number | null>(null)
   const [recalibrateTool, setRecalibrateTool] = useState<ToolCalibration | null>(null)
   const [externalCertTool, setExternalCertTool] = useState<ToolCalibration | null>(null)
   const [historyTool, setHistoryTool] = useState<ToolCalibration | null>(null)
@@ -274,7 +373,7 @@ export function ToolCalibrationsPanel() {
   const reload = useCallback(async () => {
     setLoading(true)
     try {
-      setRows(await loadToolCalibrations(true))
+      setRows((await loadToolCalibrations(true)).filter((row) => !belongsOnTestGaugesList(row)))
     } catch (error) {
       showToast(
         error instanceof Error && error.message.includes('tool_calibrations')
@@ -369,6 +468,32 @@ export function ToolCalibrationsPanel() {
       return false
     }
     setRows((prev) => prev.map((item) => (item.id === row.id ? { ...item, category } : item)))
+    return true
+  }
+
+  const saveFrequencyInline = async (
+    row: ToolCalibration,
+    frequency: string,
+    expirationDate: string | null,
+  ) => {
+    setFrequencySavingId(row.id)
+    const { error } = await updateToolCalibrationFrequency(row.id, frequency, expirationDate)
+    setFrequencySavingId(null)
+    if (error) {
+      showToast(
+        error.includes('calibration_frequency') || error.includes('schema cache')
+          ? 'Run migration-tool-calibrations-frequency.sql in Supabase first'
+          : error,
+      )
+      return false
+    }
+    setRows((prev) =>
+      prev.map((item) =>
+        item.id === row.id
+          ? { ...item, calibration_frequency: frequency, expiration_date: expirationDate }
+          : item,
+      ),
+    )
     return true
   }
 
@@ -480,6 +605,7 @@ export function ToolCalibrationsPanel() {
         row.department,
         row.status,
         row.notes,
+        formatGaugeFrequencyLabel(row.calibration_frequency),
       ]
         .filter(Boolean)
         .join(' ')
@@ -612,15 +738,74 @@ export function ToolCalibrationsPanel() {
         <input
           type="date"
           value={form.calibration_date}
-          onChange={(e) => setForm((f) => ({ ...f, calibration_date: e.target.value }))}
+          onChange={(e) => {
+            const calibration_date = e.target.value
+            setForm((f) => ({
+              ...f,
+              calibration_date,
+              expiration_date: calibration_date
+                ? nextDueFromGaugeFrequency(calibration_date, f.calibration_frequency)
+                : '',
+            }))
+          }}
         />
       </label>
       <label>
-        Expiration date
+        Calibration frequency
+        <select
+          value={parseGaugeFrequency(form.calibration_frequency).select}
+          onChange={(e) => {
+            const select = e.target.value as GaugeFrequencySelect
+            const current = parseGaugeFrequency(form.calibration_frequency)
+            const otherMonths =
+              select === GAUGE_FREQUENCY_OTHER ? current.otherMonths || 18 : current.otherMonths
+            const calibration_frequency = resolveGaugeFrequencyValue(select, otherMonths)
+            setForm((f) => ({
+              ...f,
+              calibration_frequency,
+              expiration_date: f.calibration_date
+                ? nextDueFromGaugeFrequency(f.calibration_date, calibration_frequency)
+                : '',
+            }))
+          }}
+        >
+          {GAUGE_CALIBRATION_FREQUENCY_OPTIONS.map((opt) => (
+            <option key={opt.value} value={opt.value}>
+              {opt.label}
+            </option>
+          ))}
+          <option value={GAUGE_FREQUENCY_OTHER}>Other</option>
+        </select>
+      </label>
+      {parseGaugeFrequency(form.calibration_frequency).select === GAUGE_FREQUENCY_OTHER ? (
+        <label>
+          Other frequency (months)
+          <input
+            type="number"
+            min={1}
+            value={parseGaugeFrequency(form.calibration_frequency).otherMonths || ''}
+            placeholder="e.g. 18"
+            onChange={(e) => {
+              const months = e.target.value
+              const calibration_frequency = resolveGaugeFrequencyValue(GAUGE_FREQUENCY_OTHER, months)
+              setForm((f) => ({
+                ...f,
+                calibration_frequency,
+                expiration_date: f.calibration_date
+                  ? nextDueFromGaugeFrequency(f.calibration_date, calibration_frequency)
+                  : '',
+              }))
+            }}
+          />
+        </label>
+      ) : null}
+      <label>
+        Expires (calculated)
         <input
           type="date"
           value={form.expiration_date}
-          onChange={(e) => setForm((f) => ({ ...f, expiration_date: e.target.value }))}
+          readOnly
+          title="Calculated from calibrated date + frequency"
         />
       </label>
       <label>
@@ -664,11 +849,12 @@ export function ToolCalibrationsPanel() {
     <section className="dashboard-panel admin-lists-panel">
       <h3>Tool calibration log</h3>
       <p className="placeholder-copy resources-hint">
-        Shop MTE tools (micrometers, calipers, etc.). Use <strong>Recalibrate</strong> for in-house SOP 2010
-        checks. Torque wrenches, deadweight testers, and gauge block standards use{' '}
-        <strong>Upload cert</strong> for outside-lab certificates. Prior calibrations are archived for every
-        tool — use <strong>History</strong> to review them. Active tools are shown by default — click a summary
-        card to focus due windows. Use column filters for Category, Department, or Status.
+        Shop MTE tools (micrometers, calipers, etc.). Dead weight testers, pressure gauges, load cells, and
+        chart recorders belong on <strong>Test gauges</strong>. Use <strong>Recalibrate</strong> for in-house
+        SOP 2010 checks. Torque wrenches and gauge block standards use <strong>Upload cert</strong> for
+        outside-lab certificates. Prior calibrations are archived for every tool — use <strong>History</strong>{' '}
+        to review them. Active tools are shown by default — click a summary card to focus due windows. Use
+        column filters for Category, Department, or Status.
       </p>
 
       <div className="dashboard-kpis tool-cal-kpis" aria-label="Tool calibration summary">
@@ -811,8 +997,10 @@ export function ToolCalibrationsPanel() {
                 <th>{header('serial_number', 'Serial')}</th>
                 <th>{header('department', 'Dept', 'department')}</th>
                 <th>{header('calibration_date', 'Calibrated')}</th>
+                <th>{header('calibration_frequency', 'Frequency')}</th>
                 <th>{header('expiration_date', 'Expires')}</th>
                 <th>Certificate</th>
+                <th>Notes</th>
                 <th>{header('status', 'Status', 'status')}</th>
                 <th />
               </tr>
@@ -839,6 +1027,15 @@ export function ToolCalibrationsPanel() {
                       <td>{row.serial_number ?? '—'}</td>
                       <td>{row.department ?? '—'}</td>
                       <td>{row.calibration_date ?? '—'}</td>
+                      <td>
+                        <InlineFrequencyCell
+                          row={row}
+                          disabled={frequencySavingId != null && frequencySavingId !== row.id}
+                          onSave={(frequency, expirationDate) =>
+                            saveFrequencyInline(row, frequency, expirationDate)
+                          }
+                        />
+                      </td>
                       <td className={due !== 'ok' ? `test-gauge-cal-cell--${due}` : undefined}>
                         {row.expiration_date ?? '—'}
                         {due === 'critical' || due === 'due' ? (
@@ -872,6 +1069,9 @@ export function ToolCalibrationsPanel() {
                             </button>
                           </div>
                         ) : null}
+                      </td>
+                      <td className="table-cell-clamp" title={row.notes ?? undefined}>
+                        {row.notes?.trim() || '—'}
                       </td>
                       <td>{row.status === 'out_of_service' ? 'Out of service' : 'Active'}</td>
                       <td className="test-gauge-row-actions">
@@ -909,7 +1109,7 @@ export function ToolCalibrationsPanel() {
                     </tr>
                     {isEditingRow ? (
                       <tr className="tool-cal-inline-edit-row">
-                        <td colSpan={11}>
+                        <td colSpan={13}>
                           <div className="test-gauge-admin-form tool-cal-inline-edit-form">
                             <h4>Edit tool — {row.js_id ?? row.serial_number ?? row.id}</h4>
                             {toolFormFields}

@@ -11,7 +11,7 @@ import {
 } from '../types/toolCalibration'
 import type { TestGauge } from '../types/testGauge'
 
-const MOVE_CATEGORIES = new Set(['gauges', 'load cells'])
+const MOVE_CATEGORIES = new Set(['gauges', 'load cells', 'dead weight tester'])
 
 /** Shop measuring tools that belong on the tool log, even if category was set to Gauges. */
 function isShopMeasuringTool(tool: ToolCalibration): boolean {
@@ -19,6 +19,20 @@ function isShopMeasuringTool(tool: ToolCalibration): boolean {
   return /depth\s*ga(?:u)?ge|surface\s*roughness|roughness\s*ga(?:u)?ge|caliper|micrometer|\bmic\b|dial\s*indicator|thickness\s*tester|torque\s*wrench/.test(
     hay,
   )
+}
+
+export function isDeadWeightTesterTool(tool: ToolCalibration): boolean {
+  const hay = `${tool.category ?? ''} ${tool.tool_type ?? ''} ${tool.model ?? ''}`.toLowerCase()
+  return /dead\s*weight/.test(hay)
+}
+
+/** Tools that belong on Test gauges, not the shop tool calibration log. */
+export function belongsOnTestGaugesList(tool: ToolCalibration): boolean {
+  if (isDeadWeightTesterTool(tool)) return true
+  const category = (tool.category ?? '').trim().toLowerCase()
+  if (category === 'load cells') return true
+  if (category === 'gauges' && !isShopMeasuringTool(tool)) return true
+  return false
 }
 
 function normalizeGaugeKey(value: string | null | undefined): string | null {
@@ -54,8 +68,9 @@ function resolveGaugeType(tool: ToolCalibration): string {
   return (tool.tool_type ?? '').trim() || 'Pressure'
 }
 
-/** Only pressure / helium / chart / load-cell style items — not depth gauges, SRGs, etc. */
+/** Pressure / load-cell / dead-weight style items — not depth gauges, SRGs, etc. */
 function isMoveCandidate(tool: ToolCalibration): boolean {
+  if (isDeadWeightTesterTool(tool)) return true
   const category = (tool.category ?? '').trim().toLowerCase()
   if (!MOVE_CATEGORIES.has(category)) return false
   if (category === 'load cells') return true
@@ -72,6 +87,7 @@ function toolFormFromTestGauge(gauge: TestGauge): ToolCalibrationFormState {
   form.serial_number = gauge.gauge_number
   form.calibration_date = gauge.last_calibration_date ?? ''
   form.expiration_date = gauge.next_calibration_date ?? ''
+  form.calibration_frequency = gauge.calibration_frequency ?? 'annually'
   form.certificate_number = gauge.certificate_number ?? ''
   form.notes = gauge.notes ?? ''
   form.department = gauge.department ?? ''
@@ -97,7 +113,7 @@ export type MoveToolGaugesResult = {
 }
 
 /**
- * Move tool_calibrations rows with category Gauges or Load Cells into test_gauges.
+ * Move tool_calibrations rows with category Gauges, Load Cells, or Dead Weight Tester into test_gauges.
  * Skips shop measuring tools (depth gauges, surface roughness, etc.).
  * Skips inserts when gauge_number / serial / js_id already exists on a test gauge,
  * then removes successfully processed source rows from the tool log.
@@ -123,10 +139,13 @@ export async function moveGaugeCategoryToolsToTestGauges(): Promise<MoveToolGaug
     }
   }
 
-  const gaugeCategoryTools = tools.filter((tool) =>
-    MOVE_CATEGORIES.has((tool.category ?? '').trim().toLowerCase()),
+  const gaugeCategoryTools = tools.filter(
+    (tool) =>
+      MOVE_CATEGORIES.has((tool.category ?? '').trim().toLowerCase()) || isDeadWeightTesterTool(tool),
   )
-  const skippedShopTools = gaugeCategoryTools.filter(isShopMeasuringTool).length
+  const skippedShopTools = gaugeCategoryTools.filter(
+    (tool) => !isDeadWeightTesterTool(tool) && isShopMeasuringTool(tool),
+  ).length
   const candidates = gaugeCategoryTools.filter(isMoveCandidate)
   if (candidates.length === 0) {
     return { ...empty, skippedShopTools, error: null }
@@ -185,6 +204,7 @@ export async function moveGaugeCategoryToolsToTestGauges(): Promise<MoveToolGaug
       departmentSelect: presetDepts.has(department) ? department : department ? 'Other' : '',
       departmentOther: presetDepts.has(department) ? '' : department,
       notes: tool.notes ?? '',
+      calibration_frequency: tool.calibration_frequency ?? 'annually',
       last_calibration_date: tool.calibration_date ?? '',
       next_calibration_date: tool.expiration_date ?? '',
       certificate_number: tool.certificate_number ?? '',

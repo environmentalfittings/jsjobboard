@@ -11,6 +11,7 @@ import { TEST_PROCEDURE_OTHER } from '../lib/testLogProcedure'
 import { buildTestLogEntryHref } from '../lib/testLogEntryPrefill'
 import { type JobCardSaveFields, toDateInputValue } from '../lib/jobCardSave'
 import { supabase } from '../lib/supabase'
+import { openValveTicketPdfForPrint } from '../lib/valveTicketPrint'
 import type { Technician, TestLogEntry, Valve } from '../types'
 import { ValveAttachmentsPanel } from './ValveAttachmentsPanel'
 
@@ -130,6 +131,9 @@ export function StatusChangeModal({
   const [testLogRows, setTestLogRows] = useState<TestLogEntry[]>([])
   const [testLogLoading, setTestLogLoading] = useState(false)
   const [turnaroundDraft, setTurnaroundDraft] = useState(() => valve.is_turnaround === true)
+  const [needsFailureAnalysisDraft, setNeedsFailureAnalysisDraft] = useState(
+    () => valve.needs_failure_analysis === true,
+  )
   const [isMaximized, setIsMaximized] = useState(forceMaximized)
   const [assignedTechDraft, setAssignedTechDraft] = useState<number[]>(assignedTechnicianIds)
   const [pickerOpen, setPickerOpen] = useState(false)
@@ -404,6 +408,22 @@ export function StatusChangeModal({
     setValveTypeDraft(valve.valve_type ?? '')
   }
 
+  const reprintJobCard = () => {
+    try {
+      openValveTicketPdfForPrint({
+        ...valve,
+        description: description.trim() || null,
+        customer: customerDraft.trim() || null,
+        cell: cellDraft.trim() || null,
+        size: sizeDraft.trim() || null,
+        pressure_class: pressureClassDraft.trim() || null,
+        due_date: dueDateDraft.trim() || null,
+      })
+    } catch (error) {
+      showToast(error instanceof Error ? error.message : 'Could not open job card for printing')
+    }
+  }
+
   const save = () => {
     if (!canEditJobDetails) {
       showToast('You do not have permission to edit this job card')
@@ -417,6 +437,7 @@ export function StatusChangeModal({
       bowlType: bowlTypeDraft.trim() || null,
       valveType: valveTypeDraft.trim() || null,
       isTurnaround: turnaroundDraft,
+      needsFailureAnalysis: needsFailureAnalysisDraft,
       assignedTechnicianId: assignedTechSingleDraft,
       pressureClass: pressureClassDraft.trim() || null,
       bodyMaterial: bodyMaterialDraft.trim() || null,
@@ -597,6 +618,15 @@ export function StatusChangeModal({
                   />
                   <span>Turnaround</span>
                 </label>
+                <label className="job-card-turnaround-pill job-card-failure-analysis-pill">
+                  <input
+                    type="checkbox"
+                    checked={needsFailureAnalysisDraft}
+                    onChange={(e) => setNeedsFailureAnalysisDraft(e.target.checked)}
+                    disabled={isSaving || !canEditJobDetails}
+                  />
+                  <span>Failure analysis</span>
+                </label>
                 <div className="job-card-status-field">
                   <span className="job-card-status-prefix" id="job-card-status-label">
                     Status:
@@ -651,6 +681,15 @@ export function StatusChangeModal({
                 disabled={isSaving || !travelerValveId}
               >
                 Open Traveler
+              </button>
+              <button
+                type="button"
+                className="button-secondary job-card-header-btn"
+                onClick={reprintJobCard}
+                disabled={isSaving}
+                title="Reprint production job card"
+              >
+                Reprint card
               </button>
               <button
                 type="button"
@@ -1216,6 +1255,15 @@ export function StatusChangeModal({
           <div className="job-card-footer-right">
             <button type="button" className="button-primary" disabled={isSaving || !canEditJobDetails} onClick={save}>
               {isSaving ? 'Saving…' : 'Save changes'}
+            </button>
+            <button
+              type="button"
+              className="button-secondary job-card-footer-reprint"
+              onClick={reprintJobCard}
+              disabled={isSaving}
+              title="Reprint production job card"
+            >
+              Reprint job card
             </button>
             <button type="button" className="button-primary job-card-footer-itp" onClick={onOpenItp} disabled={isSaving}>
               Open ITP ›

@@ -221,17 +221,17 @@ export function DashboardPage() {
               <>
                 Gauge <strong>{criticalGauges[0].gauge_number}</strong> is more than 30 days past its calibration due
                 date ({criticalGauges[0].next_calibration_date}). Do not use until recalibrated. Update dates in Admin
-                → MTE Calibrations.
+                → Quality Team → MTE Calibrations.
               </>
             ) : (
               <>
                 <strong>{criticalGauges.length} gauges</strong> are more than 30 days past calibration:{' '}
-                {criticalGauges.map((g) => g.gauge_number).join(', ')}. Update calibration dates in Admin → MTE
+                {criticalGauges.map((g) => g.gauge_number).join(', ')}. Update calibration dates in Quality Team → MTE
                 Calibrations.
               </>
             )}
           </p>
-          <Link className="dashboard-gauge-cal-alert-link" to="/admin/mte-calibrations">
+          <Link className="dashboard-gauge-cal-alert-link" to="/quality-team/mte-calibrations">
             Open MTE Calibrations
           </Link>
         </div>
@@ -472,9 +472,10 @@ export function DashboardPage() {
               </div>
             </div>
             <p className="status-breakdown-note">
-              By close date — completed jobs with a done shop status only. Last 12 months vs same month last year.
+              By finish date (earlier of test or close) — completed jobs with shop status Completed only. Last 12
+              months vs same month last year.
               {completedMetrics.missingCloseDateCount > 0
-                ? ` ${completedMetrics.missingCloseDateCount.toLocaleString()} completed jobs have no close date and are not included.`
+                ? ` ${completedMetrics.missingCloseDateCount.toLocaleString()} completed jobs have no test/close date and are not included.`
                 : ''}
             </p>
           </section>
