@@ -7,6 +7,7 @@ export const STATUS_ORDER = [
   'Not Arrived',
   'Arrived - Not Started',
   'Teardown',
+  'PRV Teardown',
   'Machine 1',
   'Welding',
   'Machine 2',
@@ -17,7 +18,9 @@ export const STATUS_ORDER = [
   'Waiting on Salesman',
   'Fitting',
   'Assembly',
+  'PRV Assembly',
   'Adaption',
+  'Actuation',
   'Outsourced',
   'On Hold',
   'Testing',
@@ -39,6 +42,7 @@ export const INCOMING_STATUSES = new Set<string>([
 
 export const IN_SHOP_STATUSES = new Set<string>([
   'Teardown',
+  'PRV Teardown',
   'Machine 1',
   'Machine 2',
   'Water Jet',
@@ -46,7 +50,9 @@ export const IN_SHOP_STATUSES = new Set<string>([
   'Welding',
   'Fitting',
   'Assembly',
+  'PRV Assembly',
   'Adaption',
+  'Actuation',
   'Painting',
 ])
 
