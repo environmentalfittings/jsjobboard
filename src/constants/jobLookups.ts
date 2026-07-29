@@ -101,6 +101,8 @@ export const TEST_LOG_VALVE_TYPES = [
   'Butterfly',
   'Needle',
   'Diaphragm',
+  'Relief Valve',
+  'Safety Valve',
 ] as const
 
 /** Finish cells (work cell dropdown). */

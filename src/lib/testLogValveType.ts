@@ -10,6 +10,8 @@ export function canonicalizeValveType(raw: string | null | undefined): string {
   }
 
   const n = trimmed.toLowerCase()
+  if (n.includes('relief') || n.includes('pressure relief') || n === 'prv') return 'Relief Valve'
+  if (n.includes('safety valve') || n === 'safety') return 'Safety Valve'
   if (n.includes('butterfly')) return 'Butterfly'
   if (n.includes('diaphragm')) return 'Diaphragm'
   if (n.includes('needle')) return 'Needle'

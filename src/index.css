@@ -2330,6 +2330,42 @@ body {
   margin-bottom: 0.5rem;
 }
 
+.test-log-relief-fields {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+  gap: 1rem;
+  margin: 0.25rem 0 1rem;
+  padding: 0.85rem 1rem;
+  border: 1px solid #d7dde5;
+  border-radius: 10px;
+  background: #f8fafc;
+}
+
+.test-log-relief-test-type {
+  grid-column: 1 / -1;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+.test-log-relief-test-type legend {
+  margin-bottom: 0.45rem;
+}
+
+.test-log-relief-test-type-options {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem 1.25rem;
+}
+
+.test-log-relief-result {
+  grid-column: 1 / -1;
+}
+
+.test-log-relief-fail-reason {
+  grid-column: 1 / -1;
+}
+
 .test-log-tester-select {
   margin: 0.75rem 0 1rem;
   padding: 0.75rem 1rem 0.875rem;
