@@ -20,6 +20,7 @@ export const STATUS_ORDER = [
   'Assembly',
   'PRV Assembly',
   'Adaption',
+  'Actuation',
   'Outsourced',
   'On Hold',
   'Testing',
@@ -51,6 +52,7 @@ export const IN_SHOP_STATUSES = new Set<string>([
   'Assembly',
   'PRV Assembly',
   'Adaption',
+  'Actuation',
   'Painting',
 ])
 
