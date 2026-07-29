@@ -7,6 +7,7 @@ import { TestLogReportsSection } from './TestLogReportsSection'
 import { BodyMaterialSelect } from './BodyMaterialSelect'
 import { ValveTypeSelect } from './ValveTypeSelect'
 import { RequiredTestParametersPanel } from './RequiredTestParametersPanel'
+import { ReliefValveFields } from './ReliefValveFields'
 import { useToast } from '../ToastNotification'
 import { useEmployees } from '../../hooks/useEmployees'
 import { loadActiveTestGauges, filterChartRecorderGauges, filterPressureTestGauges } from '../../lib/testGaugeRegistry'
@@ -20,6 +21,13 @@ import { TEST_LOG_PREFILL_KEYS } from '../../lib/testLogEntryPrefill'
 import { fetchValveForTestLog, searchValveIdsForTestLog } from '../../lib/testLogValveLookup'
 import { formatTesterInitials, parseTesterInitials } from '../../lib/testLogTester'
 import { canonicalizeValveType } from '../../lib/testLogValveType'
+import {
+  emptyReliefValveTestFields,
+  isReliefValveType,
+  prefillReliefSizesFromJobSize,
+  validateReliefValveFields,
+  valveSizeSelectOptions,
+} from '../../lib/reliefValveTest'
 import { supabase } from '../../lib/supabase'
 import { normalizeValveId } from '../../lib/valveId'
 import { uploadTestLogReport } from '../../lib/testLogReports'
@@ -41,6 +49,8 @@ import {
   deriveLegacyTestType,
   deriveLegacyWorked,
   deriveOverallPassFail,
+  deriveReliefValveLegacyPressure,
+  deriveReliefValveLegacySize,
   emptyTestLogTestingDetails,
   parseTestLogTestingDetails,
   type TestLogTestingDetails,
@@ -68,6 +78,7 @@ function applyValvePrefill(
     setSeatType: (v: SeatTypeKind) => void
     applyTestMedia: (media: ReturnType<typeof applyTestMediaPrefill>) => void
     applyTestProcedures: (procedures: ReturnType<typeof mapJobTestTypeToProcedures>) => void
+    applyReliefPrefill: (size: string | null, pressure: string | null, testType: string | null) => void
   },
 ) {
   if (!prefill) return
@@ -77,6 +88,11 @@ function applyValvePrefill(
   const canonicalType = canonicalizeValveType(prefill.valveType)
   setters.setValveType(canonicalType)
   if (canonicalType) setters.setSeatType(defaultSeatTypeForValve(canonicalType))
+
+  if (isReliefValveType(canonicalType)) {
+    setters.applyReliefPrefill(prefill.size, prefill.pressure, prefill.testType)
+    return
+  }
 
   if (!prefill.testType?.trim()) return
 
@@ -120,6 +136,7 @@ export function TestLogEntryForm({
   const [bodyMaterialLoadedFromJob, setBodyMaterialLoadedFromJob] = useState(false)
   const [valveRowId, setValveRowId] = useState<number | null>(null)
   const [bodyMaterialOptions, setBodyMaterialOptions] = useState<string[]>([])
+  const [valveSizeOptions, setValveSizeOptions] = useState<string[]>([])
   const [valveType, setValveType] = useState('')
   const [valveTypeLoadedFromJob, setValveTypeLoadedFromJob] = useState(false)
   const [testMediumKind, setTestMediumKind] = useState<TestMediumKind>('liquid')
@@ -198,12 +215,38 @@ export function TestLogEntryForm({
 
   const overallPassFail = useMemo(() => deriveOverallPassFail(testing), [testing])
   const fourHourChartSelected = useMemo(() => isFourHourChartTestSelected(testing), [testing])
+  const isReliefValve = useMemo(() => isReliefValveType(valveType), [valveType])
+  const reliefFields = testing.reliefValve ?? emptyReliefValveTestFields()
+  const sizeOptions = useMemo(
+    () =>
+      valveSizeSelectOptions([
+        ...valveSizeOptions,
+        reliefFields.inletSize,
+        reliefFields.outletSize,
+        size,
+      ]),
+    [valveSizeOptions, reliefFields.inletSize, reliefFields.outletSize, size],
+  )
+
+  const patchReliefValve = (next: typeof reliefFields) => {
+    setTesting((prev) => ({
+      ...prev,
+      reliefValve: next,
+    }))
+  }
+
   const reportData = useMemo(
     () => ({
       tested_on: testedOn,
       valve_id: normalizeValveId(valveId) || valveId.trim(),
-      size: size || null,
-      pressure: pressure || null,
+      size:
+        (isReliefValve ? deriveReliefValveLegacySize(testing) : null) ||
+        size ||
+        null,
+      pressure:
+        (isReliefValve ? deriveReliefValveLegacyPressure(testing) : null) ||
+        pressure ||
+        null,
       valve_type: valveType || null,
       manufacturer: null,
       tester: formatTesterInitials(parseTesterInitials(tester, knownTesterInitials)) || null,
@@ -211,7 +254,18 @@ export function TestLogEntryForm({
       action_taken: deriveActionTaken(testing),
       testing_details: testing,
     }),
-    [testedOn, valveId, size, pressure, valveType, tester, knownTesterInitials, overallPassFail, testing],
+    [
+      testedOn,
+      valveId,
+      size,
+      pressure,
+      valveType,
+      tester,
+      knownTesterInitials,
+      overallPassFail,
+      testing,
+      isReliefValve,
+    ],
   )
   const canSubmit =
     valveId.trim().length > 0 &&
@@ -260,6 +314,7 @@ export function TestLogEntryForm({
       setTestMediaOptions(map.test_media ?? [])
       setTestProcedureOptions(normalizeTestProcedures(map.test_procedure ?? []))
       setBodyMaterialOptions(map.body_material ?? [])
+      setValveSizeOptions(map.valve_size ?? [])
 
       try {
         const gauges = await loadActiveTestGauges()
@@ -351,6 +406,26 @@ export function TestLogEntryForm({
                 procedures.testProcedures.some((value) => /helium/i.test(value)),
             },
           })),
+        applyReliefPrefill: (jobSize, jobPressure, jobTestType) => {
+          const sizes = prefillReliefSizesFromJobSize(jobSize)
+          const testTypeHint = String(jobTestType ?? '').toLowerCase()
+          const pretestWithRepair = testTypeHint.includes('repair')
+          const pretest = pretestWithRepair || testTypeHint.includes('pretest')
+          setTesting((prev) => ({
+            ...prev,
+            reliefValve: {
+              ...(prev.reliefValve ?? emptyReliefValveTestFields()),
+              inletSize: sizes.inletSize || prev.reliefValve?.inletSize || '',
+              outletSize: sizes.outletSize || prev.reliefValve?.outletSize || '',
+              setPressure: jobPressure?.trim() || prev.reliefValve?.setPressure || '',
+              testType: pretestWithRepair
+                ? 'Pretest with Repair'
+                : pretest
+                  ? 'Pretest'
+                  : prev.reliefValve?.testType || '',
+            },
+          }))
+        },
       })
       setValveRowId(prefill.valveRowId)
       setBodyMaterialLoadedFromJob(Boolean(prefill.bodyMaterial?.trim()))
@@ -437,6 +512,19 @@ export function TestLogEntryForm({
     setPendingReportFiles([])
 
     const details = parseTestLogTestingDetails(entry.testing_details) ?? emptyTestLogTestingDetails()
+    const canonicalType = canonicalizeValveType(entry.valve_type) || entry.valve_type || ''
+    if (isReliefValveType(canonicalType)) {
+      const existing = details.reliefValve ?? emptyReliefValveTestFields()
+      const sizes = prefillReliefSizesFromJobSize(entry.size)
+      details.reliefValve = {
+        ...existing,
+        inletSize: existing.inletSize || sizes.inletSize,
+        outletSize: existing.outletSize || sizes.outletSize,
+        setPressure: existing.setPressure || entry.pressure || '',
+        testType: existing.testType || (entry.worked?.includes('Repair') ? 'Pretest with Repair' : entry.worked?.includes('Pretest') ? 'Pretest' : ''),
+        media: existing.media || '',
+      }
+    }
     setTesting(details)
 
     const tsp = details.testStandardParams
@@ -509,6 +597,13 @@ export function TestLogEntryForm({
       showToast('Select at least one tester before saving')
       return
     }
+    if (isReliefValveType(valveType)) {
+      const reliefError = validateReliefValveFields(testing.reliefValve ?? emptyReliefValveTestFields())
+      if (reliefError) {
+        showToast(reliefError)
+        return
+      }
+    }
     if (detailsColumnReady === false) {
       showToast(`Run ${TEST_LOG_DETAILS_MIGRATION} in Supabase before saving`)
       return
@@ -518,13 +613,16 @@ export function TestLogEntryForm({
     const savedAt = new Date().toISOString()
     const testingWithStamp: TestLogTestingDetails = {
       ...testing,
+      reliefValve: testing.reliefValve ?? emptyReliefValveTestFields(),
       savedAt,
     }
+    const reliefSize = deriveReliefValveLegacySize(testingWithStamp)
+    const reliefPressure = deriveReliefValveLegacyPressure(testingWithStamp)
     const payload = {
       tested_on: testedOn,
       valve_id: normalizedValveId,
-      size: size || null,
-      pressure: pressure || null,
+      size: (isReliefValveType(valveType) ? reliefSize : null) || size || null,
+      pressure: (isReliefValveType(valveType) ? reliefPressure : null) || pressure || null,
       manufacturer: null,
       valve_type: valveType || null,
       test_type: deriveLegacyTestType(testingWithStamp),
@@ -791,25 +889,31 @@ export function TestLogEntryForm({
               Valve ID / W.O. #
               <input type="text" value={valveId} readOnly aria-readonly />
             </label>
-            <label>
-              Size
-              <input type="text" value={size} onChange={(e) => setSize(e.target.value)} />
-            </label>
-            <label>
-              Pressure class
-              <input type="text" value={pressure} onChange={(e) => setPressure(e.target.value)} />
-            </label>
-            <BodyMaterialSelect
-              value={bodyMaterial}
-              loadedFromJob={bodyMaterialLoadedFromJob}
-              valveRowId={valveRowId}
-              options={bodyMaterialOptions}
-              onChange={(material) => {
-                setBodyMaterial(material)
-                if (material.trim()) setBodyMaterialLoadedFromJob(false)
-              }}
-              onSaved={() => showToast('Body material saved to job record')}
-            />
+            {isReliefValve ? null : (
+              <>
+                <label>
+                  Size
+                  <input type="text" value={size} onChange={(e) => setSize(e.target.value)} />
+                </label>
+                <label>
+                  Pressure class
+                  <input type="text" value={pressure} onChange={(e) => setPressure(e.target.value)} />
+                </label>
+              </>
+            )}
+            {isReliefValve ? null : (
+              <BodyMaterialSelect
+                value={bodyMaterial}
+                loadedFromJob={bodyMaterialLoadedFromJob}
+                valveRowId={valveRowId}
+                options={bodyMaterialOptions}
+                onChange={(material) => {
+                  setBodyMaterial(material)
+                  if (material.trim()) setBodyMaterialLoadedFromJob(false)
+                }}
+                onSaved={() => showToast('Body material saved to job record')}
+              />
+            )}
             <ValveTypeSelect
               value={valveType}
               loadedFromJob={valveTypeLoadedFromJob}
@@ -820,10 +924,24 @@ export function TestLogEntryForm({
                   setValveTypeLoadedFromJob(false)
                   setSeatType(defaultSeatTypeForValve(type))
                 }
+                if (isReliefValveType(type)) {
+                  setTesting((prev) => ({
+                    ...prev,
+                    reliefValve: {
+                      ...(prev.reliefValve ?? emptyReliefValveTestFields()),
+                      ...prefillReliefSizesFromJobSize(size),
+                      setPressure: prev.reliefValve?.setPressure || pressure || '',
+                    },
+                  }))
+                }
               }}
               onSaved={() => showToast('Valve type saved to job record')}
             />
           </div>
+
+          {isReliefValve ? (
+            <ReliefValveFields value={reliefFields} sizeOptions={sizeOptions} onChange={patchReliefValve} />
+          ) : null}
 
           <fieldset className="test-log-tester-select test-log-fieldset">
             <legend>
@@ -903,78 +1021,85 @@ export function TestLogEntryForm({
           <div className="test-log-testing-section">
         <h4 className="test-log-testing-title">Testing</h4>
 
-        <div className="test-log-testing-header">
-          <TestRequirementsSelect
-            options={testProcedureOptions}
-            value={{
-              testProcedures: testing.testProcedures,
-              testProcedureOther: testing.testProcedureOther,
-            }}
-            onChange={(procedure) => patchTesting(procedure)}
-          />
-        </div>
-
-        <RequiredTestParametersPanel
-          valveId={normalizeValveId(valveId) || valveId.trim()}
-          size={size}
-          pressureClass={pressure}
-          bodyMaterial={bodyMaterial}
-          bundle={testParamsBundle}
-          seatType={seatType}
-          onSeatTypeChange={setSeatType}
-          phaseState={phaseState}
-          enabledOptionalPhaseIds={enabledOptionalPhaseIds}
-          onPhaseChange={patchPhase}
-          onToggleOptionalPhase={(phaseId, enabled) =>
-            setEnabledOptionalPhaseIds((prev) =>
-              enabled ? [...prev, phaseId] : prev.filter((id) => id !== phaseId),
-            )
-          }
-          valveContext={valveContext}
-        />
-
-        {fourHourChartSelected ? (
-          <p className="status-breakdown-note test-log-four-hour-hint">
-            4-Hour Chart Test applies to the <strong>Shell pressure test</strong> — select the chart recorder there.
+        {isReliefValve ? (
+          <p className="status-breakdown-note">
+            Relief Valve tests use inlet/outlet size, set pressure, media, and pretest type above.
           </p>
-        ) : null}
+        ) : (
+          <>
+            <div className="test-log-testing-header">
+              <TestRequirementsSelect
+                options={testProcedureOptions}
+                value={{
+                  testProcedures: testing.testProcedures,
+                  testProcedureOther: testing.testProcedureOther,
+                }}
+                onChange={(procedure) => patchTesting(procedure)}
+              />
+            </div>
 
-        <div className="test-pressure-grid">
-          <TestPressureBlock
-            title="Low Pressure Test"
-            accent="low"
-            value={testing.lowTest}
-            testMediaOptions={testMediaOptions}
-            gaugeOptions={gaugeOptions}
-            onChange={(lowTest) => patchTesting({ lowTest })}
-          />
-          <TestPressureBlock
-            title="High Pressure Test"
-            accent="high"
-            value={testing.highTest}
-            testMediaOptions={testMediaOptions}
-            gaugeOptions={gaugeOptions}
-            onChange={(highTest) => patchTesting({ highTest })}
-          />
-          <TestPressureBlock
-            title="Shell Pressure Test"
-            accent="shell"
-            value={testing.shellTest}
-            testMediaOptions={testMediaOptions}
-            gaugeOptions={gaugeOptions}
-            showChartRecorder={fourHourChartSelected}
-            chartRecorderOptions={chartRecorderOptions}
-            onChange={(shellTest) => patchTesting({ shellTest })}
-          />
-        </div>
+            <RequiredTestParametersPanel
+              valveId={normalizeValveId(valveId) || valveId.trim()}
+              size={size}
+              pressureClass={pressure}
+              bodyMaterial={bodyMaterial}
+              bundle={testParamsBundle}
+              seatType={seatType}
+              onSeatTypeChange={setSeatType}
+              phaseState={phaseState}
+              enabledOptionalPhaseIds={enabledOptionalPhaseIds}
+              onPhaseChange={patchPhase}
+              onToggleOptionalPhase={(phaseId, enabled) =>
+                setEnabledOptionalPhaseIds((prev) =>
+                  enabled ? [...prev, phaseId] : prev.filter((id) => id !== phaseId),
+                )
+              }
+              valveContext={valveContext}
+            />
 
-        <AdditionalTestingSection
-          testing={testing}
-          testMediaOptions={testMediaOptions}
-          gaugeOptions={gaugeOptions}
-          onChange={patchTesting}
-        />
+            {fourHourChartSelected ? (
+              <p className="status-breakdown-note test-log-four-hour-hint">
+                4-Hour Chart Test applies to the <strong>Shell pressure test</strong> — select the chart recorder there.
+              </p>
+            ) : null}
 
+            <div className="test-pressure-grid">
+              <TestPressureBlock
+                title="Low Pressure Test"
+                accent="low"
+                value={testing.lowTest}
+                testMediaOptions={testMediaOptions}
+                gaugeOptions={gaugeOptions}
+                onChange={(lowTest) => patchTesting({ lowTest })}
+              />
+              <TestPressureBlock
+                title="High Pressure Test"
+                accent="high"
+                value={testing.highTest}
+                testMediaOptions={testMediaOptions}
+                gaugeOptions={gaugeOptions}
+                onChange={(highTest) => patchTesting({ highTest })}
+              />
+              <TestPressureBlock
+                title="Shell Pressure Test"
+                accent="shell"
+                value={testing.shellTest}
+                testMediaOptions={testMediaOptions}
+                gaugeOptions={gaugeOptions}
+                showChartRecorder={fourHourChartSelected}
+                chartRecorderOptions={chartRecorderOptions}
+                onChange={(shellTest) => patchTesting({ shellTest })}
+              />
+            </div>
+
+            <AdditionalTestingSection
+              testing={testing}
+              testMediaOptions={testMediaOptions}
+              gaugeOptions={gaugeOptions}
+              onChange={patchTesting}
+            />
+          </>
+        )}
         {isEditing && editingId != null ? (
           <TestLogReportsSection
             mode="saved"

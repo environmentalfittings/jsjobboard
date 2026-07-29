@@ -6,6 +6,13 @@ import {
   type TestMediaFields,
 } from '../lib/testLogMedia'
 import {
+  emptyReliefValveTestFields,
+  formatReliefValveSize,
+  parseReliefValveTestFields,
+  resolveReliefValveMedia,
+  type ReliefValveTestFields,
+} from '../lib/reliefValveTest'
+import {
   emptyTestProcedureFields,
   formatTestProceduresSummary,
   parseTestProcedureFields,
@@ -67,6 +74,8 @@ export type TestLogTestingDetails = TestProcedureFields & {
   savedAt?: string | null
   /** Required test parameters audit snapshot (standard, CWP, pressures, hold times, leakage). */
   testStandardParams?: TestStandardParams | null
+  /** Relief / safety valve test header fields (inlet/outlet, set pressure, media, pretest type). */
+  reliefValve?: ReliefValveTestFields
 }
 
 export function emptyPressureTestBlock(): PressureTestBlock {
@@ -118,11 +127,15 @@ export function emptyTestLogTestingDetails(): TestLogTestingDetails {
     cavityReliefTest: emptyCavityReliefTest(),
     additionalNotes: '',
     savedAt: null,
+    reliefValve: emptyReliefValveTestFields(),
   }
 }
 
 /** Summary for legacy `test_logs.test_type` column. */
 export function deriveLegacyTestType(details: TestLogTestingDetails): string | null {
+  const reliefMedia = details.reliefValve ? resolveReliefValveMedia(details.reliefValve) : ''
+  if (reliefMedia) return reliefMedia
+
   const values = [
     resolveTestMedia(details.lowTest),
     resolveTestMedia(details.highTest),
@@ -136,8 +149,21 @@ export function deriveLegacyTestType(details: TestLogTestingDetails): string | n
 
 /** Summary for legacy `test_logs.worked` column (test procedure / requirements). */
 export function deriveLegacyWorked(details: TestLogTestingDetails): string | null {
+  const reliefType = details.reliefValve?.testType?.trim()
+  if (reliefType) return reliefType
   const summary = formatTestProceduresSummary(details)
   return summary || null
+}
+
+export function deriveReliefValveLegacySize(details: TestLogTestingDetails): string | null {
+  if (!details.reliefValve) return null
+  const formatted = formatReliefValveSize(details.reliefValve)
+  return formatted || null
+}
+
+export function deriveReliefValveLegacyPressure(details: TestLogTestingDetails): string | null {
+  const setPressure = details.reliefValve?.setPressure?.trim()
+  return setPressure || null
 }
 
 function collectEnabledResults(details: TestLogTestingDetails): PressureTestResult[] {
@@ -148,6 +174,12 @@ function collectEnabledResults(details: TestLogTestingDetails): PressureTestResu
 }
 
 export function deriveOverallPassFail(details: TestLogTestingDetails): string {
+  if (details.reliefValve?.testType?.trim() || details.reliefValve?.inletSize?.trim()) {
+    if (details.reliefValve.result === 'fail') return 'FAIL'
+    if (details.reliefValve.result === 'pass') return 'PASS'
+    return ''
+  }
+
   const results = collectEnabledResults(details)
   if (results.some((r) => r === 'fail')) return 'FAIL'
 
@@ -164,6 +196,9 @@ export function deriveOverallPassFail(details: TestLogTestingDetails): string {
 
 export function deriveActionTaken(details: TestLogTestingDetails): string | null {
   const failNotes = [
+    details.reliefValve?.result === 'fail' && details.reliefValve.reason.trim()
+      ? `Relief: ${details.reliefValve.reason.trim()}`
+      : '',
     details.lowTest.result === 'fail' && details.lowTest.reason.trim()
       ? `Low: ${details.lowTest.reason.trim()}`
       : '',
@@ -280,6 +315,7 @@ export function parseTestLogTestingDetails(raw: unknown): TestLogTestingDetails 
     additionalNotes,
     savedAt: typeof o.savedAt === 'string' ? o.savedAt : null,
     testStandardParams: parseTestStandardParams(o.testStandardParams),
+    reliefValve: o.reliefValve ? parseReliefValveTestFields(o.reliefValve) : emptyReliefValveTestFields(),
   }
 }
 
