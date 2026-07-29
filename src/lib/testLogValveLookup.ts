@@ -18,7 +18,7 @@ export type TestLogValvePrefill = {
 const VALVE_PREFILL_SELECT =
   'id,valve_id,size,pressure_class,body_material,valve_type,test_type,customer,cell,description,status'
 
-function mapValveRow(row: {
+type ValvePrefillRow = {
   id: number
   valve_id: string
   size: string | null
@@ -30,7 +30,9 @@ function mapValveRow(row: {
   cell: string | null
   description: string | null
   status: string
-}): TestLogValvePrefill {
+}
+
+function mapValveRow(row: ValvePrefillRow): TestLogValvePrefill {
   return {
     valveRowId: row.id,
     valveId: row.valve_id,
@@ -46,7 +48,18 @@ function mapValveRow(row: {
   }
 }
 
-/** Load job-board valve details for the test log form (exact valve ID match). */
+function compareValveIdSuffix(a: string, b: string): number {
+  const aParts = a.split('-')
+  const bParts = b.split('-')
+  const aSuffix = Number(aParts[aParts.length - 1])
+  const bSuffix = Number(bParts[bParts.length - 1])
+  if (Number.isFinite(aSuffix) && Number.isFinite(bSuffix) && aSuffix !== bSuffix) {
+    return aSuffix - bSuffix
+  }
+  return a.localeCompare(b)
+}
+
+/** Load job-board valve details for the test log form. */
 export async function fetchValveForTestLog(valveIdInput: string): Promise<TestLogValvePrefill | null> {
   const trimmed = valveIdInput.trim()
   if (!trimmed) return null
@@ -63,7 +76,24 @@ export async function fetchValveForTestLog(valveIdInput: string): Promise<TestLo
       .limit(1)
       .maybeSingle()
 
-    if (valve) return mapValveRow(valve as Parameters<typeof mapValveRow>[0])
+    if (valve) return mapValveRow(valve as ValvePrefillRow)
+  }
+
+  // Shop often types the work order without the line suffix (506269 → 506269-1).
+  const baseId = normalized || trimmed
+  if (!baseId.includes('-')) {
+    const { data: matches } = await supabase
+      .from('valves')
+      .select(VALVE_PREFILL_SELECT)
+      .ilike('valve_id', `${baseId}-%`)
+      .order('id', { ascending: false })
+      .limit(25)
+
+    const rows = (matches ?? []) as ValvePrefillRow[]
+    if (rows.length) {
+      const preferred = [...rows].sort((a, b) => compareValveIdSuffix(a.valve_id, b.valve_id))[0]
+      return mapValveRow(preferred)
+    }
   }
 
   return null
