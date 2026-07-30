@@ -1023,7 +1023,7 @@ export function TestLogEntryForm({
 
         {isReliefValve ? (
           <p className="status-breakdown-note">
-            Relief Valve tests use set pressure with three pop tests and an automatic average.
+            Relief Valve tests use three pop tests. Pass is set pressure through +3% (never below set).
           </p>
         ) : (
           <>
