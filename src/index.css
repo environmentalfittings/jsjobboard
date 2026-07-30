@@ -2357,6 +2357,49 @@ body {
   color: #1e3a5f;
 }
 
+.test-log-relief-include-pretest-row {
+  grid-column: 1 / -1;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem 1rem;
+}
+
+.test-log-relief-include-pretest-row .test-log-relief-include-pretest {
+  grid-column: auto;
+  margin: 0;
+}
+
+.test-log-relief-attempt-group {
+  grid-column: 1 / -1;
+  display: grid;
+  gap: 1rem;
+}
+
+.test-log-relief-section-toolbar {
+  display: flex;
+  justify-content: flex-end;
+}
+
+.test-log-relief-close-section-btn,
+.test-log-relief-cancel-retest-btn {
+  border: 1px solid #94a3b8;
+  background: #fff;
+  color: #334155;
+  border-radius: 8px;
+  padding: 0.45rem 0.8rem;
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.test-log-relief-close-section-btn:hover,
+.test-log-relief-cancel-retest-btn:hover {
+  background: #f8fafc;
+  border-color: #64748b;
+}
+
 .test-log-relief-update-record {
   grid-column: 1 / -1;
   display: grid;

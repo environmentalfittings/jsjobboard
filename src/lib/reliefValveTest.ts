@@ -99,6 +99,20 @@ export function canStartReliefRetest(attempts: ReliefValveRunFields[]): boolean 
   return latestReliefAttempt(attempts).result === 'fail'
 }
 
+/** True when the latest attempt is an empty re-test that can be discarded. */
+export function canCancelLatestReliefAttempt(attempts: ReliefValveRunFields[]): boolean {
+  const list = ensureReliefAttempts(attempts)
+  if (list.length <= 1) return false
+  const latest = list[list.length - 1] ?? emptyReliefValveRunFields()
+  return !runHasAnyData(latest) && !latest.result
+}
+
+/** Remove an accidental empty re-test attempt; keeps prior failed/passed attempts. */
+export function cancelLatestReliefAttempt(attempts: ReliefValveRunFields[]): ReliefValveRunFields[] {
+  if (!canCancelLatestReliefAttempt(attempts)) return ensureReliefAttempts(attempts)
+  return ensureReliefAttempts(attempts).slice(0, -1)
+}
+
 export function isReliefValveType(valveType: string | null | undefined): boolean {
   const n = String(valveType ?? '')
     .trim()

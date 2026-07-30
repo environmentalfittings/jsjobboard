@@ -4,7 +4,9 @@ import {
   RELIEF_VALVE_PASS_TOLERANCE_PERCENT,
   RELIEF_VALVE_PRETEST_KINDS,
   applyReliefValveEvaluations,
+  canCancelLatestReliefAttempt,
   canStartReliefRetest,
+  cancelLatestReliefAttempt,
   ensureReliefAttempts,
   evaluateReliefValveRun,
   formatReliefValveAverage,
@@ -50,6 +52,7 @@ type RunSectionProps = {
   attemptCount: number
   readOnly?: boolean
   showRetest?: boolean
+  showCancelRetest?: boolean
   header: Pick<ReliefValveTestFields, 'setPressure' | 'media'>
   gaugeOptions: TestGauge[]
   testerOptions: Array<Pick<Employee, 'id' | 'full_name' | 'initials'>>
@@ -58,6 +61,7 @@ type RunSectionProps = {
   resultName: string
   onPatchRun: (partial: Partial<ReliefValveRunFields>) => void
   onRetest?: () => void
+  onCancelRetest?: () => void
   children?: ReactNode
 }
 
@@ -70,6 +74,7 @@ function ReliefValveRunSection({
   attemptCount,
   readOnly = false,
   showRetest = false,
+  showCancelRetest = false,
   header,
   gaugeOptions,
   testerOptions,
@@ -78,6 +83,7 @@ function ReliefValveRunSection({
   resultName,
   onPatchRun,
   onRetest,
+  onCancelRetest,
   children,
 }: RunSectionProps) {
   const evaluation = useMemo(() => evaluateReliefValveRun(run, header), [run, header])
@@ -362,6 +368,17 @@ function ReliefValveRunSection({
           </p>
         </div>
       ) : null}
+
+      {showCancelRetest && onCancelRetest ? (
+        <div className="test-log-relief-retest-actions">
+          <button type="button" className="test-log-relief-cancel-retest-btn" onClick={onCancelRetest}>
+            Cancel this re-test
+          </button>
+          <p className="test-log-relief-retest-hint">
+            Removes this blank attempt and keeps the previous result on the record.
+          </p>
+        </div>
+      ) : null}
     </section>
   )
 }
@@ -376,6 +393,8 @@ type AttemptGroupProps = {
   testerOptions: Array<Pick<Employee, 'id' | 'full_name' | 'initials'>>
   testersLoading?: boolean
   onChangeAttempts: (attempts: ReliefValveRunFields[]) => void
+  onCloseSection?: () => void
+  closeSectionLabel?: string
   childrenForFirst?: ReactNode
 }
 
@@ -389,6 +408,8 @@ function ReliefValveAttemptGroup({
   testerOptions,
   testersLoading,
   onChangeAttempts,
+  onCloseSection,
+  closeSectionLabel,
   childrenForFirst,
 }: AttemptGroupProps) {
   const list = ensureReliefAttempts(attempts)
@@ -399,7 +420,14 @@ function ReliefValveAttemptGroup({
   }
 
   return (
-    <>
+    <div className={`test-log-relief-attempt-group test-log-relief-attempt-group--${kind}`}>
+      {onCloseSection ? (
+        <div className="test-log-relief-section-toolbar">
+          <button type="button" className="test-log-relief-close-section-btn" onClick={onCloseSection}>
+            {closeSectionLabel ?? `Close ${title.toLowerCase()}`}
+          </button>
+        </div>
+      ) : null}
       {list.map((run, index) => {
         const isLatest = index === list.length - 1
         const readOnly = !isLatest
@@ -414,6 +442,7 @@ function ReliefValveAttemptGroup({
             attemptCount={list.length}
             readOnly={readOnly}
             showRetest={isLatest && canStartReliefRetest(list)}
+            showCancelRetest={isLatest && canCancelLatestReliefAttempt(list)}
             header={header}
             gaugeOptions={gaugeOptions}
             testerOptions={testerOptions}
@@ -422,12 +451,13 @@ function ReliefValveAttemptGroup({
             resultName={`relief-valve-${kind}-result-${index}`}
             onPatchRun={(partial) => patchAttempt(index, partial)}
             onRetest={() => onChangeAttempts(startReliefRetest(list))}
+            onCancelRetest={() => onChangeAttempts(cancelLatestReliefAttempt(list))}
           >
             {index === 0 ? childrenForFirst : null}
           </ReliefValveRunSection>
         )
       })}
-    </>
+    </div>
   )
 }
 
@@ -623,22 +653,33 @@ export function ReliefValveFields({
         ) : null}
       </div>
 
-      <label className="test-log-relief-include-pretest">
-        <input
-          type="checkbox"
-          checked={value.includePretest}
-          onChange={(e) =>
-            patch({
-              includePretest: e.target.checked,
-              pretestKind: e.target.checked ? value.pretestKind || 'Pretest' : value.pretestKind,
-              pretestAttempts: e.target.checked
-                ? ensureReliefAttempts(value.pretestAttempts)
-                : value.pretestAttempts,
-            })
-          }
-        />
-        Include pretest (as-found)
-      </label>
+      <div className="test-log-relief-include-pretest-row">
+        <label className="test-log-relief-include-pretest">
+          <input
+            type="checkbox"
+            checked={value.includePretest}
+            onChange={(e) =>
+              patch({
+                includePretest: e.target.checked,
+                pretestKind: e.target.checked ? value.pretestKind || 'Pretest' : value.pretestKind,
+                pretestAttempts: e.target.checked
+                  ? ensureReliefAttempts(value.pretestAttempts)
+                  : value.pretestAttempts,
+              })
+            }
+          />
+          Include pretest (as-found)
+        </label>
+        {value.includePretest ? (
+          <button
+            type="button"
+            className="test-log-relief-close-section-btn"
+            onClick={() => patch({ includePretest: false })}
+          >
+            Close pretest
+          </button>
+        ) : null}
+      </div>
 
       {value.includePretest ? (
         <ReliefValveAttemptGroup
@@ -651,6 +692,8 @@ export function ReliefValveFields({
           testerOptions={testerOptions}
           testersLoading={testersLoading}
           onChangeAttempts={(pretestAttempts) => patch({ pretestAttempts })}
+          onCloseSection={() => patch({ includePretest: false })}
+          closeSectionLabel="Close pretest"
           childrenForFirst={
             <fieldset className="test-log-relief-test-type">
               <legend>
