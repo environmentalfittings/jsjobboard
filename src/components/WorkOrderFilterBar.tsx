@@ -10,10 +10,12 @@ interface WorkOrderFilterBarProps {
   valves: Valve[]
   query: string
   descriptionQuery: string
+  customerFilter: string
   selectedValveId: string
   sort: ValveListSort
   onQueryChange: (value: string) => void
   onDescriptionQueryChange: (value: string) => void
+  onCustomerFilterChange: (value: string) => void
   onSelect: (valve: Valve) => void
   onClear: () => void
   onSortChange: (sort: ValveListSort) => void
@@ -25,10 +27,12 @@ export function WorkOrderFilterBar({
   valves,
   query,
   descriptionQuery,
+  customerFilter,
   selectedValveId,
   sort,
   onQueryChange,
   onDescriptionQueryChange,
+  onCustomerFilterChange,
   onSelect,
   onClear,
   onSortChange,
@@ -39,6 +43,13 @@ export function WorkOrderFilterBar({
   const [open, setOpen] = useState(false)
   const inputValue = selectedValveId || query
   const suggestions = useMemo(() => suggestWorkOrders(valves, query, 25), [valves, query])
+  const customerOptions = useMemo(
+    () =>
+      Array.from(
+        new Set(valves.map((valve) => valve.customer?.trim()).filter((value): value is string => Boolean(value))),
+      ).sort((a, b) => a.localeCompare(b, undefined, { sensitivity: 'base' })),
+    [valves],
+  )
 
   useEffect(() => {
     if (!open) return
@@ -153,6 +164,22 @@ export function WorkOrderFilterBar({
               </button>
             ) : null}
           </div>
+        </label>
+
+        <label className="job-board-wo-filter-field job-board-wo-filter-field--customer">
+          <span>Customer</span>
+          <select
+            value={customerFilter}
+            onChange={(event) => onCustomerFilterChange(event.target.value)}
+            aria-label="Filter by customer"
+          >
+            <option value="">All customers</option>
+            {customerOptions.map((customer) => (
+              <option key={customer} value={customer}>
+                {customer}
+              </option>
+            ))}
+          </select>
         </label>
 
         <label className="job-board-wo-filter-field">

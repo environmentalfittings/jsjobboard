@@ -6377,6 +6377,16 @@ a.test-log-reports-item-name:hover {
   max-width: 420px;
 }
 
+.job-board-wo-filter-field--customer {
+  flex: 1 1 220px;
+  max-width: 320px;
+}
+
+.job-board-wo-filter-field--customer select {
+  width: 100%;
+  min-width: 180px;
+}
+
 .job-board-wo-filter-field select,
 .job-board-wo-combobox input {
   border: 1px solid #d1d5db;
