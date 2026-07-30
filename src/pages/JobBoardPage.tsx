@@ -731,7 +731,10 @@ export function JobBoardPage({ role, username }: { role?: UserRole; username?: s
       .filter((v) => valveMatchesAllColumnFilters(v, columnFilters, listColumnContext))
       .filter((v) => valveMatchesWorkOrderFilter(v, workOrderQuery, selectedWorkOrder))
       .filter((v) => valveMatchesDescriptionSearch(v, descriptionQuery))
-      .filter((v) => !customerFilter || (v.customer ?? '').trim() === customerFilter)
+      .filter((v) => {
+        const q = customerFilter.trim().toLowerCase()
+        return !q || (v.customer ?? '').toLowerCase().includes(q)
+      })
       .sort((a, b) => {
         if (listSort !== 'default') {
           return compareValvesBySort(a, b, listSort, compareValvesForDisplay)
@@ -1009,8 +1012,9 @@ export function JobBoardPage({ role, username }: { role?: UserRole; username?: s
       if (descriptionQuery.trim()) {
         base = base.filter((valve) => valveMatchesDescriptionSearch(valve, descriptionQuery))
       }
-      if (customerFilter) {
-        base = base.filter((valve) => (valve.customer ?? '').trim() === customerFilter)
+      if (customerFilter.trim()) {
+        const q = customerFilter.trim().toLowerCase()
+        base = base.filter((valve) => (valve.customer ?? '').toLowerCase().includes(q))
       }
 
       if (listSort !== 'default') {

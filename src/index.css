@@ -6382,11 +6382,6 @@ a.test-log-reports-item-name:hover {
   max-width: 320px;
 }
 
-.job-board-wo-filter-field--customer select {
-  width: 100%;
-  min-width: 180px;
-}
-
 .job-board-wo-filter-field select,
 .job-board-wo-combobox input {
   border: 1px solid #d1d5db;
@@ -6402,11 +6397,18 @@ a.test-log-reports-item-name:hover {
   position: relative;
   display: flex;
   align-items: center;
+  width: 100%;
 }
 
 .job-board-wo-combobox input {
-  width: min(320px, 100%);
+  width: 100%;
+  min-width: 180px;
   padding-right: 30px;
+}
+
+.job-board-wo-filter-field--description .job-board-wo-combobox input,
+.job-board-wo-filter-field--customer .job-board-wo-combobox input {
+  width: 100%;
 }
 
 .job-board-wo-combobox input:focus {
