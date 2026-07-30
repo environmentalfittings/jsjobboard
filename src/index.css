@@ -2341,6 +2341,11 @@ body {
   background: #f8fafc;
 }
 
+.test-log-relief-gauge {
+  grid-column: 1 / -1;
+  max-width: 28rem;
+}
+
 .test-log-relief-test-type {
   grid-column: 1 / -1;
   margin: 0;

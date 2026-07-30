@@ -13,6 +13,9 @@ export type ReliefValveTestFields = {
   media: string
   mediaOther: string
   testType: string
+  /** Test gauge used for pop / reseat readings. */
+  gaugeId: string
+  gauge: string
   /** Three pop / lift tests against set pressure. */
   test1: string
   test2: string
@@ -36,6 +39,8 @@ export function emptyReliefValveTestFields(): ReliefValveTestFields {
     media: '',
     mediaOther: '',
     testType: '',
+    gaugeId: '',
+    gauge: '',
     test1: '',
     test2: '',
     test3: '',
@@ -83,6 +88,8 @@ export function parseReliefValveTestFields(raw: unknown): ReliefValveTestFields 
     media: normalizeStoredMedia(String(o.media ?? '')),
     mediaOther: String(o.mediaOther ?? '').trim(),
     testType: String(o.testType ?? '').trim(),
+    gaugeId: String(o.gaugeId ?? '').trim(),
+    gauge: String(o.gauge ?? '').trim(),
     test1: String(o.test1 ?? '').trim(),
     test2: String(o.test2 ?? '').trim(),
     test3: String(o.test3 ?? '').trim(),
@@ -440,6 +447,9 @@ export function validateReliefValveFields(fields: ReliefValveTestFields): string
     return 'Enter the Other media for Relief Valve'
   }
   if (!fields.testType.trim()) return 'Test type is required for Relief Valve'
+  if (!fields.gaugeId.trim() && !fields.gauge.trim()) {
+    return 'Select a test gauge for Relief Valve'
+  }
   if (!fields.test1.trim() || !fields.test2.trim() || !fields.test3.trim()) {
     return 'Enter all three set-pressure / pop tests for Relief Valve'
   }
