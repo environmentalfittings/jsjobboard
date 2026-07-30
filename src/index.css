@@ -2357,6 +2357,76 @@ body {
   color: #1e3a5f;
 }
 
+.test-log-relief-update-record {
+  grid-column: 1 / -1;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 0.65rem 1rem;
+  align-items: center;
+  padding: 0.85rem 1rem;
+  border: 1px solid #cbd5e1;
+  border-radius: 10px;
+  background: #fff;
+}
+
+.test-log-relief-update-record-copy strong {
+  display: block;
+  font-size: 0.95rem;
+  color: #1e3a5f;
+}
+
+.test-log-relief-update-record-copy p {
+  margin: 0.25rem 0 0;
+  font-size: 0.8125rem;
+  color: #64748b;
+}
+
+.test-log-relief-update-record-preview {
+  color: #334155 !important;
+  font-weight: 600;
+}
+
+.test-log-relief-update-record-btn {
+  border: 1px solid #1d4ed8;
+  background: #eff6ff;
+  color: #1e3a8a;
+  border-radius: 8px;
+  padding: 0.6rem 0.95rem;
+  font: inherit;
+  font-weight: 700;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.test-log-relief-update-record-btn:hover:not(:disabled) {
+  background: #dbeafe;
+}
+
+.test-log-relief-update-record-btn:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.test-log-relief-update-record-status {
+  grid-column: 1 / -1;
+  margin: 0;
+  font-size: 0.8125rem;
+}
+
+.test-log-relief-update-record-status--ok {
+  color: #166534;
+}
+
+.test-log-relief-update-record-status--warn {
+  color: #9a3412;
+}
+
+@media (max-width: 720px) {
+  .test-log-relief-update-record {
+    grid-template-columns: 1fr;
+  }
+}
+
 .test-log-relief-run {
   grid-column: 1 / -1;
   display: grid;

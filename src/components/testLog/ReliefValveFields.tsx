@@ -1,4 +1,4 @@
-import { useMemo, type ReactNode } from 'react'
+import { useMemo, useState, type ReactNode } from 'react'
 import {
   RELIEF_VALVE_MEDIA,
   RELIEF_VALVE_PASS_TOLERANCE_PERCENT,
@@ -8,10 +8,13 @@ import {
   ensureReliefAttempts,
   evaluateReliefValveRun,
   formatReliefValveAverage,
+  formatReliefValveSize,
+  resolveReliefValveMedia,
   startReliefRetest,
   type ReliefValveRunFields,
   type ReliefValveTestFields,
 } from '../../lib/reliefValveTest'
+import { supabase } from '../../lib/supabase'
 import type { TestGauge } from '../../types/testGauge'
 import type { Employee } from '../../types/employees'
 import { TestGaugeSelect } from './TestGaugeSelect'
@@ -23,7 +26,19 @@ type ReliefValveFieldsProps = {
   gaugeOptions: TestGauge[]
   testerOptions: Array<Pick<Employee, 'id' | 'full_name' | 'initials'>>
   testersLoading?: boolean
+  valveRowId?: number | null
   onChange: (next: ReliefValveTestFields) => void
+  /** Called after size/pressure/media are written to the job-board valve row. */
+  onJobRecordUpdated?: (next: { size: string; pressure: string; testType: string | null }) => void
+}
+
+function mediaToJobTestType(fields: ReliefValveTestFields): string | null {
+  const media = resolveReliefValveMedia(fields)
+  if (!media) return null
+  if (/steam/i.test(media)) return 'PRV Steam'
+  if (/air|gas/i.test(media)) return 'PRV Air'
+  if (/liquid|water/i.test(media)) return 'PRV Water'
+  return media
 }
 
 type RunSectionProps = {
@@ -422,9 +437,13 @@ export function ReliefValveFields({
   gaugeOptions,
   testerOptions,
   testersLoading = false,
+  valveRowId = null,
   onChange,
+  onJobRecordUpdated,
 }: ReliefValveFieldsProps) {
   const showMediaOther = value.media.trim().toLowerCase() === 'other'
+  const [savingJobRecord, setSavingJobRecord] = useState(false)
+  const [jobRecordMessage, setJobRecordMessage] = useState<string | null>(null)
   const header = useMemo(
     () => ({ setPressure: value.setPressure, media: value.media }),
     [value.setPressure, value.media],
@@ -433,6 +452,7 @@ export function ReliefValveFields({
   const patch = (partial: Partial<ReliefValveTestFields>) => {
     const next = applyReliefValveEvaluations({ ...value, ...partial })
     onChange(next)
+    setJobRecordMessage(null)
   }
 
   const sizeSelect = (current: string) => {
@@ -441,6 +461,53 @@ export function ReliefValveFields({
       options.unshift(current)
     }
     return options
+  }
+
+  const formattedSize = formatReliefValveSize(value)
+  const canUpdateJobRecord = Boolean(
+    valveRowId && formattedSize && value.setPressure.trim() && resolveReliefValveMedia(value),
+  )
+
+  const updateJobRecord = async () => {
+    if (!valveRowId) {
+      setJobRecordMessage('Open this log from a job board valve so the record can be updated.')
+      return
+    }
+    if (!formattedSize) {
+      setJobRecordMessage('Select inlet and outlet size before updating the job record.')
+      return
+    }
+    if (!value.setPressure.trim()) {
+      setJobRecordMessage('Enter set pressure before updating the job record.')
+      return
+    }
+    const testType = mediaToJobTestType(value)
+    if (!testType) {
+      setJobRecordMessage('Select media before updating the job record.')
+      return
+    }
+
+    setSavingJobRecord(true)
+    setJobRecordMessage(null)
+    const patchPayload: { size: string; pressure: string; test_type: string } = {
+      size: formattedSize,
+      pressure: value.setPressure.trim(),
+      test_type: testType,
+    }
+    const { error } = await supabase.from('valves').update(patchPayload).eq('id', valveRowId)
+    setSavingJobRecord(false)
+
+    if (error) {
+      setJobRecordMessage(error.message || 'Could not update the job record.')
+      return
+    }
+
+    onJobRecordUpdated?.({
+      size: patchPayload.size,
+      pressure: patchPayload.pressure,
+      testType: patchPayload.test_type,
+    })
+    setJobRecordMessage('Job record updated — size, set pressure, and media saved across the app.')
   }
 
   return (
@@ -508,6 +575,53 @@ export function ReliefValveFields({
           />
         </label>
       ) : null}
+
+      <div className="test-log-relief-update-record">
+        <div className="test-log-relief-update-record-copy">
+          <strong>Update job record</strong>
+          <p>
+            Save inlet/outlet size, set pressure, and media to the valve on the job board so Status board, List,
+            and other screens stay in sync.
+          </p>
+          {formattedSize || value.setPressure.trim() || resolveReliefValveMedia(value) ? (
+            <p className="test-log-relief-update-record-preview">
+              Will write:{' '}
+              {[
+                formattedSize ? `Size ${formattedSize}` : null,
+                value.setPressure.trim() ? `Set ${value.setPressure.trim()} PSI` : null,
+                mediaToJobTestType(value) ? `Media ${mediaToJobTestType(value)}` : null,
+              ]
+                .filter(Boolean)
+                .join(' · ') || '—'}
+            </p>
+          ) : null}
+        </div>
+        <button
+          type="button"
+          className="test-log-relief-update-record-btn"
+          disabled={savingJobRecord || !canUpdateJobRecord}
+          onClick={() => void updateJobRecord()}
+        >
+          {savingJobRecord ? 'Updating…' : 'Update record'}
+        </button>
+        {jobRecordMessage ? (
+          <p
+            className={`test-log-relief-update-record-status${
+              jobRecordMessage.startsWith('Job record updated')
+                ? ' test-log-relief-update-record-status--ok'
+                : ' test-log-relief-update-record-status--warn'
+            }`}
+            role="status"
+          >
+            {jobRecordMessage}
+          </p>
+        ) : null}
+        {!valveRowId ? (
+          <p className="test-log-relief-update-record-status test-log-relief-update-record-status--warn">
+            No linked job row yet — look up the valve ID from the job board first.
+          </p>
+        ) : null}
+      </div>
 
       <label className="test-log-relief-include-pretest">
         <input

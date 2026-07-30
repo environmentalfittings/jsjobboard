@@ -960,7 +960,13 @@ export function TestLogEntryForm({
               gaugeOptions={gaugeOptions}
               testerOptions={testerOptions}
               testersLoading={employeesLoading}
+              valveRowId={valveRowId}
               onChange={patchReliefValve}
+              onJobRecordUpdated={({ size: nextSize, pressure: nextPressure }) => {
+                setSize(nextSize)
+                setPressure(nextPressure)
+                showToast('Job record updated with relief valve size, set pressure, and media')
+              }}
             />
           ) : null}
 
