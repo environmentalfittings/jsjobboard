@@ -393,8 +393,6 @@ type AttemptGroupProps = {
   testerOptions: Array<Pick<Employee, 'id' | 'full_name' | 'initials'>>
   testersLoading?: boolean
   onChangeAttempts: (attempts: ReliefValveRunFields[]) => void
-  onCloseSection?: () => void
-  closeSectionLabel?: string
   childrenForFirst?: ReactNode
 }
 
@@ -408,8 +406,6 @@ function ReliefValveAttemptGroup({
   testerOptions,
   testersLoading,
   onChangeAttempts,
-  onCloseSection,
-  closeSectionLabel,
   childrenForFirst,
 }: AttemptGroupProps) {
   const list = ensureReliefAttempts(attempts)
@@ -421,13 +417,6 @@ function ReliefValveAttemptGroup({
 
   return (
     <div className={`test-log-relief-attempt-group test-log-relief-attempt-group--${kind}`}>
-      {onCloseSection ? (
-        <div className="test-log-relief-section-toolbar">
-          <button type="button" className="test-log-relief-close-section-btn" onClick={onCloseSection}>
-            {closeSectionLabel ?? `Close ${title.toLowerCase()}`}
-          </button>
-        </div>
-      ) : null}
       {list.map((run, index) => {
         const isLatest = index === list.length - 1
         const readOnly = !isLatest
@@ -692,8 +681,6 @@ export function ReliefValveFields({
           testerOptions={testerOptions}
           testersLoading={testersLoading}
           onChangeAttempts={(pretestAttempts) => patch({ pretestAttempts })}
-          onCloseSection={() => patch({ includePretest: false })}
-          closeSectionLabel="Close pretest"
           childrenForFirst={
             <fieldset className="test-log-relief-test-type">
               <legend>

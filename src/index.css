@@ -2349,7 +2349,6 @@ body {
 }
 
 .test-log-relief-include-pretest {
-  grid-column: 1 / -1;
   display: flex;
   align-items: center;
   gap: 0.5rem;
@@ -2366,20 +2365,10 @@ body {
   gap: 0.5rem 1rem;
 }
 
-.test-log-relief-include-pretest-row .test-log-relief-include-pretest {
-  grid-column: auto;
-  margin: 0;
-}
-
 .test-log-relief-attempt-group {
   grid-column: 1 / -1;
   display: grid;
   gap: 1rem;
-}
-
-.test-log-relief-section-toolbar {
-  display: flex;
-  justify-content: flex-end;
 }
 
 .test-log-relief-close-section-btn,
