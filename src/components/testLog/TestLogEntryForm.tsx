@@ -940,7 +940,12 @@ export function TestLogEntryForm({
           </div>
 
           {isReliefValve ? (
-            <ReliefValveFields value={reliefFields} sizeOptions={sizeOptions} onChange={patchReliefValve} />
+            <ReliefValveFields
+              value={reliefFields}
+              sizeOptions={sizeOptions}
+              gaugeOptions={gaugeOptions}
+              onChange={patchReliefValve}
+            />
           ) : null}
 
           <fieldset className="test-log-tester-select test-log-fieldset">

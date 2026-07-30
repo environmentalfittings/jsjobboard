@@ -8,14 +8,17 @@ import {
   formatReliefValveAverage,
   type ReliefValveTestFields,
 } from '../../lib/reliefValveTest'
+import type { TestGauge } from '../../types/testGauge'
+import { TestGaugeSelect } from './TestGaugeSelect'
 
 type ReliefValveFieldsProps = {
   value: ReliefValveTestFields
   sizeOptions: string[]
+  gaugeOptions: TestGauge[]
   onChange: (next: ReliefValveTestFields) => void
 }
 
-export function ReliefValveFields({ value, sizeOptions, onChange }: ReliefValveFieldsProps) {
+export function ReliefValveFields({ value, sizeOptions, gaugeOptions, onChange }: ReliefValveFieldsProps) {
   const showMediaOther = value.media.trim().toLowerCase() === 'other'
   const evaluation = useMemo(() => evaluateReliefValveOverall(value), [value])
   const popAverageLabel = formatReliefValveAverage(evaluation.pop.average)
@@ -98,6 +101,15 @@ export function ReliefValveFields({ value, sizeOptions, onChange }: ReliefValveF
           />
         </label>
       ) : null}
+
+      <div className="test-log-relief-gauge">
+        <TestGaugeSelect
+          id="relief-valve-gauge"
+          options={gaugeOptions}
+          value={{ gaugeId: value.gaugeId, gauge: value.gauge }}
+          onChange={(gauge) => patch(gauge)}
+        />
+      </div>
 
       <fieldset className="test-log-relief-test-type">
         <legend>
