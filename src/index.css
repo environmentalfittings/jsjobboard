@@ -3365,6 +3365,43 @@ a.test-log-reports-item-name:hover {
   background: #eff6ff;
 }
 
+.test-gauge-combobox-option--prv {
+  background: #ecfdf5;
+  border: 1px solid #86efac;
+}
+
+.test-gauge-combobox-option--prv:hover {
+  background: #d1fae5;
+}
+
+.test-gauge-combobox-option--prv.test-gauge-combobox-option--selected {
+  background: #bbf7d0;
+  border-color: #4ade80;
+}
+
+.test-gauge-combobox-trigger--prv {
+  border-color: #86efac;
+  background: #ecfdf5;
+}
+
+.test-gauge-prv-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.1rem 0.4rem;
+  border-radius: 999px;
+  background: #16a34a;
+  color: #fff;
+  font-size: 0.6875rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  line-height: 1.2;
+  flex-shrink: 0;
+}
+
+.test-gauge-prv-badge--inline {
+  margin-left: 0.35rem;
+}
+
 .test-gauge-combobox-option-main {
   width: 100%;
   display: flex;

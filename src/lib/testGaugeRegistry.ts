@@ -35,6 +35,26 @@ export function formatTestGaugeOptionLabel(gauge: TestGauge): string {
   return parts.join(' ')
 }
 
+/** Gauges assigned to the PRV department (or labeled PRV in type/notes). */
+export function isPrvGauge(gauge: TestGauge): boolean {
+  const haystack = [gauge.department, gauge.gauge_type, gauge.notes, gauge.gauge_number]
+    .map((value) => String(value ?? '').trim().toLowerCase())
+    .filter(Boolean)
+    .join(' ')
+  return /\bprv\b/.test(haystack)
+}
+
+/** Keep original order within groups, but lift PRV gauges to the top. */
+export function sortGaugesWithPrvFirst(gauges: TestGauge[]): TestGauge[] {
+  const prv: TestGauge[] = []
+  const rest: TestGauge[] = []
+  for (const gauge of gauges) {
+    if (isPrvGauge(gauge)) prv.push(gauge)
+    else rest.push(gauge)
+  }
+  return [...prv, ...rest]
+}
+
 /** Chart recorders are registered in test_gauges with type “Chart recorder”. */
 export function isChartRecorderGauge(gauge: TestGauge): boolean {
   return /chart\s*recorder/i.test(String(gauge.gauge_type ?? ''))

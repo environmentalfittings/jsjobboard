@@ -1,9 +1,11 @@
-import { useEffect, useId, useRef, useState } from 'react'
+import { useEffect, useId, useMemo, useRef, useState } from 'react'
 import {
   formatGaugeCalibrationDueDate,
   formatGaugeCalibrationStatusLabel,
   formatTestGaugeOptionLabel,
   getGaugeCalibrationStatus,
+  isPrvGauge,
+  sortGaugesWithPrvFirst,
 } from '../../lib/testGaugeRegistry'
 import type { TestGauge } from '../../types/testGauge'
 
@@ -36,8 +38,10 @@ export function TestGaugeSelect({
   const listId = useId()
   const rootRef = useRef<HTMLDivElement>(null)
   const [open, setOpen] = useState(false)
+  const orderedOptions = useMemo(() => sortGaugesWithPrvFirst(options), [options])
 
   const selected = options.find((g) => g.id === value.gaugeId) ?? options.find((g) => g.gauge_number === value.gauge)
+  const selectedIsPrv = selected ? isPrvGauge(selected) : false
   const status = selected ? getGaugeCalibrationStatus(selected) : 'ok'
   const selectStatusClass = isExpiredStatus(status) ? 'critical' : status
 
@@ -72,7 +76,7 @@ export function TestGaugeSelect({
 
   return (
     <div
-      className={`test-gauge-select${selectStatusClass !== 'ok' ? ` test-gauge-select--${selectStatusClass}` : ''}`}
+      className={`test-gauge-select${selectStatusClass !== 'ok' ? ` test-gauge-select--${selectStatusClass}` : ''}${selectedIsPrv ? ' test-gauge-select--prv' : ''}`}
       ref={rootRef}
     >
       <span className="test-gauge-select-label" id={`${id}-label`}>
@@ -82,7 +86,7 @@ export function TestGaugeSelect({
         <button
           type="button"
           id={id}
-          className={`test-gauge-combobox-trigger${open ? ' test-gauge-combobox-trigger--open' : ''}`}
+          className={`test-gauge-combobox-trigger${open ? ' test-gauge-combobox-trigger--open' : ''}${selectedIsPrv ? ' test-gauge-combobox-trigger--prv' : ''}`}
           aria-labelledby={`${id}-label`}
           aria-expanded={open}
           aria-haspopup="listbox"
@@ -90,6 +94,11 @@ export function TestGaugeSelect({
           onClick={() => setOpen((prev) => !prev)}
         >
           <span className="test-gauge-combobox-trigger-text">{triggerLabel}</span>
+          {selectedIsPrv ? (
+            <span className="test-gauge-prv-badge test-gauge-prv-badge--inline" aria-hidden>
+              PRV
+            </span>
+          ) : null}
           {isExpiredStatus(status) ? (
             <span className="test-gauge-expired-badge test-gauge-expired-badge--inline" aria-hidden>
               Expired
@@ -130,30 +139,32 @@ export function TestGaugeSelect({
               </li>
             ) : null}
 
-            {options.length === 0 ? (
+            {orderedOptions.length === 0 ? (
               <li className="test-gauge-combobox-empty" role="presentation">
                 No matching gauges in the registry.
               </li>
             ) : null}
 
-            {options.map((gauge) => {
+            {orderedOptions.map((gauge) => {
               const optionStatus = getGaugeCalibrationStatus(gauge)
               const optionClass = isExpiredStatus(optionStatus) ? 'critical' : optionStatus
               const dueLabel = formatGaugeCalibrationDueDate(gauge)
               const statusLabel = formatGaugeCalibrationStatusLabel(gauge)
               const isSelected = value.gaugeId === gauge.id
+              const prv = isPrvGauge(gauge)
               return (
                 <li key={gauge.id} role="none">
                   <button
                     type="button"
                     role="option"
-                    className={`test-gauge-combobox-option test-gauge-combobox-option--${optionClass}${isSelected ? ' test-gauge-combobox-option--selected' : ''}`}
+                    className={`test-gauge-combobox-option test-gauge-combobox-option--${optionClass}${isSelected ? ' test-gauge-combobox-option--selected' : ''}${prv ? ' test-gauge-combobox-option--prv' : ''}`}
                     aria-selected={isSelected}
                     onMouseDown={(e) => e.preventDefault()}
                     onClick={() => pickGauge(gauge)}
                   >
                     <span className="test-gauge-combobox-option-main">
                       <span className="test-gauge-combobox-option-label">{formatTestGaugeOptionLabel(gauge)}</span>
+                      {prv ? <span className="test-gauge-prv-badge">PRV</span> : null}
                       {isExpiredStatus(optionStatus) ? (
                         <span className="test-gauge-expired-badge">Expired</span>
                       ) : null}
