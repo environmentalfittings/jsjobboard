@@ -2408,6 +2408,11 @@ body {
   background: linear-gradient(180deg, #fef2f2 0%, #fee2e2 100%);
 }
 
+.test-log-relief-average-advisory {
+  border-color: #fcd34d;
+  background: linear-gradient(180deg, #fffbeb 0%, #fef3c7 100%);
+}
+
 .test-log-relief-average-label {
   font-size: 0.75rem;
   font-weight: 700;
@@ -2422,6 +2427,10 @@ body {
 
 .test-log-relief-average-fail .test-log-relief-average-label {
   color: #b91c1c;
+}
+
+.test-log-relief-average-advisory .test-log-relief-average-label {
+  color: #b45309;
 }
 
 .test-log-relief-average-value {

@@ -1023,7 +1023,7 @@ export function TestLogEntryForm({
 
         {isReliefValve ? (
           <p className="status-breakdown-note">
-            Relief Valve tests use three pop tests. Pass is set pressure through +3% (never below set).
+            Relief Valve tests use three pop tests and three reseat tests. Pop pass is set through +3%. Reseat pass depends on media (Steam 6%, Air/Gas 10%; Liquid advisory).
           </p>
         ) : (
           <>
