@@ -3,7 +3,8 @@ import {
   RELIEF_VALVE_MEDIA,
   RELIEF_VALVE_PASS_TOLERANCE_PERCENT,
   RELIEF_VALVE_TEST_TYPES,
-  evaluateReliefValvePassFail,
+  applyReliefValveEvaluations,
+  evaluateReliefValveOverall,
   formatReliefValveAverage,
   type ReliefValveTestFields,
 } from '../../lib/reliefValveTest'
@@ -16,20 +17,16 @@ type ReliefValveFieldsProps = {
 
 export function ReliefValveFields({ value, sizeOptions, onChange }: ReliefValveFieldsProps) {
   const showMediaOther = value.media.trim().toLowerCase() === 'other'
-  const evaluation = useMemo(() => evaluateReliefValvePassFail(value), [value])
-  const averageLabel = formatReliefValveAverage(evaluation.average)
-  const setLabel = formatReliefValveAverage(evaluation.setPressure)
-  const maxLabel = formatReliefValveAverage(evaluation.maxPassPressure)
+  const evaluation = useMemo(() => evaluateReliefValveOverall(value), [value])
+  const popAverageLabel = formatReliefValveAverage(evaluation.pop.average)
+  const setLabel = formatReliefValveAverage(evaluation.pop.setPressure)
+  const maxPopLabel = formatReliefValveAverage(evaluation.pop.maxPassPressure)
+  const reseatAverageLabel = formatReliefValveAverage(evaluation.reseat.reseatAverage)
+  const reseatMinLabel = formatReliefValveAverage(evaluation.reseat.minPass)
+  const reseatMaxLabel = formatReliefValveAverage(evaluation.reseat.maxPass)
 
   const patch = (partial: Partial<ReliefValveTestFields>) => {
-    const next: ReliefValveTestFields = { ...value, ...partial }
-    const nextEvaluation = evaluateReliefValvePassFail(next)
-    if (nextEvaluation.result) {
-      next.result = nextEvaluation.result
-      if (nextEvaluation.result === 'pass') next.reason = ''
-    } else if (!('result' in partial) && !('reason' in partial)) {
-      next.result = ''
-    }
+    const next = applyReliefValveEvaluations({ ...value, ...partial })
     onChange(next)
   }
 
@@ -123,7 +120,7 @@ export function ReliefValveFields({ value, sizeOptions, onChange }: ReliefValveF
 
       <div className="test-log-relief-set-pressure-tests">
         <div className="test-log-relief-set-pressure-heading">
-          <h5>Set pressure tests</h5>
+          <h5>Pop / set pressure tests</h5>
           <p>
             Pass when the three-pop average is from set pressure up to +{RELIEF_VALVE_PASS_TOLERANCE_PERCENT}%
             (never below set).
@@ -131,7 +128,7 @@ export function ReliefValveFields({ value, sizeOptions, onChange }: ReliefValveF
         </div>
 
         <label>
-          Test 1 <span className="test-log-required-mark">*</span>
+          Pop 1 <span className="test-log-required-mark">*</span>
           <input
             type="text"
             inputMode="decimal"
@@ -142,7 +139,7 @@ export function ReliefValveFields({ value, sizeOptions, onChange }: ReliefValveF
         </label>
 
         <label>
-          Test 2 <span className="test-log-required-mark">*</span>
+          Pop 2 <span className="test-log-required-mark">*</span>
           <input
             type="text"
             inputMode="decimal"
@@ -153,7 +150,7 @@ export function ReliefValveFields({ value, sizeOptions, onChange }: ReliefValveF
         </label>
 
         <label>
-          Test 3 <span className="test-log-required-mark">*</span>
+          Pop 3 <span className="test-log-required-mark">*</span>
           <input
             type="text"
             inputMode="decimal"
@@ -165,44 +162,120 @@ export function ReliefValveFields({ value, sizeOptions, onChange }: ReliefValveF
 
         <div
           className={`test-log-relief-average${
-            evaluation.result === 'pass'
+            evaluation.pop.result === 'pass'
               ? ' test-log-relief-average-pass'
-              : evaluation.result === 'fail'
+              : evaluation.pop.result === 'fail'
                 ? ' test-log-relief-average-fail'
                 : ''
           }`}
           aria-live="polite"
         >
-          <span className="test-log-relief-average-label">Average</span>
+          <span className="test-log-relief-average-label">Pop average</span>
           <strong className="test-log-relief-average-value">
-            {averageLabel ? `${averageLabel} PSI` : '—'}
+            {popAverageLabel ? `${popAverageLabel} PSI` : '—'}
           </strong>
-          {setLabel && maxLabel ? (
+          {setLabel && maxPopLabel ? (
             <span className="test-log-relief-average-band">
-              Pass band: {setLabel}–{maxLabel} PSI
+              Pass band: {setLabel}–{maxPopLabel} PSI
             </span>
           ) : null}
           <span
             className={`test-log-relief-average-delta${
-              evaluation.result === 'pass'
+              evaluation.pop.result === 'pass'
                 ? ' test-log-relief-average-delta-match'
-                : evaluation.result === 'fail'
+                : evaluation.pop.result === 'fail'
                   ? ' test-log-relief-average-delta-under'
                   : ''
             }`}
           >
-            {evaluation.summary}
+            {evaluation.pop.summary}
+          </span>
+        </div>
+      </div>
+
+      <div className="test-log-relief-set-pressure-tests test-log-relief-reseat-tests">
+        <div className="test-log-relief-set-pressure-heading">
+          <h5>Reseat pressure tests</h5>
+          <p>
+            Compared to pop average — Steam within 6%, Air/Gas within 10%. Liquid has no pass/fail (target within
+            10%).
+          </p>
+        </div>
+
+        <label>
+          Reseat 1 <span className="test-log-required-mark">*</span>
+          <input
+            type="text"
+            inputMode="decimal"
+            value={value.reseat1}
+            onChange={(e) => patch({ reseat1: e.target.value })}
+            placeholder="PSI"
+          />
+        </label>
+
+        <label>
+          Reseat 2 <span className="test-log-required-mark">*</span>
+          <input
+            type="text"
+            inputMode="decimal"
+            value={value.reseat2}
+            onChange={(e) => patch({ reseat2: e.target.value })}
+            placeholder="PSI"
+          />
+        </label>
+
+        <label>
+          Reseat 3 <span className="test-log-required-mark">*</span>
+          <input
+            type="text"
+            inputMode="decimal"
+            value={value.reseat3}
+            onChange={(e) => patch({ reseat3: e.target.value })}
+            placeholder="PSI"
+          />
+        </label>
+
+        <div
+          className={`test-log-relief-average${
+            evaluation.reseat.result === 'pass'
+              ? ' test-log-relief-average-pass'
+              : evaluation.reseat.result === 'fail'
+                ? ' test-log-relief-average-fail'
+                : evaluation.reseat.result === 'na'
+                  ? ' test-log-relief-average-advisory'
+                  : ''
+          }`}
+          aria-live="polite"
+        >
+          <span className="test-log-relief-average-label">Reseat average</span>
+          <strong className="test-log-relief-average-value">
+            {reseatAverageLabel ? `${reseatAverageLabel} PSI` : '—'}
+          </strong>
+          {reseatMinLabel && reseatMaxLabel ? (
+            <span className="test-log-relief-average-band">
+              {evaluation.reseat.enforced ? 'Pass band' : 'Target band'}: {reseatMinLabel}–{reseatMaxLabel}{' '}
+              PSI
+            </span>
+          ) : null}
+          <span
+            className={`test-log-relief-average-delta${
+              evaluation.reseat.result === 'pass'
+                ? ' test-log-relief-average-delta-match'
+                : evaluation.reseat.result === 'fail'
+                  ? ' test-log-relief-average-delta-under'
+                  : ''
+            }`}
+          >
+            {evaluation.reseat.summary}
           </span>
         </div>
       </div>
 
       <fieldset className="test-pressure-result-fieldset test-log-relief-result">
         <legend>
-          Result <span className="test-log-required-mark">*</span>
+          Overall result <span className="test-log-required-mark">*</span>
         </legend>
-        <p className="test-log-relief-result-hint">
-          Set automatically from the average vs set pressure (+{RELIEF_VALVE_PASS_TOLERANCE_PERCENT}% max).
-        </p>
+        <p className="test-log-relief-result-hint">{evaluation.summary}</p>
         <label className="test-pressure-result-option">
           <input type="radio" name="relief-valve-result" checked={value.result === 'pass'} readOnly disabled />
           Pass
