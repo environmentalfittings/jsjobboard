@@ -2341,6 +2341,61 @@ body {
   background: #f8fafc;
 }
 
+.test-log-relief-record-note {
+  grid-column: 1 / -1;
+  margin: 0;
+  font-size: 0.875rem;
+  color: #475569;
+}
+
+.test-log-relief-include-pretest {
+  grid-column: 1 / -1;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-weight: 600;
+  color: #1e3a5f;
+}
+
+.test-log-relief-run {
+  grid-column: 1 / -1;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+  gap: 1rem;
+  margin-top: 0.25rem;
+  padding: 0.85rem 1rem;
+  border: 1px solid #c7d2e0;
+  border-radius: 10px;
+  background: #fff;
+}
+
+.test-log-relief-run--pretest {
+  border-color: #f0c28a;
+  background: #fffaf3;
+}
+
+.test-log-relief-run--final {
+  border-color: #93c5fd;
+  background: #f8fbff;
+}
+
+.test-log-relief-run-heading {
+  grid-column: 1 / -1;
+}
+
+.test-log-relief-run-heading h4 {
+  margin: 0;
+  font-size: 1.05rem;
+  font-weight: 700;
+  color: #1e3a5f;
+}
+
+.test-log-relief-run-heading p {
+  margin: 0.25rem 0 0;
+  font-size: 0.8125rem;
+  color: #64748b;
+}
+
 .test-log-relief-gauge {
   grid-column: 1 / -1;
   max-width: 28rem;

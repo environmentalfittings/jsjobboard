@@ -1,11 +1,12 @@
-import { useMemo } from 'react'
+import { useMemo, type ReactNode } from 'react'
 import {
   RELIEF_VALVE_MEDIA,
   RELIEF_VALVE_PASS_TOLERANCE_PERCENT,
-  RELIEF_VALVE_TEST_TYPES,
+  RELIEF_VALVE_PRETEST_KINDS,
   applyReliefValveEvaluations,
-  evaluateReliefValveOverall,
+  evaluateReliefValveRun,
   formatReliefValveAverage,
+  type ReliefValveRunFields,
   type ReliefValveTestFields,
 } from '../../lib/reliefValveTest'
 import type { TestGauge } from '../../types/testGauge'
@@ -18,9 +19,32 @@ type ReliefValveFieldsProps = {
   onChange: (next: ReliefValveTestFields) => void
 }
 
-export function ReliefValveFields({ value, sizeOptions, gaugeOptions, onChange }: ReliefValveFieldsProps) {
-  const showMediaOther = value.media.trim().toLowerCase() === 'other'
-  const evaluation = useMemo(() => evaluateReliefValveOverall(value), [value])
+type RunSectionProps = {
+  title: string
+  hint: string
+  runKey: 'pretest' | 'final'
+  run: ReliefValveRunFields
+  header: Pick<ReliefValveTestFields, 'setPressure' | 'media'>
+  gaugeOptions: TestGauge[]
+  gaugeSelectId: string
+  resultName: string
+  onPatchRun: (partial: Partial<ReliefValveRunFields>) => void
+  children?: ReactNode
+}
+
+function ReliefValveRunSection({
+  title,
+  hint,
+  runKey,
+  run,
+  header,
+  gaugeOptions,
+  gaugeSelectId,
+  resultName,
+  onPatchRun,
+  children,
+}: RunSectionProps) {
+  const evaluation = useMemo(() => evaluateReliefValveRun(run, header), [run, header])
   const popAverageLabel = formatReliefValveAverage(evaluation.pop.average)
   const setLabel = formatReliefValveAverage(evaluation.pop.setPressure)
   const maxPopLabel = formatReliefValveAverage(evaluation.pop.maxPassPressure)
@@ -28,9 +52,226 @@ export function ReliefValveFields({ value, sizeOptions, gaugeOptions, onChange }
   const reseatMinLabel = formatReliefValveAverage(evaluation.reseat.minPass)
   const reseatMaxLabel = formatReliefValveAverage(evaluation.reseat.maxPass)
 
+  return (
+    <section className={`test-log-relief-run test-log-relief-run--${runKey}`}>
+      <div className="test-log-relief-run-heading">
+        <h4>{title}</h4>
+        <p>{hint}</p>
+      </div>
+
+      {children}
+
+      <div className="test-log-relief-gauge">
+        <TestGaugeSelect
+          id={gaugeSelectId}
+          options={gaugeOptions}
+          value={{ gaugeId: run.gaugeId, gauge: run.gauge }}
+          onChange={(gauge) => onPatchRun(gauge)}
+        />
+      </div>
+
+      <div className="test-log-relief-set-pressure-tests">
+        <div className="test-log-relief-set-pressure-heading">
+          <h5>Pop / set pressure tests</h5>
+          <p>
+            Pass when the three-pop average is from set pressure up to +{RELIEF_VALVE_PASS_TOLERANCE_PERCENT}%
+            (never below set).
+          </p>
+        </div>
+
+        <label>
+          Pop 1 <span className="test-log-required-mark">*</span>
+          <input
+            type="text"
+            inputMode="decimal"
+            value={run.test1}
+            onChange={(e) => onPatchRun({ test1: e.target.value })}
+            placeholder="PSI"
+          />
+        </label>
+
+        <label>
+          Pop 2 <span className="test-log-required-mark">*</span>
+          <input
+            type="text"
+            inputMode="decimal"
+            value={run.test2}
+            onChange={(e) => onPatchRun({ test2: e.target.value })}
+            placeholder="PSI"
+          />
+        </label>
+
+        <label>
+          Pop 3 <span className="test-log-required-mark">*</span>
+          <input
+            type="text"
+            inputMode="decimal"
+            value={run.test3}
+            onChange={(e) => onPatchRun({ test3: e.target.value })}
+            placeholder="PSI"
+          />
+        </label>
+
+        <div
+          className={`test-log-relief-average${
+            evaluation.pop.result === 'pass'
+              ? ' test-log-relief-average-pass'
+              : evaluation.pop.result === 'fail'
+                ? ' test-log-relief-average-fail'
+                : ''
+          }`}
+          aria-live="polite"
+        >
+          <span className="test-log-relief-average-label">Pop average</span>
+          <strong className="test-log-relief-average-value">
+            {popAverageLabel ? `${popAverageLabel} PSI` : '—'}
+          </strong>
+          {setLabel && maxPopLabel ? (
+            <span className="test-log-relief-average-band">
+              Pass band: {setLabel}–{maxPopLabel} PSI
+            </span>
+          ) : null}
+          <span
+            className={`test-log-relief-average-delta${
+              evaluation.pop.result === 'pass'
+                ? ' test-log-relief-average-delta-match'
+                : evaluation.pop.result === 'fail'
+                  ? ' test-log-relief-average-delta-under'
+                  : ''
+            }`}
+          >
+            {evaluation.pop.summary}
+          </span>
+        </div>
+      </div>
+
+      <div className="test-log-relief-set-pressure-tests test-log-relief-reseat-tests">
+        <div className="test-log-relief-set-pressure-heading">
+          <h5>Reseat pressure tests</h5>
+          <p>
+            Compared to pop average — Steam within 6%, Air/Gas within 10%. Liquid has no pass/fail (target within
+            10%).
+          </p>
+        </div>
+
+        <label>
+          Reseat 1 <span className="test-log-required-mark">*</span>
+          <input
+            type="text"
+            inputMode="decimal"
+            value={run.reseat1}
+            onChange={(e) => onPatchRun({ reseat1: e.target.value })}
+            placeholder="PSI"
+          />
+        </label>
+
+        <label>
+          Reseat 2 <span className="test-log-required-mark">*</span>
+          <input
+            type="text"
+            inputMode="decimal"
+            value={run.reseat2}
+            onChange={(e) => onPatchRun({ reseat2: e.target.value })}
+            placeholder="PSI"
+          />
+        </label>
+
+        <label>
+          Reseat 3 <span className="test-log-required-mark">*</span>
+          <input
+            type="text"
+            inputMode="decimal"
+            value={run.reseat3}
+            onChange={(e) => onPatchRun({ reseat3: e.target.value })}
+            placeholder="PSI"
+          />
+        </label>
+
+        <div
+          className={`test-log-relief-average${
+            evaluation.reseat.result === 'pass'
+              ? ' test-log-relief-average-pass'
+              : evaluation.reseat.result === 'fail'
+                ? ' test-log-relief-average-fail'
+                : evaluation.reseat.result === 'na'
+                  ? ' test-log-relief-average-advisory'
+                  : ''
+          }`}
+          aria-live="polite"
+        >
+          <span className="test-log-relief-average-label">Reseat average</span>
+          <strong className="test-log-relief-average-value">
+            {reseatAverageLabel ? `${reseatAverageLabel} PSI` : '—'}
+          </strong>
+          {reseatMinLabel && reseatMaxLabel ? (
+            <span className="test-log-relief-average-band">
+              {evaluation.reseat.enforced ? 'Pass band' : 'Target band'}: {reseatMinLabel}–{reseatMaxLabel}{' '}
+              PSI
+            </span>
+          ) : null}
+          <span
+            className={`test-log-relief-average-delta${
+              evaluation.reseat.result === 'pass'
+                ? ' test-log-relief-average-delta-match'
+                : evaluation.reseat.result === 'fail'
+                  ? ' test-log-relief-average-delta-under'
+                  : ''
+            }`}
+          >
+            {evaluation.reseat.summary}
+          </span>
+        </div>
+      </div>
+
+      <fieldset className="test-pressure-result-fieldset test-log-relief-result">
+        <legend>
+          {title} result <span className="test-log-required-mark">*</span>
+        </legend>
+        <p className="test-log-relief-result-hint">{evaluation.summary}</p>
+        <label className="test-pressure-result-option">
+          <input type="radio" name={resultName} checked={run.result === 'pass'} readOnly disabled />
+          Pass
+        </label>
+        <label className="test-pressure-result-option">
+          <input type="radio" name={resultName} checked={run.result === 'fail'} readOnly disabled />
+          Fail
+        </label>
+      </fieldset>
+
+      {run.result === 'fail' ? (
+        <label className="test-log-relief-fail-reason">
+          Fail reason <span className="test-log-required-mark">*</span>
+          <input
+            type="text"
+            value={run.reason}
+            onChange={(e) => onPatchRun({ reason: e.target.value })}
+            placeholder="Describe why the test failed"
+          />
+        </label>
+      ) : null}
+    </section>
+  )
+}
+
+export function ReliefValveFields({ value, sizeOptions, gaugeOptions, onChange }: ReliefValveFieldsProps) {
+  const showMediaOther = value.media.trim().toLowerCase() === 'other'
+  const header = useMemo(
+    () => ({ setPressure: value.setPressure, media: value.media }),
+    [value.setPressure, value.media],
+  )
+
   const patch = (partial: Partial<ReliefValveTestFields>) => {
     const next = applyReliefValveEvaluations({ ...value, ...partial })
     onChange(next)
+  }
+
+  const patchRun = (runKey: 'pretest' | 'final', partial: Partial<ReliefValveRunFields>) => {
+    patch({
+      [runKey]: {
+        ...value[runKey],
+        ...partial,
+      },
+    })
   }
 
   const sizeSelect = (current: string) => {
@@ -43,6 +284,11 @@ export function ReliefValveFields({ value, sizeOptions, gaugeOptions, onChange }
 
   return (
     <div className="test-log-relief-fields">
+      <p className="test-log-relief-record-note">
+        One record per valve — optional pretest plus a required final test. You can save the pretest first and
+        complete the final later on the same entry.
+      </p>
+
       <label>
         Inlet size <span className="test-log-required-mark">*</span>
         <select value={value.inletSize} onChange={(e) => patch({ inletSize: e.target.value })}>
@@ -102,213 +348,64 @@ export function ReliefValveFields({ value, sizeOptions, gaugeOptions, onChange }
         </label>
       ) : null}
 
-      <div className="test-log-relief-gauge">
-        <TestGaugeSelect
-          id="relief-valve-gauge"
-          options={gaugeOptions}
-          value={{ gaugeId: value.gaugeId, gauge: value.gauge }}
-          onChange={(gauge) => patch(gauge)}
+      <label className="test-log-relief-include-pretest">
+        <input
+          type="checkbox"
+          checked={value.includePretest}
+          onChange={(e) =>
+            patch({
+              includePretest: e.target.checked,
+              pretestKind: e.target.checked ? value.pretestKind || 'Pretest' : value.pretestKind,
+            })
+          }
         />
-      </div>
+        Include pretest (as-found)
+      </label>
 
-      <fieldset className="test-log-relief-test-type">
-        <legend>
-          Test type <span className="test-log-required-mark">*</span>
-        </legend>
-        <div className="test-log-relief-test-type-options">
-          {RELIEF_VALVE_TEST_TYPES.map((testType) => (
-            <label key={testType} className="test-log-inline-radio">
-              <input
-                type="radio"
-                name="relief-valve-test-type"
-                checked={value.testType === testType}
-                onChange={() => patch({ testType })}
-              />
-              {testType}
-            </label>
-          ))}
-        </div>
-      </fieldset>
-
-      <div className="test-log-relief-set-pressure-tests">
-        <div className="test-log-relief-set-pressure-heading">
-          <h5>Pop / set pressure tests</h5>
-          <p>
-            Pass when the three-pop average is from set pressure up to +{RELIEF_VALVE_PASS_TOLERANCE_PERCENT}%
-            (never below set).
-          </p>
-        </div>
-
-        <label>
-          Pop 1 <span className="test-log-required-mark">*</span>
-          <input
-            type="text"
-            inputMode="decimal"
-            value={value.test1}
-            onChange={(e) => patch({ test1: e.target.value })}
-            placeholder="PSI"
-          />
-        </label>
-
-        <label>
-          Pop 2 <span className="test-log-required-mark">*</span>
-          <input
-            type="text"
-            inputMode="decimal"
-            value={value.test2}
-            onChange={(e) => patch({ test2: e.target.value })}
-            placeholder="PSI"
-          />
-        </label>
-
-        <label>
-          Pop 3 <span className="test-log-required-mark">*</span>
-          <input
-            type="text"
-            inputMode="decimal"
-            value={value.test3}
-            onChange={(e) => patch({ test3: e.target.value })}
-            placeholder="PSI"
-          />
-        </label>
-
-        <div
-          className={`test-log-relief-average${
-            evaluation.pop.result === 'pass'
-              ? ' test-log-relief-average-pass'
-              : evaluation.pop.result === 'fail'
-                ? ' test-log-relief-average-fail'
-                : ''
-          }`}
-          aria-live="polite"
+      {value.includePretest ? (
+        <ReliefValveRunSection
+          title="Pretest"
+          hint="As-found / pretest readings before or during repair."
+          runKey="pretest"
+          run={value.pretest}
+          header={header}
+          gaugeOptions={gaugeOptions}
+          gaugeSelectId="relief-valve-pretest-gauge"
+          resultName="relief-valve-pretest-result"
+          onPatchRun={(partial) => patchRun('pretest', partial)}
         >
-          <span className="test-log-relief-average-label">Pop average</span>
-          <strong className="test-log-relief-average-value">
-            {popAverageLabel ? `${popAverageLabel} PSI` : '—'}
-          </strong>
-          {setLabel && maxPopLabel ? (
-            <span className="test-log-relief-average-band">
-              Pass band: {setLabel}–{maxPopLabel} PSI
-            </span>
-          ) : null}
-          <span
-            className={`test-log-relief-average-delta${
-              evaluation.pop.result === 'pass'
-                ? ' test-log-relief-average-delta-match'
-                : evaluation.pop.result === 'fail'
-                  ? ' test-log-relief-average-delta-under'
-                  : ''
-            }`}
-          >
-            {evaluation.pop.summary}
-          </span>
-        </div>
-      </div>
-
-      <div className="test-log-relief-set-pressure-tests test-log-relief-reseat-tests">
-        <div className="test-log-relief-set-pressure-heading">
-          <h5>Reseat pressure tests</h5>
-          <p>
-            Compared to pop average — Steam within 6%, Air/Gas within 10%. Liquid has no pass/fail (target within
-            10%).
-          </p>
-        </div>
-
-        <label>
-          Reseat 1 <span className="test-log-required-mark">*</span>
-          <input
-            type="text"
-            inputMode="decimal"
-            value={value.reseat1}
-            onChange={(e) => patch({ reseat1: e.target.value })}
-            placeholder="PSI"
-          />
-        </label>
-
-        <label>
-          Reseat 2 <span className="test-log-required-mark">*</span>
-          <input
-            type="text"
-            inputMode="decimal"
-            value={value.reseat2}
-            onChange={(e) => patch({ reseat2: e.target.value })}
-            placeholder="PSI"
-          />
-        </label>
-
-        <label>
-          Reseat 3 <span className="test-log-required-mark">*</span>
-          <input
-            type="text"
-            inputMode="decimal"
-            value={value.reseat3}
-            onChange={(e) => patch({ reseat3: e.target.value })}
-            placeholder="PSI"
-          />
-        </label>
-
-        <div
-          className={`test-log-relief-average${
-            evaluation.reseat.result === 'pass'
-              ? ' test-log-relief-average-pass'
-              : evaluation.reseat.result === 'fail'
-                ? ' test-log-relief-average-fail'
-                : evaluation.reseat.result === 'na'
-                  ? ' test-log-relief-average-advisory'
-                  : ''
-          }`}
-          aria-live="polite"
-        >
-          <span className="test-log-relief-average-label">Reseat average</span>
-          <strong className="test-log-relief-average-value">
-            {reseatAverageLabel ? `${reseatAverageLabel} PSI` : '—'}
-          </strong>
-          {reseatMinLabel && reseatMaxLabel ? (
-            <span className="test-log-relief-average-band">
-              {evaluation.reseat.enforced ? 'Pass band' : 'Target band'}: {reseatMinLabel}–{reseatMaxLabel}{' '}
-              PSI
-            </span>
-          ) : null}
-          <span
-            className={`test-log-relief-average-delta${
-              evaluation.reseat.result === 'pass'
-                ? ' test-log-relief-average-delta-match'
-                : evaluation.reseat.result === 'fail'
-                  ? ' test-log-relief-average-delta-under'
-                  : ''
-            }`}
-          >
-            {evaluation.reseat.summary}
-          </span>
-        </div>
-      </div>
-
-      <fieldset className="test-pressure-result-fieldset test-log-relief-result">
-        <legend>
-          Overall result <span className="test-log-required-mark">*</span>
-        </legend>
-        <p className="test-log-relief-result-hint">{evaluation.summary}</p>
-        <label className="test-pressure-result-option">
-          <input type="radio" name="relief-valve-result" checked={value.result === 'pass'} readOnly disabled />
-          Pass
-        </label>
-        <label className="test-pressure-result-option">
-          <input type="radio" name="relief-valve-result" checked={value.result === 'fail'} readOnly disabled />
-          Fail
-        </label>
-      </fieldset>
-
-      {value.result === 'fail' ? (
-        <label className="test-log-relief-fail-reason">
-          Fail reason <span className="test-log-required-mark">*</span>
-          <input
-            type="text"
-            value={value.reason}
-            onChange={(e) => patch({ reason: e.target.value })}
-            placeholder="Describe why the test failed"
-          />
-        </label>
+          <fieldset className="test-log-relief-test-type">
+            <legend>
+              Pretest type <span className="test-log-required-mark">*</span>
+            </legend>
+            <div className="test-log-relief-test-type-options">
+              {RELIEF_VALVE_PRETEST_KINDS.map((kind) => (
+                <label key={kind} className="test-log-inline-radio">
+                  <input
+                    type="radio"
+                    name="relief-valve-pretest-kind"
+                    checked={value.pretestKind === kind}
+                    onChange={() => patch({ pretestKind: kind })}
+                  />
+                  {kind}
+                </label>
+              ))}
+            </div>
+          </fieldset>
+        </ReliefValveRunSection>
       ) : null}
+
+      <ReliefValveRunSection
+        title="Final test"
+        hint="Required as-left / final pop and reseat for this valve."
+        runKey="final"
+        run={value.final}
+        header={header}
+        gaugeOptions={gaugeOptions}
+        gaugeSelectId="relief-valve-final-gauge"
+        resultName="relief-valve-final-result"
+        onPatchRun={(partial) => patchRun('final', partial)}
+      />
     </div>
   )
 }

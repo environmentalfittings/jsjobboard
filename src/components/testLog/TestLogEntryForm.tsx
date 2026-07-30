@@ -411,20 +411,24 @@ export function TestLogEntryForm({
           const testTypeHint = String(jobTestType ?? '').toLowerCase()
           const pretestWithRepair = testTypeHint.includes('repair')
           const pretest = pretestWithRepair || testTypeHint.includes('pretest')
-          setTesting((prev) => ({
-            ...prev,
-            reliefValve: {
-              ...(prev.reliefValve ?? emptyReliefValveTestFields()),
-              inletSize: sizes.inletSize || prev.reliefValve?.inletSize || '',
-              outletSize: sizes.outletSize || prev.reliefValve?.outletSize || '',
-              setPressure: jobPressure?.trim() || prev.reliefValve?.setPressure || '',
-              testType: pretestWithRepair
-                ? 'Pretest with Repair'
-                : pretest
-                  ? 'Pretest'
-                  : prev.reliefValve?.testType || '',
-            },
-          }))
+          setTesting((prev) => {
+            const existing = prev.reliefValve ?? emptyReliefValveTestFields()
+            return {
+              ...prev,
+              reliefValve: {
+                ...existing,
+                inletSize: sizes.inletSize || existing.inletSize || '',
+                outletSize: sizes.outletSize || existing.outletSize || '',
+                setPressure: jobPressure?.trim() || existing.setPressure || '',
+                includePretest: pretest || existing.includePretest,
+                pretestKind: pretestWithRepair
+                  ? 'Pretest with Repair'
+                  : pretest
+                    ? 'Pretest'
+                    : existing.pretestKind || '',
+              },
+            }
+          })
         },
       })
       setValveRowId(prefill.valveRowId)
@@ -516,12 +520,22 @@ export function TestLogEntryForm({
     if (isReliefValveType(canonicalType)) {
       const existing = details.reliefValve ?? emptyReliefValveTestFields()
       const sizes = prefillReliefSizesFromJobSize(entry.size)
+      const worked = entry.worked ?? ''
+      const workedSuggestsPretest = /pretest/i.test(worked)
+      const workedSuggestsRepair = /repair/i.test(worked)
       details.reliefValve = {
         ...existing,
         inletSize: existing.inletSize || sizes.inletSize,
         outletSize: existing.outletSize || sizes.outletSize,
         setPressure: existing.setPressure || entry.pressure || '',
-        testType: existing.testType || (entry.worked?.includes('Repair') ? 'Pretest with Repair' : entry.worked?.includes('Pretest') ? 'Pretest' : ''),
+        includePretest: existing.includePretest || workedSuggestsPretest,
+        pretestKind:
+          existing.pretestKind ||
+          (workedSuggestsRepair
+            ? 'Pretest with Repair'
+            : workedSuggestsPretest
+              ? 'Pretest'
+              : ''),
         media: existing.media || '',
       }
     }

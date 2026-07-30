@@ -3,42 +3,49 @@ import { VALVE_SIZES } from '../constants/jobLookups'
 export const RELIEF_VALVE_MEDIA = ['Air/Gas', 'Liquid', 'Steam', 'Other'] as const
 export type ReliefValveMedia = (typeof RELIEF_VALVE_MEDIA)[number]
 
-export const RELIEF_VALVE_TEST_TYPES = ['Pretest', 'Pretest with Repair'] as const
-export type ReliefValveTestType = (typeof RELIEF_VALVE_TEST_TYPES)[number]
+/** Pretest flavor when a pretest is included on the record. */
+export const RELIEF_VALVE_PRETEST_KINDS = ['Pretest', 'Pretest with Repair'] as const
+export type ReliefValvePretestKind = (typeof RELIEF_VALVE_PRETEST_KINDS)[number]
 
+/** @deprecated Use RELIEF_VALVE_PRETEST_KINDS */
+export const RELIEF_VALVE_TEST_TYPES = RELIEF_VALVE_PRETEST_KINDS
+/** @deprecated Use ReliefValvePretestKind */
+export type ReliefValveTestType = ReliefValvePretestKind
+
+/** One pop/reseat run (pretest or final) on a single relief-valve record. */
+export type ReliefValveRunFields = {
+  gaugeId: string
+  gauge: string
+  test1: string
+  test2: string
+  test3: string
+  reseat1: string
+  reseat2: string
+  reseat3: string
+  result: 'pass' | 'fail' | ''
+  reseatResult: 'pass' | 'fail' | 'na' | ''
+  reason: string
+}
+
+/**
+ * One Test Log record for a PRV / relief valve.
+ * Shared header + optional pretest run + required final run.
+ */
 export type ReliefValveTestFields = {
   inletSize: string
   outletSize: string
   setPressure: string
   media: string
   mediaOther: string
-  testType: string
-  /** Test gauge used for pop / reseat readings. */
-  gaugeId: string
-  gauge: string
-  /** Three pop / lift tests against set pressure. */
-  test1: string
-  test2: string
-  test3: string
-  /** Three reseat pressure tests. */
-  reseat1: string
-  reseat2: string
-  reseat3: string
-  /** Overall result (pop + reseat rules). */
-  result: 'pass' | 'fail' | ''
-  /** Reseat-only result (Liquid is advisory / na). */
-  reseatResult: 'pass' | 'fail' | 'na' | ''
-  reason: string
+  /** When true, pretest pop/reseat is part of this record. */
+  includePretest: boolean
+  pretestKind: string
+  pretest: ReliefValveRunFields
+  final: ReliefValveRunFields
 }
 
-export function emptyReliefValveTestFields(): ReliefValveTestFields {
+export function emptyReliefValveRunFields(): ReliefValveRunFields {
   return {
-    inletSize: '',
-    outletSize: '',
-    setPressure: '',
-    media: '',
-    mediaOther: '',
-    testType: '',
     gaugeId: '',
     gauge: '',
     test1: '',
@@ -50,6 +57,20 @@ export function emptyReliefValveTestFields(): ReliefValveTestFields {
     result: '',
     reseatResult: '',
     reason: '',
+  }
+}
+
+export function emptyReliefValveTestFields(): ReliefValveTestFields {
+  return {
+    inletSize: '',
+    outletSize: '',
+    setPressure: '',
+    media: '',
+    mediaOther: '',
+    includePretest: false,
+    pretestKind: '',
+    pretest: emptyReliefValveRunFields(),
+    final: emptyReliefValveRunFields(),
   }
 }
 
@@ -73,8 +94,8 @@ function normalizeStoredMedia(raw: string): string {
   return trimmed
 }
 
-export function parseReliefValveTestFields(raw: unknown): ReliefValveTestFields {
-  const empty = emptyReliefValveTestFields()
+function parseRunFields(raw: unknown): ReliefValveRunFields {
+  const empty = emptyReliefValveRunFields()
   if (!raw || typeof raw !== 'object') return empty
   const o = raw as Record<string, unknown>
   const reseatResult =
@@ -82,12 +103,6 @@ export function parseReliefValveTestFields(raw: unknown): ReliefValveTestFields 
       ? o.reseatResult
       : ''
   return {
-    inletSize: String(o.inletSize ?? '').trim(),
-    outletSize: String(o.outletSize ?? '').trim(),
-    setPressure: String(o.setPressure ?? '').trim(),
-    media: normalizeStoredMedia(String(o.media ?? '')),
-    mediaOther: String(o.mediaOther ?? '').trim(),
-    testType: String(o.testType ?? '').trim(),
     gaugeId: String(o.gaugeId ?? '').trim(),
     gauge: String(o.gauge ?? '').trim(),
     test1: String(o.test1 ?? '').trim(),
@@ -102,9 +117,75 @@ export function parseReliefValveTestFields(raw: unknown): ReliefValveTestFields 
   }
 }
 
+function runHasAnyData(run: ReliefValveRunFields): boolean {
+  return Boolean(
+    run.gaugeId ||
+      run.gauge ||
+      run.test1 ||
+      run.test2 ||
+      run.test3 ||
+      run.reseat1 ||
+      run.reseat2 ||
+      run.reseat3 ||
+      run.result ||
+      run.reason,
+  )
+}
+
+export function parseReliefValveTestFields(raw: unknown): ReliefValveTestFields {
+  const empty = emptyReliefValveTestFields()
+  if (!raw || typeof raw !== 'object') return empty
+  const o = raw as Record<string, unknown>
+
+  const header = {
+    inletSize: String(o.inletSize ?? '').trim(),
+    outletSize: String(o.outletSize ?? '').trim(),
+    setPressure: String(o.setPressure ?? '').trim(),
+    media: normalizeStoredMedia(String(o.media ?? '')),
+    mediaOther: String(o.mediaOther ?? '').trim(),
+  }
+
+  const hasNestedShape =
+    o.final != null ||
+    o.pretest != null ||
+    typeof o.includePretest === 'boolean' ||
+    typeof o.pretestKind === 'string'
+
+  if (hasNestedShape) {
+    const pretest = parseRunFields(o.pretest)
+    const final = parseRunFields(o.final)
+    const pretestKind = String(o.pretestKind ?? o.testType ?? '').trim()
+    const includePretest =
+      typeof o.includePretest === 'boolean'
+        ? o.includePretest
+        : Boolean(pretestKind) || runHasAnyData(pretest)
+    return {
+      ...header,
+      includePretest,
+      pretestKind,
+      pretest,
+      final,
+    }
+  }
+
+  // Legacy flat shape (single pretest-style run) → migrate into pretest.
+  const legacyRun = parseRunFields(o)
+  const legacyType = String(o.testType ?? '').trim()
+  const hasLegacyRun = Boolean(legacyType) || runHasAnyData(legacyRun)
+  return {
+    ...header,
+    includePretest: hasLegacyRun,
+    pretestKind: legacyType,
+    pretest: hasLegacyRun ? legacyRun : emptyReliefValveRunFields(),
+    final: emptyReliefValveRunFields(),
+  }
+}
+
 /** Parse a pressure string like "150", "150 PSI", "150.5#" into a number. */
 export function parseReliefPressureValue(raw: string | null | undefined): number | null {
-  const match = String(raw ?? '').trim().match(/-?\d+(?:\.\d+)?/)
+  const match = String(raw ?? '')
+    .trim()
+    .match(/-?\d+(?:\.\d+)?/)
   if (!match) return null
   const value = Number(match[0])
   return Number.isFinite(value) ? value : null
@@ -118,14 +199,14 @@ function averageThree(a: string, b: string, c: string): number | null {
 
 /** Average of the three pop tests; null until all three numeric values are entered. */
 export function averageReliefValveTests(
-  fields: Pick<ReliefValveTestFields, 'test1' | 'test2' | 'test3'>,
+  fields: Pick<ReliefValveRunFields, 'test1' | 'test2' | 'test3'>,
 ): number | null {
   return averageThree(fields.test1, fields.test2, fields.test3)
 }
 
 /** Average of the three reseat tests; null until all three numeric values are entered. */
 export function averageReliefValveReseatTests(
-  fields: Pick<ReliefValveTestFields, 'reseat1' | 'reseat2' | 'reseat3'>,
+  fields: Pick<ReliefValveRunFields, 'reseat1' | 'reseat2' | 'reseat3'>,
 ): number | null {
   return averageThree(fields.reseat1, fields.reseat2, fields.reseat3)
 }
@@ -166,6 +247,9 @@ export type ReliefValveOverallEvaluation = {
   summary: string
 }
 
+export type ReliefValveRunEvalInput = Pick<ReliefValveTestFields, 'setPressure' | 'media'> &
+  Pick<ReliefValveRunFields, 'test1' | 'test2' | 'test3' | 'reseat1' | 'reseat2' | 'reseat3'>
+
 export function reliefValvePassBand(setPressure: number): { min: number; max: number } {
   return {
     min: setPressure,
@@ -177,9 +261,7 @@ export function reliefValvePassBand(setPressure: number): { min: number; max: nu
  * Pass when three-pop average is between set pressure and +3% of set pressure.
  * Below set pressure = fail (customers do not want valves set low).
  */
-export function evaluateReliefValvePassFail(
-  fields: Pick<ReliefValveTestFields, 'setPressure' | 'test1' | 'test2' | 'test3'>,
-): ReliefValvePassEvaluation {
+export function evaluateReliefValvePassFail(fields: ReliefValveRunEvalInput): ReliefValvePassEvaluation {
   const setPressure = parseReliefPressureValue(fields.setPressure)
   const average = averageReliefValveTests(fields)
   if (setPressure === null || average === null) {
@@ -235,7 +317,9 @@ export function reseatToleranceForMedia(media: string): {
   const n = normalizeStoredMedia(media).toLowerCase()
   if (!n) return null
   if (n === 'steam') return { percent: 6, enforced: true, label: 'Steam' }
-  if (n === 'air/gas' || n === 'other') return { percent: 10, enforced: true, label: n === 'other' ? 'Other' : 'Air/Gas' }
+  if (n === 'air/gas' || n === 'other') {
+    return { percent: 10, enforced: true, label: n === 'other' ? 'Other' : 'Air/Gas' }
+  }
   if (n === 'liquid') return { percent: 10, enforced: false, label: 'Liquid' }
   return { percent: 10, enforced: true, label: media }
 }
@@ -244,12 +328,7 @@ export function reseatToleranceForMedia(media: string): {
  * Reseat average must be within media % of the three-pop average.
  * Steam 6%, Air/Gas 10%, Liquid target 10% with no pass/fail.
  */
-export function evaluateReliefValveReseat(
-  fields: Pick<
-    ReliefValveTestFields,
-    'media' | 'test1' | 'test2' | 'test3' | 'reseat1' | 'reseat2' | 'reseat3'
-  >,
-): ReliefValveReseatEvaluation {
+export function evaluateReliefValveReseat(fields: ReliefValveRunEvalInput): ReliefValveReseatEvaluation {
   const popAverage = averageReliefValveTests(fields)
   const reseatAverage = averageReliefValveReseatTests(fields)
   const mediaRule = reseatToleranceForMedia(fields.media)
@@ -349,7 +428,20 @@ export function evaluateReliefValveReseat(
   }
 }
 
-export function evaluateReliefValveOverall(fields: ReliefValveTestFields): ReliefValveOverallEvaluation {
+export function evaluateReliefValveRun(
+  run: ReliefValveRunFields,
+  header: Pick<ReliefValveTestFields, 'setPressure' | 'media'>,
+): ReliefValveOverallEvaluation {
+  const fields: ReliefValveRunEvalInput = {
+    setPressure: header.setPressure,
+    media: header.media,
+    test1: run.test1,
+    test2: run.test2,
+    test3: run.test3,
+    reseat1: run.reseat1,
+    reseat2: run.reseat2,
+    reseat3: run.reseat3,
+  }
   const pop = evaluateReliefValvePassFail(fields)
   const reseat = evaluateReliefValveReseat(fields)
 
@@ -382,6 +474,12 @@ export function evaluateReliefValveOverall(fields: ReliefValveTestFields): Relie
   }
 }
 
+/** @deprecated Prefer evaluateReliefValveRun on pretest/final. */
+export function evaluateReliefValveOverall(fields: ReliefValveTestFields): ReliefValveOverallEvaluation {
+  const run = fields.includePretest && runHasAnyData(fields.pretest) ? fields.pretest : fields.final
+  return evaluateReliefValveRun(run, fields)
+}
+
 export function resolveReliefValveMedia(fields: ReliefValveTestFields): string {
   if (fields.media.toLowerCase() === 'other') {
     return fields.mediaOther.trim() || 'Other'
@@ -403,7 +501,10 @@ export function prefillReliefSizesFromJobSize(size: string | null | undefined): 
 > {
   const raw = String(size ?? '').trim()
   if (!raw) return { inletSize: '', outletSize: '' }
-  const split = raw.split(/\s*[x×/]\s*/i).map((part) => part.trim()).filter(Boolean)
+  const split = raw
+    .split(/\s*[x×/]\s*/i)
+    .map((part) => part.trim())
+    .filter(Boolean)
   if (split.length >= 2) {
     return { inletSize: split[0], outletSize: split[1] }
   }
@@ -425,14 +526,70 @@ export function valveSizeSelectOptions(extra: string[] = []): string[] {
   return out
 }
 
-export function applyReliefValveEvaluations(fields: ReliefValveTestFields): ReliefValveTestFields {
-  const overall = evaluateReliefValveOverall(fields)
+function applyRunEvaluations(
+  run: ReliefValveRunFields,
+  header: Pick<ReliefValveTestFields, 'setPressure' | 'media'>,
+): ReliefValveRunFields {
+  const overall = evaluateReliefValveRun(run, header)
   return {
-    ...fields,
+    ...run,
     result: overall.result,
     reseatResult: overall.reseat.result,
-    reason: overall.result === 'pass' ? '' : fields.reason,
+    reason: overall.result === 'pass' ? '' : run.reason,
   }
+}
+
+export function applyReliefValveEvaluations(fields: ReliefValveTestFields): ReliefValveTestFields {
+  return {
+    ...fields,
+    pretest: fields.includePretest
+      ? applyRunEvaluations(fields.pretest, fields)
+      : fields.pretest,
+    final: applyRunEvaluations(fields.final, fields),
+  }
+}
+
+function validateRunFields(
+  run: ReliefValveRunFields,
+  header: Pick<ReliefValveTestFields, 'setPressure' | 'media'>,
+  label: string,
+): string | null {
+  if (!run.gaugeId.trim() && !run.gauge.trim()) {
+    return `Select a test gauge for the ${label}`
+  }
+  if (!run.test1.trim() || !run.test2.trim() || !run.test3.trim()) {
+    return `Enter all three set-pressure / pop tests for the ${label}`
+  }
+  if (
+    parseReliefPressureValue(run.test1) === null ||
+    parseReliefPressureValue(run.test2) === null ||
+    parseReliefPressureValue(run.test3) === null
+  ) {
+    return `Each ${label} pop test must be a number`
+  }
+  if (!run.reseat1.trim() || !run.reseat2.trim() || !run.reseat3.trim()) {
+    return `Enter all three reseat pressure tests for the ${label}`
+  }
+  if (
+    parseReliefPressureValue(run.reseat1) === null ||
+    parseReliefPressureValue(run.reseat2) === null ||
+    parseReliefPressureValue(run.reseat3) === null
+  ) {
+    return `Each ${label} reseat test must be a number`
+  }
+
+  const overall = evaluateReliefValveRun(run, header)
+  if (!overall.result) return overall.summary || `Complete ${label} pop and reseat tests`
+  if (run.result !== overall.result) {
+    return `${label} result must be ${overall.result.toUpperCase()} based on pop and reseat rules`
+  }
+  if (run.reseatResult !== overall.reseat.result) {
+    return `${label} reseat result is out of date — re-enter reseat values`
+  }
+  if (run.result === 'fail' && !run.reason.trim()) {
+    return `Enter a fail reason for the ${label}`
+  }
+  return null
 }
 
 export function validateReliefValveFields(fields: ReliefValveTestFields): string | null {
@@ -446,41 +603,53 @@ export function validateReliefValveFields(fields: ReliefValveTestFields): string
   if (fields.media.toLowerCase() === 'other' && !fields.mediaOther.trim()) {
     return 'Enter the Other media for Relief Valve'
   }
-  if (!fields.testType.trim()) return 'Test type is required for Relief Valve'
-  if (!fields.gaugeId.trim() && !fields.gauge.trim()) {
-    return 'Select a test gauge for Relief Valve'
-  }
-  if (!fields.test1.trim() || !fields.test2.trim() || !fields.test3.trim()) {
-    return 'Enter all three set-pressure / pop tests for Relief Valve'
-  }
-  if (
-    parseReliefPressureValue(fields.test1) === null ||
-    parseReliefPressureValue(fields.test2) === null ||
-    parseReliefPressureValue(fields.test3) === null
-  ) {
-    return 'Each Relief Valve pop test must be a number'
-  }
-  if (!fields.reseat1.trim() || !fields.reseat2.trim() || !fields.reseat3.trim()) {
-    return 'Enter all three reseat pressure tests for Relief Valve'
-  }
-  if (
-    parseReliefPressureValue(fields.reseat1) === null ||
-    parseReliefPressureValue(fields.reseat2) === null ||
-    parseReliefPressureValue(fields.reseat3) === null
-  ) {
-    return 'Each Relief Valve reseat test must be a number'
+
+  if (fields.includePretest) {
+    if (!fields.pretestKind.trim()) return 'Select a pretest type (Pretest or Pretest with Repair)'
+    const pretestError = validateRunFields(fields.pretest, fields, 'Pretest')
+    if (pretestError) return pretestError
   }
 
-  const overall = evaluateReliefValveOverall(fields)
-  if (!overall.result) return overall.summary || 'Complete Relief Valve pop and reseat tests'
-  if (fields.result !== overall.result) {
-    return `Relief Valve result must be ${overall.result.toUpperCase()} based on pop and reseat rules`
+  const finalStarted = runHasAnyData(fields.final)
+  if (!fields.includePretest || finalStarted) {
+    const finalError = validateRunFields(fields.final, fields, 'Final test')
+    if (finalError) return finalError
   }
-  if (fields.reseatResult !== overall.reseat.result) {
-    return 'Relief Valve reseat result is out of date — re-enter reseat values'
+
+  if (!fields.includePretest && !finalStarted) {
+    return 'Enter the Final test for Relief Valve'
   }
-  if (fields.result === 'fail' && !fields.reason.trim()) {
-    return 'Enter a fail reason for the Relief Valve test'
-  }
+
   return null
+}
+
+/** Row-level pass/fail prefers the final test (what ships); falls back to pretest only. */
+export function reliefValveRecordPassFail(fields: ReliefValveTestFields): 'PASS' | 'FAIL' | '' {
+  if (fields.final.result === 'fail') return 'FAIL'
+  if (fields.final.result === 'pass') return 'PASS'
+  if (fields.includePretest && fields.pretest.result === 'fail') return 'FAIL'
+  if (fields.includePretest && fields.pretest.result === 'pass') return ''
+  return ''
+}
+
+export function formatReliefValveWorkedSummary(fields: ReliefValveTestFields): string | null {
+  const parts: string[] = []
+  if (fields.includePretest) {
+    parts.push(fields.pretestKind.trim() || 'Pretest')
+  }
+  if (runHasAnyData(fields.final) || fields.final.result) {
+    parts.push('Final')
+  }
+  return parts.length ? parts.join(' + ') : null
+}
+
+export function formatReliefValveFailReasons(fields: ReliefValveTestFields): string[] {
+  const notes: string[] = []
+  if (fields.includePretest && fields.pretest.result === 'fail' && fields.pretest.reason.trim()) {
+    notes.push(`Pretest: ${fields.pretest.reason.trim()}`)
+  }
+  if (fields.final.result === 'fail' && fields.final.reason.trim()) {
+    notes.push(`Final: ${fields.final.reason.trim()}`)
+  }
+  return notes
 }
