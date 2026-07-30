@@ -91,25 +91,30 @@ export function TestLogReportsSection(props: TestLogReportsSectionProps) {
   }
 
   const generatePdf = async (saveToEntry: boolean) => {
-    if (saveToEntry) {
-      if (props.mode !== 'saved') return
-      setBusy(true)
-      const fileName = testLogReportFileName(props.reportData.valve_id, props.reportData.tested_on)
-      const blob = testLogReportPdfBlob(props.reportData)
-      const file = new File([blob], fileName, { type: 'application/pdf' })
-      const { error } = await uploadTestLogReport(props.testLogId, file, 'generated')
-      setBusy(false)
-      if (error) {
-        showToast(error.includes('test_log_reports') ? 'Run migration-test-log-reports.sql in Supabase' : error)
+    setBusy(true)
+    try {
+      if (saveToEntry) {
+        if (props.mode !== 'saved') return
+        const fileName = testLogReportFileName(props.reportData.valve_id, props.reportData.tested_on)
+        const blob = await testLogReportPdfBlob(props.reportData)
+        const file = new File([blob], fileName, { type: 'application/pdf' })
+        const { error } = await uploadTestLogReport(props.testLogId, file, 'generated')
+        if (error) {
+          showToast(error.includes('test_log_reports') ? 'Run migration-test-log-reports.sql in Supabase' : error)
+          return
+        }
+        showToast('Test report PDF saved to this entry')
+        await reload()
         return
       }
-      showToast('Test report PDF saved to this entry')
-      await reload()
-      return
-    }
 
-    downloadTestLogReportPdf(props.reportData)
-    showToast('Test report PDF downloaded')
+      await downloadTestLogReportPdf(props.reportData)
+      showToast('Test report PDF downloaded')
+    } catch {
+      showToast('Could not generate test report PDF')
+    } finally {
+      setBusy(false)
+    }
   }
 
   const removeReport = async (report: TestLogReport) => {
@@ -131,8 +136,8 @@ export function TestLogReportsSection(props: TestLogReportsSectionProps) {
         <h5 className="test-log-reports-title">Test reports</h5>
         <p className="test-log-reports-note">
           {props.mode === 'draft'
-            ? 'Attach chart scans or other report files — they upload when you save the entry. You can also download a PDF from the current form data.'
-            : 'Upload chart scans or generate a PDF from the saved test data.'}
+            ? 'Attach chart scans or other report files — they upload when you save the entry. Download PDF builds a J~S certificate from the current form data.'
+            : 'Upload chart scans or generate a J~S certificate PDF from the saved test data.'}
         </p>
       </div>
 

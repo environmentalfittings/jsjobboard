@@ -13,9 +13,12 @@ export type TestLogValvePrefill = {
   cell: string | null
   description: string | null
   jobStatus: string | null
+  drawingPoNumber: string | null
 }
 
 const VALVE_PREFILL_SELECT =
+  'id,valve_id,size,pressure_class,body_material,valve_type,test_type,customer,cell,description,status,drawing_po_number'
+const VALVE_PREFILL_SELECT_FALLBACK =
   'id,valve_id,size,pressure_class,body_material,valve_type,test_type,customer,cell,description,status'
 
 type ValvePrefillRow = {
@@ -30,6 +33,7 @@ type ValvePrefillRow = {
   cell: string | null
   description: string | null
   status: string
+  drawing_po_number?: string | null
 }
 
 function mapValveRow(row: ValvePrefillRow): TestLogValvePrefill {
@@ -45,7 +49,56 @@ function mapValveRow(row: ValvePrefillRow): TestLogValvePrefill {
     cell: row.cell,
     description: row.description,
     jobStatus: row.status,
+    drawingPoNumber: row.drawing_po_number ?? null,
   }
+}
+
+async function selectValvePrefillExact(candidate: string): Promise<ValvePrefillRow | null> {
+  const primary = await supabase
+    .from('valves')
+    .select(VALVE_PREFILL_SELECT)
+    .eq('valve_id', candidate)
+    .order('id', { ascending: false })
+    .limit(1)
+    .maybeSingle()
+
+  if (!primary.error && primary.data) return primary.data as ValvePrefillRow
+
+  if (primary.error && /drawing_po_number/i.test(primary.error.message)) {
+    const fallback = await supabase
+      .from('valves')
+      .select(VALVE_PREFILL_SELECT_FALLBACK)
+      .eq('valve_id', candidate)
+      .order('id', { ascending: false })
+      .limit(1)
+      .maybeSingle()
+    if (!fallback.error && fallback.data) return fallback.data as ValvePrefillRow
+  }
+
+  return null
+}
+
+async function selectValvePrefillSuffix(baseId: string): Promise<ValvePrefillRow[]> {
+  const primary = await supabase
+    .from('valves')
+    .select(VALVE_PREFILL_SELECT)
+    .ilike('valve_id', `${baseId}-%`)
+    .order('id', { ascending: false })
+    .limit(25)
+
+  if (!primary.error) return (primary.data ?? []) as ValvePrefillRow[]
+
+  if (primary.error && /drawing_po_number/i.test(primary.error.message)) {
+    const fallback = await supabase
+      .from('valves')
+      .select(VALVE_PREFILL_SELECT_FALLBACK)
+      .ilike('valve_id', `${baseId}-%`)
+      .order('id', { ascending: false })
+      .limit(25)
+    if (!fallback.error) return (fallback.data ?? []) as ValvePrefillRow[]
+  }
+
+  return []
 }
 
 function compareValveIdSuffix(a: string, b: string): number {
@@ -68,28 +121,14 @@ export async function fetchValveForTestLog(valveIdInput: string): Promise<TestLo
   const candidates = Array.from(new Set([normalized, trimmed].filter(Boolean)))
 
   for (const candidate of candidates) {
-    const { data: valve } = await supabase
-      .from('valves')
-      .select(VALVE_PREFILL_SELECT)
-      .eq('valve_id', candidate)
-      .order('id', { ascending: false })
-      .limit(1)
-      .maybeSingle()
-
-    if (valve) return mapValveRow(valve as ValvePrefillRow)
+    const valve = await selectValvePrefillExact(candidate)
+    if (valve) return mapValveRow(valve)
   }
 
   // Shop often types the work order without the line suffix (506269 → 506269-1).
   const baseId = normalized || trimmed
   if (!baseId.includes('-')) {
-    const { data: matches } = await supabase
-      .from('valves')
-      .select(VALVE_PREFILL_SELECT)
-      .ilike('valve_id', `${baseId}-%`)
-      .order('id', { ascending: false })
-      .limit(25)
-
-    const rows = (matches ?? []) as ValvePrefillRow[]
+    const rows = await selectValvePrefillSuffix(baseId)
     if (rows.length) {
       const preferred = [...rows].sort((a, b) => compareValveIdSuffix(a.valve_id, b.valve_id))[0]
       return mapValveRow(preferred)

@@ -135,6 +135,8 @@ export function TestLogEntryForm({
   const [valveId, setValveId] = useState('')
   const [size, setSize] = useState('')
   const [pressure, setPressure] = useState('')
+  const [customer, setCustomer] = useState('')
+  const [customerPo, setCustomerPo] = useState('')
   const [bodyMaterial, setBodyMaterial] = useState('')
   const [bodyMaterialLoadedFromJob, setBodyMaterialLoadedFromJob] = useState(false)
   const [valveRowId, setValveRowId] = useState<number | null>(null)
@@ -242,6 +244,8 @@ export function TestLogEntryForm({
         : formTesterValue || null,
       pass_fail: overallPassFail || null,
       action_taken: deriveActionTaken(testing),
+      customer: customer || null,
+      customerPo: customerPo || null,
       testing_details: testing,
     }),
     [
@@ -255,6 +259,8 @@ export function TestLogEntryForm({
       testing,
       isReliefValve,
       reliefFields,
+      customer,
+      customerPo,
     ],
   )
   const canSubmit =
@@ -323,6 +329,8 @@ export function TestLogEntryForm({
     if (pr) setPressure(pr)
     const vt = searchParams.get(TEST_LOG_PREFILL_KEYS.valveType)
     if (vt) setValveType(canonicalizeValveType(vt))
+    const cust = searchParams.get(TEST_LOG_PREFILL_KEYS.customer)
+    if (cust) setCustomer(cust)
     const tt = searchParams.get(TEST_LOG_PREFILL_KEYS.testType)
     if (!tt?.trim()) return
 
@@ -421,6 +429,8 @@ export function TestLogEntryForm({
         },
       })
       setValveRowId(prefill.valveRowId)
+      setCustomer(prefill.customer?.trim() || '')
+      setCustomerPo(prefill.drawingPoNumber?.trim() || '')
       setBodyMaterialLoadedFromJob(Boolean(prefill.bodyMaterial?.trim()))
       setValveTypeLoadedFromJob(Boolean(prefill.valveType?.trim()))
       setValveLookupStatus('found')
@@ -470,6 +480,8 @@ export function TestLogEntryForm({
     setValveId('')
     setSize('')
     setPressure('')
+    setCustomer('')
+    setCustomerPo('')
     setBodyMaterial('')
     setBodyMaterialLoadedFromJob(false)
     setValveRowId(null)
@@ -561,6 +573,8 @@ export function TestLogEntryForm({
       setValveRowId(prefill.valveRowId)
       if (!entry.size && prefill.size) setSize(prefill.size)
       if (!entry.pressure && prefill.pressure) setPressure(prefill.pressure)
+      setCustomer(prefill.customer?.trim() || '')
+      setCustomerPo(prefill.drawingPoNumber?.trim() || '')
       if (prefill.bodyMaterial) {
         setBodyMaterial(prefill.bodyMaterial)
         setBodyMaterialLoadedFromJob(true)
@@ -573,6 +587,8 @@ export function TestLogEntryForm({
       lastPrefilledValveId.current = prefill.valveId
     } else {
       setValveRowId(null)
+      setCustomer('')
+      setCustomerPo('')
       setBodyMaterial('')
       setBodyMaterialLoadedFromJob(false)
       setValveTypeLoadedFromJob(false)
@@ -951,6 +967,24 @@ export function TestLogEntryForm({
               }}
               onSaved={() => showToast('Valve type saved to job record')}
             />
+            <label>
+              Customer
+              <input
+                type="text"
+                value={customer}
+                onChange={(e) => setCustomer(e.target.value)}
+                placeholder="Customer for certificate"
+              />
+            </label>
+            <label>
+              Customer PO #
+              <input
+                type="text"
+                value={customerPo}
+                onChange={(e) => setCustomerPo(e.target.value)}
+                placeholder="Drawing / PO #"
+              />
+            </label>
           </div>
 
           {isReliefValve ? (
