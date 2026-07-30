@@ -1,6 +1,10 @@
+import { useMemo } from 'react'
 import {
   RELIEF_VALVE_MEDIA,
   RELIEF_VALVE_TEST_TYPES,
+  averageReliefValveTests,
+  formatReliefValveAverage,
+  parseReliefPressureValue,
   type ReliefValveTestFields,
 } from '../../lib/reliefValveTest'
 
@@ -13,6 +17,11 @@ type ReliefValveFieldsProps = {
 export function ReliefValveFields({ value, sizeOptions, onChange }: ReliefValveFieldsProps) {
   const patch = (partial: Partial<ReliefValveTestFields>) => onChange({ ...value, ...partial })
   const showMediaOther = value.media.trim().toLowerCase() === 'other'
+  const average = useMemo(() => averageReliefValveTests(value), [value])
+  const averageLabel = formatReliefValveAverage(average)
+  const setPressureNumber = parseReliefPressureValue(value.setPressure)
+  const averageDelta =
+    average !== null && setPressureNumber !== null ? average - setPressureNumber : null
 
   const sizeSelect = (current: string) => {
     const options = [...sizeOptions]
@@ -52,9 +61,10 @@ export function ReliefValveFields({ value, sizeOptions, onChange }: ReliefValveF
         Set pressure <span className="test-log-required-mark">*</span>
         <input
           type="text"
+          inputMode="decimal"
           value={value.setPressure}
           onChange={(e) => patch({ setPressure: e.target.value })}
-          placeholder="e.g. 150 PSI"
+          placeholder="e.g. 150"
         />
       </label>
 
@@ -100,6 +110,70 @@ export function ReliefValveFields({ value, sizeOptions, onChange }: ReliefValveF
           ))}
         </div>
       </fieldset>
+
+      <div className="test-log-relief-set-pressure-tests">
+        <div className="test-log-relief-set-pressure-heading">
+          <h5>Set pressure tests</h5>
+          <p>Enter three pop tests. Average updates automatically.</p>
+        </div>
+
+        <label>
+          Test 1 <span className="test-log-required-mark">*</span>
+          <input
+            type="text"
+            inputMode="decimal"
+            value={value.test1}
+            onChange={(e) => patch({ test1: e.target.value })}
+            placeholder="PSI"
+          />
+        </label>
+
+        <label>
+          Test 2 <span className="test-log-required-mark">*</span>
+          <input
+            type="text"
+            inputMode="decimal"
+            value={value.test2}
+            onChange={(e) => patch({ test2: e.target.value })}
+            placeholder="PSI"
+          />
+        </label>
+
+        <label>
+          Test 3 <span className="test-log-required-mark">*</span>
+          <input
+            type="text"
+            inputMode="decimal"
+            value={value.test3}
+            onChange={(e) => patch({ test3: e.target.value })}
+            placeholder="PSI"
+          />
+        </label>
+
+        <div className="test-log-relief-average" aria-live="polite">
+          <span className="test-log-relief-average-label">Average</span>
+          <strong className="test-log-relief-average-value">
+            {averageLabel ? `${averageLabel} PSI` : '—'}
+          </strong>
+          {averageDelta !== null ? (
+            <span
+              className={`test-log-relief-average-delta${
+                Math.abs(averageDelta) < 0.0001
+                  ? ' test-log-relief-average-delta-match'
+                  : averageDelta > 0
+                    ? ' test-log-relief-average-delta-over'
+                    : ' test-log-relief-average-delta-under'
+              }`}
+            >
+              {Math.abs(averageDelta) < 0.0001
+                ? 'Matches set pressure'
+                : `${averageDelta > 0 ? '+' : ''}${formatReliefValveAverage(averageDelta)} vs set`}
+            </span>
+          ) : (
+            <span className="test-log-relief-average-delta">Enter all three tests</span>
+          )}
+        </div>
+      </div>
 
       <fieldset className="test-pressure-result-fieldset test-log-relief-result">
         <legend>

@@ -1023,7 +1023,7 @@ export function TestLogEntryForm({
 
         {isReliefValve ? (
           <p className="status-breakdown-note">
-            Relief Valve tests use inlet/outlet size, set pressure, media, and pretest type above.
+            Relief Valve tests use set pressure with three pop tests and an automatic average.
           </p>
         ) : (
           <>
