@@ -264,20 +264,33 @@ export function reliefValvePassBand(setPressure: number): { min: number; max: nu
 export function evaluateReliefValvePassFail(fields: ReliefValveRunEvalInput): ReliefValvePassEvaluation {
   const setPressure = parseReliefPressureValue(fields.setPressure)
   const average = averageReliefValveTests(fields)
-  if (setPressure === null || average === null) {
+
+  if (setPressure === null) {
     return {
       average,
-      setPressure,
+      setPressure: null,
       maxPassPressure: null,
       result: '',
-      summary: 'Enter set pressure and all three pop tests',
+      summary: 'Enter set pressure to see the pop pass band',
     }
   }
 
   const { min, max } = reliefValvePassBand(setPressure)
   const maxLabel = formatReliefValveAverage(max)
-  const avgLabel = formatReliefValveAverage(average)
   const setLabel = formatReliefValveAverage(setPressure)
+  const bandSummary = `Pass: ${setLabel}–${maxLabel} PSI (set to +${RELIEF_VALVE_PASS_TOLERANCE_PERCENT}%)`
+
+  if (average === null) {
+    return {
+      average: null,
+      setPressure,
+      maxPassPressure: max,
+      result: '',
+      summary: `${bandSummary}. Enter all three pop tests.`,
+    }
+  }
+
+  const avgLabel = formatReliefValveAverage(average)
 
   if (average + 1e-9 >= min && average - 1e-9 <= max) {
     return {
@@ -285,7 +298,7 @@ export function evaluateReliefValvePassFail(fields: ReliefValveRunEvalInput): Re
       setPressure,
       maxPassPressure: max,
       result: 'pass',
-      summary: `Pass band: ${setLabel}–${maxLabel} PSI (+${RELIEF_VALVE_PASS_TOLERANCE_PERCENT}%)`,
+      summary: `${bandSummary} · average ${avgLabel} PSI`,
     }
   }
 
@@ -295,7 +308,7 @@ export function evaluateReliefValvePassFail(fields: ReliefValveRunEvalInput): Re
       setPressure,
       maxPassPressure: max,
       result: 'fail',
-      summary: `Pop average ${avgLabel} PSI is below set pressure ${setLabel} PSI`,
+      summary: `Pop average ${avgLabel} PSI is below set pressure ${setLabel} PSI (${bandSummary})`,
     }
   }
 
@@ -353,13 +366,18 @@ export function evaluateReliefValveReseat(fields: ReliefValveRunEvalInput): Reli
       popAverage,
       tolerancePercent: mediaRule.percent,
       enforced: mediaRule.enforced,
-      minPass: null,
-      maxPass: null,
+      minPass: popAverage === null ? null : popAverage * (1 - mediaRule.percent / 100),
+      maxPass: popAverage === null ? null : popAverage * (1 + mediaRule.percent / 100),
       percentDiff: null,
       result: '',
-      summary: mediaRule.enforced
-        ? `Enter three pop tests and three reseat tests (${mediaRule.label}: within ${mediaRule.percent}% of pop average)`
-        : `Enter three pop tests and three reseat tests (Liquid target: within ${mediaRule.percent}% of pop average; no pass/fail)`,
+      summary:
+        popAverage === null
+          ? mediaRule.enforced
+            ? `Reseat pass band = pop average ±${mediaRule.percent}% (${mediaRule.label}). Enter three pops to calculate numbers.`
+            : `Reseat target band = pop average ±${mediaRule.percent}% (${mediaRule.label}, advisory). Enter three pops to calculate numbers.`
+          : mediaRule.enforced
+            ? `Pass: ${formatReliefValveAverage(popAverage * (1 - mediaRule.percent / 100))}–${formatReliefValveAverage(popAverage * (1 + mediaRule.percent / 100))} PSI (±${mediaRule.percent}% of pop average ${formatReliefValveAverage(popAverage)}). Enter three reseat tests.`
+            : `Target: ${formatReliefValveAverage(popAverage * (1 - mediaRule.percent / 100))}–${formatReliefValveAverage(popAverage * (1 + mediaRule.percent / 100))} PSI (±${mediaRule.percent}% of pop average ${formatReliefValveAverage(popAverage)}, advisory). Enter three reseat tests.`,
     }
   }
 

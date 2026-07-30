@@ -51,6 +51,8 @@ function ReliefValveRunSection({
   const reseatAverageLabel = formatReliefValveAverage(evaluation.reseat.reseatAverage)
   const reseatMinLabel = formatReliefValveAverage(evaluation.reseat.minPass)
   const reseatMaxLabel = formatReliefValveAverage(evaluation.reseat.maxPass)
+  const popAvgForReseatLabel = formatReliefValveAverage(evaluation.reseat.popAverage)
+  const reseatTol = evaluation.reseat.tolerancePercent
 
   return (
     <section className={`test-log-relief-run test-log-relief-run--${runKey}`}>
@@ -77,6 +79,23 @@ function ReliefValveRunSection({
             Pass when the three-pop average is from set pressure up to +{RELIEF_VALVE_PASS_TOLERANCE_PERCENT}%
             (never below set).
           </p>
+          <div className="test-log-relief-criteria" aria-live="polite">
+            <span className="test-log-relief-criteria-label">Pass criteria</span>
+            {setLabel && maxPopLabel ? (
+              <strong className="test-log-relief-criteria-value">
+                {setLabel} – {maxPopLabel} PSI
+              </strong>
+            ) : (
+              <strong className="test-log-relief-criteria-value test-log-relief-criteria-value--pending">
+                Enter set pressure above
+              </strong>
+            )}
+            {setLabel && maxPopLabel ? (
+              <span className="test-log-relief-criteria-detail">
+                Based on set pressure {setLabel} PSI (+{RELIEF_VALVE_PASS_TOLERANCE_PERCENT}% max)
+              </span>
+            ) : null}
+          </div>
         </div>
 
         <label>
@@ -128,7 +147,7 @@ function ReliefValveRunSection({
           </strong>
           {setLabel && maxPopLabel ? (
             <span className="test-log-relief-average-band">
-              Pass band: {setLabel}–{maxPopLabel} PSI
+              Must be {setLabel}–{maxPopLabel} PSI
             </span>
           ) : null}
           <span
@@ -152,6 +171,36 @@ function ReliefValveRunSection({
             Compared to pop average — Steam within 6%, Air/Gas within 10%. Liquid has no pass/fail (target within
             10%).
           </p>
+          <div className="test-log-relief-criteria" aria-live="polite">
+            <span className="test-log-relief-criteria-label">
+              {evaluation.reseat.enforced === false && reseatTol != null ? 'Target criteria' : 'Pass criteria'}
+            </span>
+            {reseatMinLabel && reseatMaxLabel && popAvgForReseatLabel ? (
+              <strong className="test-log-relief-criteria-value">
+                {reseatMinLabel} – {reseatMaxLabel} PSI
+              </strong>
+            ) : (
+              <strong className="test-log-relief-criteria-value test-log-relief-criteria-value--pending">
+                {reseatTol != null
+                  ? `Waiting on pop average (±${reseatTol}%)`
+                  : 'Select media, then enter three pops'}
+              </strong>
+            )}
+            {reseatMinLabel && reseatMaxLabel && popAvgForReseatLabel && reseatTol != null ? (
+              <span className="test-log-relief-criteria-detail">
+                ±{reseatTol}% of pop average {popAvgForReseatLabel} PSI
+                {evaluation.reseat.enforced === false ? ' (advisory only)' : ''}
+              </span>
+            ) : popAvgForReseatLabel ? (
+              <span className="test-log-relief-criteria-detail">
+                Pop average {popAvgForReseatLabel} PSI — enter reseat readings
+              </span>
+            ) : (
+              <span className="test-log-relief-criteria-detail">
+                Band moves with the three-pop average
+              </span>
+            )}
+          </div>
         </div>
 
         <label>
@@ -205,8 +254,7 @@ function ReliefValveRunSection({
           </strong>
           {reseatMinLabel && reseatMaxLabel ? (
             <span className="test-log-relief-average-band">
-              {evaluation.reseat.enforced ? 'Pass band' : 'Target band'}: {reseatMinLabel}–{reseatMaxLabel}{' '}
-              PSI
+              Must be {reseatMinLabel}–{reseatMaxLabel} PSI
             </span>
           ) : null}
           <span

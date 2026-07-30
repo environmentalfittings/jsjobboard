@@ -2446,6 +2446,42 @@ body {
   color: #64748b;
 }
 
+.test-log-relief-criteria {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  margin-top: 0.65rem;
+  padding: 0.65rem 0.85rem;
+  border-radius: 8px;
+  border: 1px solid #cbd5e1;
+  background: #f1f5f9;
+}
+
+.test-log-relief-criteria-label {
+  font-size: 0.7rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: #475569;
+}
+
+.test-log-relief-criteria-value {
+  font-size: 1.2rem;
+  line-height: 1.15;
+  color: #0f172a;
+}
+
+.test-log-relief-criteria-value--pending {
+  font-size: 0.95rem;
+  font-weight: 600;
+  color: #64748b;
+}
+
+.test-log-relief-criteria-detail {
+  font-size: 0.75rem;
+  color: #64748b;
+}
+
 .test-log-relief-average {
   display: flex;
   flex-direction: column;
