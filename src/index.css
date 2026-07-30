@@ -2358,6 +2358,80 @@ body {
   gap: 0.75rem 1.25rem;
 }
 
+.test-log-relief-set-pressure-tests {
+  grid-column: 1 / -1;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+  gap: 0.85rem 1rem;
+  padding: 0.85rem 1rem;
+  border: 1px solid #c7d2e0;
+  border-radius: 10px;
+  background: #fff;
+}
+
+.test-log-relief-set-pressure-heading {
+  grid-column: 1 / -1;
+}
+
+.test-log-relief-set-pressure-heading h5 {
+  margin: 0;
+  font-size: 0.95rem;
+  font-weight: 700;
+  color: #1e3a5f;
+}
+
+.test-log-relief-set-pressure-heading p {
+  margin: 0.2rem 0 0;
+  font-size: 0.8125rem;
+  color: #64748b;
+}
+
+.test-log-relief-average {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 0.2rem;
+  min-height: 4.5rem;
+  padding: 0.65rem 0.85rem;
+  border-radius: 8px;
+  border: 1px solid #93c5fd;
+  background: linear-gradient(180deg, #eff6ff 0%, #dbeafe 100%);
+}
+
+.test-log-relief-average-label {
+  font-size: 0.75rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: #1d4ed8;
+}
+
+.test-log-relief-average-value {
+  font-size: 1.35rem;
+  line-height: 1.1;
+  color: #0f172a;
+}
+
+.test-log-relief-average-delta {
+  font-size: 0.75rem;
+  color: #64748b;
+}
+
+.test-log-relief-average-delta-match {
+  color: #15803d;
+  font-weight: 600;
+}
+
+.test-log-relief-average-delta-over {
+  color: #b45309;
+  font-weight: 600;
+}
+
+.test-log-relief-average-delta-under {
+  color: #b45309;
+  font-weight: 600;
+}
+
 .test-log-relief-result {
   grid-column: 1 / -1;
 }
