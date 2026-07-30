@@ -191,24 +191,56 @@ export function parseReliefPressureValue(raw: string | null | undefined): number
   return Number.isFinite(value) ? value : null
 }
 
-function averageThree(a: string, b: string, c: string): number | null {
-  const values = [a, b, c].map(parseReliefPressureValue)
-  if (values.some((value) => value === null)) return null
-  return ((values[0] as number) + (values[1] as number) + (values[2] as number)) / 3
+function parseEnteredPressures(...rawValues: string[]): number[] {
+  const values: number[] = []
+  for (const raw of rawValues) {
+    const value = parseReliefPressureValue(raw)
+    if (value !== null) values.push(value)
+  }
+  return values
 }
 
-/** Average of the three pop tests; null until all three numeric values are entered. */
+function averageOf(values: number[]): number | null {
+  if (!values.length) return null
+  return values.reduce((sum, value) => sum + value, 0) / values.length
+}
+
+/** Running average of whichever pop readings are entered so far (1–3). */
 export function averageReliefValveTests(
   fields: Pick<ReliefValveRunFields, 'test1' | 'test2' | 'test3'>,
 ): number | null {
-  return averageThree(fields.test1, fields.test2, fields.test3)
+  return averageOf(parseEnteredPressures(fields.test1, fields.test2, fields.test3))
 }
 
-/** Average of the three reseat tests; null until all three numeric values are entered. */
+/** Running average of whichever reseat readings are entered so far (1–3). */
 export function averageReliefValveReseatTests(
   fields: Pick<ReliefValveRunFields, 'reseat1' | 'reseat2' | 'reseat3'>,
 ): number | null {
-  return averageThree(fields.reseat1, fields.reseat2, fields.reseat3)
+  return averageOf(parseEnteredPressures(fields.reseat1, fields.reseat2, fields.reseat3))
+}
+
+export function countReliefValvePopTests(
+  fields: Pick<ReliefValveRunFields, 'test1' | 'test2' | 'test3'>,
+): number {
+  return parseEnteredPressures(fields.test1, fields.test2, fields.test3).length
+}
+
+export function countReliefValveReseatTests(
+  fields: Pick<ReliefValveRunFields, 'reseat1' | 'reseat2' | 'reseat3'>,
+): number {
+  return parseEnteredPressures(fields.reseat1, fields.reseat2, fields.reseat3).length
+}
+
+export function hasCompleteReliefValvePopTests(
+  fields: Pick<ReliefValveRunFields, 'test1' | 'test2' | 'test3'>,
+): boolean {
+  return countReliefValvePopTests(fields) === 3
+}
+
+export function hasCompleteReliefValveReseatTests(
+  fields: Pick<ReliefValveRunFields, 'reseat1' | 'reseat2' | 'reseat3'>,
+): boolean {
+  return countReliefValveReseatTests(fields) === 3
 }
 
 export function formatReliefValveAverage(average: number | null): string {
@@ -222,6 +254,8 @@ export const RELIEF_VALVE_PASS_TOLERANCE_PERCENT = 3
 
 export type ReliefValvePassEvaluation = {
   average: number | null
+  enteredCount: number
+  complete: boolean
   setPressure: number | null
   maxPassPressure: number | null
   result: 'pass' | 'fail' | ''
@@ -230,7 +264,11 @@ export type ReliefValvePassEvaluation = {
 
 export type ReliefValveReseatEvaluation = {
   reseatAverage: number | null
+  reseatEnteredCount: number
+  reseatComplete: boolean
   popAverage: number | null
+  popEnteredCount: number
+  popComplete: boolean
   tolerancePercent: number | null
   enforced: boolean
   minPass: number | null
@@ -260,14 +298,19 @@ export function reliefValvePassBand(setPressure: number): { min: number; max: nu
 /**
  * Pass when three-pop average is between set pressure and +3% of set pressure.
  * Below set pressure = fail (customers do not want valves set low).
+ * Average auto-updates as each pop is entered; pass/fail waits for all three.
  */
 export function evaluateReliefValvePassFail(fields: ReliefValveRunEvalInput): ReliefValvePassEvaluation {
   const setPressure = parseReliefPressureValue(fields.setPressure)
+  const enteredCount = countReliefValvePopTests(fields)
+  const complete = enteredCount === 3
   const average = averageReliefValveTests(fields)
 
   if (setPressure === null) {
     return {
       average,
+      enteredCount,
+      complete,
       setPressure: null,
       maxPassPressure: null,
       result: '',
@@ -283,18 +326,35 @@ export function evaluateReliefValvePassFail(fields: ReliefValveRunEvalInput): Re
   if (average === null) {
     return {
       average: null,
+      enteredCount,
+      complete,
       setPressure,
       maxPassPressure: max,
       result: '',
-      summary: `${bandSummary}. Enter all three pop tests.`,
+      summary: `${bandSummary}. Enter pop tests to start the average.`,
     }
   }
 
   const avgLabel = formatReliefValveAverage(average)
+  const progress = complete ? '3 of 3' : `${enteredCount} of 3`
+
+  if (!complete) {
+    return {
+      average,
+      enteredCount,
+      complete,
+      setPressure,
+      maxPassPressure: max,
+      result: '',
+      summary: `${bandSummary} · running average ${avgLabel} PSI (${progress})`,
+    }
+  }
 
   if (average + 1e-9 >= min && average - 1e-9 <= max) {
     return {
       average,
+      enteredCount,
+      complete,
       setPressure,
       maxPassPressure: max,
       result: 'pass',
@@ -305,6 +365,8 @@ export function evaluateReliefValvePassFail(fields: ReliefValveRunEvalInput): Re
   if (average < min) {
     return {
       average,
+      enteredCount,
+      complete,
       setPressure,
       maxPassPressure: max,
       result: 'fail',
@@ -314,6 +376,8 @@ export function evaluateReliefValvePassFail(fields: ReliefValveRunEvalInput): Re
 
   return {
     average,
+    enteredCount,
+    complete,
     setPressure,
     maxPassPressure: max,
     result: 'fail',
@@ -338,10 +402,16 @@ export function reseatToleranceForMedia(media: string): {
 }
 
 /**
- * Reseat average must be within media % of the three-pop average.
+ * Reseat average must be within media % of the pop average.
  * Steam 6%, Air/Gas 10%, Liquid target 10% with no pass/fail.
+ * Pop/reseat averages and the reseat band update as each reading is entered;
+ * pass/fail waits until all three pops and three reseats are complete.
  */
 export function evaluateReliefValveReseat(fields: ReliefValveRunEvalInput): ReliefValveReseatEvaluation {
+  const popEnteredCount = countReliefValvePopTests(fields)
+  const popComplete = popEnteredCount === 3
+  const reseatEnteredCount = countReliefValveReseatTests(fields)
+  const reseatComplete = reseatEnteredCount === 3
   const popAverage = averageReliefValveTests(fields)
   const reseatAverage = averageReliefValveReseatTests(fields)
   const mediaRule = reseatToleranceForMedia(fields.media)
@@ -349,7 +419,11 @@ export function evaluateReliefValveReseat(fields: ReliefValveRunEvalInput): Reli
   if (!mediaRule) {
     return {
       reseatAverage,
+      reseatEnteredCount,
+      reseatComplete,
       popAverage,
+      popEnteredCount,
+      popComplete,
       tolerancePercent: null,
       enforced: false,
       minPass: null,
@@ -360,53 +434,105 @@ export function evaluateReliefValveReseat(fields: ReliefValveRunEvalInput): Reli
     }
   }
 
-  if (popAverage === null || reseatAverage === null) {
+  const minPass = popAverage === null ? null : popAverage * (1 - mediaRule.percent / 100)
+  const maxPass = popAverage === null ? null : popAverage * (1 + mediaRule.percent / 100)
+
+  if (popAverage === null) {
     return {
       reseatAverage,
-      popAverage,
+      reseatEnteredCount,
+      reseatComplete,
+      popAverage: null,
+      popEnteredCount,
+      popComplete,
       tolerancePercent: mediaRule.percent,
       enforced: mediaRule.enforced,
-      minPass: popAverage === null ? null : popAverage * (1 - mediaRule.percent / 100),
-      maxPass: popAverage === null ? null : popAverage * (1 + mediaRule.percent / 100),
+      minPass: null,
+      maxPass: null,
       percentDiff: null,
       result: '',
-      summary:
-        popAverage === null
-          ? mediaRule.enforced
-            ? `Reseat pass band = pop average ±${mediaRule.percent}% (${mediaRule.label}). Enter three pops to calculate numbers.`
-            : `Reseat target band = pop average ±${mediaRule.percent}% (${mediaRule.label}, advisory). Enter three pops to calculate numbers.`
-          : mediaRule.enforced
-            ? `Pass: ${formatReliefValveAverage(popAverage * (1 - mediaRule.percent / 100))}–${formatReliefValveAverage(popAverage * (1 + mediaRule.percent / 100))} PSI (±${mediaRule.percent}% of pop average ${formatReliefValveAverage(popAverage)}). Enter three reseat tests.`
-            : `Target: ${formatReliefValveAverage(popAverage * (1 - mediaRule.percent / 100))}–${formatReliefValveAverage(popAverage * (1 + mediaRule.percent / 100))} PSI (±${mediaRule.percent}% of pop average ${formatReliefValveAverage(popAverage)}, advisory). Enter three reseat tests.`,
+      summary: mediaRule.enforced
+        ? `Reseat pass band = pop average ±${mediaRule.percent}% (${mediaRule.label}). Enter pop tests to calculate numbers.`
+        : `Reseat target band = pop average ±${mediaRule.percent}% (${mediaRule.label}, advisory). Enter pop tests to calculate numbers.`,
+    }
+  }
+
+  const popLabel = formatReliefValveAverage(popAverage)
+  const minLabel = formatReliefValveAverage(minPass)
+  const maxLabel = formatReliefValveAverage(maxPass)
+  const bandLabel = mediaRule.enforced
+    ? `Pass: ${minLabel}–${maxLabel} PSI (±${mediaRule.percent}% of pop average ${popLabel})`
+    : `Target: ${minLabel}–${maxLabel} PSI (±${mediaRule.percent}% of pop average ${popLabel}, advisory)`
+  const popProgress = popComplete ? '3 of 3 pops' : `${popEnteredCount} of 3 pops`
+
+  if (reseatAverage === null) {
+    return {
+      reseatAverage: null,
+      reseatEnteredCount,
+      reseatComplete,
+      popAverage,
+      popEnteredCount,
+      popComplete,
+      tolerancePercent: mediaRule.percent,
+      enforced: mediaRule.enforced,
+      minPass,
+      maxPass,
+      percentDiff: null,
+      result: '',
+      summary: `${bandLabel} · ${popProgress}. Enter reseat tests.`,
     }
   }
 
   if (Math.abs(popAverage) < 1e-9) {
     return {
       reseatAverage,
+      reseatEnteredCount,
+      reseatComplete,
       popAverage,
+      popEnteredCount,
+      popComplete,
       tolerancePercent: mediaRule.percent,
       enforced: mediaRule.enforced,
       minPass: null,
       maxPass: null,
       percentDiff: null,
-      result: mediaRule.enforced ? 'fail' : 'na',
+      result: mediaRule.enforced && popComplete && reseatComplete ? 'fail' : '',
       summary: 'Pop average must be greater than zero to evaluate reseat',
     }
   }
 
   const percentDiff = (Math.abs(reseatAverage - popAverage) / Math.abs(popAverage)) * 100
-  const minPass = popAverage * (1 - mediaRule.percent / 100)
-  const maxPass = popAverage * (1 + mediaRule.percent / 100)
   const within = percentDiff <= mediaRule.percent + 1e-9
-  const popLabel = formatReliefValveAverage(popAverage)
   const reseatLabel = formatReliefValveAverage(reseatAverage)
   const diffLabel = formatReliefValveAverage(percentDiff)
+  const reseatProgress = reseatComplete ? '3 of 3 reseats' : `${reseatEnteredCount} of 3 reseats`
+
+  if (!popComplete || !reseatComplete) {
+    return {
+      reseatAverage,
+      reseatEnteredCount,
+      reseatComplete,
+      popAverage,
+      popEnteredCount,
+      popComplete,
+      tolerancePercent: mediaRule.percent,
+      enforced: mediaRule.enforced,
+      minPass,
+      maxPass,
+      percentDiff,
+      result: '',
+      summary: `${bandLabel} · running reseat average ${reseatLabel} PSI (${reseatProgress}, ${popProgress})`,
+    }
+  }
 
   if (!mediaRule.enforced) {
     return {
       reseatAverage,
+      reseatEnteredCount,
+      reseatComplete,
       popAverage,
+      popEnteredCount,
+      popComplete,
       tolerancePercent: mediaRule.percent,
       enforced: false,
       minPass,
@@ -422,20 +548,28 @@ export function evaluateReliefValveReseat(fields: ReliefValveRunEvalInput): Reli
   if (within) {
     return {
       reseatAverage,
+      reseatEnteredCount,
+      reseatComplete,
       popAverage,
+      popEnteredCount,
+      popComplete,
       tolerancePercent: mediaRule.percent,
       enforced: true,
       minPass,
       maxPass,
       percentDiff,
       result: 'pass',
-      summary: `${mediaRule.label} reseat within ${mediaRule.percent}% of pop average (${diffLabel}%): ${formatReliefValveAverage(minPass)}–${formatReliefValveAverage(maxPass)} PSI`,
+      summary: `${mediaRule.label} reseat within ${mediaRule.percent}% of pop average (${diffLabel}%): ${minLabel}–${maxLabel} PSI`,
     }
   }
 
   return {
     reseatAverage,
+    reseatEnteredCount,
+    reseatComplete,
     popAverage,
+    popEnteredCount,
+    popComplete,
     tolerancePercent: mediaRule.percent,
     enforced: true,
     minPass,

@@ -53,6 +53,18 @@ function ReliefValveRunSection({
   const reseatMaxLabel = formatReliefValveAverage(evaluation.reseat.maxPass)
   const popAvgForReseatLabel = formatReliefValveAverage(evaluation.reseat.popAverage)
   const reseatTol = evaluation.reseat.tolerancePercent
+  const popCountLabel =
+    evaluation.pop.enteredCount > 0
+      ? evaluation.pop.complete
+        ? '3 of 3'
+        : `${evaluation.pop.enteredCount} of 3`
+      : null
+  const reseatCountLabel =
+    evaluation.reseat.reseatEnteredCount > 0
+      ? evaluation.reseat.reseatComplete
+        ? '3 of 3'
+        : `${evaluation.reseat.reseatEnteredCount} of 3`
+      : null
 
   return (
     <section className={`test-log-relief-run test-log-relief-run--${runKey}`}>
@@ -141,7 +153,10 @@ function ReliefValveRunSection({
           }`}
           aria-live="polite"
         >
-          <span className="test-log-relief-average-label">Pop average</span>
+          <span className="test-log-relief-average-label">
+            {evaluation.pop.complete ? 'Pop average' : 'Pop average (running)'}
+            {popCountLabel ? ` · ${popCountLabel}` : ''}
+          </span>
           <strong className="test-log-relief-average-value">
             {popAverageLabel ? `${popAverageLabel} PSI` : '—'}
           </strong>
@@ -182,13 +197,16 @@ function ReliefValveRunSection({
             ) : (
               <strong className="test-log-relief-criteria-value test-log-relief-criteria-value--pending">
                 {reseatTol != null
-                  ? `Waiting on pop average (±${reseatTol}%)`
-                  : 'Select media, then enter three pops'}
+                  ? `Waiting on first pop (±${reseatTol}%)`
+                  : 'Select media, then enter pop tests'}
               </strong>
             )}
             {reseatMinLabel && reseatMaxLabel && popAvgForReseatLabel && reseatTol != null ? (
               <span className="test-log-relief-criteria-detail">
                 ±{reseatTol}% of pop average {popAvgForReseatLabel} PSI
+                {!evaluation.reseat.popComplete
+                  ? ` (updates with each pop · ${evaluation.reseat.popEnteredCount} of 3)`
+                  : ''}
                 {evaluation.reseat.enforced === false ? ' (advisory only)' : ''}
               </span>
             ) : popAvgForReseatLabel ? (
@@ -197,7 +215,7 @@ function ReliefValveRunSection({
               </span>
             ) : (
               <span className="test-log-relief-criteria-detail">
-                Band moves with the three-pop average
+                Band moves with each pop reading
               </span>
             )}
           </div>
@@ -248,7 +266,10 @@ function ReliefValveRunSection({
           }`}
           aria-live="polite"
         >
-          <span className="test-log-relief-average-label">Reseat average</span>
+          <span className="test-log-relief-average-label">
+            {evaluation.reseat.reseatComplete ? 'Reseat average' : 'Reseat average (running)'}
+            {reseatCountLabel ? ` · ${reseatCountLabel}` : ''}
+          </span>
           <strong className="test-log-relief-average-value">
             {reseatAverageLabel ? `${reseatAverageLabel} PSI` : '—'}
           </strong>
