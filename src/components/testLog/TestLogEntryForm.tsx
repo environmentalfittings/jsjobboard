@@ -8,6 +8,7 @@ import { BodyMaterialSelect } from './BodyMaterialSelect'
 import { ValveTypeSelect } from './ValveTypeSelect'
 import { RequiredTestParametersPanel } from './RequiredTestParametersPanel'
 import { ReliefValveFields } from './ReliefValveFields'
+import { TestLogTesterSelect } from './TestLogTesterSelect'
 import { useToast } from '../ToastNotification'
 import { useEmployees } from '../../hooks/useEmployees'
 import { loadActiveTestGauges, filterChartRecorderGauges, filterPressureTestGauges } from '../../lib/testGaugeRegistry'
@@ -23,8 +24,10 @@ import { formatTesterInitials, parseTesterInitials } from '../../lib/testLogTest
 import { canonicalizeValveType } from '../../lib/testLogValveType'
 import {
   emptyReliefValveTestFields,
+  formatReliefValveLegacyTester,
   isReliefValveType,
   prefillReliefSizesFromJobSize,
+  seedReliefValveTestersFromLegacy,
   validateReliefValveFields,
   valveSizeSelectOptions,
 } from '../../lib/reliefValveTest'
@@ -177,46 +180,26 @@ export function TestLogEntryForm({
     [testerOptions],
   )
 
-  const selectedTesters = useMemo(
-    () => parseTesterInitials(tester, knownTesterInitials),
+  const formTesterValue = useMemo(
+    () => formatTesterInitials(parseTesterInitials(tester, knownTesterInitials)),
     [tester, knownTesterInitials],
   )
-
-  const orphanTesterInitials = useMemo(
-    () =>
-      selectedTesters.filter(
-        (initials) => !testerOptions.some((employee) => employee.initials.toUpperCase() === initials),
-      ),
-    [selectedTesters, testerOptions],
-  )
-
-  const availableTesterOptions = useMemo(
-    () =>
-      testerOptions.filter(
-        (employee) => !selectedTesters.includes(employee.initials.toUpperCase()),
-      ),
-    [testerOptions, selectedTesters],
-  )
-
-  const toggleTester = (initials: string, checked: boolean) => {
-    const key = initials.trim().toUpperCase()
-    if (!key) return
-    const next = checked
-      ? [...selectedTesters, key]
-      : selectedTesters.filter((value) => value !== key)
-    setTester(formatTesterInitials(next))
-  }
-
-  const addTester = (initials: string) => {
-    const key = initials.trim().toUpperCase()
-    if (!key || selectedTesters.includes(key)) return
-    setTester(formatTesterInitials([...selectedTesters, key]))
-  }
 
   const overallPassFail = useMemo(() => deriveOverallPassFail(testing), [testing])
   const fourHourChartSelected = useMemo(() => isFourHourChartTestSelected(testing), [testing])
   const isReliefValve = useMemo(() => isReliefValveType(valveType), [valveType])
   const reliefFields = testing.reliefValve ?? emptyReliefValveTestFields()
+  const reliefHasTester = useMemo(() => {
+    if (!isReliefValve) return false
+    const pretestOk = !reliefFields.includePretest || Boolean(reliefFields.pretest.tester.trim())
+    const finalStarted =
+      Boolean(reliefFields.final.tester.trim()) ||
+      Boolean(reliefFields.final.gaugeId) ||
+      Boolean(reliefFields.final.test1) ||
+      Boolean(reliefFields.final.result)
+    if (reliefFields.includePretest && !finalStarted) return pretestOk
+    return pretestOk && Boolean(reliefFields.final.tester.trim())
+  }, [isReliefValve, reliefFields])
   const sizeOptions = useMemo(
     () =>
       valveSizeSelectOptions([
@@ -249,7 +232,9 @@ export function TestLogEntryForm({
         null,
       valve_type: valveType || null,
       manufacturer: null,
-      tester: formatTesterInitials(parseTesterInitials(tester, knownTesterInitials)) || null,
+      tester: isReliefValve
+        ? formatReliefValveLegacyTester(reliefFields)
+        : formTesterValue || null,
       pass_fail: overallPassFail || null,
       action_taken: deriveActionTaken(testing),
       testing_details: testing,
@@ -260,18 +245,17 @@ export function TestLogEntryForm({
       size,
       pressure,
       valveType,
-      tester,
-      knownTesterInitials,
+      formTesterValue,
       overallPassFail,
       testing,
       isReliefValve,
+      reliefFields,
     ],
   )
   const canSubmit =
     valveId.trim().length > 0 &&
     testedOn.trim().length > 0 &&
-    formatTesterInitials(parseTesterInitials(tester, knownTesterInitials)).length > 0
-
+    (isReliefValve ? reliefHasTester : formTesterValue.length > 0)
   const checkedStandards = useMemo(
     () => mapProceduresToStandards(testing.testProcedures),
     [testing.testProcedures],
@@ -523,21 +507,24 @@ export function TestLogEntryForm({
       const worked = entry.worked ?? ''
       const workedSuggestsPretest = /pretest/i.test(worked)
       const workedSuggestsRepair = /repair/i.test(worked)
-      details.reliefValve = {
-        ...existing,
-        inletSize: existing.inletSize || sizes.inletSize,
-        outletSize: existing.outletSize || sizes.outletSize,
-        setPressure: existing.setPressure || entry.pressure || '',
-        includePretest: existing.includePretest || workedSuggestsPretest,
-        pretestKind:
-          existing.pretestKind ||
-          (workedSuggestsRepair
-            ? 'Pretest with Repair'
-            : workedSuggestsPretest
-              ? 'Pretest'
-              : ''),
-        media: existing.media || '',
-      }
+      details.reliefValve = seedReliefValveTestersFromLegacy(
+        {
+          ...existing,
+          inletSize: existing.inletSize || sizes.inletSize,
+          outletSize: existing.outletSize || sizes.outletSize,
+          setPressure: existing.setPressure || entry.pressure || '',
+          includePretest: existing.includePretest || workedSuggestsPretest,
+          pretestKind:
+            existing.pretestKind ||
+            (workedSuggestsRepair
+              ? 'Pretest with Repair'
+              : workedSuggestsPretest
+                ? 'Pretest'
+                : ''),
+          media: existing.media || '',
+        },
+        entry.tester,
+      )
     }
     setTesting(details)
 
@@ -602,13 +589,21 @@ export function TestLogEntryForm({
   }, [editingEntry?.id])
 
   const submit = async () => {
-    const testerValue = formatTesterInitials(parseTesterInitials(tester, knownTesterInitials))
+    const reliefTester = isReliefValveType(valveType)
+      ? formatReliefValveLegacyTester(testing.reliefValve ?? emptyReliefValveTestFields())
+      : null
+    const testerValue =
+      reliefTester || formatTesterInitials(parseTesterInitials(tester, knownTesterInitials))
     if (!valveId.trim() || !testedOn.trim()) {
       showToast('Valve ID and date are required')
       return
     }
     if (!testerValue) {
-      showToast('Select at least one tester before saving')
+      showToast(
+        isReliefValveType(valveType)
+          ? 'Select tester(s) on the pretest and/or final test before saving'
+          : 'Select at least one tester before saving',
+      )
       return
     }
     if (isReliefValveType(valveType)) {
@@ -958,74 +953,20 @@ export function TestLogEntryForm({
               value={reliefFields}
               sizeOptions={sizeOptions}
               gaugeOptions={gaugeOptions}
+              testerOptions={testerOptions}
+              testersLoading={employeesLoading}
               onChange={patchReliefValve}
             />
           ) : null}
 
-          <fieldset className="test-log-tester-select test-log-fieldset">
-            <legend>
-              Tester(s) <span className="test-log-required-mark">*</span>
-            </legend>
-            {employeesLoading ? (
-              <p className="test-log-tester-loading">Loading employees…</p>
-            ) : (
-              <>
-                <div className="test-log-tester-chips" aria-live="polite">
-                  {selectedTesters.length === 0 ? (
-                    <span className="test-log-tester-empty">Required — select at least one tester</span>
-                  ) : (
-                    selectedTesters.map((initials) => {
-                      const employee = testerOptions.find(
-                        (row) => row.initials.toUpperCase() === initials,
-                      )
-                      const orphan = orphanTesterInitials.includes(initials)
-                      return (
-                        <button
-                          key={initials}
-                          type="button"
-                          className="test-log-tester-chip-btn"
-                          onClick={() => toggleTester(initials, false)}
-                          title="Remove tester"
-                        >
-                          {employee ? `${employee.full_name} (${initials})` : orphan ? `${initials} (saved)` : initials}
-                          <span aria-hidden>×</span>
-                        </button>
-                      )
-                    })
-                  )}
-                </div>
-                <label className="test-log-tester-add">
-                  Add tester
-                  <select
-                    value=""
-                    disabled={availableTesterOptions.length === 0}
-                    onChange={(e) => {
-                      addTester(e.target.value)
-                      e.target.value = ''
-                    }}
-                  >
-                    <option value="">
-                      {testerOptions.length === 0
-                        ? 'No testers designated yet'
-                        : availableTesterOptions.length === 0
-                          ? 'All designated testers selected'
-                          : 'Select tester…'}
-                    </option>
-                    {availableTesterOptions.map((employee) => (
-                      <option key={employee.id} value={employee.initials.toUpperCase()}>
-                        {employee.full_name} ({employee.initials.toUpperCase()})
-                      </option>
-                    ))}
-                  </select>
-                </label>
-                {testerOptions.length === 0 ? (
-                  <p className="test-log-tester-hint">
-                    Mark people as testers under Admin → Employees, then they will appear here.
-                  </p>
-                ) : null}
-              </>
-            )}
-          </fieldset>
+          {isReliefValve ? null : (
+            <TestLogTesterSelect
+              value={tester}
+              options={testerOptions}
+              loading={employeesLoading}
+              onChange={setTester}
+            />
+          )}
 
           {valveLookupStatus === 'found' ? (
             <p className="status-breakdown-note test-log-valve-lookup-note">

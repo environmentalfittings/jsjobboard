@@ -14,6 +14,8 @@ export type ReliefValveTestType = ReliefValvePretestKind
 
 /** One pop/reseat run (pretest or final) on a single relief-valve record. */
 export type ReliefValveRunFields = {
+  /** Tester initials for this run (e.g. "CP, CB"). */
+  tester: string
   gaugeId: string
   gauge: string
   test1: string
@@ -46,6 +48,7 @@ export type ReliefValveTestFields = {
 
 export function emptyReliefValveRunFields(): ReliefValveRunFields {
   return {
+    tester: '',
     gaugeId: '',
     gauge: '',
     test1: '',
@@ -103,6 +106,7 @@ function parseRunFields(raw: unknown): ReliefValveRunFields {
       ? o.reseatResult
       : ''
   return {
+    tester: String(o.tester ?? '').trim(),
     gaugeId: String(o.gaugeId ?? '').trim(),
     gauge: String(o.gauge ?? '').trim(),
     test1: String(o.test1 ?? '').trim(),
@@ -119,7 +123,8 @@ function parseRunFields(raw: unknown): ReliefValveRunFields {
 
 function runHasAnyData(run: ReliefValveRunFields): boolean {
   return Boolean(
-    run.gaugeId ||
+    run.tester ||
+      run.gaugeId ||
       run.gauge ||
       run.test1 ||
       run.test2 ||
@@ -706,6 +711,9 @@ function validateRunFields(
   header: Pick<ReliefValveTestFields, 'setPressure' | 'media'>,
   label: string,
 ): string | null {
+  if (!run.tester.trim()) {
+    return `Select at least one tester for the ${label}`
+  }
   if (!run.gaugeId.trim() && !run.gauge.trim()) {
     return `Select a test gauge for the ${label}`
   }
@@ -804,4 +812,44 @@ export function formatReliefValveFailReasons(fields: ReliefValveTestFields): str
     notes.push(`Final: ${fields.final.reason.trim()}`)
   }
   return notes
+}
+
+/** Combine pretest + final tester initials for the legacy test_logs.tester column. */
+export function formatReliefValveLegacyTester(fields: ReliefValveTestFields): string | null {
+  const parts: string[] = []
+  if (fields.includePretest && fields.pretest.tester.trim()) {
+    parts.push(fields.pretest.tester.trim())
+  }
+  if (fields.final.tester.trim()) {
+    parts.push(fields.final.tester.trim())
+  }
+  if (!parts.length) return null
+  // Keep unique initials while preserving order.
+  const seen = new Set<string>()
+  const initials: string[] = []
+  for (const part of parts) {
+    for (const token of part.split(/[,/;+]|\s+&\s+|\s+and\s+/i).map((value) => value.trim().toUpperCase()).filter(Boolean)) {
+      if (seen.has(token)) continue
+      seen.add(token)
+      initials.push(token)
+    }
+  }
+  return initials.join(', ') || null
+}
+
+/** Seed run testers from a legacy row-level tester string when runs have none. */
+export function seedReliefValveTestersFromLegacy(
+  fields: ReliefValveTestFields,
+  legacyTester: string | null | undefined,
+): ReliefValveTestFields {
+  const legacy = String(legacyTester ?? '').trim()
+  if (!legacy) return fields
+  const pretestNeeds = fields.includePretest && !fields.pretest.tester.trim()
+  const finalNeeds = !fields.final.tester.trim()
+  if (!pretestNeeds && !finalNeeds) return fields
+  return {
+    ...fields,
+    pretest: pretestNeeds ? { ...fields.pretest, tester: legacy } : fields.pretest,
+    final: finalNeeds ? { ...fields.final, tester: legacy } : fields.final,
+  }
 }

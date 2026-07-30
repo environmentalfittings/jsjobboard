@@ -10,12 +10,16 @@ import {
   type ReliefValveTestFields,
 } from '../../lib/reliefValveTest'
 import type { TestGauge } from '../../types/testGauge'
+import type { Employee } from '../../types/employees'
 import { TestGaugeSelect } from './TestGaugeSelect'
+import { TestLogTesterSelect } from './TestLogTesterSelect'
 
 type ReliefValveFieldsProps = {
   value: ReliefValveTestFields
   sizeOptions: string[]
   gaugeOptions: TestGauge[]
+  testerOptions: Array<Pick<Employee, 'id' | 'full_name' | 'initials'>>
+  testersLoading?: boolean
   onChange: (next: ReliefValveTestFields) => void
 }
 
@@ -26,6 +30,8 @@ type RunSectionProps = {
   run: ReliefValveRunFields
   header: Pick<ReliefValveTestFields, 'setPressure' | 'media'>
   gaugeOptions: TestGauge[]
+  testerOptions: Array<Pick<Employee, 'id' | 'full_name' | 'initials'>>
+  testersLoading?: boolean
   gaugeSelectId: string
   resultName: string
   onPatchRun: (partial: Partial<ReliefValveRunFields>) => void
@@ -39,6 +45,8 @@ function ReliefValveRunSection({
   run,
   header,
   gaugeOptions,
+  testerOptions,
+  testersLoading = false,
   gaugeSelectId,
   resultName,
   onPatchRun,
@@ -74,6 +82,17 @@ function ReliefValveRunSection({
       </div>
 
       {children}
+
+      <div className="test-log-relief-run-tester">
+        <TestLogTesterSelect
+          label={`${title} tester(s)`}
+          value={run.tester}
+          options={testerOptions}
+          loading={testersLoading}
+          emptyHint={`Required — select tester(s) for the ${title.toLowerCase()}`}
+          onChange={(tester) => onPatchRun({ tester })}
+        />
+      </div>
 
       <div className="test-log-relief-gauge">
         <TestGaugeSelect
@@ -322,7 +341,14 @@ function ReliefValveRunSection({
   )
 }
 
-export function ReliefValveFields({ value, sizeOptions, gaugeOptions, onChange }: ReliefValveFieldsProps) {
+export function ReliefValveFields({
+  value,
+  sizeOptions,
+  gaugeOptions,
+  testerOptions,
+  testersLoading = false,
+  onChange,
+}: ReliefValveFieldsProps) {
   const showMediaOther = value.media.trim().toLowerCase() === 'other'
   const header = useMemo(
     () => ({ setPressure: value.setPressure, media: value.media }),
@@ -439,6 +465,8 @@ export function ReliefValveFields({ value, sizeOptions, gaugeOptions, onChange }
           run={value.pretest}
           header={header}
           gaugeOptions={gaugeOptions}
+          testerOptions={testerOptions}
+          testersLoading={testersLoading}
           gaugeSelectId="relief-valve-pretest-gauge"
           resultName="relief-valve-pretest-result"
           onPatchRun={(partial) => patchRun('pretest', partial)}
@@ -471,6 +499,8 @@ export function ReliefValveFields({ value, sizeOptions, gaugeOptions, onChange }
         run={value.final}
         header={header}
         gaugeOptions={gaugeOptions}
+        testerOptions={testerOptions}
+        testersLoading={testersLoading}
         gaugeSelectId="relief-valve-final-gauge"
         resultName="relief-valve-final-result"
         onPatchRun={(partial) => patchRun('final', partial)}
