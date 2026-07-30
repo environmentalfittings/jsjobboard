@@ -2407,6 +2407,82 @@ body {
   background: transparent;
 }
 
+.test-log-relief-run--failed {
+  border-color: #fca5a5;
+}
+
+.test-log-relief-run--passed {
+  border-color: #86efac;
+}
+
+.test-log-relief-run--readonly {
+  opacity: 0.96;
+  background: #f8fafc;
+}
+
+.test-log-relief-run--readonly .test-log-relief-gauge,
+.test-log-relief-run--readonly .test-log-relief-run-tester {
+  pointer-events: none;
+}
+
+.test-log-relief-attempt-badge {
+  display: inline-flex;
+  align-items: center;
+  margin-left: 0.5rem;
+  padding: 0.15rem 0.5rem;
+  border-radius: 999px;
+  font-size: 0.7rem;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+  vertical-align: middle;
+}
+
+.test-log-relief-attempt-badge.fail {
+  color: #991b1b;
+  background: #fee2e2;
+}
+
+.test-log-relief-attempt-badge.pass {
+  color: #166534;
+  background: #dcfce7;
+}
+
+.test-log-relief-attempt-badge.saved {
+  color: #475569;
+  background: #e2e8f0;
+}
+
+.test-log-relief-retest-actions {
+  grid-column: 1 / -1;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.35rem;
+  margin-top: 0.25rem;
+}
+
+.test-log-relief-retest-btn {
+  border: 1px solid #b45309;
+  background: #fff7ed;
+  color: #9a3412;
+  border-radius: 8px;
+  padding: 0.55rem 0.9rem;
+  font: inherit;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.test-log-relief-retest-btn:hover {
+  background: #ffedd5;
+}
+
+.test-log-relief-retest-hint {
+  margin: 0;
+  font-size: 0.8125rem;
+  color: #64748b;
+}
+
 .test-log-relief-gauge {
   grid-column: 1 / -1;
   max-width: 28rem;

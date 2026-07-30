@@ -10,6 +10,7 @@ type TestLogTesterSelectProps = {
   options: TesterOption[]
   loading?: boolean
   required?: boolean
+  disabled?: boolean
   emptyHint?: string
   onChange: (value: string) => void
 }
@@ -20,6 +21,7 @@ export function TestLogTesterSelect({
   options,
   loading = false,
   required = true,
+  disabled = false,
   emptyHint = 'Required — select at least one tester',
   onChange,
 }: TestLogTesterSelectProps) {
@@ -79,13 +81,14 @@ export function TestLogTesterSelect({
                 const employee = options.find((row) => row.initials.toUpperCase() === initials)
                 const orphan = orphanTesterInitials.includes(initials)
                 return (
-                  <button
-                    key={initials}
-                    type="button"
-                    className="test-log-tester-chip-btn"
-                    onClick={() => toggleTester(initials, false)}
-                    title="Remove tester"
-                  >
+                        <button
+                          key={initials}
+                          type="button"
+                          className="test-log-tester-chip-btn"
+                          onClick={() => toggleTester(initials, false)}
+                          title="Remove tester"
+                          disabled={disabled}
+                        >
                     {employee ? `${employee.full_name} (${initials})` : orphan ? `${initials} (saved)` : initials}
                     <span aria-hidden>×</span>
                   </button>
@@ -97,7 +100,7 @@ export function TestLogTesterSelect({
             Add tester
             <select
               value=""
-              disabled={availableTesterOptions.length === 0}
+              disabled={disabled || availableTesterOptions.length === 0}
               onChange={(e) => {
                 addTester(e.target.value)
                 e.target.value = ''

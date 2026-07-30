@@ -4,8 +4,11 @@ import {
   RELIEF_VALVE_PASS_TOLERANCE_PERCENT,
   RELIEF_VALVE_PRETEST_KINDS,
   applyReliefValveEvaluations,
+  canStartReliefRetest,
+  ensureReliefAttempts,
   evaluateReliefValveRun,
   formatReliefValveAverage,
+  startReliefRetest,
   type ReliefValveRunFields,
   type ReliefValveTestFields,
 } from '../../lib/reliefValveTest'
@@ -28,6 +31,10 @@ type RunSectionProps = {
   hint: string
   runKey: 'pretest' | 'final'
   run: ReliefValveRunFields
+  attemptIndex: number
+  attemptCount: number
+  readOnly?: boolean
+  showRetest?: boolean
   header: Pick<ReliefValveTestFields, 'setPressure' | 'media'>
   gaugeOptions: TestGauge[]
   testerOptions: Array<Pick<Employee, 'id' | 'full_name' | 'initials'>>
@@ -35,6 +42,7 @@ type RunSectionProps = {
   gaugeSelectId: string
   resultName: string
   onPatchRun: (partial: Partial<ReliefValveRunFields>) => void
+  onRetest?: () => void
   children?: ReactNode
 }
 
@@ -43,6 +51,10 @@ function ReliefValveRunSection({
   hint,
   runKey,
   run,
+  attemptIndex,
+  attemptCount,
+  readOnly = false,
+  showRetest = false,
   header,
   gaugeOptions,
   testerOptions,
@@ -50,6 +62,7 @@ function ReliefValveRunSection({
   gaugeSelectId,
   resultName,
   onPatchRun,
+  onRetest,
   children,
 }: RunSectionProps) {
   const evaluation = useMemo(() => evaluateReliefValveRun(run, header), [run, header])
@@ -74,11 +87,27 @@ function ReliefValveRunSection({
         : `${evaluation.reseat.reseatEnteredCount} of 3`
       : null
 
+  const attemptTitle =
+    attemptCount > 1
+      ? `${title} · Attempt ${attemptIndex + 1}${attemptIndex > 0 ? ' (re-test)' : ''}`
+      : title
+
   return (
-    <section className={`test-log-relief-run test-log-relief-run--${runKey}`}>
+    <section
+      className={`test-log-relief-run test-log-relief-run--${runKey}${
+        readOnly ? ' test-log-relief-run--readonly' : ''
+      }${run.result === 'fail' ? ' test-log-relief-run--failed' : ''}${
+        run.result === 'pass' ? ' test-log-relief-run--passed' : ''
+      }`}
+    >
       <div className="test-log-relief-run-heading">
-        <h4>{title}</h4>
-        <p>{hint}</p>
+        <h4>
+          {attemptTitle}
+          {run.result === 'fail' ? <span className="test-log-relief-attempt-badge fail">Failed</span> : null}
+          {run.result === 'pass' ? <span className="test-log-relief-attempt-badge pass">Passed</span> : null}
+          {readOnly ? <span className="test-log-relief-attempt-badge saved">Kept on record</span> : null}
+        </h4>
+        <p>{readOnly ? 'Previous attempt kept for history.' : hint}</p>
       </div>
 
       {children}
@@ -89,7 +118,11 @@ function ReliefValveRunSection({
           value={run.tester}
           options={testerOptions}
           loading={testersLoading}
-          emptyHint={`Required — select tester(s) for the ${title.toLowerCase()}`}
+          required={!readOnly}
+          disabled={readOnly}
+          emptyHint={
+            readOnly ? 'No tester recorded' : `Required — select tester(s) for the ${title.toLowerCase()}`
+          }
           onChange={(tester) => onPatchRun({ tester })}
         />
       </div>
@@ -99,7 +132,9 @@ function ReliefValveRunSection({
           id={gaugeSelectId}
           options={gaugeOptions}
           value={{ gaugeId: run.gaugeId, gauge: run.gauge }}
-          onChange={(gauge) => onPatchRun(gauge)}
+          onChange={(gauge) => {
+            if (!readOnly) onPatchRun(gauge)
+          }}
         />
       </div>
 
@@ -129,38 +164,20 @@ function ReliefValveRunSection({
           </div>
         </div>
 
-        <label>
-          Pop 1 <span className="test-log-required-mark">*</span>
-          <input
-            type="text"
-            inputMode="decimal"
-            value={run.test1}
-            onChange={(e) => onPatchRun({ test1: e.target.value })}
-            placeholder="PSI"
-          />
-        </label>
-
-        <label>
-          Pop 2 <span className="test-log-required-mark">*</span>
-          <input
-            type="text"
-            inputMode="decimal"
-            value={run.test2}
-            onChange={(e) => onPatchRun({ test2: e.target.value })}
-            placeholder="PSI"
-          />
-        </label>
-
-        <label>
-          Pop 3 <span className="test-log-required-mark">*</span>
-          <input
-            type="text"
-            inputMode="decimal"
-            value={run.test3}
-            onChange={(e) => onPatchRun({ test3: e.target.value })}
-            placeholder="PSI"
-          />
-        </label>
+        {(['test1', 'test2', 'test3'] as const).map((field, index) => (
+          <label key={field}>
+            Pop {index + 1} {!readOnly ? <span className="test-log-required-mark">*</span> : null}
+            <input
+              type="text"
+              inputMode="decimal"
+              value={run[field]}
+              onChange={(e) => onPatchRun({ [field]: e.target.value })}
+              placeholder="PSI"
+              readOnly={readOnly}
+              disabled={readOnly}
+            />
+          </label>
+        ))}
 
         <div
           className={`test-log-relief-average${
@@ -233,45 +250,25 @@ function ReliefValveRunSection({
                 Pop average {popAvgForReseatLabel} PSI — enter reseat readings
               </span>
             ) : (
-              <span className="test-log-relief-criteria-detail">
-                Band moves with each pop reading
-              </span>
+              <span className="test-log-relief-criteria-detail">Band moves with each pop reading</span>
             )}
           </div>
         </div>
 
-        <label>
-          Reseat 1 <span className="test-log-required-mark">*</span>
-          <input
-            type="text"
-            inputMode="decimal"
-            value={run.reseat1}
-            onChange={(e) => onPatchRun({ reseat1: e.target.value })}
-            placeholder="PSI"
-          />
-        </label>
-
-        <label>
-          Reseat 2 <span className="test-log-required-mark">*</span>
-          <input
-            type="text"
-            inputMode="decimal"
-            value={run.reseat2}
-            onChange={(e) => onPatchRun({ reseat2: e.target.value })}
-            placeholder="PSI"
-          />
-        </label>
-
-        <label>
-          Reseat 3 <span className="test-log-required-mark">*</span>
-          <input
-            type="text"
-            inputMode="decimal"
-            value={run.reseat3}
-            onChange={(e) => onPatchRun({ reseat3: e.target.value })}
-            placeholder="PSI"
-          />
-        </label>
+        {(['reseat1', 'reseat2', 'reseat3'] as const).map((field, index) => (
+          <label key={field}>
+            Reseat {index + 1} {!readOnly ? <span className="test-log-required-mark">*</span> : null}
+            <input
+              type="text"
+              inputMode="decimal"
+              value={run[field]}
+              onChange={(e) => onPatchRun({ [field]: e.target.value })}
+              placeholder="PSI"
+              readOnly={readOnly}
+              disabled={readOnly}
+            />
+          </label>
+        ))}
 
         <div
           className={`test-log-relief-average${
@@ -313,7 +310,7 @@ function ReliefValveRunSection({
 
       <fieldset className="test-pressure-result-fieldset test-log-relief-result">
         <legend>
-          {title} result <span className="test-log-required-mark">*</span>
+          {title} result {!readOnly ? <span className="test-log-required-mark">*</span> : null}
         </legend>
         <p className="test-log-relief-result-hint">{evaluation.summary}</p>
         <label className="test-pressure-result-option">
@@ -328,16 +325,94 @@ function ReliefValveRunSection({
 
       {run.result === 'fail' ? (
         <label className="test-log-relief-fail-reason">
-          Fail reason <span className="test-log-required-mark">*</span>
+          Fail reason {!readOnly ? <span className="test-log-required-mark">*</span> : null}
           <input
             type="text"
             value={run.reason}
             onChange={(e) => onPatchRun({ reason: e.target.value })}
             placeholder="Describe why the test failed"
+            readOnly={readOnly}
+            disabled={readOnly}
           />
         </label>
       ) : null}
+
+      {showRetest && onRetest ? (
+        <div className="test-log-relief-retest-actions">
+          <button type="button" className="test-log-relief-retest-btn" onClick={onRetest}>
+            Re-test {title.toLowerCase()}
+          </button>
+          <p className="test-log-relief-retest-hint">
+            Keeps this failed attempt on the record and opens a new blank attempt underneath.
+          </p>
+        </div>
+      ) : null}
     </section>
+  )
+}
+
+type AttemptGroupProps = {
+  kind: 'pretest' | 'final'
+  title: string
+  hint: string
+  attempts: ReliefValveRunFields[]
+  header: Pick<ReliefValveTestFields, 'setPressure' | 'media'>
+  gaugeOptions: TestGauge[]
+  testerOptions: Array<Pick<Employee, 'id' | 'full_name' | 'initials'>>
+  testersLoading?: boolean
+  onChangeAttempts: (attempts: ReliefValveRunFields[]) => void
+  childrenForFirst?: ReactNode
+}
+
+function ReliefValveAttemptGroup({
+  kind,
+  title,
+  hint,
+  attempts,
+  header,
+  gaugeOptions,
+  testerOptions,
+  testersLoading,
+  onChangeAttempts,
+  childrenForFirst,
+}: AttemptGroupProps) {
+  const list = ensureReliefAttempts(attempts)
+
+  const patchAttempt = (index: number, partial: Partial<ReliefValveRunFields>) => {
+    const next = list.map((run, i) => (i === index ? { ...run, ...partial } : run))
+    onChangeAttempts(next)
+  }
+
+  return (
+    <>
+      {list.map((run, index) => {
+        const isLatest = index === list.length - 1
+        const readOnly = !isLatest
+        return (
+          <ReliefValveRunSection
+            key={`${kind}-${index}`}
+            title={title}
+            hint={hint}
+            runKey={kind}
+            run={run}
+            attemptIndex={index}
+            attemptCount={list.length}
+            readOnly={readOnly}
+            showRetest={isLatest && canStartReliefRetest(list)}
+            header={header}
+            gaugeOptions={gaugeOptions}
+            testerOptions={testerOptions}
+            testersLoading={testersLoading}
+            gaugeSelectId={`relief-valve-${kind}-gauge-${index}`}
+            resultName={`relief-valve-${kind}-result-${index}`}
+            onPatchRun={(partial) => patchAttempt(index, partial)}
+            onRetest={() => onChangeAttempts(startReliefRetest(list))}
+          >
+            {index === 0 ? childrenForFirst : null}
+          </ReliefValveRunSection>
+        )
+      })}
+    </>
   )
 }
 
@@ -360,15 +435,6 @@ export function ReliefValveFields({
     onChange(next)
   }
 
-  const patchRun = (runKey: 'pretest' | 'final', partial: Partial<ReliefValveRunFields>) => {
-    patch({
-      [runKey]: {
-        ...value[runKey],
-        ...partial,
-      },
-    })
-  }
-
   const sizeSelect = (current: string) => {
     const options = [...sizeOptions]
     if (current && !options.some((opt) => opt.toLowerCase() === current.toLowerCase())) {
@@ -380,8 +446,8 @@ export function ReliefValveFields({
   return (
     <div className="test-log-relief-fields">
       <p className="test-log-relief-record-note">
-        One record per valve — optional pretest plus a required final test. You can save the pretest first and
-        complete the final later on the same entry.
+        One record per valve — optional pretest plus a required final test. If a run fails, use Re-test to keep the
+        failed attempt and document the next one on the same record.
       </p>
 
       <label>
@@ -451,6 +517,9 @@ export function ReliefValveFields({
             patch({
               includePretest: e.target.checked,
               pretestKind: e.target.checked ? value.pretestKind || 'Pretest' : value.pretestKind,
+              pretestAttempts: e.target.checked
+                ? ensureReliefAttempts(value.pretestAttempts)
+                : value.pretestAttempts,
             })
           }
         />
@@ -458,52 +527,49 @@ export function ReliefValveFields({
       </label>
 
       {value.includePretest ? (
-        <ReliefValveRunSection
+        <ReliefValveAttemptGroup
+          kind="pretest"
           title="Pretest"
           hint="As-found / pretest readings before or during repair."
-          runKey="pretest"
-          run={value.pretest}
+          attempts={value.pretestAttempts}
           header={header}
           gaugeOptions={gaugeOptions}
           testerOptions={testerOptions}
           testersLoading={testersLoading}
-          gaugeSelectId="relief-valve-pretest-gauge"
-          resultName="relief-valve-pretest-result"
-          onPatchRun={(partial) => patchRun('pretest', partial)}
-        >
-          <fieldset className="test-log-relief-test-type">
-            <legend>
-              Pretest type <span className="test-log-required-mark">*</span>
-            </legend>
-            <div className="test-log-relief-test-type-options">
-              {RELIEF_VALVE_PRETEST_KINDS.map((kind) => (
-                <label key={kind} className="test-log-inline-radio">
-                  <input
-                    type="radio"
-                    name="relief-valve-pretest-kind"
-                    checked={value.pretestKind === kind}
-                    onChange={() => patch({ pretestKind: kind })}
-                  />
-                  {kind}
-                </label>
-              ))}
-            </div>
-          </fieldset>
-        </ReliefValveRunSection>
+          onChangeAttempts={(pretestAttempts) => patch({ pretestAttempts })}
+          childrenForFirst={
+            <fieldset className="test-log-relief-test-type">
+              <legend>
+                Pretest type <span className="test-log-required-mark">*</span>
+              </legend>
+              <div className="test-log-relief-test-type-options">
+                {RELIEF_VALVE_PRETEST_KINDS.map((kind) => (
+                  <label key={kind} className="test-log-inline-radio">
+                    <input
+                      type="radio"
+                      name="relief-valve-pretest-kind"
+                      checked={value.pretestKind === kind}
+                      onChange={() => patch({ pretestKind: kind })}
+                    />
+                    {kind}
+                  </label>
+                ))}
+              </div>
+            </fieldset>
+          }
+        />
       ) : null}
 
-      <ReliefValveRunSection
+      <ReliefValveAttemptGroup
+        kind="final"
         title="Final test"
         hint="Required as-left / final pop and reseat for this valve."
-        runKey="final"
-        run={value.final}
+        attempts={value.finalAttempts}
         header={header}
         gaugeOptions={gaugeOptions}
         testerOptions={testerOptions}
         testersLoading={testersLoading}
-        gaugeSelectId="relief-valve-final-gauge"
-        resultName="relief-valve-final-result"
-        onPatchRun={(partial) => patchRun('final', partial)}
+        onChangeAttempts={(finalAttempts) => patch({ finalAttempts })}
       />
     </div>
   )

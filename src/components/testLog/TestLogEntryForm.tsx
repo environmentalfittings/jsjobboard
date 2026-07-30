@@ -191,14 +191,19 @@ export function TestLogEntryForm({
   const reliefFields = testing.reliefValve ?? emptyReliefValveTestFields()
   const reliefHasTester = useMemo(() => {
     if (!isReliefValve) return false
-    const pretestOk = !reliefFields.includePretest || Boolean(reliefFields.pretest.tester.trim())
-    const finalStarted =
-      Boolean(reliefFields.final.tester.trim()) ||
-      Boolean(reliefFields.final.gaugeId) ||
-      Boolean(reliefFields.final.test1) ||
-      Boolean(reliefFields.final.result)
+    const latestPretest = reliefFields.pretestAttempts?.[reliefFields.pretestAttempts.length - 1]
+    const latestFinal = reliefFields.finalAttempts?.[reliefFields.finalAttempts.length - 1]
+    const pretestOk =
+      !reliefFields.includePretest || Boolean(latestPretest?.tester?.trim())
+    const finalStarted = Boolean(
+      latestFinal?.tester?.trim() ||
+        latestFinal?.gaugeId ||
+        latestFinal?.test1 ||
+        latestFinal?.result ||
+        (reliefFields.finalAttempts?.length ?? 0) > 1,
+    )
     if (reliefFields.includePretest && !finalStarted) return pretestOk
-    return pretestOk && Boolean(reliefFields.final.tester.trim())
+    return pretestOk && Boolean(latestFinal?.tester?.trim())
   }, [isReliefValve, reliefFields])
   const sizeOptions = useMemo(
     () =>

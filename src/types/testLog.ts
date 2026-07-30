@@ -182,8 +182,8 @@ export function deriveOverallPassFail(details: TestLogTestingDetails): string {
   if (
     details.reliefValve?.includePretest ||
     details.reliefValve?.inletSize?.trim() ||
-    details.reliefValve?.final?.result ||
-    details.reliefValve?.pretest?.result
+    details.reliefValve?.finalAttempts?.some((run) => run.result) ||
+    details.reliefValve?.pretestAttempts?.some((run) => run.result)
   ) {
     return reliefValveRecordPassFail(details.reliefValve)
   }

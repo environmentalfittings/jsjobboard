@@ -31,7 +31,7 @@ export type ReliefValveRunFields = {
 
 /**
  * One Test Log record for a PRV / relief valve.
- * Shared header + optional pretest run + required final run.
+ * Shared header + optional pretest attempts + final attempts (failed runs stay; re-test adds another).
  */
 export type ReliefValveTestFields = {
   inletSize: string
@@ -42,8 +42,8 @@ export type ReliefValveTestFields = {
   /** When true, pretest pop/reseat is part of this record. */
   includePretest: boolean
   pretestKind: string
-  pretest: ReliefValveRunFields
-  final: ReliefValveRunFields
+  pretestAttempts: ReliefValveRunFields[]
+  finalAttempts: ReliefValveRunFields[]
 }
 
 export function emptyReliefValveRunFields(): ReliefValveRunFields {
@@ -72,9 +72,31 @@ export function emptyReliefValveTestFields(): ReliefValveTestFields {
     mediaOther: '',
     includePretest: false,
     pretestKind: '',
-    pretest: emptyReliefValveRunFields(),
-    final: emptyReliefValveRunFields(),
+    pretestAttempts: [emptyReliefValveRunFields()],
+    finalAttempts: [emptyReliefValveRunFields()],
   }
+}
+
+export function ensureReliefAttempts(attempts: ReliefValveRunFields[] | null | undefined): ReliefValveRunFields[] {
+  if (Array.isArray(attempts) && attempts.length > 0) return attempts
+  return [emptyReliefValveRunFields()]
+}
+
+export function latestReliefAttempt(attempts: ReliefValveRunFields[] | null | undefined): ReliefValveRunFields {
+  const list = ensureReliefAttempts(attempts)
+  return list[list.length - 1] ?? emptyReliefValveRunFields()
+}
+
+/** Append a blank attempt after a failed latest run (keeps the failed record). */
+export function startReliefRetest(attempts: ReliefValveRunFields[]): ReliefValveRunFields[] {
+  const list = ensureReliefAttempts(attempts)
+  const latest = list[list.length - 1] ?? emptyReliefValveRunFields()
+  if (latest.result !== 'fail') return list
+  return [...list, emptyReliefValveRunFields()]
+}
+
+export function canStartReliefRetest(attempts: ReliefValveRunFields[]): boolean {
+  return latestReliefAttempt(attempts).result === 'fail'
 }
 
 export function isReliefValveType(valveType: string | null | undefined): boolean {
@@ -137,6 +159,17 @@ function runHasAnyData(run: ReliefValveRunFields): boolean {
   )
 }
 
+function parseAttempts(raw: unknown, fallbackRun?: unknown): ReliefValveRunFields[] {
+  if (Array.isArray(raw) && raw.length > 0) {
+    return raw.map((item) => parseRunFields(item))
+  }
+  if (fallbackRun != null && typeof fallbackRun === 'object') {
+    const run = parseRunFields(fallbackRun)
+    return runHasAnyData(run) || run.result ? [run] : [emptyReliefValveRunFields()]
+  }
+  return [emptyReliefValveRunFields()]
+}
+
 export function parseReliefValveTestFields(raw: unknown): ReliefValveTestFields {
   const empty = emptyReliefValveTestFields()
   if (!raw || typeof raw !== 'object') return empty
@@ -153,27 +186,29 @@ export function parseReliefValveTestFields(raw: unknown): ReliefValveTestFields 
   const hasNestedShape =
     o.final != null ||
     o.pretest != null ||
+    o.finalAttempts != null ||
+    o.pretestAttempts != null ||
     typeof o.includePretest === 'boolean' ||
     typeof o.pretestKind === 'string'
 
   if (hasNestedShape) {
-    const pretest = parseRunFields(o.pretest)
-    const final = parseRunFields(o.final)
+    const pretestAttempts = parseAttempts(o.pretestAttempts, o.pretest)
+    const finalAttempts = parseAttempts(o.finalAttempts, o.final)
     const pretestKind = String(o.pretestKind ?? o.testType ?? '').trim()
     const includePretest =
       typeof o.includePretest === 'boolean'
         ? o.includePretest
-        : Boolean(pretestKind) || runHasAnyData(pretest)
+        : Boolean(pretestKind) || pretestAttempts.some((run) => runHasAnyData(run))
     return {
       ...header,
       includePretest,
       pretestKind,
-      pretest,
-      final,
+      pretestAttempts,
+      finalAttempts,
     }
   }
 
-  // Legacy flat shape (single pretest-style run) → migrate into pretest.
+  // Legacy flat shape (single pretest-style run) → migrate into pretest attempts.
   const legacyRun = parseRunFields(o)
   const legacyType = String(o.testType ?? '').trim()
   const hasLegacyRun = Boolean(legacyType) || runHasAnyData(legacyRun)
@@ -181,8 +216,8 @@ export function parseReliefValveTestFields(raw: unknown): ReliefValveTestFields 
     ...header,
     includePretest: hasLegacyRun,
     pretestKind: legacyType,
-    pretest: hasLegacyRun ? legacyRun : emptyReliefValveRunFields(),
-    final: emptyReliefValveRunFields(),
+    pretestAttempts: hasLegacyRun ? [legacyRun] : [emptyReliefValveRunFields()],
+    finalAttempts: [emptyReliefValveRunFields()],
   }
 }
 
@@ -631,9 +666,12 @@ export function evaluateReliefValveRun(
   }
 }
 
-/** @deprecated Prefer evaluateReliefValveRun on pretest/final. */
+/** @deprecated Prefer evaluateReliefValveRun on a specific attempt. */
 export function evaluateReliefValveOverall(fields: ReliefValveTestFields): ReliefValveOverallEvaluation {
-  const run = fields.includePretest && runHasAnyData(fields.pretest) ? fields.pretest : fields.final
+  const run =
+    fields.includePretest && runHasAnyData(latestReliefAttempt(fields.pretestAttempts))
+      ? latestReliefAttempt(fields.pretestAttempts)
+      : latestReliefAttempt(fields.finalAttempts)
   return evaluateReliefValveRun(run, fields)
 }
 
@@ -699,10 +737,12 @@ function applyRunEvaluations(
 export function applyReliefValveEvaluations(fields: ReliefValveTestFields): ReliefValveTestFields {
   return {
     ...fields,
-    pretest: fields.includePretest
-      ? applyRunEvaluations(fields.pretest, fields)
-      : fields.pretest,
-    final: applyRunEvaluations(fields.final, fields),
+    pretestAttempts: ensureReliefAttempts(fields.pretestAttempts).map((run) =>
+      fields.includePretest ? applyRunEvaluations(run, fields) : run,
+    ),
+    finalAttempts: ensureReliefAttempts(fields.finalAttempts).map((run) =>
+      applyRunEvaluations(run, fields),
+    ),
   }
 }
 
@@ -752,6 +792,25 @@ function validateRunFields(
   return null
 }
 
+function validateAttempts(
+  attempts: ReliefValveRunFields[],
+  header: Pick<ReliefValveTestFields, 'setPressure' | 'media'>,
+  baseLabel: string,
+  options: { requireLatest: boolean },
+): string | null {
+  const list = ensureReliefAttempts(attempts)
+  for (let index = 0; index < list.length; index += 1) {
+    const run = list[index]!
+    const isLatest = index === list.length - 1
+    if (!isLatest && !runHasAnyData(run) && !run.result) continue
+    if (isLatest && !options.requireLatest && !runHasAnyData(run)) continue
+    const label = list.length > 1 ? `${baseLabel} attempt ${index + 1}` : baseLabel
+    const error = validateRunFields(run, header, label)
+    if (error) return error
+  }
+  return null
+}
+
 export function validateReliefValveFields(fields: ReliefValveTestFields): string | null {
   if (!fields.inletSize.trim()) return 'Inlet size is required for Relief Valve'
   if (!fields.outletSize.trim()) return 'Outlet size is required for Relief Valve'
@@ -766,13 +825,19 @@ export function validateReliefValveFields(fields: ReliefValveTestFields): string
 
   if (fields.includePretest) {
     if (!fields.pretestKind.trim()) return 'Select a pretest type (Pretest or Pretest with Repair)'
-    const pretestError = validateRunFields(fields.pretest, fields, 'Pretest')
+    const pretestError = validateAttempts(fields.pretestAttempts, fields, 'Pretest', {
+      requireLatest: true,
+    })
     if (pretestError) return pretestError
   }
 
-  const finalStarted = runHasAnyData(fields.final)
+  const finalStarted = ensureReliefAttempts(fields.finalAttempts).some(
+    (run) => runHasAnyData(run) || Boolean(run.result),
+  )
   if (!fields.includePretest || finalStarted) {
-    const finalError = validateRunFields(fields.final, fields, 'Final test')
+    const finalError = validateAttempts(fields.finalAttempts, fields, 'Final test', {
+      requireLatest: !fields.includePretest || finalStarted,
+    })
     if (finalError) return finalError
   }
 
@@ -783,52 +848,79 @@ export function validateReliefValveFields(fields: ReliefValveTestFields): string
   return null
 }
 
-/** Row-level pass/fail prefers the final test (what ships); falls back to pretest only. */
+/** Row-level pass/fail prefers the latest final attempt (what ships). */
 export function reliefValveRecordPassFail(fields: ReliefValveTestFields): 'PASS' | 'FAIL' | '' {
-  if (fields.final.result === 'fail') return 'FAIL'
-  if (fields.final.result === 'pass') return 'PASS'
-  if (fields.includePretest && fields.pretest.result === 'fail') return 'FAIL'
-  if (fields.includePretest && fields.pretest.result === 'pass') return ''
+  const finalAttempts = ensureReliefAttempts(fields.finalAttempts)
+  const latestFinal = latestReliefAttempt(finalAttempts)
+  if (latestFinal.result === 'pass') return 'PASS'
+  if (latestFinal.result === 'fail') return 'FAIL'
+  if (finalAttempts.some((run) => run.result === 'fail')) return 'FAIL'
+
+  if (fields.includePretest) {
+    const latestPretest = latestReliefAttempt(fields.pretestAttempts)
+    if (latestPretest.result === 'fail') return 'FAIL'
+    if (ensureReliefAttempts(fields.pretestAttempts).some((run) => run.result === 'fail')) return 'FAIL'
+    if (latestPretest.result === 'pass') return ''
+  }
   return ''
 }
 
 export function formatReliefValveWorkedSummary(fields: ReliefValveTestFields): string | null {
   const parts: string[] = []
   if (fields.includePretest) {
-    parts.push(fields.pretestKind.trim() || 'Pretest')
+    const pretestCount = ensureReliefAttempts(fields.pretestAttempts).filter(
+      (run) => runHasAnyData(run) || run.result,
+    ).length
+    const label = fields.pretestKind.trim() || 'Pretest'
+    parts.push(pretestCount > 1 ? `${label} ×${pretestCount}` : label)
   }
-  if (runHasAnyData(fields.final) || fields.final.result) {
-    parts.push('Final')
+  const finalCount = ensureReliefAttempts(fields.finalAttempts).filter(
+    (run) => runHasAnyData(run) || run.result,
+  ).length
+  if (finalCount > 0) {
+    parts.push(finalCount > 1 ? `Final ×${finalCount}` : 'Final')
   }
   return parts.length ? parts.join(' + ') : null
 }
 
 export function formatReliefValveFailReasons(fields: ReliefValveTestFields): string[] {
   const notes: string[] = []
-  if (fields.includePretest && fields.pretest.result === 'fail' && fields.pretest.reason.trim()) {
-    notes.push(`Pretest: ${fields.pretest.reason.trim()}`)
+  if (fields.includePretest) {
+    ensureReliefAttempts(fields.pretestAttempts).forEach((run, index, list) => {
+      if (run.result === 'fail' && run.reason.trim()) {
+        const label = list.length > 1 ? `Pretest attempt ${index + 1}` : 'Pretest'
+        notes.push(`${label}: ${run.reason.trim()}`)
+      }
+    })
   }
-  if (fields.final.result === 'fail' && fields.final.reason.trim()) {
-    notes.push(`Final: ${fields.final.reason.trim()}`)
-  }
+  ensureReliefAttempts(fields.finalAttempts).forEach((run, index, list) => {
+    if (run.result === 'fail' && run.reason.trim()) {
+      const label = list.length > 1 ? `Final attempt ${index + 1}` : 'Final'
+      notes.push(`${label}: ${run.reason.trim()}`)
+    }
+  })
   return notes
 }
 
 /** Combine pretest + final tester initials for the legacy test_logs.tester column. */
 export function formatReliefValveLegacyTester(fields: ReliefValveTestFields): string | null {
   const parts: string[] = []
-  if (fields.includePretest && fields.pretest.tester.trim()) {
-    parts.push(fields.pretest.tester.trim())
+  if (fields.includePretest) {
+    for (const run of ensureReliefAttempts(fields.pretestAttempts)) {
+      if (run.tester.trim()) parts.push(run.tester.trim())
+    }
   }
-  if (fields.final.tester.trim()) {
-    parts.push(fields.final.tester.trim())
+  for (const run of ensureReliefAttempts(fields.finalAttempts)) {
+    if (run.tester.trim()) parts.push(run.tester.trim())
   }
   if (!parts.length) return null
-  // Keep unique initials while preserving order.
   const seen = new Set<string>()
   const initials: string[] = []
   for (const part of parts) {
-    for (const token of part.split(/[,/;+]|\s+&\s+|\s+and\s+/i).map((value) => value.trim().toUpperCase()).filter(Boolean)) {
+    for (const token of part
+      .split(/[,/;+]|\s+&\s+|\s+and\s+/i)
+      .map((value) => value.trim().toUpperCase())
+      .filter(Boolean)) {
       if (seen.has(token)) continue
       seen.add(token)
       initials.push(token)
@@ -837,19 +929,33 @@ export function formatReliefValveLegacyTester(fields: ReliefValveTestFields): st
   return initials.join(', ') || null
 }
 
-/** Seed run testers from a legacy row-level tester string when runs have none. */
+/** Seed latest-run testers from a legacy row-level tester string when missing. */
 export function seedReliefValveTestersFromLegacy(
   fields: ReliefValveTestFields,
   legacyTester: string | null | undefined,
 ): ReliefValveTestFields {
   const legacy = String(legacyTester ?? '').trim()
   if (!legacy) return fields
-  const pretestNeeds = fields.includePretest && !fields.pretest.tester.trim()
-  const finalNeeds = !fields.final.tester.trim()
+
+  const pretestAttempts = ensureReliefAttempts(fields.pretestAttempts)
+  const finalAttempts = ensureReliefAttempts(fields.finalAttempts)
+  const latestPretest = latestReliefAttempt(pretestAttempts)
+  const latestFinal = latestReliefAttempt(finalAttempts)
+  const pretestNeeds = fields.includePretest && !latestPretest.tester.trim()
+  const finalNeeds = !latestFinal.tester.trim()
   if (!pretestNeeds && !finalNeeds) return fields
+
   return {
     ...fields,
-    pretest: pretestNeeds ? { ...fields.pretest, tester: legacy } : fields.pretest,
-    final: finalNeeds ? { ...fields.final, tester: legacy } : fields.final,
+    pretestAttempts: pretestNeeds
+      ? pretestAttempts.map((run, index) =>
+          index === pretestAttempts.length - 1 ? { ...run, tester: legacy } : run,
+        )
+      : pretestAttempts,
+    finalAttempts: finalNeeds
+      ? finalAttempts.map((run, index) =>
+          index === finalAttempts.length - 1 ? { ...run, tester: legacy } : run,
+        )
+      : finalAttempts,
   }
 }
