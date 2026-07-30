@@ -184,6 +184,48 @@ function parseAttempts(raw: unknown, fallbackRun?: unknown): ReliefValveRunField
   return [emptyReliefValveRunFields()]
 }
 
+function pickLegacyMirrorRun(fields: ReliefValveTestFields): ReliefValveRunFields {
+  const finalWithData = ensureReliefAttempts(fields.finalAttempts)
+    .filter((run) => runHasAnyData(run) || run.result)
+    .at(-1)
+  if (finalWithData) return finalWithData
+  if (fields.includePretest) {
+    const pretestWithData = ensureReliefAttempts(fields.pretestAttempts)
+      .filter((run) => runHasAnyData(run) || run.result)
+      .at(-1)
+    if (pretestWithData) return pretestWithData
+  }
+  return emptyReliefValveRunFields()
+}
+
+/**
+ * Persist nested attempts and a flat legacy mirror so production/main clients
+ * that still read top-level test1/test2/… can show the performed test.
+ */
+export function serializeReliefValveTestFields(
+  fields: ReliefValveTestFields,
+): ReliefValveTestFields & Record<string, unknown> {
+  const evaluated = applyReliefValveEvaluations(fields)
+  const mirror = pickLegacyMirrorRun(evaluated)
+  return {
+    ...evaluated,
+    // Legacy flat keys (ignored by the nested parser; used by older clients).
+    testType: evaluated.pretestKind || (evaluated.includePretest ? 'Pretest' : ''),
+    tester: mirror.tester,
+    gaugeId: mirror.gaugeId,
+    gauge: mirror.gauge,
+    test1: mirror.test1,
+    test2: mirror.test2,
+    test3: mirror.test3,
+    reseat1: mirror.reseat1,
+    reseat2: mirror.reseat2,
+    reseat3: mirror.reseat3,
+    result: mirror.result,
+    reseatResult: mirror.reseatResult,
+    reason: mirror.reason,
+  }
+}
+
 export function parseReliefValveTestFields(raw: unknown): ReliefValveTestFields {
   const empty = emptyReliefValveTestFields()
   if (!raw || typeof raw !== 'object') return empty
@@ -206,16 +248,30 @@ export function parseReliefValveTestFields(raw: unknown): ReliefValveTestFields 
     typeof o.pretestKind === 'string'
 
   if (hasNestedShape) {
-    const pretestAttempts = parseAttempts(o.pretestAttempts, o.pretest)
-    const finalAttempts = parseAttempts(o.finalAttempts, o.final)
+    let pretestAttempts = parseAttempts(o.pretestAttempts, o.pretest)
+    let finalAttempts = parseAttempts(o.finalAttempts, o.final)
     const pretestKind = String(o.pretestKind ?? o.testType ?? '').trim()
     const includePretest =
       typeof o.includePretest === 'boolean'
         ? o.includePretest
         : Boolean(pretestKind) || pretestAttempts.some((run) => runHasAnyData(run))
+
+    // Recover flat legacy readings when nested attempts were saved empty.
+    const legacyRun = parseRunFields(o)
+    const nestedHasData =
+      pretestAttempts.some((run) => runHasAnyData(run) || run.result) ||
+      finalAttempts.some((run) => runHasAnyData(run) || run.result)
+    if (!nestedHasData && runHasAnyData(legacyRun)) {
+      if (includePretest || pretestKind) {
+        pretestAttempts = [legacyRun]
+      } else {
+        finalAttempts = [legacyRun]
+      }
+    }
+
     return {
       ...header,
-      includePretest,
+      includePretest: includePretest || pretestAttempts.some((run) => runHasAnyData(run) || run.result),
       pretestKind,
       pretestAttempts,
       finalAttempts,

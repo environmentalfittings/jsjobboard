@@ -28,6 +28,7 @@ import {
   isReliefValveType,
   prefillReliefSizesFromJobSize,
   seedReliefValveTestersFromLegacy,
+  serializeReliefValveTestFields,
   validateReliefValveFields,
   valveSizeSelectOptions,
 } from '../../lib/reliefValveTest'
@@ -643,7 +644,11 @@ export function TestLogEntryForm({
     const savedAt = new Date().toISOString()
     const testingWithStamp: TestLogTestingDetails = {
       ...testing,
-      reliefValve: testing.reliefValve ?? emptyReliefValveTestFields(),
+      reliefValve: isReliefValveType(valveType)
+        ? (serializeReliefValveTestFields(
+            testing.reliefValve ?? emptyReliefValveTestFields(),
+          ) as TestLogTestingDetails['reliefValve'])
+        : (testing.reliefValve ?? emptyReliefValveTestFields()),
       savedAt,
     }
     const reliefSize = deriveReliefValveLegacySize(testingWithStamp)
