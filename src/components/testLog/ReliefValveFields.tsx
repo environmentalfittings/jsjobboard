@@ -1,10 +1,10 @@
 import { useMemo } from 'react'
 import {
   RELIEF_VALVE_MEDIA,
+  RELIEF_VALVE_PASS_TOLERANCE_PERCENT,
   RELIEF_VALVE_TEST_TYPES,
-  averageReliefValveTests,
+  evaluateReliefValvePassFail,
   formatReliefValveAverage,
-  parseReliefPressureValue,
   type ReliefValveTestFields,
 } from '../../lib/reliefValveTest'
 
@@ -15,13 +15,23 @@ type ReliefValveFieldsProps = {
 }
 
 export function ReliefValveFields({ value, sizeOptions, onChange }: ReliefValveFieldsProps) {
-  const patch = (partial: Partial<ReliefValveTestFields>) => onChange({ ...value, ...partial })
   const showMediaOther = value.media.trim().toLowerCase() === 'other'
-  const average = useMemo(() => averageReliefValveTests(value), [value])
-  const averageLabel = formatReliefValveAverage(average)
-  const setPressureNumber = parseReliefPressureValue(value.setPressure)
-  const averageDelta =
-    average !== null && setPressureNumber !== null ? average - setPressureNumber : null
+  const evaluation = useMemo(() => evaluateReliefValvePassFail(value), [value])
+  const averageLabel = formatReliefValveAverage(evaluation.average)
+  const setLabel = formatReliefValveAverage(evaluation.setPressure)
+  const maxLabel = formatReliefValveAverage(evaluation.maxPassPressure)
+
+  const patch = (partial: Partial<ReliefValveTestFields>) => {
+    const next: ReliefValveTestFields = { ...value, ...partial }
+    const nextEvaluation = evaluateReliefValvePassFail(next)
+    if (nextEvaluation.result) {
+      next.result = nextEvaluation.result
+      if (nextEvaluation.result === 'pass') next.reason = ''
+    } else if (!('result' in partial) && !('reason' in partial)) {
+      next.result = ''
+    }
+    onChange(next)
+  }
 
   const sizeSelect = (current: string) => {
     const options = [...sizeOptions]
@@ -114,7 +124,10 @@ export function ReliefValveFields({ value, sizeOptions, onChange }: ReliefValveF
       <div className="test-log-relief-set-pressure-tests">
         <div className="test-log-relief-set-pressure-heading">
           <h5>Set pressure tests</h5>
-          <p>Enter three pop tests. Average updates automatically.</p>
+          <p>
+            Pass when the three-pop average is from set pressure up to +{RELIEF_VALVE_PASS_TOLERANCE_PERCENT}%
+            (never below set).
+          </p>
         </div>
 
         <label>
@@ -150,28 +163,36 @@ export function ReliefValveFields({ value, sizeOptions, onChange }: ReliefValveF
           />
         </label>
 
-        <div className="test-log-relief-average" aria-live="polite">
+        <div
+          className={`test-log-relief-average${
+            evaluation.result === 'pass'
+              ? ' test-log-relief-average-pass'
+              : evaluation.result === 'fail'
+                ? ' test-log-relief-average-fail'
+                : ''
+          }`}
+          aria-live="polite"
+        >
           <span className="test-log-relief-average-label">Average</span>
           <strong className="test-log-relief-average-value">
             {averageLabel ? `${averageLabel} PSI` : '—'}
           </strong>
-          {averageDelta !== null ? (
-            <span
-              className={`test-log-relief-average-delta${
-                Math.abs(averageDelta) < 0.0001
-                  ? ' test-log-relief-average-delta-match'
-                  : averageDelta > 0
-                    ? ' test-log-relief-average-delta-over'
-                    : ' test-log-relief-average-delta-under'
-              }`}
-            >
-              {Math.abs(averageDelta) < 0.0001
-                ? 'Matches set pressure'
-                : `${averageDelta > 0 ? '+' : ''}${formatReliefValveAverage(averageDelta)} vs set`}
+          {setLabel && maxLabel ? (
+            <span className="test-log-relief-average-band">
+              Pass band: {setLabel}–{maxLabel} PSI
             </span>
-          ) : (
-            <span className="test-log-relief-average-delta">Enter all three tests</span>
-          )}
+          ) : null}
+          <span
+            className={`test-log-relief-average-delta${
+              evaluation.result === 'pass'
+                ? ' test-log-relief-average-delta-match'
+                : evaluation.result === 'fail'
+                  ? ' test-log-relief-average-delta-under'
+                  : ''
+            }`}
+          >
+            {evaluation.summary}
+          </span>
         </div>
       </div>
 
@@ -179,22 +200,15 @@ export function ReliefValveFields({ value, sizeOptions, onChange }: ReliefValveF
         <legend>
           Result <span className="test-log-required-mark">*</span>
         </legend>
+        <p className="test-log-relief-result-hint">
+          Set automatically from the average vs set pressure (+{RELIEF_VALVE_PASS_TOLERANCE_PERCENT}% max).
+        </p>
         <label className="test-pressure-result-option">
-          <input
-            type="radio"
-            name="relief-valve-result"
-            checked={value.result === 'pass'}
-            onChange={() => patch({ result: 'pass', reason: '' })}
-          />
+          <input type="radio" name="relief-valve-result" checked={value.result === 'pass'} readOnly disabled />
           Pass
         </label>
         <label className="test-pressure-result-option">
-          <input
-            type="radio"
-            name="relief-valve-result"
-            checked={value.result === 'fail'}
-            onChange={() => patch({ result: 'fail' })}
-          />
+          <input type="radio" name="relief-valve-result" checked={value.result === 'fail'} readOnly disabled />
           Fail
         </label>
       </fieldset>

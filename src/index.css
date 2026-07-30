@@ -2398,6 +2398,16 @@ body {
   background: linear-gradient(180deg, #eff6ff 0%, #dbeafe 100%);
 }
 
+.test-log-relief-average-pass {
+  border-color: #86efac;
+  background: linear-gradient(180deg, #f0fdf4 0%, #dcfce7 100%);
+}
+
+.test-log-relief-average-fail {
+  border-color: #fca5a5;
+  background: linear-gradient(180deg, #fef2f2 0%, #fee2e2 100%);
+}
+
 .test-log-relief-average-label {
   font-size: 0.75rem;
   font-weight: 700;
@@ -2406,10 +2416,23 @@ body {
   color: #1d4ed8;
 }
 
+.test-log-relief-average-pass .test-log-relief-average-label {
+  color: #15803d;
+}
+
+.test-log-relief-average-fail .test-log-relief-average-label {
+  color: #b91c1c;
+}
+
 .test-log-relief-average-value {
   font-size: 1.35rem;
   line-height: 1.1;
   color: #0f172a;
+}
+
+.test-log-relief-average-band {
+  font-size: 0.75rem;
+  color: #475569;
 }
 
 .test-log-relief-average-delta {
@@ -2428,12 +2451,18 @@ body {
 }
 
 .test-log-relief-average-delta-under {
-  color: #b45309;
+  color: #b91c1c;
   font-weight: 600;
 }
 
 .test-log-relief-result {
   grid-column: 1 / -1;
+}
+
+.test-log-relief-result-hint {
+  margin: 0 0 0.55rem;
+  font-size: 0.8125rem;
+  color: #64748b;
 }
 
 .test-log-relief-fail-reason {

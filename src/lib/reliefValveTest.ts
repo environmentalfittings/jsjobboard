@@ -91,6 +91,77 @@ export function formatReliefValveAverage(average: number | null): string {
   return Number.isInteger(rounded) ? String(rounded) : rounded.toFixed(2).replace(/\.?0+$/, '')
 }
 
+/** Pass band: set pressure through +3% (never below set). */
+export const RELIEF_VALVE_PASS_TOLERANCE_PERCENT = 3
+
+export type ReliefValvePassEvaluation = {
+  average: number | null
+  setPressure: number | null
+  maxPassPressure: number | null
+  result: 'pass' | 'fail' | ''
+  summary: string
+}
+
+export function reliefValvePassBand(setPressure: number): { min: number; max: number } {
+  return {
+    min: setPressure,
+    max: setPressure * (1 + RELIEF_VALVE_PASS_TOLERANCE_PERCENT / 100),
+  }
+}
+
+/**
+ * Pass when three-pop average is between set pressure and +3% of set pressure.
+ * Below set pressure = fail (customers do not want valves set low).
+ */
+export function evaluateReliefValvePassFail(
+  fields: Pick<ReliefValveTestFields, 'setPressure' | 'test1' | 'test2' | 'test3'>,
+): ReliefValvePassEvaluation {
+  const setPressure = parseReliefPressureValue(fields.setPressure)
+  const average = averageReliefValveTests(fields)
+  if (setPressure === null || average === null) {
+    return {
+      average,
+      setPressure,
+      maxPassPressure: null,
+      result: '',
+      summary: 'Enter set pressure and all three tests',
+    }
+  }
+
+  const { min, max } = reliefValvePassBand(setPressure)
+  const maxLabel = formatReliefValveAverage(max)
+  const avgLabel = formatReliefValveAverage(average)
+  const setLabel = formatReliefValveAverage(setPressure)
+
+  if (average + 1e-9 >= min && average - 1e-9 <= max) {
+    return {
+      average,
+      setPressure,
+      maxPassPressure: max,
+      result: 'pass',
+      summary: `Pass band: ${setLabel}–${maxLabel} PSI (+${RELIEF_VALVE_PASS_TOLERANCE_PERCENT}%)`,
+    }
+  }
+
+  if (average < min) {
+    return {
+      average,
+      setPressure,
+      maxPassPressure: max,
+      result: 'fail',
+      summary: `Average ${avgLabel} PSI is below set pressure ${setLabel} PSI`,
+    }
+  }
+
+  return {
+    average,
+    setPressure,
+    maxPassPressure: max,
+    result: 'fail',
+    summary: `Average ${avgLabel} PSI is above +${RELIEF_VALVE_PASS_TOLERANCE_PERCENT}% limit ${maxLabel} PSI`,
+  }
+}
+
 export function resolveReliefValveMedia(fields: ReliefValveTestFields): string {
   if (fields.media.toLowerCase() === 'other') {
     return fields.mediaOther.trim() || 'Other'
@@ -156,7 +227,12 @@ export function validateReliefValveFields(fields: ReliefValveTestFields): string
   ) {
     return 'Each Relief Valve test must be a number'
   }
-  if (!fields.result) return 'Select Pass or Fail for the Relief Valve test'
+
+  const evaluation = evaluateReliefValvePassFail(fields)
+  if (!evaluation.result) return 'Complete set pressure and three tests for Relief Valve'
+  if (fields.result !== evaluation.result) {
+    return `Relief Valve result must be ${evaluation.result.toUpperCase()} based on the +${RELIEF_VALVE_PASS_TOLERANCE_PERCENT}% set-pressure rule`
+  }
   if (fields.result === 'fail' && !fields.reason.trim()) {
     return 'Enter a fail reason for the Relief Valve test'
   }
