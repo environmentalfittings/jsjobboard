@@ -489,9 +489,9 @@ export function ReliefValveFields({
 
     setSavingJobRecord(true)
     setJobRecordMessage(null)
-    const patchPayload: { size: string; pressure: string; test_type: string } = {
+    const patchPayload: { size: string; pressure_class: string; test_type: string } = {
       size: formattedSize,
-      pressure: value.setPressure.trim(),
+      pressure_class: value.setPressure.trim(),
       test_type: testType,
     }
     const { error } = await supabase.from('valves').update(patchPayload).eq('id', valveRowId)
@@ -504,7 +504,7 @@ export function ReliefValveFields({
 
     onJobRecordUpdated?.({
       size: patchPayload.size,
-      pressure: patchPayload.pressure,
+      pressure: patchPayload.pressure_class,
       testType: patchPayload.test_type,
     })
     setJobRecordMessage('Job record updated — size, set pressure, and media saved across the app.')
