@@ -39,6 +39,7 @@ export type InventoryFormState = {
   operator: string
   customerIdNo: string
   origin: string
+  originOther: string
   notes: string
 }
 
@@ -49,7 +50,31 @@ export type InventoryPhotoDraft = {
 }
 
 export const INVENTORY_OPERATORS = ['Handwheel', 'Gear Op.', 'Air Act.', 'Electric Act.', 'Other'] as const
+export const INVENTORY_ORIGINS = ['JS Warehouse', 'JS Yard', 'JS Cage', 'other'] as const
 export const INVENTORY_MAX_IMAGE_BYTES = 8 * 1024 * 1024
+
+export type InventoryOriginOption = (typeof INVENTORY_ORIGINS)[number]
+
+/** Split a stored origin into dropdown value + optional custom text for "other". */
+export function splitInventoryOrigin(raw: string | null | undefined): {
+  origin: string
+  originOther: string
+} {
+  const value = String(raw ?? '').trim()
+  if (!value) return { origin: '', originOther: '' }
+  if ((INVENTORY_ORIGINS as readonly string[]).includes(value) && value !== 'other') {
+    return { origin: value, originOther: '' }
+  }
+  if (value === 'other') return { origin: 'other', originOther: '' }
+  return { origin: 'other', originOther: value }
+}
+
+export function resolveInventoryOrigin(origin: string, originOther: string): string {
+  const selected = origin.trim()
+  if (!selected) return ''
+  if (selected === 'other') return originOther.trim() || 'other'
+  return selected
+}
 
 const PRODUCTION_APP_ORIGIN = 'https://jsjobboard.vercel.app'
 
@@ -99,6 +124,7 @@ export function emptyInventoryForm(): InventoryFormState {
     operator: '',
     customerIdNo: '',
     origin: '',
+    originOther: '',
     notes: '',
   }
 }
@@ -143,6 +169,7 @@ function packMedia(media: PackedMedia): string | null {
 }
 
 export function inventoryToForm(row: InventoryRecord): InventoryFormState {
+  const originParts = splitInventoryOrigin(row.origin)
   return {
     jsInventoryId: row.js_inventory_id ?? '',
     customer: row.customer ?? '',
@@ -154,7 +181,8 @@ export function inventoryToForm(row: InventoryRecord): InventoryFormState {
     pressure: row.pressure ?? '',
     operator: row.operator ?? '',
     customerIdNo: row.customer_id_no ?? '',
-    origin: row.origin ?? '',
+    origin: originParts.origin,
+    originOther: originParts.originOther,
     notes: row.notes ?? '',
   }
 }
@@ -295,7 +323,7 @@ function formToPayload(form: InventoryFormState, manufacturerId: string | null, 
     pressure: form.pressure.trim() || null,
     operator: form.operator.trim() || null,
     customer_id_no: form.customerIdNo.trim() || null,
-    origin: form.origin.trim() || null,
+    origin: resolveInventoryOrigin(form.origin, form.originOther) || null,
     notes: form.notes.trim() || null,
   }
 }

@@ -8,6 +8,7 @@ import {
   emptyInventoryForm,
   emptyPhotoDraft,
   INVENTORY_OPERATORS,
+  INVENTORY_ORIGINS,
   inventoryMatchesSearch,
   inventoryToForm,
   loadInventoryFormOptions,
@@ -310,6 +311,10 @@ export function AdminInventoryPage() {
       showToast('JS inventory ID is required')
       return
     }
+    if (form.origin === 'other' && !form.originOther.trim()) {
+      showToast('Enter the other location')
+      return
+    }
 
     const hasValve = Boolean(valvePhoto.file || valvePhoto.existingUrl)
     const hasTag = Boolean(tagPhoto.file || tagPhoto.existingUrl)
@@ -593,13 +598,33 @@ export function AdminInventoryPage() {
                     />
                   </Field>
                   <Field label="Origin / location">
-                    <input
-                      type="text"
+                    <select
                       value={form.origin}
-                      onChange={(e) => patchForm({ origin: e.target.value })}
-                      placeholder="Warehouse, yard, customer stock…"
-                    />
+                      onChange={(e) =>
+                        patchForm({
+                          origin: e.target.value,
+                          originOther: e.target.value === 'other' ? form.originOther : '',
+                        })
+                      }
+                    >
+                      <option value="">— Select —</option>
+                      {INVENTORY_ORIGINS.map((option) => (
+                        <option key={option} value={option}>
+                          {option === 'other' ? 'Other' : option}
+                        </option>
+                      ))}
+                    </select>
                   </Field>
+                  {form.origin === 'other' ? (
+                    <Field label="Other location" required>
+                      <input
+                        type="text"
+                        value={form.originOther}
+                        onChange={(e) => patchForm({ originOther: e.target.value })}
+                        placeholder="Describe location"
+                      />
+                    </Field>
+                  ) : null}
                 </div>
               </section>
 
