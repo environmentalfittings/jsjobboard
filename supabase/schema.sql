@@ -1169,6 +1169,9 @@ create table if not exists public.inventory (
   js_inventory_id text unique,
   origin text,
   image_url text,
+  valve_image_url text,
+  tag_image_url text,
+  qr_code_data_url text,
   created_at timestamptz default now(),
   updated_at timestamptz default now()
 );

@@ -1,5 +1,7 @@
+import QRCode from 'qrcode'
 import { supabase } from './supabase'
 import { loadLookupOptionsMap } from './lookupValues'
+import { attachmentPublicUrl, VALVE_ATTACHMENTS_BUCKET } from './valveAttachments'
 
 export type InventoryRecord = {
   id: string
@@ -18,6 +20,9 @@ export type InventoryRecord = {
   js_inventory_id: string | null
   origin: string | null
   image_url: string | null
+  valve_image_url: string | null
+  tag_image_url: string | null
+  qr_code_data_url: string | null
   created_at: string
   updated_at: string
 }
@@ -35,10 +40,18 @@ export type InventoryFormState = {
   customerIdNo: string
   origin: string
   notes: string
-  imageUrl: string
+}
+
+export type InventoryPhotoDraft = {
+  file: File | null
+  previewUrl: string | null
+  existingUrl: string | null
 }
 
 export const INVENTORY_OPERATORS = ['Handwheel', 'Gear Op.', 'Air Act.', 'Electric Act.', 'Other'] as const
+export const INVENTORY_MAX_IMAGE_BYTES = 8 * 1024 * 1024
+
+const PRODUCTION_APP_ORIGIN = 'https://jsjobboard.vercel.app'
 
 export const INVENTORY_SELECT =
   'id,customer,manufacturer_id,manufacturer_name,valve_type_id,body_material,api_trim,size,pressure,operator,customer_id_no,notes,js_inventory_id,origin,image_url,created_at,updated_at'
@@ -59,9 +72,18 @@ type InventoryRow = {
   js_inventory_id: string | null
   origin: string | null
   image_url: string | null
+  valve_image_url?: string | null
+  tag_image_url?: string | null
+  qr_code_data_url?: string | null
   created_at: string
   updated_at: string
   valve_types?: { label: string | null } | { label: string | null }[] | null
+}
+
+type PackedMedia = {
+  valveImageUrl?: string | null
+  tagImageUrl?: string | null
+  qrCodeDataUrl?: string | null
 }
 
 export function emptyInventoryForm(): InventoryFormState {
@@ -78,8 +100,46 @@ export function emptyInventoryForm(): InventoryFormState {
     customerIdNo: '',
     origin: '',
     notes: '',
-    imageUrl: '',
   }
+}
+
+export function emptyPhotoDraft(existingUrl: string | null = null): InventoryPhotoDraft {
+  return { file: null, previewUrl: existingUrl, existingUrl }
+}
+
+function unpackMedia(raw: string | null | undefined): PackedMedia {
+  const value = String(raw ?? '').trim()
+  if (!value) return {}
+  if (value.startsWith('{')) {
+    try {
+      const parsed = JSON.parse(value) as Record<string, unknown>
+      return {
+        valveImageUrl:
+          (typeof parsed.valveImageUrl === 'string' && parsed.valveImageUrl) ||
+          (typeof parsed.v === 'string' && parsed.v) ||
+          null,
+        tagImageUrl:
+          (typeof parsed.tagImageUrl === 'string' && parsed.tagImageUrl) ||
+          (typeof parsed.t === 'string' && parsed.t) ||
+          null,
+        qrCodeDataUrl:
+          (typeof parsed.qrCodeDataUrl === 'string' && parsed.qrCodeDataUrl) ||
+          (typeof parsed.q === 'string' && parsed.q) ||
+          null,
+      }
+    } catch {
+      return { valveImageUrl: value }
+    }
+  }
+  return { valveImageUrl: value }
+}
+
+function packMedia(media: PackedMedia): string | null {
+  const valveImageUrl = media.valveImageUrl?.trim() || null
+  const tagImageUrl = media.tagImageUrl?.trim() || null
+  const qrCodeDataUrl = media.qrCodeDataUrl?.trim() || null
+  if (!valveImageUrl && !tagImageUrl && !qrCodeDataUrl) return null
+  return JSON.stringify({ valveImageUrl, tagImageUrl, qrCodeDataUrl })
 }
 
 export function inventoryToForm(row: InventoryRecord): InventoryFormState {
@@ -96,13 +156,16 @@ export function inventoryToForm(row: InventoryRecord): InventoryFormState {
     customerIdNo: row.customer_id_no ?? '',
     origin: row.origin ?? '',
     notes: row.notes ?? '',
-    imageUrl: row.image_url ?? '',
   }
 }
 
 function mapInventoryRow(row: InventoryRow): InventoryRecord {
   const joined = row.valve_types
   const label = Array.isArray(joined) ? joined[0]?.label : joined?.label
+  const packed = unpackMedia(row.image_url)
+  const valveImageUrl = row.valve_image_url?.trim() || packed.valveImageUrl || null
+  const tagImageUrl = row.tag_image_url?.trim() || packed.tagImageUrl || null
+  const qrCodeDataUrl = row.qr_code_data_url?.trim() || packed.qrCodeDataUrl || null
   return {
     id: row.id,
     customer: row.customer,
@@ -120,12 +183,25 @@ function mapInventoryRow(row: InventoryRow): InventoryRecord {
     js_inventory_id: row.js_inventory_id,
     origin: row.origin,
     image_url: row.image_url,
+    valve_image_url: valveImageUrl,
+    tag_image_url: tagImageUrl,
+    qr_code_data_url: qrCodeDataUrl,
     created_at: row.created_at,
     updated_at: row.updated_at,
   }
 }
 
 export async function loadInventoryRecords(): Promise<{ data: InventoryRecord[]; error: string | null }> {
+  const withExtras = await supabase
+    .from('inventory')
+    .select(`${INVENTORY_SELECT},valve_image_url,tag_image_url,qr_code_data_url,valve_types(label)`)
+    .order('updated_at', { ascending: false })
+    .limit(2000)
+
+  if (!withExtras.error) {
+    return { data: ((withExtras.data ?? []) as InventoryRow[]).map(mapInventoryRow), error: null }
+  }
+
   const { data, error } = await supabase
     .from('inventory')
     .select(`${INVENTORY_SELECT},valve_types(label)`)
@@ -133,7 +209,6 @@ export async function loadInventoryRecords(): Promise<{ data: InventoryRecord[];
     .limit(2000)
 
   if (error) {
-    // Fallback if the FK embed is unavailable.
     const fallback = await supabase
       .from('inventory')
       .select(INVENTORY_SELECT)
@@ -183,7 +258,6 @@ async function ensureManufacturerId(name: string): Promise<string | null> {
   const inserted = await supabase.from('manufacturers').insert({ name: trimmed }).select('id').single()
   if (inserted.data?.id) return String(inserted.data.id)
 
-  // Unique race — fetch again.
   const again = await supabase.from('manufacturers').select('id').eq('name', trimmed).maybeSingle()
   return again.data?.id ? String(again.data.id) : null
 }
@@ -192,7 +266,6 @@ async function ensureValveTypeId(label: string): Promise<string | null> {
   const trimmed = label.trim()
   if (!trimmed) return null
 
-  // Use the shop label as the text PK so inventory matches Manage Lists valve types.
   const existing = await supabase.from('valve_types').select('id').eq('id', trimmed).maybeSingle()
   if (existing.data?.id) return String(existing.data.id)
 
@@ -206,7 +279,6 @@ async function ensureValveTypeId(label: string): Promise<string | null> {
     .single()
   if (inserted.data?.id) return String(inserted.data.id)
 
-  // If insert fails (e.g. permissions), keep the FK null and still save the row.
   return null
 }
 
@@ -225,7 +297,6 @@ function formToPayload(form: InventoryFormState, manufacturerId: string | null, 
     customer_id_no: form.customerIdNo.trim() || null,
     origin: form.origin.trim() || null,
     notes: form.notes.trim() || null,
-    image_url: form.imageUrl.trim() || null,
   }
 }
 
@@ -240,41 +311,237 @@ function friendlyInventoryError(message: string | undefined): string {
   return message
 }
 
+function extFromFile(file: File): string {
+  const name = file.name
+  if (!name.includes('.')) {
+    if (file.type === 'image/png') return '.png'
+    if (file.type === 'image/webp') return '.webp'
+    return '.jpg'
+  }
+  const ext = name.slice(name.lastIndexOf('.'))
+  return ext.length <= 12 ? ext : '.jpg'
+}
+
+export function validateInventoryPhoto(file: File): string | null {
+  if (!file.type.startsWith('image/') && !/\.(jpe?g|png|gif|webp|bmp|heic)$/i.test(file.name)) {
+    return 'Please choose an image file'
+  }
+  if (file.size > INVENTORY_MAX_IMAGE_BYTES) {
+    return 'Image is too large (max 8 MB)'
+  }
+  return null
+}
+
+export async function uploadInventoryPhoto(
+  inventoryId: string,
+  kind: 'valve' | 'tag',
+  file: File,
+): Promise<{ url: string | null; path: string | null; error: string | null }> {
+  const validation = validateInventoryPhoto(file)
+  if (validation) return { url: null, path: null, error: validation }
+
+  const path = `inventory/${inventoryId}/${kind}-${crypto.randomUUID()}${extFromFile(file)}`
+  const { error } = await supabase.storage.from(VALVE_ATTACHMENTS_BUCKET).upload(path, file, {
+    contentType: file.type || 'image/jpeg',
+    upsert: false,
+  })
+  if (error) return { url: null, path: null, error: error.message || 'Photo upload failed' }
+  return { url: attachmentPublicUrl(path), path, error: null }
+}
+
+export function resolveInventoryPublicOrigin(): string {
+  const fromEnv = String(import.meta.env.VITE_PUBLIC_APP_URL ?? '').trim().replace(/\/$/, '')
+  if (fromEnv) return fromEnv
+  if (typeof window === 'undefined') return PRODUCTION_APP_ORIGIN
+  const { origin, hostname } = window.location
+  if (hostname === 'localhost' || hostname === '127.0.0.1') return PRODUCTION_APP_ORIGIN
+  return origin.replace(/\/$/, '')
+}
+
+export function buildInventoryItemUrl(inventoryId: string, origin = resolveInventoryPublicOrigin()): string {
+  return `${origin.replace(/\/$/, '')}/admin/inventory?item=${encodeURIComponent(inventoryId)}`
+}
+
+export async function createInventoryQrDataUrl(inventoryId: string, size = 280): Promise<string> {
+  return QRCode.toDataURL(buildInventoryItemUrl(inventoryId), {
+    errorCorrectionLevel: 'M',
+    margin: 1,
+    width: size,
+    color: { dark: '#0f172a', light: '#ffffff' },
+  })
+}
+
+async function writeInventoryRow(
+  mode: 'insert' | 'update',
+  id: string,
+  payload: Record<string, unknown>,
+): Promise<{ data: InventoryRecord | null; error: string | null }> {
+  const withExtras = {
+    ...payload,
+    valve_image_url: payload.valve_image_url ?? null,
+    tag_image_url: payload.tag_image_url ?? null,
+    qr_code_data_url: payload.qr_code_data_url ?? null,
+  }
+
+  if (mode === 'insert') {
+    const primary = await supabase.from('inventory').insert({ id, ...withExtras }).select(INVENTORY_SELECT).single()
+    if (!primary.error && primary.data) return { data: mapInventoryRow(primary.data as InventoryRow), error: null }
+
+    if (primary.error && /valve_image_url|tag_image_url|qr_code_data_url/i.test(primary.error.message)) {
+      const packedOnly = { ...payload }
+      delete packedOnly.valve_image_url
+      delete packedOnly.tag_image_url
+      delete packedOnly.qr_code_data_url
+      const fallback = await supabase.from('inventory').insert({ id, ...packedOnly }).select(INVENTORY_SELECT).single()
+      if (fallback.error || !fallback.data) {
+        return { data: null, error: friendlyInventoryError(fallback.error?.message || primary.error.message) }
+      }
+      return { data: mapInventoryRow(fallback.data as InventoryRow), error: null }
+    }
+
+    return { data: null, error: friendlyInventoryError(primary.error?.message) }
+  }
+
+  const primary = await supabase
+    .from('inventory')
+    .update(withExtras)
+    .eq('id', id)
+    .select(INVENTORY_SELECT)
+    .single()
+  if (!primary.error && primary.data) return { data: mapInventoryRow(primary.data as InventoryRow), error: null }
+
+  if (primary.error && /valve_image_url|tag_image_url|qr_code_data_url/i.test(primary.error.message)) {
+    const packedOnly = { ...payload }
+    delete packedOnly.valve_image_url
+    delete packedOnly.tag_image_url
+    delete packedOnly.qr_code_data_url
+    const fallback = await supabase.from('inventory').update(packedOnly).eq('id', id).select(INVENTORY_SELECT).single()
+    if (fallback.error || !fallback.data) {
+      return { data: null, error: friendlyInventoryError(fallback.error?.message || primary.error.message) }
+    }
+    return { data: mapInventoryRow(fallback.data as InventoryRow), error: null }
+  }
+
+  return { data: null, error: friendlyInventoryError(primary.error?.message) }
+}
+
 export async function createInventoryRecord(
   form: InventoryFormState,
+  photos: { valve: File; tag: File },
 ): Promise<{ data: InventoryRecord | null; error: string | null }> {
-  const [manufacturerId, valveTypeId] = await Promise.all([
+  const id = crypto.randomUUID()
+  const [manufacturerId, valveTypeId, valveUpload, tagUpload] = await Promise.all([
     ensureManufacturerId(form.manufacturerName),
     ensureValveTypeId(form.valveType),
+    uploadInventoryPhoto(id, 'valve', photos.valve),
+    uploadInventoryPhoto(id, 'tag', photos.tag),
   ])
-  const payload = formToPayload(form, manufacturerId, valveTypeId)
-  const { data, error } = await supabase.from('inventory').insert(payload).select(INVENTORY_SELECT).single()
-  if (error || !data) return { data: null, error: friendlyInventoryError(error?.message) }
-  return { data: mapInventoryRow(data as InventoryRow), error: null }
+
+  if (valveUpload.error || !valveUpload.url) {
+    if (tagUpload.path) await supabase.storage.from(VALVE_ATTACHMENTS_BUCKET).remove([tagUpload.path])
+    return { data: null, error: valveUpload.error || 'Valve photo upload failed' }
+  }
+  if (tagUpload.error || !tagUpload.url) {
+    if (valveUpload.path) await supabase.storage.from(VALVE_ATTACHMENTS_BUCKET).remove([valveUpload.path])
+    return { data: null, error: tagUpload.error || 'Tag photo upload failed' }
+  }
+
+  let qrCodeDataUrl: string
+  try {
+    qrCodeDataUrl = await createInventoryQrDataUrl(id)
+  } catch {
+    if (valveUpload.path) await supabase.storage.from(VALVE_ATTACHMENTS_BUCKET).remove([valveUpload.path])
+    if (tagUpload.path) await supabase.storage.from(VALVE_ATTACHMENTS_BUCKET).remove([tagUpload.path])
+    return { data: null, error: 'Could not generate QR code' }
+  }
+
+  const base = formToPayload(form, manufacturerId, valveTypeId)
+  const payload = {
+    ...base,
+    image_url: packMedia({
+      valveImageUrl: valveUpload.url,
+      tagImageUrl: tagUpload.url,
+      qrCodeDataUrl,
+    }),
+    valve_image_url: valveUpload.url,
+    tag_image_url: tagUpload.url,
+    qr_code_data_url: qrCodeDataUrl,
+  }
+
+  const result = await writeInventoryRow('insert', id, payload)
+  if (result.error) {
+    if (valveUpload.path) await supabase.storage.from(VALVE_ATTACHMENTS_BUCKET).remove([valveUpload.path])
+    if (tagUpload.path) await supabase.storage.from(VALVE_ATTACHMENTS_BUCKET).remove([tagUpload.path])
+  }
+  return result
 }
 
 export async function updateInventoryRecord(
   id: string,
   form: InventoryFormState,
+  photos: {
+    valve: InventoryPhotoDraft
+    tag: InventoryPhotoDraft
+    existing: InventoryRecord
+  },
 ): Promise<{ data: InventoryRecord | null; error: string | null }> {
+  const valveUrl = photos.valve.existingUrl
+  const tagUrl = photos.tag.existingUrl
+  if (!photos.valve.file && !valveUrl) return { data: null, error: 'A picture of the valve is required' }
+  if (!photos.tag.file && !tagUrl) return { data: null, error: 'A picture of the tag is required' }
+
   const [manufacturerId, valveTypeId] = await Promise.all([
     ensureManufacturerId(form.manufacturerName),
     ensureValveTypeId(form.valveType),
   ])
-  const payload = formToPayload(form, manufacturerId, valveTypeId)
-  const { data, error } = await supabase
-    .from('inventory')
-    .update(payload)
-    .eq('id', id)
-    .select(INVENTORY_SELECT)
-    .single()
-  if (error || !data) return { data: null, error: friendlyInventoryError(error?.message) }
-  return { data: mapInventoryRow(data as InventoryRow), error: null }
+
+  let nextValveUrl = valveUrl
+  let nextTagUrl = tagUrl
+  const uploadedPaths: string[] = []
+
+  if (photos.valve.file) {
+    const uploaded = await uploadInventoryPhoto(id, 'valve', photos.valve.file)
+    if (uploaded.error || !uploaded.url) return { data: null, error: uploaded.error || 'Valve photo upload failed' }
+    nextValveUrl = uploaded.url
+    if (uploaded.path) uploadedPaths.push(uploaded.path)
+  }
+  if (photos.tag.file) {
+    const uploaded = await uploadInventoryPhoto(id, 'tag', photos.tag.file)
+    if (uploaded.error || !uploaded.url) {
+      if (uploadedPaths.length) await supabase.storage.from(VALVE_ATTACHMENTS_BUCKET).remove(uploadedPaths)
+      return { data: null, error: uploaded.error || 'Tag photo upload failed' }
+    }
+    nextTagUrl = uploaded.url
+    if (uploaded.path) uploadedPaths.push(uploaded.path)
+  }
+
+  const qrCodeDataUrl =
+    photos.existing.qr_code_data_url?.trim() || (await createInventoryQrDataUrl(id))
+
+  const base = formToPayload(form, manufacturerId, valveTypeId)
+  const payload = {
+    ...base,
+    image_url: packMedia({
+      valveImageUrl: nextValveUrl,
+      tagImageUrl: nextTagUrl,
+      qrCodeDataUrl,
+    }),
+    valve_image_url: nextValveUrl,
+    tag_image_url: nextTagUrl,
+    qr_code_data_url: qrCodeDataUrl,
+  }
+
+  const result = await writeInventoryRow('update', id, payload)
+  if (result.error && uploadedPaths.length) {
+    await supabase.storage.from(VALVE_ATTACHMENTS_BUCKET).remove(uploadedPaths)
+  }
+  return result
 }
 
 export async function deleteInventoryRecord(id: string): Promise<{ error: string | null }> {
   const { error } = await supabase.from('inventory').delete().eq('id', id)
   if (error) return { error: friendlyInventoryError(error.message) }
+  // Best-effort cleanup of storage folder objects is skipped (paths are UUID-unique).
   return { error: null }
 }
 
