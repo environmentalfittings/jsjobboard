@@ -86,8 +86,8 @@ export function AdminInventoryPage() {
     if (error) {
       showToast(
         error.includes('inventory') || error.includes('relation')
-          ? 'Inventory table missing — run the traveler / inventory migrations in Supabase'
-          : `Could not load inventory: ${error}`,
+          ? 'Customer inventory table missing — run the traveler / inventory migrations in Supabase'
+          : `Could not load customer inventory: ${error}`,
       )
       setRows([])
     } else {
@@ -149,7 +149,7 @@ export function AdminInventoryPage() {
       showToast(result.error)
       return
     }
-    showToast(modalMode === 'edit' ? 'Inventory item updated' : 'Inventory item added')
+    showToast(modalMode === 'edit' ? 'Customer inventory item updated' : 'Customer inventory item added')
     setModalOpen(false)
     setEditingId(null)
     setForm(emptyInventoryForm())
@@ -158,13 +158,13 @@ export function AdminInventoryPage() {
 
   const remove = async (row: InventoryRecord) => {
     const label = row.js_inventory_id || row.customer || 'this item'
-    if (!window.confirm(`Remove ${label} from inventory?`)) return
+    if (!window.confirm(`Remove ${label} from customer inventory?`)) return
     const { error } = await deleteInventoryRecord(row.id)
     if (error) {
       showToast(error)
       return
     }
-    showToast('Inventory item removed')
+    showToast('Customer inventory item removed')
     await reload()
   }
 
@@ -172,9 +172,9 @@ export function AdminInventoryPage() {
     <section className="dashboard-page inventory-page">
       <div className="dashboard-title-row admin-page-heading">
         <div>
-          <h2 className="dashboard-title">Inventory</h2>
+          <h2 className="dashboard-title">Customer Inventory</h2>
           <p className="placeholder-copy">
-            Customer / warehouse valve stock — track what JS holds for customers outside the active job board.
+            Track valves held for customers outside the active job board (warehouse / customer stock).
           </p>
         </div>
         <div className="admin-employees-title-actions">
@@ -182,7 +182,7 @@ export function AdminInventoryPage() {
             {loading ? 'Loading…' : 'Refresh'}
           </button>
           <button type="button" className="button-primary" onClick={openCreate}>
-            Add inventory item
+            Add customer inventory item
           </button>
           <Link to="/dashboard" className="button-secondary">
             Back to dashboard
@@ -227,15 +227,15 @@ export function AdminInventoryPage() {
               {loading ? (
                 <tr>
                   <td colSpan={8} className="table-empty-cell">
-                    Loading inventory…
+                    Loading customer inventory…
                   </td>
                 </tr>
               ) : filtered.length === 0 ? (
                 <tr>
                   <td colSpan={8} className="table-empty-cell">
                     {rows.length === 0
-                      ? 'No inventory items yet — add the first one.'
-                      : 'No inventory items match this search.'}
+                      ? 'No customer inventory items yet — add the first one.'
+                      : 'No customer inventory items match this search.'}
                   </td>
                 </tr>
               ) : (
@@ -281,7 +281,7 @@ export function AdminInventoryPage() {
           >
             <div className="technician-modal-head">
               <h3 id="inventory-modal-title">
-                {modalMode === 'edit' ? 'Edit inventory item' : 'Add inventory item'}
+                {modalMode === 'edit' ? 'Edit customer inventory item' : 'Add customer inventory item'}
               </h3>
               <button type="button" className="modal-close-btn" onClick={closeModal} aria-label="Close">
                 ×

@@ -151,7 +151,7 @@ export function NavBar({ role, username, userId, onLogout }: NavBarProps) {
     { to: '/resources', label: 'Resources' },
     {
       to: '/admin/inventory',
-      label: 'Inventory',
+      label: 'Customer Inventory',
       disabled: !can(role, 'openAdminTools'),
       disabledReason: permissionDeniedReason('openAdminTools'),
     },
