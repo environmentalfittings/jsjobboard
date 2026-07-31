@@ -1172,6 +1172,7 @@ create table if not exists public.inventory (
   valve_image_url text,
   tag_image_url text,
   qr_code_data_url text,
+  hf_acid boolean not null default false,
   created_at timestamptz default now(),
   updated_at timestamptz default now()
 );

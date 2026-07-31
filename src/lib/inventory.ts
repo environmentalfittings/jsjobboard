@@ -20,6 +20,7 @@ export type InventoryRecord = {
   notes: string | null
   js_inventory_id: string | null
   origin: string | null
+  hf_acid: boolean
   image_url: string | null
   valve_image_url: string | null
   tag_image_url: string | null
@@ -42,6 +43,7 @@ export type InventoryFormState = {
   origin: string
   originOther: string
   notes: string
+  hfAcid: boolean
 }
 
 export type InventoryPhotoDraft = {
@@ -128,6 +130,7 @@ type InventoryRow = {
   valve_image_url?: string | null
   tag_image_url?: string | null
   qr_code_data_url?: string | null
+  hf_acid?: boolean | null
   created_at: string
   updated_at: string
   valve_types?: { label: string | null } | { label: string | null }[] | null
@@ -137,6 +140,7 @@ type PackedMedia = {
   valveImageUrl?: string | null
   tagImageUrl?: string | null
   qrCodeDataUrl?: string | null
+  hfAcid?: boolean
 }
 
 export function emptyInventoryForm(): InventoryFormState {
@@ -154,6 +158,7 @@ export function emptyInventoryForm(): InventoryFormState {
     origin: '',
     originOther: '',
     notes: '',
+    hfAcid: false,
   }
 }
 
@@ -180,6 +185,7 @@ function unpackMedia(raw: string | null | undefined): PackedMedia {
           (typeof parsed.qrCodeDataUrl === 'string' && parsed.qrCodeDataUrl) ||
           (typeof parsed.q === 'string' && parsed.q) ||
           null,
+        hfAcid: parsed.hfAcid === true || parsed.hf_acid === true,
       }
     } catch {
       return { valveImageUrl: value }
@@ -192,8 +198,9 @@ function packMedia(media: PackedMedia): string | null {
   const valveImageUrl = media.valveImageUrl?.trim() || null
   const tagImageUrl = media.tagImageUrl?.trim() || null
   const qrCodeDataUrl = media.qrCodeDataUrl?.trim() || null
-  if (!valveImageUrl && !tagImageUrl && !qrCodeDataUrl) return null
-  return JSON.stringify({ valveImageUrl, tagImageUrl, qrCodeDataUrl })
+  const hfAcid = Boolean(media.hfAcid)
+  if (!valveImageUrl && !tagImageUrl && !qrCodeDataUrl && !hfAcid) return null
+  return JSON.stringify({ valveImageUrl, tagImageUrl, qrCodeDataUrl, hfAcid })
 }
 
 export function inventoryToForm(row: InventoryRecord): InventoryFormState {
@@ -212,6 +219,7 @@ export function inventoryToForm(row: InventoryRecord): InventoryFormState {
     origin: originParts.origin,
     originOther: originParts.originOther,
     notes: row.notes ?? '',
+    hfAcid: Boolean(row.hf_acid),
   }
 }
 
@@ -238,6 +246,7 @@ function mapInventoryRow(row: InventoryRow): InventoryRecord {
     notes: row.notes,
     js_inventory_id: row.js_inventory_id,
     origin: row.origin,
+    hf_acid: row.hf_acid === true || packed.hfAcid === true,
     image_url: row.image_url,
     valve_image_url: valveImageUrl,
     tag_image_url: tagImageUrl,
@@ -250,12 +259,22 @@ function mapInventoryRow(row: InventoryRow): InventoryRecord {
 export async function loadInventoryRecords(): Promise<{ data: InventoryRecord[]; error: string | null }> {
   const withExtras = await supabase
     .from('inventory')
-    .select(`${INVENTORY_SELECT},valve_image_url,tag_image_url,qr_code_data_url,valve_types(label)`)
+    .select(`${INVENTORY_SELECT},valve_image_url,tag_image_url,qr_code_data_url,hf_acid,valve_types(label)`)
     .order('updated_at', { ascending: false })
     .limit(2000)
 
   if (!withExtras.error) {
     return { data: ((withExtras.data ?? []) as InventoryRow[]).map(mapInventoryRow), error: null }
+  }
+
+  const withPhotos = await supabase
+    .from('inventory')
+    .select(`${INVENTORY_SELECT},valve_image_url,tag_image_url,qr_code_data_url,valve_types(label)`)
+    .order('updated_at', { ascending: false })
+    .limit(2000)
+
+  if (!withPhotos.error) {
+    return { data: ((withPhotos.data ?? []) as InventoryRow[]).map(mapInventoryRow), error: null }
   }
 
   const { data, error } = await supabase
@@ -360,6 +379,7 @@ function formToPayload(form: InventoryFormState, manufacturerId: string | null, 
     customer_id_no: form.customerIdNo.trim() || null,
     origin: resolveInventoryOrigin(form.origin, form.originOther) || null,
     notes: form.notes.trim() || null,
+    hf_acid: Boolean(form.hfAcid),
   }
 }
 
@@ -446,46 +466,38 @@ async function writeInventoryRow(
     qr_code_data_url: payload.qr_code_data_url ?? null,
   }
 
-  if (mode === 'insert') {
-    const primary = await supabase.from('inventory').insert({ id, ...withExtras }).select(INVENTORY_SELECT).single()
-    if (!primary.error && primary.data) return { data: mapInventoryRow(primary.data as InventoryRow), error: null }
-
-    if (primary.error && /valve_image_url|tag_image_url|qr_code_data_url/i.test(primary.error.message)) {
-      const packedOnly = { ...payload }
-      delete packedOnly.valve_image_url
-      delete packedOnly.tag_image_url
-      delete packedOnly.qr_code_data_url
-      const fallback = await supabase.from('inventory').insert({ id, ...packedOnly }).select(INVENTORY_SELECT).single()
-      if (fallback.error || !fallback.data) {
-        return { data: null, error: friendlyInventoryError(fallback.error?.message || primary.error.message) }
-      }
-      return { data: mapInventoryRow(fallback.data as InventoryRow), error: null }
+  const run = async (body: Record<string, unknown>) => {
+    if (mode === 'insert') {
+      return supabase.from('inventory').insert({ id, ...body }).select(INVENTORY_SELECT).single()
     }
-
-    return { data: null, error: friendlyInventoryError(primary.error?.message) }
+    return supabase.from('inventory').update(body).eq('id', id).select(INVENTORY_SELECT).single()
   }
 
-  const primary = await supabase
-    .from('inventory')
-    .update(withExtras)
-    .eq('id', id)
-    .select(INVENTORY_SELECT)
-    .single()
+  const primary = await run(withExtras)
   if (!primary.error && primary.data) return { data: mapInventoryRow(primary.data as InventoryRow), error: null }
 
-  if (primary.error && /valve_image_url|tag_image_url|qr_code_data_url/i.test(primary.error.message)) {
-    const packedOnly = { ...payload }
+  let lastError = primary.error?.message
+
+  if (lastError && /hf_acid/i.test(lastError)) {
+    const withoutHf: Record<string, unknown> = { ...withExtras }
+    delete withoutHf.hf_acid
+    const retry = await run(withoutHf)
+    if (!retry.error && retry.data) return { data: mapInventoryRow(retry.data as InventoryRow), error: null }
+    lastError = retry.error?.message || lastError
+  }
+
+  if (lastError && /valve_image_url|tag_image_url|qr_code_data_url/i.test(lastError)) {
+    const packedOnly: Record<string, unknown> = { ...payload }
     delete packedOnly.valve_image_url
     delete packedOnly.tag_image_url
     delete packedOnly.qr_code_data_url
-    const fallback = await supabase.from('inventory').update(packedOnly).eq('id', id).select(INVENTORY_SELECT).single()
-    if (fallback.error || !fallback.data) {
-      return { data: null, error: friendlyInventoryError(fallback.error?.message || primary.error.message) }
-    }
-    return { data: mapInventoryRow(fallback.data as InventoryRow), error: null }
+    delete packedOnly.hf_acid
+    const fallback = await run(packedOnly)
+    if (!fallback.error && fallback.data) return { data: mapInventoryRow(fallback.data as InventoryRow), error: null }
+    lastError = fallback.error?.message || lastError
   }
 
-  return { data: null, error: friendlyInventoryError(primary.error?.message) }
+  return { data: null, error: friendlyInventoryError(lastError) }
 }
 
 export async function createInventoryRecord(
@@ -537,6 +549,7 @@ export async function createInventoryRecord(
       valveImageUrl: valveUpload.url,
       tagImageUrl: tagUpload.url,
       qrCodeDataUrl,
+      hfAcid: form.hfAcid,
     }),
     valve_image_url: valveUpload.url,
     tag_image_url: tagUpload.url,
@@ -621,6 +634,7 @@ export async function updateInventoryRecord(
       valveImageUrl: nextValveUrl,
       tagImageUrl: nextTagUrl,
       qrCodeDataUrl,
+      hfAcid: form.hfAcid,
     }),
     valve_image_url: nextValveUrl,
     tag_image_url: nextTagUrl,
@@ -658,6 +672,7 @@ export function inventoryMatchesSearch(row: InventoryRecord, rawQuery: string): 
     row.customer_id_no,
     row.origin,
     row.notes,
+    row.hf_acid ? 'hf acid' : '',
   ]
     .map((value) => String(value ?? '').toLowerCase())
     .join(' ')

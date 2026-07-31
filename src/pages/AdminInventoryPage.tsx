@@ -523,7 +523,12 @@ export function AdminInventoryPage() {
                         )}
                       </div>
                     </td>
-                    <td>{row.js_inventory_id || '—'}</td>
+                    <td>
+                      <div className="inventory-id-cell">
+                        <span>{row.js_inventory_id || '—'}</span>
+                        {row.hf_acid ? <span className="inventory-hf-badge">HF Acid</span> : null}
+                      </div>
+                    </td>
                     <td>{row.customer || '—'}</td>
                     <td>{row.manufacturer_name || '—'}</td>
                     <td>{row.valve_type_label || '—'}</td>
@@ -742,6 +747,14 @@ export function AdminInventoryPage() {
                       ))}
                     </select>
                   </Field>
+                  <label className="inventory-checkbox-field">
+                    <input
+                      type="checkbox"
+                      checked={form.hfAcid}
+                      onChange={(e) => patchForm({ hfAcid: e.target.checked })}
+                    />
+                    <span>HF Acid valve</span>
+                  </label>
                 </div>
                 <div className="inventory-notes-in-section">
                   <Field label="Notes">
