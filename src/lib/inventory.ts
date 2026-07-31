@@ -230,7 +230,7 @@ function formToPayload(form: InventoryFormState, manufacturerId: string | null, 
 }
 
 function friendlyInventoryError(message: string | undefined): string {
-  if (!message) return 'Could not save inventory item'
+  if (!message) return 'Could not save customer inventory item'
   if (message.includes('js_inventory_id') || message.includes('23505')) {
     return 'That JS inventory ID is already in use'
   }
