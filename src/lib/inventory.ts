@@ -52,8 +52,35 @@ export type InventoryPhotoDraft = {
 export const INVENTORY_OPERATORS = ['Handwheel', 'Gear Op.', 'Air Act.', 'Electric Act.', 'Other'] as const
 export const INVENTORY_ORIGINS = ['JS Warehouse', 'JS Yard', 'JS Cage', 'other'] as const
 export const INVENTORY_MAX_IMAGE_BYTES = 8 * 1024 * 1024
+export const JS_INVENTORY_ID_PREFIX = 'JS-INV-'
+export const JS_INVENTORY_ID_START = 1001
 
 export type InventoryOriginOption = (typeof INVENTORY_ORIGINS)[number]
+
+export function formatJsInventoryId(sequence: number): string {
+  return `${JS_INVENTORY_ID_PREFIX}${sequence}`
+}
+
+export function parseJsInventorySequence(raw: string | null | undefined): number | null {
+  const value = String(raw ?? '').trim().toUpperCase()
+  const match = new RegExp(`^${JS_INVENTORY_ID_PREFIX}(\\d+)$`, 'i').exec(value)
+  if (!match) return null
+  const n = Number(match[1])
+  return Number.isFinite(n) ? n : null
+}
+
+/** Next unused JS-INV-#### based on existing rows (starts at 1001). */
+export async function allocateNextJsInventoryId(): Promise<{ id: string; error: string | null }> {
+  const { data, error } = await supabase.from('inventory').select('js_inventory_id').limit(5000)
+  if (error) return { id: formatJsInventoryId(JS_INVENTORY_ID_START), error: error.message }
+
+  let max = JS_INVENTORY_ID_START - 1
+  for (const row of data ?? []) {
+    const sequence = parseJsInventorySequence((row as { js_inventory_id?: string | null }).js_inventory_id)
+    if (sequence != null && sequence > max) max = sequence
+  }
+  return { id: formatJsInventoryId(max + 1), error: null }
+}
 
 /** Split a stored origin into dropdown value + optional custom text for "other". */
 export function splitInventoryOrigin(raw: string | null | undefined): {
@@ -458,11 +485,12 @@ export async function createInventoryRecord(
   photos: { valve: File; tag: File },
 ): Promise<{ data: InventoryRecord | null; error: string | null }> {
   const id = crypto.randomUUID()
-  const [manufacturerId, valveTypeId, valveUpload, tagUpload] = await Promise.all([
+  const [manufacturerId, valveTypeId, valveUpload, tagUpload, allocated] = await Promise.all([
     ensureManufacturerId(form.manufacturerName),
     ensureValveTypeId(form.valveType),
     uploadInventoryPhoto(id, 'valve', photos.valve),
     uploadInventoryPhoto(id, 'tag', photos.tag),
+    allocateNextJsInventoryId(),
   ])
 
   if (valveUpload.error || !valveUpload.url) {
@@ -483,9 +511,20 @@ export async function createInventoryRecord(
     return { data: null, error: 'Could not generate QR code' }
   }
 
-  const base = formToPayload(form, manufacturerId, valveTypeId)
-  const payload = {
-    ...base,
+  const cleanupUploads = async () => {
+    if (valveUpload.path) await supabase.storage.from(VALVE_ATTACHMENTS_BUCKET).remove([valveUpload.path])
+    if (tagUpload.path) await supabase.storage.from(VALVE_ATTACHMENTS_BUCKET).remove([tagUpload.path])
+  }
+
+  // Prefer freshly allocated ID; fall back to form value only if allocation failed oddly.
+  let jsInventoryId = allocated.id || form.jsInventoryId.trim()
+  if (!jsInventoryId) {
+    await cleanupUploads()
+    return { data: null, error: 'Could not assign a JS inventory ID' }
+  }
+
+  const base = formToPayload({ ...form, jsInventoryId }, manufacturerId, valveTypeId)
+  const mediaPayload = {
     image_url: packMedia({
       valveImageUrl: valveUpload.url,
       tagImageUrl: tagUpload.url,
@@ -496,12 +535,33 @@ export async function createInventoryRecord(
     qr_code_data_url: qrCodeDataUrl,
   }
 
-  const result = await writeInventoryRow('insert', id, payload)
-  if (result.error) {
-    if (valveUpload.path) await supabase.storage.from(VALVE_ATTACHMENTS_BUCKET).remove([valveUpload.path])
-    if (tagUpload.path) await supabase.storage.from(VALVE_ATTACHMENTS_BUCKET).remove([tagUpload.path])
+  // Retry a few times if another user grabbed the same sequence concurrently.
+  let lastError: string | null = null
+  for (let attempt = 0; attempt < 5; attempt += 1) {
+    const payload = {
+      ...base,
+      js_inventory_id: jsInventoryId,
+      ...mediaPayload,
+    }
+    const result = await writeInventoryRow('insert', id, payload)
+    if (!result.error && result.data) return result
+
+    lastError = result.error
+    const isDuplicate =
+      Boolean(result.error?.includes('already in use')) ||
+      Boolean(result.error?.includes('23505')) ||
+      Boolean(result.error?.includes('js_inventory_id'))
+    if (!isDuplicate) {
+      await cleanupUploads()
+      return result
+    }
+
+    const next = await allocateNextJsInventoryId()
+    jsInventoryId = next.id
   }
-  return result
+
+  await cleanupUploads()
+  return { data: null, error: lastError || 'Could not assign a unique JS inventory ID' }
 }
 
 export async function updateInventoryRecord(

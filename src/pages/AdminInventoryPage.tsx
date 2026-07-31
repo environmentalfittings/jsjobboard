@@ -3,6 +3,7 @@ import { Link, useSearchParams } from 'react-router-dom'
 import { useToast } from '../components/ToastNotification'
 import {
   buildInventoryItemUrl,
+  allocateNextJsInventoryId,
   createInventoryRecord,
   deleteInventoryRecord,
   emptyInventoryForm,
@@ -257,7 +258,7 @@ export function AdminInventoryPage() {
     }
   }
 
-  const openCreate = () => {
+  const openCreate = async () => {
     setModalMode('create')
     setEditingId(null)
     setForm(emptyInventoryForm())
@@ -270,6 +271,11 @@ export function AdminInventoryPage() {
       return emptyPhotoDraft()
     })
     setModalOpen(true)
+    const allocated = await allocateNextJsInventoryId()
+    if (allocated.error) {
+      showToast(`Could not preview next ID — will assign on save (${allocated.error})`)
+    }
+    setForm((prev) => ({ ...prev, jsInventoryId: allocated.id }))
   }
 
   const openEdit = (row: InventoryRecord) => {
@@ -307,7 +313,7 @@ export function AdminInventoryPage() {
       showToast('Customer is required')
       return
     }
-    if (!form.jsInventoryId.trim()) {
+    if (modalMode === 'edit' && !form.jsInventoryId.trim()) {
       showToast('JS inventory ID is required')
       return
     }
@@ -441,7 +447,7 @@ export function AdminInventoryPage() {
           <button type="button" className="button-secondary" onClick={() => void reload()} disabled={loading}>
             {loading ? 'Loading…' : 'Refresh'}
           </button>
-          <button type="button" className="button-primary" onClick={openCreate}>
+          <button type="button" className="button-primary" onClick={() => void openCreate()}>
             Add customer inventory item
           </button>
           <Link to="/dashboard" className="button-secondary">
@@ -577,9 +583,16 @@ export function AdminInventoryPage() {
                     <input
                       type="text"
                       value={form.jsInventoryId}
-                      onChange={(e) => patchForm({ jsInventoryId: e.target.value })}
-                      placeholder="e.g. JS-INV-1001"
+                      readOnly
+                      aria-readonly
+                      className="inventory-id-readonly"
+                      title="Assigned automatically — duplicates are blocked"
                     />
+                    <span className="inventory-field-hint">
+                      {modalMode === 'create'
+                        ? 'Assigned automatically (unique). Confirmed again when you save.'
+                        : 'Locked after create — unique in customer inventory.'}
+                    </span>
                   </Field>
                   <Field label="Customer" required>
                     <DatalistInput
