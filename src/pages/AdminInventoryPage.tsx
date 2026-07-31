@@ -663,21 +663,6 @@ export function AdminInventoryPage() {
                       onChange={(valveType) => patchForm({ valveType })}
                     />
                   </Field>
-                  <Field label="Body material">
-                    <DatalistInput
-                      listId="inventory-body-material-list"
-                      options={bodyMaterials}
-                      value={form.bodyMaterial}
-                      onChange={(bodyMaterial) => patchForm({ bodyMaterial })}
-                    />
-                  </Field>
-                  <Field label="API trim">
-                    <input
-                      type="text"
-                      value={form.apiTrim}
-                      onChange={(e) => patchForm({ apiTrim: e.target.value })}
-                    />
-                  </Field>
                   <Field label="Size">
                     <DatalistInput
                       listId="inventory-size-list"
@@ -694,6 +679,21 @@ export function AdminInventoryPage() {
                       placeholder="e.g. 300"
                     />
                   </Field>
+                  <Field label="Body material">
+                    <DatalistInput
+                      listId="inventory-body-material-list"
+                      options={bodyMaterials}
+                      value={form.bodyMaterial}
+                      onChange={(bodyMaterial) => patchForm({ bodyMaterial })}
+                    />
+                  </Field>
+                  <Field label="API trim">
+                    <input
+                      type="text"
+                      value={form.apiTrim}
+                      onChange={(e) => patchForm({ apiTrim: e.target.value })}
+                    />
+                  </Field>
                   <Field label="Operator">
                     <select value={form.operator} onChange={(e) => patchForm({ operator: e.target.value })}>
                       <option value="">— Select —</option>
@@ -703,6 +703,16 @@ export function AdminInventoryPage() {
                         </option>
                       ))}
                     </select>
+                  </Field>
+                </div>
+                <div className="inventory-notes-in-section">
+                  <Field label="Notes">
+                    <textarea
+                      rows={3}
+                      value={form.notes}
+                      onChange={(e) => patchForm({ notes: e.target.value })}
+                      placeholder="Condition, pull history, special instructions…"
+                    />
                   </Field>
                 </div>
               </section>
@@ -732,20 +742,6 @@ export function AdminInventoryPage() {
                     onClear={() => clearPhoto('tag')}
                   />
                 </div>
-              </section>
-
-              <section className="inventory-form-section">
-                <div className="inventory-form-section-head">
-                  <h4>Notes</h4>
-                </div>
-                <Field label="Notes">
-                  <textarea
-                    rows={3}
-                    value={form.notes}
-                    onChange={(e) => patchForm({ notes: e.target.value })}
-                    placeholder="Condition, pull history, special instructions…"
-                  />
-                </Field>
                 {modalMode === 'create' ? (
                   <p className="inventory-qr-note">A QR code is generated automatically when you create this item.</p>
                 ) : null}

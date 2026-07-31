@@ -14940,10 +14940,13 @@ tbody tr:hover {
   display: none;
 }
 
-.inventory-qr-note {
-  margin: 0.65rem 0 0;
-  font-size: 12px;
-  color: #475569;
+.inventory-notes-in-section {
+  margin-top: 0.85rem;
+}
+
+.inventory-notes-in-section .inventory-field textarea {
+  width: 100%;
+  resize: vertical;
 }
 
 .inventory-table-thumbs {
