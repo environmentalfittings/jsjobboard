@@ -1,4 +1,5 @@
 import { isActiveShopWork } from './jobDisplayStatus'
+import { countsAgainstOnTimeDelivery } from './onTimeDelivery'
 import type { Valve } from '../types'
 
 function dueDateIso(raw: string | null | undefined): string | null {
@@ -43,7 +44,12 @@ export type LateJobRow = {
 
 export function lateJobsInShop(valves: Valve[], todayIso = localTodayDateString()): LateJobRow[] {
   return valves
-    .filter((v) => isActiveShopWork(v) && isValveOverdue(v, todayIso))
+    .filter(
+      (v) =>
+        isActiveShopWork(v) &&
+        countsAgainstOnTimeDelivery(v) &&
+        isValveOverdue(v, todayIso),
+    )
     .map((v) => ({
       valve_id: v.valve_id,
       valveRowId: v.id,

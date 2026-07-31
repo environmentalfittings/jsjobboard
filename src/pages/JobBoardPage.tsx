@@ -19,6 +19,7 @@ import {
 import { parseAssignedTechnicianIds } from '../lib/valveTechnicianIds'
 import { fetchAllValves } from '../lib/fetchAllValves'
 import { displayJobStatus, isActiveOrderType, isActiveShopWork, isClosedWorkOrder } from '../lib/jobDisplayStatus'
+import { countsAgainstOnTimeDelivery } from '../lib/onTimeDelivery'
 import { valveStatusPatch } from '../lib/valveStatusPatch'
 import {
   compareValvesBySort,
@@ -88,6 +89,11 @@ function isDueDateOverdue(raw: string | null): boolean {
   return label < todayIso
 }
 
+/** Overdue for OTD / urgency — Not Arrived (not received) does not count. */
+function isDeliveryOverdue(valve: Valve): boolean {
+  return countsAgainstOnTimeDelivery(valve) && isDueDateOverdue(valve.due_date)
+}
+
 function isDueSoon(raw: string | null): boolean {
   const label = dueDateLabel(raw)
   if (!label || isDueDateOverdue(label)) return false
@@ -97,6 +103,10 @@ function isDueSoon(raw: string | null): boolean {
   const start = new Date(today.getFullYear(), today.getMonth(), today.getDate())
   const diffDays = Math.floor((due.getTime() - start.getTime()) / (1000 * 60 * 60 * 24))
   return diffDays >= 0 && diffDays <= 3
+}
+
+function isDeliveryDueSoon(valve: Valve): boolean {
+  return countsAgainstOnTimeDelivery(valve) && isDueSoon(valve.due_date)
 }
 
 const ORDER_STORAGE_KEY = 'job-board-phase-order-v1'
@@ -155,9 +165,9 @@ function KanbanJobCard({
   const urgencyClass =
     phaseKey === 'done'
       ? ''
-      : isDueDateOverdue(valve.due_date)
+      : isDeliveryOverdue(valve)
         ? ' job-card-urgency-overdue'
-        : isDueSoon(valve.due_date)
+        : isDeliveryDueSoon(valve)
           ? ' job-card-urgency-soon'
           : ''
   const isInTesting = valve.status === 'Testing'
@@ -273,7 +283,7 @@ function KanbanJobCard({
             }}
           >
             {dueDateLabel(valve.due_date) ? (
-              <span className={isDueDateOverdue(valve.due_date) ? 'due-date-overdue' : 'due-date-ok'}>
+              <span className={isDeliveryOverdue(valve) ? 'due-date-overdue' : 'due-date-ok'}>
                 {dueDateLabel(valve.due_date)}
               </span>
             ) : (
@@ -281,11 +291,11 @@ function KanbanJobCard({
             )}
           </button>
         ) : (
-          <span className={isDueDateOverdue(valve.due_date) ? 'due-date-overdue' : 'due-date-ok'}>
+          <span className={isDeliveryOverdue(valve) ? 'due-date-overdue' : 'due-date-ok'}>
             {dueDateLabel(valve.due_date) || '—'}
           </span>
         )}
-        {dueDateLabel(valve.due_date) && isDueDateOverdue(valve.due_date) ? (
+        {dueDateLabel(valve.due_date) && isDeliveryOverdue(valve) ? (
           <span className="job-card-overdue-badge">Overdue</span>
         ) : null}
       </div>
@@ -1400,16 +1410,16 @@ export function JobBoardPage({ role, username }: { role?: UserRole; username?: s
                           }}
                         >
                           {dueDateLabel(valve.due_date) ? (
-                            <span className={isDueDateOverdue(valve.due_date) ? 'due-date-overdue' : 'due-date-ok'}>
+                            <span className={isDeliveryOverdue(valve) ? 'due-date-overdue' : 'due-date-ok'}>
                               {dueDateLabel(valve.due_date)}
-                              {isDueDateOverdue(valve.due_date) ? ' (Overdue)' : ''}
+                              {isDeliveryOverdue(valve) ? ' (Overdue)' : ''}
                             </span>
                           ) : (
                             <span className="job-card-due-date-empty">Set due date</span>
                           )}
                         </button>
                       ) : (
-                        <span className={isDueDateOverdue(valve.due_date) ? 'due-date-overdue' : undefined}>
+                        <span className={isDeliveryOverdue(valve) ? 'due-date-overdue' : undefined}>
                           {dueDateLabel(valve.due_date) || '—'}
                         </span>
                       )}

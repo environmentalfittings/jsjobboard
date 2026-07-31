@@ -195,7 +195,9 @@ export function ManagerDashboardPage() {
           {loading ? (
             <p className="placeholder-copy">Loading…</p>
           ) : lateJobs.length === 0 ? (
-            <p className="placeholder-copy">No late open jobs.</p>
+            <p className="placeholder-copy">
+              No late open jobs. Not Arrived / Waiting on Arrival (not received) are excluded from on-time delivery.
+            </p>
           ) : (
             <div className="dashboard-table-wrap manager-dashboard-scroll">
               <table className="dashboard-table">
