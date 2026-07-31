@@ -5446,6 +5446,35 @@ a.test-log-reports-item-name:hover {
   font-size: 15px;
 }
 
+.admin-list-row-customer {
+  align-items: flex-end;
+}
+
+.admin-customer-salesman {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  min-width: 220px;
+  flex: 1;
+}
+
+.admin-customer-salesman-label {
+  font-size: 11px;
+  font-weight: 700;
+  color: #64748b;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+
+.admin-customer-salesman select {
+  min-height: 2.25rem;
+  border: 1px solid #d1d5db;
+  border-radius: 8px;
+  padding: 0.35rem 0.55rem;
+  background: #fff;
+  font-size: 14px;
+}
+
 .admin-list-input {
   flex: 1;
   min-width: 200px;
@@ -14722,6 +14751,40 @@ tbody tr:hover {
 .inventory-filters {
   margin-bottom: 1rem;
   align-items: end;
+}
+
+.inventory-report-panel {
+  margin-bottom: 1rem;
+}
+
+.inventory-report-panel-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+  align-items: flex-start;
+  flex-wrap: wrap;
+  margin-bottom: 0.85rem;
+}
+
+.inventory-report-panel-head h3 {
+  margin: 0 0 0.35rem;
+  font-size: 1.05rem;
+}
+
+.inventory-report-panel-head .placeholder-copy {
+  margin: 0;
+  max-width: 46rem;
+}
+
+.inventory-report-period {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 700;
+  color: #0f766e;
+}
+
+.inventory-report-filters {
+  margin-bottom: 0;
 }
 
 .inventory-filter-meta {

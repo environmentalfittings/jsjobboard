@@ -1,6 +1,12 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 import { useToast } from '../components/ToastNotification'
+import { useAuth } from '../contexts/AuthContext'
+import { useEmployees } from '../hooks/useEmployees'
+import {
+  loadCustomersWithSalesRep,
+  type CustomerSalesRepRow,
+} from '../lib/customers'
 import {
   buildInventoryItemUrl,
   allocateNextJsInventoryId,
@@ -20,7 +26,17 @@ import {
   type InventoryPhotoDraft,
   type InventoryRecord,
 } from '../lib/inventory'
+import {
+  currentInventoryReportPeriod,
+  formatInventoryCustomerReportMessage,
+  groupInventoryByCustomer,
+  printInventoryCustomerReport,
+} from '../lib/inventoryCustomerReport'
 import { printInventoryQrSheet } from '../lib/inventoryQrPrint'
+import {
+  notifySalesRepCustomerInventoryReport,
+  resolveEmployeeAuthUserId,
+} from '../lib/messages'
 
 type ModalMode = 'create' | 'edit'
 
@@ -162,10 +178,14 @@ function PhotoCard({
 
 export function AdminInventoryPage() {
   const { showToast } = useToast()
+  const { user, username } = useAuth()
+  const { employees } = useEmployees()
   const [searchParams, setSearchParams] = useSearchParams()
   const [rows, setRows] = useState<InventoryRecord[]>([])
   const [loading, setLoading] = useState(true)
   const [search, setSearch] = useState('')
+  const [customerFilter, setCustomerFilter] = useState('')
+  const [customerRows, setCustomerRows] = useState<CustomerSalesRepRow[]>([])
   const [customers, setCustomers] = useState<string[]>([])
   const [manufacturers, setManufacturers] = useState<string[]>([])
   const [valveTypes, setValveTypes] = useState<string[]>([])
@@ -181,10 +201,16 @@ export function AdminInventoryPage() {
   const [saving, setSaving] = useState(false)
   const [qrItem, setQrItem] = useState<InventoryRecord | null>(null)
   const [selectedIds, setSelectedIds] = useState<Set<string>>(() => new Set())
+  const [sendingReport, setSendingReport] = useState(false)
+  const [sendingMonthly, setSendingMonthly] = useState(false)
 
   const reload = useCallback(async () => {
     setLoading(true)
-    const [{ data, error }, options] = await Promise.all([loadInventoryRecords(), loadInventoryFormOptions()])
+    const [{ data, error }, options, customerResult] = await Promise.all([
+      loadInventoryRecords(),
+      loadInventoryFormOptions(),
+      loadCustomersWithSalesRep(),
+    ])
     setLoading(false)
     if (error) {
       showToast(
@@ -202,11 +228,21 @@ export function AdminInventoryPage() {
     setBodyMaterials(options.bodyMaterials)
     setSizes(options.sizes)
     setPressureClasses(options.pressureClasses)
+    if (customerResult.error) {
+      setCustomerRows([])
+    } else {
+      setCustomerRows(customerResult.data)
+    }
   }, [showToast])
 
   useEffect(() => {
     void reload()
   }, [reload])
+
+  useEffect(() => {
+    const fromQuery = searchParams.get('customer')?.trim()
+    if (fromQuery) setCustomerFilter(fromQuery)
+  }, [searchParams])
 
   useEffect(() => {
     const itemId = searchParams.get('item')?.trim()
@@ -215,7 +251,52 @@ export function AdminInventoryPage() {
     if (match) setQrItem(match)
   }, [searchParams, rows, loading])
 
-  const filtered = useMemo(() => rows.filter((row) => inventoryMatchesSearch(row, search)), [rows, search])
+  const periodLabel = useMemo(() => currentInventoryReportPeriod(), [])
+
+  const inventoryCustomers = useMemo(() => {
+    const names = new Set<string>()
+    for (const row of rows) {
+      const name = row.customer?.trim()
+      if (name) names.add(name)
+    }
+    return [...names].sort((a, b) => a.localeCompare(b, undefined, { sensitivity: 'base' }))
+  }, [rows])
+
+  const filtered = useMemo(() => {
+    return rows.filter((row) => {
+      if (customerFilter.trim()) {
+        const needle = customerFilter.trim().toLowerCase()
+        if ((row.customer ?? '').trim().toLowerCase() !== needle) return false
+      }
+      return inventoryMatchesSearch(row, search)
+    })
+  }, [rows, search, customerFilter])
+
+  const customerGroups = useMemo(
+    () => groupInventoryByCustomer(rows, customerRows),
+    [rows, customerRows],
+  )
+
+  const selectedCustomerGroup = useMemo(() => {
+    if (!customerFilter.trim()) return null
+    return (
+      customerGroups.find(
+        (group) => group.customer.trim().toLowerCase() === customerFilter.trim().toLowerCase(),
+      ) ?? null
+    )
+  }, [customerGroups, customerFilter])
+
+  const employeeNameById = useMemo(() => {
+    const map = new Map<string, string>()
+    for (const employee of employees) {
+      map.set(employee.id, employee.full_name.trim() || employee.username)
+    }
+    return map
+  }, [employees])
+
+  const selectedSalesmanName = selectedCustomerGroup?.salesRepEmployeeId
+    ? employeeNameById.get(selectedCustomerGroup.salesRepEmployeeId) ?? null
+    : null
 
   const printableFiltered = useMemo(
     () => filtered.filter((row) => Boolean(row.qr_code_data_url?.trim())),
@@ -458,6 +539,126 @@ export function AdminInventoryPage() {
     if (error) showToast(error)
   }
 
+  const setCustomerFilterValue = (value: string) => {
+    setCustomerFilter(value)
+    const next = new URLSearchParams(searchParams)
+    if (value.trim()) next.set('customer', value.trim())
+    else next.delete('customer')
+    setSearchParams(next, { replace: true })
+  }
+
+  const sendReportForGroup = async (group: {
+    customer: string
+    items: InventoryRecord[]
+    salesRepEmployeeId: string | null
+  }) => {
+    if (!user?.id) {
+      showToast('Sign in with an employee account to send Messages')
+      return { ok: false as const, error: 'Not signed in' }
+    }
+    if (!group.items.length) {
+      return { ok: false as const, error: `No inventory items for ${group.customer}` }
+    }
+    if (!group.salesRepEmployeeId) {
+      return {
+        ok: false as const,
+        error: `Assign a salesman to ${group.customer} in Admin → Lists (Customers)`,
+      }
+    }
+
+    const resolved = await resolveEmployeeAuthUserId(group.salesRepEmployeeId)
+    if (resolved.error) return { ok: false as const, error: resolved.error }
+    if (!resolved.authUserId) {
+      return {
+        ok: false as const,
+        error: `${resolved.fullName || 'Salesman'} needs a linked login to receive Messages`,
+      }
+    }
+
+    const { subject, body } = formatInventoryCustomerReportMessage({
+      customer: group.customer,
+      items: group.items,
+      periodLabel,
+      salesmanName: resolved.fullName,
+    })
+
+    const result = await notifySalesRepCustomerInventoryReport({
+      customerName: group.customer,
+      periodLabel,
+      itemCount: group.items.length,
+      reportBody: body,
+      subject,
+      recipientUserId: resolved.authUserId,
+      senderUserId: user.id,
+      senderName: username || 'Customer Inventory',
+      inventoryIds: group.items.map((item) => item.id),
+    })
+
+    if (result.error) return { ok: false as const, error: result.error }
+    if (result.notified < 1) return { ok: false as const, error: 'Could not send inventory report' }
+    return { ok: true as const, salesmanName: resolved.fullName || 'salesman' }
+  }
+
+  const sendSelectedCustomerReport = async () => {
+    if (!selectedCustomerGroup) {
+      showToast('Choose a customer to generate the report')
+      return
+    }
+    setSendingReport(true)
+    const result = await sendReportForGroup(selectedCustomerGroup)
+    setSendingReport(false)
+    if (!result.ok) {
+      showToast(result.error)
+      return
+    }
+    showToast(`Monthly inventory report sent to ${result.salesmanName} in Messages`)
+  }
+
+  const printSelectedCustomerReport = () => {
+    if (!selectedCustomerGroup) {
+      showToast('Choose a customer to print the report')
+      return
+    }
+    const { error } = printInventoryCustomerReport({
+      customer: selectedCustomerGroup.customer,
+      items: selectedCustomerGroup.items,
+      periodLabel,
+      salesmanName: selectedSalesmanName,
+    })
+    if (error) showToast(error)
+  }
+
+  const sendAllMonthlyReports = async () => {
+    if (!user?.id) {
+      showToast('Sign in with an employee account to send Messages')
+      return
+    }
+    const groups = customerGroups.filter((group) => group.items.length > 0)
+    if (!groups.length) {
+      showToast('No customer inventory items to report')
+      return
+    }
+
+    setSendingMonthly(true)
+    let sent = 0
+    const skipped: string[] = []
+    for (const group of groups) {
+      const result = await sendReportForGroup(group)
+      if (result.ok) sent += 1
+      else skipped.push(`${group.customer}: ${result.error}`)
+    }
+    setSendingMonthly(false)
+
+    if (sent > 0) {
+      showToast(
+        `Sent ${sent} monthly inventory report${sent === 1 ? '' : 's'} to salesman Messages` +
+          (skipped.length ? ` (${skipped.length} skipped)` : ''),
+      )
+    } else {
+      showToast(skipped[0] || 'No monthly inventory reports were sent')
+    }
+  }
+
   const closeQr = () => {
     setQrItem(null)
     if (searchParams.get('item')) {
@@ -481,6 +682,14 @@ export function AdminInventoryPage() {
           <button type="button" className="button-secondary" onClick={() => void reload()} disabled={loading}>
             {loading ? 'Loading…' : 'Refresh'}
           </button>
+          <button
+            type="button"
+            className="button-secondary"
+            onClick={() => void sendAllMonthlyReports()}
+            disabled={loading || sendingMonthly || rows.length === 0}
+          >
+            {sendingMonthly ? 'Sending monthly reports…' : 'Send monthly reports'}
+          </button>
           <button type="button" className="button-primary" onClick={() => void openCreate()}>
             Add customer inventory item
           </button>
@@ -489,6 +698,67 @@ export function AdminInventoryPage() {
           </Link>
         </div>
       </div>
+
+      <section className="dashboard-panel inventory-report-panel">
+        <div className="inventory-report-panel-head">
+          <div>
+            <h3>Inventory by customer</h3>
+            <p className="placeholder-copy">
+              Pull one customer&apos;s inventory, print a monthly report, or send it to the assigned salesman in
+              Messages. Assign salesmen under Admin → Lists → Customers.
+            </p>
+          </div>
+          <p className="inventory-report-period">Period: {periodLabel}</p>
+        </div>
+        <div className="report-filters inventory-filters inventory-report-filters">
+          <label>
+            Customer
+            <select
+              value={customerFilter}
+              onChange={(e) => setCustomerFilterValue(e.target.value)}
+              aria-label="Filter inventory by customer"
+            >
+              <option value="">All customers</option>
+              {inventoryCustomers.map((name) => (
+                <option key={name} value={name}>
+                  {name}
+                </option>
+              ))}
+            </select>
+          </label>
+          <div className="inventory-filter-meta">
+            {selectedCustomerGroup ? (
+              <span>
+                {selectedCustomerGroup.items.length} item
+                {selectedCustomerGroup.items.length === 1 ? '' : 's'} for {selectedCustomerGroup.customer}
+                {selectedSalesmanName
+                  ? ` · Salesman: ${selectedSalesmanName}`
+                  : ' · No salesman assigned'}
+              </span>
+            ) : (
+              <span>Choose a customer to preview or send their monthly report</span>
+            )}
+            <div className="inventory-selection-actions">
+              <button
+                type="button"
+                className="button-secondary"
+                onClick={printSelectedCustomerReport}
+                disabled={!selectedCustomerGroup}
+              >
+                Print customer report
+              </button>
+              <button
+                type="button"
+                className="button-primary"
+                onClick={() => void sendSelectedCustomerReport()}
+                disabled={!selectedCustomerGroup || sendingReport}
+              >
+                {sendingReport ? 'Sending…' : 'Send report to salesman'}
+              </button>
+            </div>
+          </div>
+        </div>
+      </section>
 
       <section className="dashboard-panel">
         <div className="report-filters inventory-filters">
@@ -501,10 +771,25 @@ export function AdminInventoryPage() {
               onChange={(e) => setSearch(e.target.value)}
             />
           </label>
+          <label>
+            Customer
+            <select
+              value={customerFilter}
+              onChange={(e) => setCustomerFilterValue(e.target.value)}
+              aria-label="Filter list by customer"
+            >
+              <option value="">All customers</option>
+              {inventoryCustomers.map((name) => (
+                <option key={`list-${name}`} value={name}>
+                  {name}
+                </option>
+              ))}
+            </select>
+          </label>
           <div className="inventory-filter-meta">
             <span>
               {filtered.length} item{filtered.length === 1 ? '' : 's'}
-              {search.trim() ? ' matching' : ''}
+              {customerFilter.trim() || search.trim() ? ' matching' : ''}
               {selectedPrintable.length > 0
                 ? ` · ${selectedPrintable.length} selected for print`
                 : ''}

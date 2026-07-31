@@ -532,7 +532,7 @@ async function insertAppNotifications(options: {
       return {
         notified: 0,
         error:
-          'Run migration-app-messages-send-notifications-rpc.sql in Supabase so flag notifications can be sent',
+          'Run the app_messages notification migrations in Supabase so Messages notifications can be sent',
       }
     }
     return {
@@ -715,3 +715,93 @@ export async function notifyFlaggerItpResolution(options: {
   if (notified === 0) return 'Could not send resolution message'
   return null
 }
+
+/** Resolve an employee's Messages login (auth user id), with technician user_id fallback. */
+export async function resolveEmployeeAuthUserId(employeeId: string): Promise<{
+  authUserId: string | null
+  fullName: string | null
+  error: string | null
+}> {
+  const id = employeeId.trim()
+  if (!id) return { authUserId: null, fullName: null, error: null }
+
+  const { data: employee, error } = await supabase
+    .from('employees')
+    .select('id,full_name,employee_no,username,is_active,auth_user_id')
+    .eq('id', id)
+    .maybeSingle()
+
+  if (error) return { authUserId: null, fullName: null, error: error.message }
+  if (!employee) return { authUserId: null, fullName: null, error: 'Salesman employee not found' }
+  if (employee.is_active === false) {
+    return { authUserId: null, fullName: String(employee.full_name ?? ''), error: 'Salesman employee is inactive' }
+  }
+
+  const fullName = String(employee.full_name ?? '').trim() || null
+  if (employee.auth_user_id) {
+    return { authUserId: String(employee.auth_user_id), fullName, error: null }
+  }
+
+  const employeeNo = String(employee.employee_no ?? '').trim()
+  const username = String(employee.username ?? '').trim().toLowerCase()
+  const techQuery = supabase
+    .from('technicians')
+    .select('user_id,employee_id,login_username,active')
+    .eq('active', true)
+    .not('user_id', 'is', null)
+    .limit(500)
+
+  const { data: techs } = await techQuery
+  const match = ((techs ?? []) as {
+    user_id: string | null
+    employee_id: string | null
+    login_username: string | null
+  }[]).find((row) => {
+    const byNo = employeeNo && row.employee_id?.trim() === employeeNo
+    const byUser = username && row.login_username?.trim().toLowerCase() === username
+    return Boolean(byNo || byUser)
+  })
+
+  return {
+    authUserId: match?.user_id ? String(match.user_id) : null,
+    fullName,
+    error: null,
+  }
+}
+
+/** Send a monthly Customer Inventory report to the assigned salesman via Messages. */
+export async function notifySalesRepCustomerInventoryReport(options: {
+  customerName: string
+  periodLabel: string
+  itemCount: number
+  reportBody: string
+  subject: string
+  recipientUserId: string
+  senderUserId: string
+  senderName: string
+  inventoryIds?: string[]
+}): Promise<{ notified: number; error: string | null }> {
+  const recipientUserId = options.recipientUserId.trim()
+  if (!recipientUserId) {
+    return { notified: 0, error: 'Salesman does not have a linked login for Messages' }
+  }
+  if (!options.reportBody.trim()) {
+    return { notified: 0, error: 'Report body is empty' }
+  }
+
+  return insertAppNotifications({
+    recipientIds: [recipientUserId],
+    senderUserId: options.senderUserId,
+    senderName: options.senderName.trim() || 'Customer Inventory',
+    subject: options.subject,
+    body: options.reportBody,
+    notificationKind: 'customer_inventory_monthly_report',
+    metadata: {
+      customer: options.customerName,
+      period: options.periodLabel,
+      item_count: options.itemCount,
+      inventory_ids: options.inventoryIds ?? [],
+    },
+  })
+}
+

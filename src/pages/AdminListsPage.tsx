@@ -4,6 +4,12 @@ import { useToast } from '../components/ToastNotification'
 import { ValveTypeProceduresPanel } from '../components/ValveTypeProceduresPanel'
 import { JOB_TYPES, normalizeJobType } from '../constants/jobTypes'
 import { LOOKUP_CATEGORY_DEFS, type LookupCategory } from '../constants/lookupCategories'
+import { useEmployees } from '../hooks/useEmployees'
+import {
+  loadCustomersWithSalesRep,
+  updateCustomerSalesRep,
+  type CustomerSalesRepRow,
+} from '../lib/customers'
 import {
   normalizeNps,
   normalizePressureClass,
@@ -27,7 +33,7 @@ import { supabase } from '../lib/supabase'
 
 type Tab = 'lookups' | 'customers' | 'itpTemplates' | 'valveTypes' | 'flangeThickness' | 'b1610' | 'b1634'
 
-type CustomerRow = { id: number; name: string }
+type CustomerRow = CustomerSalesRepRow
 type ItpTemplateRow = {
   id: number
   job_type: string
@@ -63,6 +69,7 @@ const MANAGE_LISTS_PIN = '1582'
 
 export function AdminListsPage() {
   const { showToast } = useToast()
+  const { employees } = useEmployees()
   const [unlocked, setUnlocked] = useState(false)
   const [pinDraft, setPinDraft] = useState('')
   const [pinError, setPinError] = useState(false)
@@ -89,10 +96,12 @@ export function AdminListsPage() {
 
   const [customers, setCustomers] = useState<CustomerRow[]>([])
   const [customersLoading, setCustomersLoading] = useState(true)
+  const [salesRepColumnMissing, setSalesRepColumnMissing] = useState(false)
   const [newCustomerName, setNewCustomerName] = useState('')
   const [editingCustomerId, setEditingCustomerId] = useState<number | null>(null)
   const [customerDraft, setCustomerDraft] = useState('')
   const [savingCustomer, setSavingCustomer] = useState(false)
+  const [savingSalesRepId, setSavingSalesRepId] = useState<number | null>(null)
   const [itpRows, setItpRows] = useState<ItpTemplateRow[]>([])
   const [itpLoading, setItpLoading] = useState(true)
 
@@ -194,14 +203,41 @@ export function AdminListsPage() {
 
   const loadCustomers = useCallback(async () => {
     setCustomersLoading(true)
-    const { data, error } = await supabase.from('customers').select('id,name').order('name')
+    const { data, error, salesRepColumnMissing: missing } = await loadCustomersWithSalesRep()
     setCustomersLoading(false)
+    setSalesRepColumnMissing(missing)
     if (error) {
       showToast('Could not load customers')
+      setCustomers([])
       return
     }
-    setCustomers((data ?? []) as CustomerRow[])
+    setCustomers(data)
   }, [showToast])
+
+  const salesmanOptions = useMemo(
+    () =>
+      employees
+        .filter((employee) => employee.is_active)
+        .slice()
+        .sort((a, b) => a.full_name.localeCompare(b.full_name, undefined, { sensitivity: 'base' })),
+    [employees],
+  )
+
+  const saveCustomerSalesRep = async (customerId: number, salesRepEmployeeId: string) => {
+    setSavingSalesRepId(customerId)
+    const { error } = await updateCustomerSalesRep(customerId, salesRepEmployeeId || null)
+    setSavingSalesRepId(null)
+    if (error) {
+      showToast(error)
+      return
+    }
+    setCustomers((prev) =>
+      prev.map((row) =>
+        row.id === customerId ? { ...row, sales_rep_employee_id: salesRepEmployeeId || null } : row,
+      ),
+    )
+    showToast(salesRepEmployeeId ? 'Salesman saved' : 'Salesman cleared')
+  }
 
   useEffect(() => {
     loadLookups()
@@ -1191,13 +1227,19 @@ export function AdminListsPage() {
       {tab === 'customers' && (
         <section className="dashboard-panel admin-lists-panel">
           <h3>Customers</h3>
+          <p className="placeholder-copy resources-hint">
+            Assign a salesman to each customer so monthly Customer Inventory reports can be sent in Messages.
+            {salesRepColumnMissing
+              ? ' Run migration-customers-sales-rep.sql in Supabase to enable salesman assignment.'
+              : null}
+          </p>
           {customersLoading ? (
             <p className="placeholder-copy">Loading…</p>
           ) : (
             <>
               <ul className="admin-list-rows">
                 {customers.map((c) => (
-                  <li key={c.id} className="admin-list-row">
+                  <li key={c.id} className="admin-list-row admin-list-row-customer">
                     {editingCustomerId === c.id ? (
                       <>
                         <input
@@ -1225,6 +1267,23 @@ export function AdminListsPage() {
                     ) : (
                       <>
                         <span className="admin-list-value">{c.name}</span>
+                        <label className="admin-customer-salesman">
+                          <span className="admin-customer-salesman-label">Salesman</span>
+                          <select
+                            value={c.sales_rep_employee_id ?? ''}
+                            disabled={salesRepColumnMissing || savingSalesRepId === c.id}
+                            onChange={(e) => void saveCustomerSalesRep(c.id, e.target.value)}
+                            aria-label={`Salesman for ${c.name}`}
+                          >
+                            <option value="">— Unassigned —</option>
+                            {salesmanOptions.map((employee) => (
+                              <option key={employee.id} value={employee.id}>
+                                {employee.full_name}
+                                {employee.auth_user_id ? '' : ' (no login)'}
+                              </option>
+                            ))}
+                          </select>
+                        </label>
                         <div className="admin-list-actions">
                           <button
                             type="button"

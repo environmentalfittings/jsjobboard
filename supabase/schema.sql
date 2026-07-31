@@ -1177,6 +1177,10 @@ create table if not exists public.inventory (
   updated_at timestamptz default now()
 );
 
+-- Optional salesman ownership for monthly inventory reports (see migration-customers-sales-rep.sql).
+alter table public.customers
+  add column if not exists sales_rep_employee_id uuid;
+
 create or replace function public.traveler_section_status(p_traveler_id uuid)
 returns table (
   section text,
