@@ -12,6 +12,7 @@ import { TestLogEntryPage } from './pages/TestLogEntryPage'
 import { ValveCardTicketPage } from './pages/ValveCardTicketPage'
 import { NewJobPage } from './pages/NewJobPage'
 import { AdminListsPage } from './pages/AdminListsPage'
+import { AdminInventoryPage } from './pages/AdminInventoryPage'
 import { AdminEmployeesPage } from './pages/AdminEmployeesPage'
 import { AdminEmployeesPrintPage } from './pages/AdminEmployeesPrintPage'
 import { ResourcesPage } from './pages/ResourcesPage'
@@ -243,6 +244,18 @@ function AppRoutes() {
               element={
                 can(role, 'manageLists') ? (
                   <MteCalibrationsPage />
+                ) : role ? (
+                  <Navigate to={defaultHomePath(role)} replace />
+                ) : (
+                  <Navigate to="/login" replace />
+                )
+              }
+            />
+            <Route
+              path="/admin/inventory"
+              element={
+                can(role, 'openAdminTools') ? (
+                  <AdminInventoryPage />
                 ) : role ? (
                   <Navigate to={defaultHomePath(role)} replace />
                 ) : (
