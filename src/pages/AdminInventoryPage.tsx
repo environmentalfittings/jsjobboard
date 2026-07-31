@@ -170,6 +170,7 @@ export function AdminInventoryPage() {
   const [valveTypes, setValveTypes] = useState<string[]>([])
   const [bodyMaterials, setBodyMaterials] = useState<string[]>([])
   const [sizes, setSizes] = useState<string[]>([])
+  const [pressureClasses, setPressureClasses] = useState<string[]>([])
   const [modalOpen, setModalOpen] = useState(false)
   const [modalMode, setModalMode] = useState<ModalMode>('create')
   const [editingId, setEditingId] = useState<string | null>(null)
@@ -198,6 +199,7 @@ export function AdminInventoryPage() {
     setValveTypes(options.valveTypes)
     setBodyMaterials(options.bodyMaterials)
     setSizes(options.sizes)
+    setPressureClasses(options.pressureClasses)
   }, [showToast])
 
   useEffect(() => {
@@ -702,12 +704,18 @@ export function AdminInventoryPage() {
                     />
                   </Field>
                   <Field label="Pressure">
-                    <input
-                      type="text"
-                      value={form.pressure}
-                      onChange={(e) => patchForm({ pressure: e.target.value })}
-                      placeholder="e.g. 300"
-                    />
+                    <select value={form.pressure} onChange={(e) => patchForm({ pressure: e.target.value })}>
+                      <option value="">— Select —</option>
+                      {pressureClasses.map((option) => (
+                        <option key={option} value={option}>
+                          {option}
+                        </option>
+                      ))}
+                      {form.pressure &&
+                      !pressureClasses.some((option) => option.toLowerCase() === form.pressure.toLowerCase()) ? (
+                        <option value={form.pressure}>{form.pressure}</option>
+                      ) : null}
+                    </select>
                   </Field>
                   <Field label="Body material">
                     <DatalistInput
