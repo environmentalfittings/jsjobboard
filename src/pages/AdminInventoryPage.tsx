@@ -643,6 +643,36 @@ export function AdminInventoryPage() {
 
               <section className="inventory-form-section">
                 <div className="inventory-form-section-head">
+                  <h4>Required photos</h4>
+                  <p>Both photos are required before the item can be saved.</p>
+                </div>
+                <div className="inventory-photo-grid">
+                  <PhotoCard
+                    title="Valve photo"
+                    hint="Clear shot of the valve body"
+                    draft={valvePhoto}
+                    required
+                    inputId="inventory-valve-photo"
+                    onPick={(file) => pickPhoto('valve', file)}
+                    onClear={() => clearPhoto('valve')}
+                  />
+                  <PhotoCard
+                    title="Tag photo"
+                    hint="Nameplate / tag so ID is readable"
+                    draft={tagPhoto}
+                    required
+                    inputId="inventory-tag-photo"
+                    onPick={(file) => pickPhoto('tag', file)}
+                    onClear={() => clearPhoto('tag')}
+                  />
+                </div>
+                {modalMode === 'create' ? (
+                  <p className="inventory-qr-note">A QR code is generated automatically when you create this item.</p>
+                ) : null}
+              </section>
+
+              <section className="inventory-form-section">
+                <div className="inventory-form-section-head">
                   <h4>Valve details</h4>
                   <p>Type, size, and materials for quick picking.</p>
                 </div>
@@ -715,36 +745,6 @@ export function AdminInventoryPage() {
                     />
                   </Field>
                 </div>
-              </section>
-
-              <section className="inventory-form-section">
-                <div className="inventory-form-section-head">
-                  <h4>Required photos</h4>
-                  <p>Both photos are required before the item can be saved.</p>
-                </div>
-                <div className="inventory-photo-grid">
-                  <PhotoCard
-                    title="Valve photo"
-                    hint="Clear shot of the valve body"
-                    draft={valvePhoto}
-                    required
-                    inputId="inventory-valve-photo"
-                    onPick={(file) => pickPhoto('valve', file)}
-                    onClear={() => clearPhoto('valve')}
-                  />
-                  <PhotoCard
-                    title="Tag photo"
-                    hint="Nameplate / tag so ID is readable"
-                    draft={tagPhoto}
-                    required
-                    inputId="inventory-tag-photo"
-                    onPick={(file) => pickPhoto('tag', file)}
-                    onClear={() => clearPhoto('tag')}
-                  />
-                </div>
-                {modalMode === 'create' ? (
-                  <p className="inventory-qr-note">A QR code is generated automatically when you create this item.</p>
-                ) : null}
               </section>
             </div>
 
