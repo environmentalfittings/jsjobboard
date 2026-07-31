@@ -20,6 +20,7 @@ import {
   type InventoryPhotoDraft,
   type InventoryRecord,
 } from '../lib/inventory'
+import { printInventoryQrSheet } from '../lib/inventoryQrPrint'
 
 type ModalMode = 'create' | 'edit'
 
@@ -179,6 +180,7 @@ export function AdminInventoryPage() {
   const [tagPhoto, setTagPhoto] = useState<InventoryPhotoDraft>(() => emptyPhotoDraft())
   const [saving, setSaving] = useState(false)
   const [qrItem, setQrItem] = useState<InventoryRecord | null>(null)
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(() => new Set())
 
   const reload = useCallback(async () => {
     setLoading(true)
@@ -214,6 +216,43 @@ export function AdminInventoryPage() {
   }, [searchParams, rows, loading])
 
   const filtered = useMemo(() => rows.filter((row) => inventoryMatchesSearch(row, search)), [rows, search])
+
+  const printableFiltered = useMemo(
+    () => filtered.filter((row) => Boolean(row.qr_code_data_url?.trim())),
+    [filtered],
+  )
+
+  const selectedPrintable = useMemo(
+    () => printableFiltered.filter((row) => selectedIds.has(row.id)),
+    [printableFiltered, selectedIds],
+  )
+
+  const allFilteredSelected =
+    printableFiltered.length > 0 && printableFiltered.every((row) => selectedIds.has(row.id))
+
+  const someFilteredSelected = printableFiltered.some((row) => selectedIds.has(row.id))
+
+  const toggleSelected = (id: string, checked: boolean) => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev)
+      if (checked) next.add(id)
+      else next.delete(id)
+      return next
+    })
+  }
+
+  const toggleSelectAllFiltered = (checked: boolean) => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev)
+      for (const row of printableFiltered) {
+        if (checked) next.add(row.id)
+        else next.delete(row.id)
+      }
+      return next
+    })
+  }
+
+  const clearSelection = () => setSelectedIds(new Set())
 
   const patchForm = (partial: Partial<InventoryFormState>) => {
     setForm((prev) => ({ ...prev, ...partial }))
@@ -390,6 +429,12 @@ export function AdminInventoryPage() {
     }
     showToast('Customer inventory item removed')
     if (qrItem?.id === row.id) setQrItem(null)
+    setSelectedIds((prev) => {
+      if (!prev.has(row.id)) return prev
+      const next = new Set(prev)
+      next.delete(row.id)
+      return next
+    })
     await reload()
   }
 
@@ -402,28 +447,15 @@ export function AdminInventoryPage() {
     link.click()
   }
 
+  const printSelectedQrCodes = () => {
+    const { error } = printInventoryQrSheet(selectedPrintable)
+    if (error) showToast(error)
+  }
+
   const printQr = () => {
-    if (!qrItem?.qr_code_data_url) return
-    const popup = window.open('', '_blank', 'noopener,noreferrer,width=480,height=640')
-    if (!popup) {
-      showToast('Allow pop-ups to print the QR code')
-      return
-    }
-    const title = qrItem.js_inventory_id || 'Customer inventory'
-    popup.document.write(`<!doctype html><html><head><title>${title}</title>
-      <style>
-        body{font-family:Georgia,serif;text-align:center;padding:24px;color:#0f172a}
-        img{width:280px;height:280px}
-        h1{font-size:20px;margin:0 0 8px}
-        p{margin:4px 0;font-size:14px}
-      </style></head><body>
-      <h1>${title}</h1>
-      <p>${qrItem.customer || ''}</p>
-      <img src="${qrItem.qr_code_data_url}" alt="QR code" />
-      <p>${buildInventoryItemUrl(qrItem.id)}</p>
-      <script>window.onload=()=>{window.print()}</script>
-      </body></html>`)
-    popup.document.close()
+    if (!qrItem) return
+    const { error } = printInventoryQrSheet([qrItem])
+    if (error) showToast(error)
   }
 
   const closeQr = () => {
@@ -473,7 +505,20 @@ export function AdminInventoryPage() {
             <span>
               {filtered.length} item{filtered.length === 1 ? '' : 's'}
               {search.trim() ? ' matching' : ''}
+              {selectedPrintable.length > 0
+                ? ` · ${selectedPrintable.length} selected for print`
+                : ''}
             </span>
+            {selectedPrintable.length > 0 ? (
+              <div className="inventory-selection-actions">
+                <button type="button" className="button-secondary" onClick={clearSelection}>
+                  Clear selection
+                </button>
+                <button type="button" className="button-primary" onClick={printSelectedQrCodes}>
+                  Print selected QR codes
+                </button>
+              </div>
+            ) : null}
           </div>
         </div>
 
@@ -481,6 +526,18 @@ export function AdminInventoryPage() {
           <table className="dashboard-table">
             <thead>
               <tr>
+                <th className="inventory-select-col">
+                  <input
+                    type="checkbox"
+                    aria-label="Select all QR codes in this list"
+                    checked={allFilteredSelected}
+                    ref={(el) => {
+                      if (el) el.indeterminate = someFilteredSelected && !allFilteredSelected
+                    }}
+                    disabled={printableFiltered.length === 0}
+                    onChange={(e) => toggleSelectAllFiltered(e.target.checked)}
+                  />
+                </th>
                 <th>Photos</th>
                 <th>JS inventory ID</th>
                 <th>Customer</th>
@@ -494,13 +551,13 @@ export function AdminInventoryPage() {
             <tbody>
               {loading ? (
                 <tr>
-                  <td colSpan={8} className="table-empty-cell">
+                  <td colSpan={9} className="table-empty-cell">
                     Loading customer inventory…
                   </td>
                 </tr>
               ) : filtered.length === 0 ? (
                 <tr>
-                  <td colSpan={8} className="table-empty-cell">
+                  <td colSpan={9} className="table-empty-cell">
                     {rows.length === 0
                       ? 'No customer inventory items yet — add the first one.'
                       : 'No customer inventory items match this search.'}
@@ -508,7 +565,16 @@ export function AdminInventoryPage() {
                 </tr>
               ) : (
                 filtered.map((row) => (
-                  <tr key={row.id}>
+                  <tr key={row.id} className={selectedIds.has(row.id) ? 'inventory-row-selected' : undefined}>
+                    <td className="inventory-select-col">
+                      <input
+                        type="checkbox"
+                        aria-label={`Select ${row.js_inventory_id || 'inventory item'} for QR print`}
+                        checked={selectedIds.has(row.id)}
+                        disabled={!row.qr_code_data_url}
+                        onChange={(e) => toggleSelected(row.id, e.target.checked)}
+                      />
+                    </td>
                     <td>
                       <div className="inventory-table-thumbs">
                         {row.valve_image_url ? (
