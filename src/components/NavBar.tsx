@@ -135,6 +135,32 @@ function RestrictedNavLink({
 }
 
 export function NavBar({ role, username, userId, onLogout }: NavBarProps) {
+  const location = useLocation()
+  const [mobileOpen, setMobileOpen] = useState(false)
+  const [isMobileNav, setIsMobileNav] = useState(false)
+  const mobilePanelId = useId()
+
+  useEffect(() => {
+    const media = window.matchMedia('(max-width: 900px)')
+    const sync = () => setIsMobileNav(media.matches)
+    sync()
+    media.addEventListener('change', sync)
+    return () => media.removeEventListener('change', sync)
+  }, [])
+
+  useEffect(() => {
+    setMobileOpen(false)
+  }, [location.pathname])
+
+  useEffect(() => {
+    if (!mobileOpen) return
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setMobileOpen(false)
+    }
+    document.addEventListener('keydown', onKeyDown)
+    return () => document.removeEventListener('keydown', onKeyDown)
+  }, [mobileOpen])
+
   const adminItems: NavDropdownItem[] = [
     {
       to: '/admin/manager-dashboard',
@@ -177,14 +203,38 @@ export function NavBar({ role, username, userId, onLogout }: NavBarProps) {
       : []),
   ]
 
+  const messagesMenu = userId ? <NavMessagesMenu userId={userId} username={username} /> : null
+
   return (
-    <header className="navbar">
+    <header className={`navbar${mobileOpen ? ' navbar--menu-open' : ''}`}>
       <div className="navbar-inner">
         <div className="brand">
           <img src={logo} alt="JS Valve logo" className="brand-logo" />
-          <span>JS Valve Job Board</span>
+          <span className="brand-text">
+            <span className="brand-text-full">JS Valve Job Board</span>
+            <span className="brand-text-short">JS Valve</span>
+          </span>
         </div>
-        <nav className="nav-main-links" aria-label="Main">
+
+        <div className="nav-top-actions">
+          {isMobileNav ? messagesMenu : null}
+          <button
+            type="button"
+            className="nav-menu-toggle"
+            aria-expanded={mobileOpen}
+            aria-controls={mobilePanelId}
+            onClick={() => setMobileOpen((value) => !value)}
+          >
+            <span className="nav-menu-toggle-bars" aria-hidden>
+              <span />
+              <span />
+              <span />
+            </span>
+            {mobileOpen ? 'Close' : 'Menu'}
+          </button>
+        </div>
+
+        <nav className="nav-main-links" id={mobilePanelId} aria-label="Main">
           <NavLink to="/dashboard" className={navLinkClass}>
             Dashboard
           </NavLink>
@@ -216,9 +266,10 @@ export function NavBar({ role, username, userId, onLogout }: NavBarProps) {
           />
           <NavDropdown label="Admin" items={adminItems} />
         </nav>
+
         <div className="nav-session">
           <FeedbackButton username={username} role={role} />
-          {userId ? <NavMessagesMenu userId={userId} username={username} /> : null}
+          {!isMobileNav ? messagesMenu : null}
           <span className="username-pill">{username}</span>
           <span className="role-pill">{formatRolePillLabel(role)}</span>
           <button className="logout-button" type="button" onClick={onLogout}>

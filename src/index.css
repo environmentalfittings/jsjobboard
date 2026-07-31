@@ -37,6 +37,16 @@ body {
   align-items: center;
   gap: 8px;
   font-weight: 700;
+  min-width: 0;
+}
+
+.brand-text {
+  display: inline-flex;
+  min-width: 0;
+}
+
+.brand-text-short {
+  display: none;
 }
 
 .brand-logo {
@@ -44,6 +54,45 @@ body {
   height: 28px;
   border-radius: 999px;
   object-fit: cover;
+  flex: 0 0 auto;
+}
+
+.nav-top-actions {
+  display: none;
+  align-items: center;
+  gap: 8px;
+  margin-left: auto;
+}
+
+.nav-menu-toggle {
+  display: none;
+  align-items: center;
+  gap: 8px;
+  border: 1px solid #475569;
+  background: #1e293b;
+  color: #f8fafc;
+  border-radius: 8px;
+  padding: 7px 10px;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.nav-menu-toggle-bars {
+  display: inline-flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 3px;
+  width: 14px;
+}
+
+.nav-menu-toggle-bars span {
+  display: block;
+  height: 2px;
+  width: 100%;
+  border-radius: 999px;
+  background: currentColor;
 }
 
 .nav-link,
@@ -10481,16 +10530,22 @@ tbody tr:hover {
 @media (max-width: 1200px) {
   .navbar-inner {
     flex-wrap: wrap;
+    gap: 10px 14px;
   }
 
   .nav-main-links {
     order: 3;
     width: 100%;
-    padding-top: 4px;
+    padding-top: 2px;
+    flex-wrap: wrap;
+    gap: 4px;
   }
 
   .nav-session {
     margin-left: 0;
+    flex-wrap: wrap;
+    justify-content: flex-end;
+    gap: 8px;
   }
 }
 
@@ -10499,22 +10554,60 @@ tbody tr:hover {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
-  .nav-main-links {
+  .navbar-inner {
     flex-wrap: wrap;
-    gap: 6px;
+    align-items: center;
+    padding: 10px 12px;
+    gap: 8px;
   }
 
-  .nav-link,
-  .nav-dropdown-trigger {
-    text-align: center;
-    justify-content: center;
+  .brand-text-full {
+    display: none;
   }
 
-  .nav-dropdown {
+  .brand-text-short {
+    display: inline;
+  }
+
+  .nav-top-actions {
+    display: inline-flex;
+  }
+
+  .nav-menu-toggle {
+    display: inline-flex;
+  }
+
+  .nav-main-links,
+  .nav-session {
+    display: none;
     width: 100%;
   }
 
-  .nav-dropdown-trigger {
+  .navbar--menu-open .nav-main-links,
+  .navbar--menu-open .nav-session {
+    display: flex;
+  }
+
+  .nav-main-links {
+    order: 3;
+    flex-direction: column;
+    align-items: stretch;
+    flex-wrap: nowrap;
+    gap: 4px;
+    padding: 8px 0 4px;
+    border-top: 1px solid #1e293b;
+  }
+
+  .nav-link,
+  .nav-dropdown-trigger,
+  .nav-link.nav-item-disabled {
+    width: 100%;
+    justify-content: space-between;
+    text-align: left;
+    padding: 10px 12px;
+  }
+
+  .nav-dropdown {
     width: 100%;
   }
 
@@ -10523,6 +10616,29 @@ tbody tr:hover {
     width: 100%;
     margin-top: 4px;
     box-shadow: none;
+  }
+
+  .nav-session {
+    order: 4;
+    margin-left: 0;
+    flex-wrap: wrap;
+    justify-content: flex-start;
+    gap: 8px;
+    padding: 8px 0 2px;
+    border-top: 1px solid #1e293b;
+  }
+
+  .username-pill,
+  .role-pill,
+  .logout-button,
+  .nav-feedback-button {
+    flex: 0 0 auto;
+  }
+
+  .dashboard-title-row {
+    flex-wrap: wrap;
+    gap: 10px;
+    align-items: flex-start;
   }
 
   .kanban-grid {
