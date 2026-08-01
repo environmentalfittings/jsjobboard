@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 import { useToast } from '../components/ToastNotification'
 import { useAuth } from '../contexts/AuthContext'
@@ -201,6 +201,7 @@ export function AdminInventoryPage() {
   const [saving, setSaving] = useState(false)
   const [qrItem, setQrItem] = useState<InventoryRecord | null>(null)
   const [selectedIds, setSelectedIds] = useState<Set<string>>(() => new Set())
+  const [expandedRowId, setExpandedRowId] = useState<string | null>(null)
   const [sendingReport, setSendingReport] = useState(false)
   const [sendingMonthly, setSendingMonthly] = useState(false)
 
@@ -539,6 +540,7 @@ export function AdminInventoryPage() {
     }
     showToast('Customer inventory item removed')
     if (qrItem?.id === row.id) setQrItem(null)
+    if (expandedRowId === row.id) setExpandedRowId(null)
     setSelectedIds((prev) => {
       if (!prev.has(row.id)) return prev
       const next = new Set(prev)
@@ -880,67 +882,213 @@ export function AdminInventoryPage() {
                   </td>
                 </tr>
               ) : (
-                filtered.map((row) => (
-                  <tr key={row.id} className={selectedIds.has(row.id) ? 'inventory-row-selected' : undefined}>
-                    <td className="inventory-select-col">
-                      <input
-                        type="checkbox"
-                        aria-label={`Select ${row.js_inventory_id || 'inventory item'} for QR print`}
-                        checked={selectedIds.has(row.id)}
-                        disabled={!row.qr_code_data_url}
-                        onChange={(e) => toggleSelected(row.id, e.target.checked)}
-                      />
-                    </td>
-                    <td>
-                      <div className="inventory-table-thumbs">
-                        {row.valve_image_url ? (
-                          <img src={row.valve_image_url} alt="Valve" />
-                        ) : (
-                          <span className="inventory-thumb-empty">Valve</span>
-                        )}
-                        {row.tag_image_url ? (
-                          <img src={row.tag_image_url} alt="Tag" />
-                        ) : (
-                          <span className="inventory-thumb-empty">Tag</span>
-                        )}
-                      </div>
-                    </td>
-                    <td>
-                      <div className="inventory-id-cell">
-                        <span>{row.js_inventory_id || '—'}</span>
-                        {row.hf_acid ? <span className="inventory-hf-badge">HF Acid</span> : null}
-                      </div>
-                    </td>
-                    <td>{row.customer || '—'}</td>
-                    <td>{row.manufacturer_name || '—'}</td>
-                    <td>{row.valve_type_label || '—'}</td>
-                    <td>{row.size || '—'}</td>
-                    <td>{row.pressure || '—'}</td>
-                    <td className="list-col-actions-cell">
-                      <button type="button" className="job-list-quick-action" onClick={() => openEdit(row)}>
-                        Edit
-                      </button>{' '}
-                      <button
-                        type="button"
-                        className="job-list-quick-action"
-                        onClick={() => void openDuplicate(row)}
+                filtered.map((row) => {
+                  const isExpanded = expandedRowId === row.id
+                  const display = (value: string | null | undefined) => {
+                    const trimmed = value?.trim()
+                    return trimmed ? trimmed : '—'
+                  }
+                  return (
+                    <Fragment key={row.id}>
+                      <tr
+                        className={[
+                          'inventory-row',
+                          isExpanded ? 'inventory-row-expanded' : '',
+                          selectedIds.has(row.id) ? 'inventory-row-selected' : '',
+                        ]
+                          .filter(Boolean)
+                          .join(' ')}
+                        onClick={() => setExpandedRowId((prev) => (prev === row.id ? null : row.id))}
+                        role="button"
+                        tabIndex={0}
+                        aria-expanded={isExpanded}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter' || e.key === ' ') {
+                            e.preventDefault()
+                            setExpandedRowId((prev) => (prev === row.id ? null : row.id))
+                          }
+                        }}
                       >
-                        Duplicate
-                      </button>{' '}
-                      <button
-                        type="button"
-                        className="job-list-quick-action"
-                        onClick={() => setQrItem(row)}
-                        disabled={!row.qr_code_data_url}
-                      >
-                        QR
-                      </button>{' '}
-                      <button type="button" className="job-list-quick-action" onClick={() => void remove(row)}>
-                        Remove
-                      </button>
-                    </td>
-                  </tr>
-                ))
+                        <td
+                          className="inventory-select-col"
+                          onClick={(e) => e.stopPropagation()}
+                          onKeyDown={(e) => e.stopPropagation()}
+                        >
+                          <input
+                            type="checkbox"
+                            aria-label={`Select ${row.js_inventory_id || 'inventory item'} for QR print`}
+                            checked={selectedIds.has(row.id)}
+                            disabled={!row.qr_code_data_url}
+                            onChange={(e) => toggleSelected(row.id, e.target.checked)}
+                          />
+                        </td>
+                        <td>
+                          <div className="inventory-table-thumbs">
+                            {row.valve_image_url ? (
+                              <img src={row.valve_image_url} alt="Valve" />
+                            ) : (
+                              <span className="inventory-thumb-empty">Valve</span>
+                            )}
+                            {row.tag_image_url ? (
+                              <img src={row.tag_image_url} alt="Tag" />
+                            ) : (
+                              <span className="inventory-thumb-empty">Tag</span>
+                            )}
+                          </div>
+                        </td>
+                        <td>
+                          <div className="inventory-id-cell">
+                            <span className="inventory-row-id-line">
+                              <span className="inventory-row-toggle" aria-hidden>
+                                {isExpanded ? '▼' : '▶'}
+                              </span>
+                              <span>{row.js_inventory_id || '—'}</span>
+                            </span>
+                            {row.hf_acid ? <span className="inventory-hf-badge">HF Acid</span> : null}
+                          </div>
+                        </td>
+                        <td>{display(row.customer)}</td>
+                        <td>{display(row.manufacturer_name)}</td>
+                        <td>{display(row.valve_type_label)}</td>
+                        <td>{display(row.size)}</td>
+                        <td>{display(row.pressure)}</td>
+                        <td
+                          className="list-col-actions-cell"
+                          onClick={(e) => e.stopPropagation()}
+                          onKeyDown={(e) => e.stopPropagation()}
+                        >
+                          <button type="button" className="job-list-quick-action" onClick={() => openEdit(row)}>
+                            Edit
+                          </button>{' '}
+                          <button
+                            type="button"
+                            className="job-list-quick-action"
+                            onClick={() => void openDuplicate(row)}
+                          >
+                            Duplicate
+                          </button>{' '}
+                          <button
+                            type="button"
+                            className="job-list-quick-action"
+                            onClick={() => setQrItem(row)}
+                            disabled={!row.qr_code_data_url}
+                          >
+                            QR
+                          </button>{' '}
+                          <button type="button" className="job-list-quick-action" onClick={() => void remove(row)}>
+                            Remove
+                          </button>
+                        </td>
+                      </tr>
+                      {isExpanded ? (
+                        <tr className="inventory-detail-row">
+                          <td colSpan={9}>
+                            <div className="inventory-detail-panel">
+                              <div className="inventory-detail-photos">
+                                <div className="inventory-detail-photo">
+                                  <span>Valve</span>
+                                  {row.valve_image_url ? (
+                                    <img src={row.valve_image_url} alt="Valve" />
+                                  ) : (
+                                    <div className="inventory-detail-photo-empty">No valve photo</div>
+                                  )}
+                                </div>
+                                <div className="inventory-detail-photo">
+                                  <span>Tag</span>
+                                  {row.tag_image_url ? (
+                                    <img src={row.tag_image_url} alt="Tag" />
+                                  ) : (
+                                    <div className="inventory-detail-photo-empty">No tag photo</div>
+                                  )}
+                                </div>
+                                {row.qr_code_data_url ? (
+                                  <div className="inventory-detail-photo inventory-detail-qr">
+                                    <span>QR</span>
+                                    <img src={row.qr_code_data_url} alt="QR code" />
+                                  </div>
+                                ) : null}
+                              </div>
+                              <div className="inventory-detail-grid">
+                                <div className="inventory-detail-item">
+                                  <span className="inventory-detail-label">JS inventory ID</span>
+                                  <span className="inventory-detail-value">{display(row.js_inventory_id)}</span>
+                                </div>
+                                <div className="inventory-detail-item">
+                                  <span className="inventory-detail-label">Customer</span>
+                                  <span className="inventory-detail-value">{display(row.customer)}</span>
+                                </div>
+                                <div className="inventory-detail-item">
+                                  <span className="inventory-detail-label">Customer ID #</span>
+                                  <span className="inventory-detail-value">{display(row.customer_id_no)}</span>
+                                </div>
+                                <div className="inventory-detail-item">
+                                  <span className="inventory-detail-label">Origin</span>
+                                  <span className="inventory-detail-value">{display(row.origin)}</span>
+                                </div>
+                                <div className="inventory-detail-item">
+                                  <span className="inventory-detail-label">Manufacturer</span>
+                                  <span className="inventory-detail-value">{display(row.manufacturer_name)}</span>
+                                </div>
+                                <div className="inventory-detail-item">
+                                  <span className="inventory-detail-label">Type</span>
+                                  <span className="inventory-detail-value">{display(row.valve_type_label)}</span>
+                                </div>
+                                <div className="inventory-detail-item">
+                                  <span className="inventory-detail-label">Size</span>
+                                  <span className="inventory-detail-value">{display(row.size)}</span>
+                                </div>
+                                <div className="inventory-detail-item">
+                                  <span className="inventory-detail-label">Pressure</span>
+                                  <span className="inventory-detail-value">{display(row.pressure)}</span>
+                                </div>
+                                <div className="inventory-detail-item">
+                                  <span className="inventory-detail-label">Body material</span>
+                                  <span className="inventory-detail-value">{display(row.body_material)}</span>
+                                </div>
+                                <div className="inventory-detail-item">
+                                  <span className="inventory-detail-label">API trim</span>
+                                  <span className="inventory-detail-value">{display(row.api_trim)}</span>
+                                </div>
+                                <div className="inventory-detail-item">
+                                  <span className="inventory-detail-label">Operator</span>
+                                  <span className="inventory-detail-value">{display(row.operator)}</span>
+                                </div>
+                                <div className="inventory-detail-item">
+                                  <span className="inventory-detail-label">HF Acid</span>
+                                  <span className="inventory-detail-value">{row.hf_acid ? 'Yes' : 'No'}</span>
+                                </div>
+                                <div className="inventory-detail-item inventory-detail-item-wide">
+                                  <span className="inventory-detail-label">Notes</span>
+                                  <span className="inventory-detail-value">{display(row.notes)}</span>
+                                </div>
+                              </div>
+                              <div className="inventory-detail-actions">
+                                <button type="button" className="button-secondary" onClick={() => openEdit(row)}>
+                                  Edit
+                                </button>
+                                <button
+                                  type="button"
+                                  className="button-secondary"
+                                  onClick={() => void openDuplicate(row)}
+                                >
+                                  Duplicate
+                                </button>
+                                <button
+                                  type="button"
+                                  className="button-primary"
+                                  onClick={() => setQrItem(row)}
+                                  disabled={!row.qr_code_data_url}
+                                >
+                                  Open QR
+                                </button>
+                              </div>
+                            </div>
+                          </td>
+                        </tr>
+                      ) : null}
+                    </Fragment>
+                  )
+                })
               )}
             </tbody>
           </table>
