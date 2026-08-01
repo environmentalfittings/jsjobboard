@@ -739,9 +739,9 @@ export function AdminInventoryPage() {
           </div>
           <p className="inventory-report-period">Period: {periodLabel}</p>
         </div>
-        <div className="report-filters inventory-filters inventory-report-filters">
-          <label>
-            Customer
+        <div className="inventory-toolbar inventory-report-toolbar">
+          <label className="inventory-toolbar-field inventory-toolbar-customer">
+            <span>Customer</span>
             <select
               value={customerFilter}
               onChange={(e) => setCustomerFilterValue(e.target.value)}
@@ -755,18 +755,20 @@ export function AdminInventoryPage() {
               ))}
             </select>
           </label>
-          <div className="inventory-filter-meta">
-            {selectedCustomerGroup ? (
-              <span>
-                {selectedCustomerGroup.items.length} item
-                {selectedCustomerGroup.items.length === 1 ? '' : 's'} for {selectedCustomerGroup.customer}
-                {selectedSalesmanName
-                  ? ` · Salesman: ${selectedSalesmanName}`
-                  : ' · No salesman assigned'}
-              </span>
-            ) : (
-              <span>Choose a customer to preview or send their monthly report</span>
-            )}
+          <div className="inventory-toolbar-meta">
+            <span className="inventory-toolbar-count">
+              {selectedCustomerGroup ? (
+                <>
+                  {selectedCustomerGroup.items.length} item
+                  {selectedCustomerGroup.items.length === 1 ? '' : 's'} for {selectedCustomerGroup.customer}
+                  {selectedSalesmanName
+                    ? ` · Salesman: ${selectedSalesmanName}`
+                    : ' · No salesman assigned'}
+                </>
+              ) : (
+                'Choose a customer to preview or send their monthly report'
+              )}
+            </span>
             <div className="inventory-selection-actions">
               <button
                 type="button"
@@ -790,9 +792,9 @@ export function AdminInventoryPage() {
       </section>
 
       <section className="dashboard-panel">
-        <div className="report-filters inventory-filters">
-          <label>
-            Search
+        <div className="inventory-toolbar">
+          <label className="inventory-toolbar-field inventory-toolbar-search">
+            <span>Search</span>
             <input
               type="search"
               value={search}
@@ -800,8 +802,8 @@ export function AdminInventoryPage() {
               onChange={(e) => setSearch(e.target.value)}
             />
           </label>
-          <label>
-            Customer
+          <label className="inventory-toolbar-field inventory-toolbar-customer">
+            <span>Customer</span>
             <select
               value={customerFilter}
               onChange={(e) => setCustomerFilterValue(e.target.value)}
@@ -815,8 +817,8 @@ export function AdminInventoryPage() {
               ))}
             </select>
           </label>
-          <div className="inventory-filter-meta">
-            <span>
+          <div className="inventory-toolbar-meta">
+            <span className="inventory-toolbar-count">
               {filtered.length} item{filtered.length === 1 ? '' : 's'}
               {customerFilter.trim() || search.trim() ? ' matching' : ''}
               {selectedPrintable.length > 0

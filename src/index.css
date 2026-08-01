@@ -14864,6 +14864,83 @@ tbody tr:hover {
 }
 
 /* Admin Inventory */
+.inventory-toolbar {
+  display: grid;
+  grid-template-columns: minmax(220px, 1.6fr) minmax(180px, 0.9fr) minmax(200px, 1.1fr);
+  gap: 0.85rem 1rem;
+  align-items: end;
+  margin: 0 0 1rem;
+  padding: 0.9rem 1rem;
+  border: 1px solid #e2e8f0;
+  border-radius: 12px;
+  background: #f8fafc;
+}
+
+.inventory-report-toolbar {
+  grid-template-columns: minmax(220px, 0.9fr) minmax(0, 1.6fr);
+  margin-bottom: 0;
+}
+
+.inventory-toolbar-field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+  margin: 0;
+  min-width: 0;
+}
+
+.inventory-toolbar-field > span {
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+  color: #64748b;
+}
+
+.inventory-toolbar-field input,
+.inventory-toolbar-field select {
+  width: 100%;
+  min-height: 2.5rem;
+  border: 1px solid #cbd5e1;
+  border-radius: 8px;
+  padding: 0.55rem 0.75rem;
+  background: #fff;
+  color: #0f172a;
+  font: inherit;
+  font-size: 14px;
+  font-weight: 400;
+}
+
+.inventory-toolbar-field input:focus-visible,
+.inventory-toolbar-field select:focus-visible {
+  outline: none;
+  border-color: #0f766e;
+  box-shadow: 0 0 0 3px rgba(15, 118, 110, 0.14);
+}
+
+.inventory-toolbar-meta {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 0.75rem 1rem;
+  flex-wrap: wrap;
+  min-height: 2.5rem;
+}
+
+.inventory-toolbar-count {
+  color: #64748b;
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1.35;
+}
+
+.inventory-selection-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
 .inventory-filters {
   margin-bottom: 1rem;
   align-items: end;
@@ -14899,10 +14976,6 @@ tbody tr:hover {
   color: #0f766e;
 }
 
-.inventory-report-filters {
-  margin-bottom: 0;
-}
-
 .inventory-filter-meta {
   display: flex;
   align-items: center;
@@ -14914,11 +14987,17 @@ tbody tr:hover {
   font-size: 13px;
 }
 
-.inventory-selection-actions {
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-  flex-wrap: wrap;
+@media (max-width: 900px) {
+  .inventory-toolbar,
+  .inventory-report-toolbar {
+    grid-template-columns: 1fr;
+  }
+
+  .inventory-toolbar-meta {
+    justify-content: flex-start;
+    align-items: flex-start;
+    flex-direction: column;
+  }
 }
 
 .inventory-select-col {
