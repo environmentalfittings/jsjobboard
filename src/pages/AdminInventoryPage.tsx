@@ -38,7 +38,7 @@ import {
   resolveEmployeeAuthUserId,
 } from '../lib/messages'
 
-type ModalMode = 'create' | 'edit'
+type ModalMode = 'create' | 'edit' | 'duplicate'
 
 function Field({
   label,
@@ -400,6 +400,27 @@ export function AdminInventoryPage() {
     setForm((prev) => ({ ...prev, jsInventoryId: allocated.id }))
   }
 
+  const openDuplicate = async (row: InventoryRecord) => {
+    setModalMode('duplicate')
+    setEditingId(null)
+    const copied = inventoryToForm(row)
+    setForm({ ...copied, jsInventoryId: '' })
+    setValvePhoto((prev) => {
+      revokePreview(prev)
+      return emptyPhotoDraft(null)
+    })
+    setTagPhoto((prev) => {
+      revokePreview(prev)
+      return emptyPhotoDraft(null)
+    })
+    setModalOpen(true)
+    const allocated = await allocateNextJsInventoryId()
+    if (allocated.error) {
+      showToast(`Could not preview next ID — will assign on save (${allocated.error})`)
+    }
+    setForm((prev) => ({ ...prev, jsInventoryId: allocated.id }))
+  }
+
   const openEdit = (row: InventoryRecord) => {
     setModalMode('edit')
     setEditingId(row.id)
@@ -456,10 +477,14 @@ export function AdminInventoryPage() {
     }
 
     setSaving(true)
-    if (modalMode === 'create') {
+    if (modalMode === 'create' || modalMode === 'duplicate') {
       if (!valvePhoto.file || !tagPhoto.file) {
         setSaving(false)
-        showToast('Upload both the valve photo and the tag photo')
+        showToast(
+          modalMode === 'duplicate'
+            ? 'Add new valve and tag photos for the duplicate — photos are not copied'
+            : 'Upload both the valve photo and the tag photo',
+        )
         return
       }
       const result = await createInventoryRecord(form, { valve: valvePhoto.file, tag: tagPhoto.file })
@@ -468,7 +493,11 @@ export function AdminInventoryPage() {
         showToast(result.error || 'Could not create item')
         return
       }
-      showToast('Customer inventory item added')
+      showToast(
+        modalMode === 'duplicate'
+          ? 'Duplicate inventory item created'
+          : 'Customer inventory item added',
+      )
       closeModal()
       setQrItem(result.data)
       await reload()
@@ -892,6 +921,13 @@ export function AdminInventoryPage() {
                       <button
                         type="button"
                         className="job-list-quick-action"
+                        onClick={() => void openDuplicate(row)}
+                      >
+                        Duplicate
+                      </button>{' '}
+                      <button
+                        type="button"
+                        className="job-list-quick-action"
                         onClick={() => setQrItem(row)}
                         disabled={!row.qr_code_data_url}
                       >
@@ -922,7 +958,11 @@ export function AdminInventoryPage() {
               <div>
                 <p className="inventory-modal-kicker">Customer Inventory</p>
                 <h3 id="inventory-modal-title">
-                  {modalMode === 'edit' ? 'Edit inventory item' : 'Add inventory item'}
+                  {modalMode === 'edit'
+                    ? 'Edit inventory item'
+                    : modalMode === 'duplicate'
+                      ? 'Duplicate inventory item'
+                      : 'Add inventory item'}
                 </h3>
               </div>
               <button type="button" className="modal-close-btn" onClick={closeModal} aria-label="Close">
@@ -947,9 +987,11 @@ export function AdminInventoryPage() {
                       title="Assigned automatically — duplicates are blocked"
                     />
                     <span className="inventory-field-hint">
-                      {modalMode === 'create'
-                        ? 'Assigned automatically (unique). Confirmed again when you save.'
-                        : 'Locked after create — unique in customer inventory.'}
+                      {modalMode === 'edit'
+                        ? 'Locked after create — unique in customer inventory.'
+                        : modalMode === 'duplicate'
+                          ? 'New unique ID for the duplicate (photos are not copied).'
+                          : 'Assigned automatically (unique). Confirmed again when you save.'}
                     </span>
                   </Field>
                   <Field label="Customer" required>
@@ -1002,7 +1044,11 @@ export function AdminInventoryPage() {
               <section className="inventory-form-section">
                 <div className="inventory-form-section-head">
                   <h4>Required photos</h4>
-                  <p>Both photos are required before the item can be saved.</p>
+                  <p>
+                    {modalMode === 'duplicate'
+                      ? 'Photos are not copied — add new valve and tag pictures for this item.'
+                      : 'Both photos are required before the item can be saved.'}
+                  </p>
                 </div>
                 <div className="inventory-photo-grid">
                   <PhotoCard
@@ -1024,7 +1070,7 @@ export function AdminInventoryPage() {
                     onClear={() => clearPhoto('tag')}
                   />
                 </div>
-                {modalMode === 'create' ? (
+                {modalMode === 'create' || modalMode === 'duplicate' ? (
                   <p className="inventory-qr-note">A QR code is generated automatically when you create this item.</p>
                 ) : null}
               </section>
@@ -1129,7 +1175,9 @@ export function AdminInventoryPage() {
                   ? 'Saving…'
                   : modalMode === 'edit'
                     ? 'Save changes'
-                    : 'Create & generate QR'}
+                    : modalMode === 'duplicate'
+                      ? 'Duplicate & generate QR'
+                      : 'Create & generate QR'}
               </button>
             </div>
           </div>
