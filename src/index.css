@@ -4254,6 +4254,12 @@ a.test-log-reports-item-name:hover {
   color: #7f1d1d;
 }
 
+.dashboard-gauge-cal-alert--warning {
+  border-color: #fcd34d;
+  background: #fffbeb;
+  color: #92400e;
+}
+
 .dashboard-gauge-cal-alert-title {
   font-size: 15px;
   font-weight: 700;
@@ -4266,11 +4272,19 @@ a.test-log-reports-item-name:hover {
   line-height: 1.45;
 }
 
+.dashboard-gauge-cal-alert-note {
+  opacity: 0.92;
+}
+
 .dashboard-gauge-cal-alert-link {
   font-size: 13px;
   font-weight: 600;
   color: #b91c1c;
   text-decoration: underline;
+}
+
+.dashboard-gauge-cal-alert--warning .dashboard-gauge-cal-alert-link {
+  color: #b45309;
 }
 
 .dashboard-inventory-report-alert {
