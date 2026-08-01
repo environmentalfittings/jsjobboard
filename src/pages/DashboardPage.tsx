@@ -13,7 +13,11 @@ import {
 } from '../lib/dashboardMetrics'
 import { fetchAllValves } from '../lib/fetchAllValves'
 import { displayJobStatus } from '../lib/jobDisplayStatus'
-import { isGaugeCalibrationCriticallyOverdue, loadActiveTestGauges } from '../lib/testGaugeRegistry'
+import {
+  filterAllowedTestGauges,
+  isGaugeCalibrationOverdue,
+  loadActiveTestGauges,
+} from '../lib/testGaugeRegistry'
 import type { TestGauge } from '../types/testGauge'
 import { isEligiblePriorityValve, syncPriorityQueueWithValves } from '../lib/priorityQueue'
 import { canWriteShop, permissionDeniedReason } from '../lib/roles'
@@ -89,8 +93,9 @@ export function DashboardPage() {
     }
 
     try {
-      const gauges = await loadActiveTestGauges()
-      setCriticalGauges(gauges.filter((gauge) => isGaugeCalibrationCriticallyOverdue(gauge)))
+      // Match Quality Team → MTE Calibrations “Out of calibration” (allowed types only, past due).
+      const gauges = filterAllowedTestGauges(await loadActiveTestGauges())
+      setCriticalGauges(gauges.filter((gauge) => isGaugeCalibrationOverdue(gauge)))
     } catch {
       setCriticalGauges([])
     }
@@ -219,13 +224,13 @@ export function DashboardPage() {
           <p>
             {criticalGauges.length === 1 ? (
               <>
-                Gauge <strong>{criticalGauges[0].gauge_number}</strong> is more than 30 days past its calibration due
-                date ({criticalGauges[0].next_calibration_date}). Do not use until recalibrated. Update dates in Admin
-                → Quality Team → MTE Calibrations.
+                Gauge <strong>{criticalGauges[0].gauge_number}</strong> is out of calibration (due{' '}
+                {criticalGauges[0].next_calibration_date}). Do not use until recalibrated. Update dates in Quality Team
+                → MTE Calibrations.
               </>
             ) : (
               <>
-                <strong>{criticalGauges.length} gauges</strong> are more than 30 days past calibration:{' '}
+                <strong>{criticalGauges.length} gauges</strong> are out of calibration:{' '}
                 {criticalGauges.map((g) => g.gauge_number).join(', ')}. Update calibration dates in Quality Team → MTE
                 Calibrations.
               </>

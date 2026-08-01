@@ -144,6 +144,7 @@ export function isGaugeCalibrationOverdue(gauge: TestGauge, today = new Date()):
   return daysPast !== null && daysPast > 0
 }
 
+/** Same rule as MTE Calibrations “Out of calibration” for an active gauge. */
 export function isGaugeCalibrationCriticallyOverdue(gauge: TestGauge, today = new Date()): boolean {
   return isGaugeCalibrationOverdue(gauge, today)
 }
