@@ -14,7 +14,10 @@ import {
 import { fetchAllValves } from '../lib/fetchAllValves'
 import { displayJobStatus } from '../lib/jobDisplayStatus'
 import {
+  daysUntilGaugeCalibrationDue,
   filterAllowedTestGauges,
+  formatGaugeCalibrationDueDate,
+  isGaugeCalibrationDashboardAlert,
   isGaugeCalibrationOverdue,
   loadActiveTestGauges,
 } from '../lib/testGaugeRegistry'
@@ -43,7 +46,7 @@ export function DashboardPage() {
   const [valves, setValves] = useState<Valve[]>([])
   const [recentTested, setRecentTested] = useState<RecentTestedRow[]>([])
   const [priorityQueueIds, setPriorityQueueIds] = useState<string[]>([])
-  const [criticalGauges, setCriticalGauges] = useState<TestGauge[]>([])
+  const [gaugeAlertItems, setGaugeAlertItems] = useState<TestGauge[]>([])
   const [loading, setLoading] = useState(true)
   const [lastRefreshed, setLastRefreshed] = useState<Date | null>(null)
   const [refreshTick, setRefreshTick] = useState(0)
@@ -93,11 +96,18 @@ export function DashboardPage() {
     }
 
     try {
-      // Match Quality Team → MTE Calibrations “Out of calibration” (allowed types only, past due).
+      // Active MTE gauge-tab items only; alert from 14 days before expiry until dates are updated.
       const gauges = filterAllowedTestGauges(await loadActiveTestGauges())
-      setCriticalGauges(gauges.filter((gauge) => isGaugeCalibrationOverdue(gauge)))
+      const alertItems = gauges
+        .filter((gauge) => isGaugeCalibrationDashboardAlert(gauge))
+        .sort((a, b) => {
+          const aDays = daysUntilGaugeCalibrationDue(a) ?? Number.POSITIVE_INFINITY
+          const bDays = daysUntilGaugeCalibrationDue(b) ?? Number.POSITIVE_INFINITY
+          return aDays - bDays
+        })
+      setGaugeAlertItems(alertItems)
     } catch {
-      setCriticalGauges([])
+      setGaugeAlertItems([])
     }
 
     setLastRefreshed(new Date())
@@ -218,21 +228,41 @@ export function DashboardPage() {
         </div>
       </div>
 
-      {!loading && criticalGauges.length > 0 ? (
+      {!loading && gaugeAlertItems.length > 0 ? (
         <div className="dashboard-gauge-cal-alert" role="alert">
           <div className="dashboard-gauge-cal-alert-title">Test gauge calibration alert</div>
           <p>
-            {criticalGauges.length === 1 ? (
+            {gaugeAlertItems.length === 1 ? (
               <>
-                Gauge <strong>{criticalGauges[0].gauge_number}</strong> is out of calibration (due{' '}
-                {criticalGauges[0].next_calibration_date}). Do not use until recalibrated. Update dates in Quality Team
-                → MTE Calibrations.
+                Gauge <strong>{gaugeAlertItems[0].gauge_number}</strong>{' '}
+                {isGaugeCalibrationOverdue(gaugeAlertItems[0]) ? (
+                  <>
+                    is out of calibration (due {formatGaugeCalibrationDueDate(gaugeAlertItems[0]) ?? gaugeAlertItems[0].next_calibration_date}).
+                    Do not use until recalibrated.
+                  </>
+                ) : (
+                  <>
+                    is due within 14 days (
+                    {formatGaugeCalibrationDueDate(gaugeAlertItems[0]) ?? gaugeAlertItems[0].next_calibration_date}).
+                    Update calibration dates before it expires.
+                  </>
+                )}{' '}
+                This alert stays on the dashboard until the gauge is updated in Quality Team → MTE Calibrations.
               </>
             ) : (
               <>
-                <strong>{criticalGauges.length} gauges</strong> are out of calibration:{' '}
-                {criticalGauges.map((g) => g.gauge_number).join(', ')}. Update calibration dates in Quality Team → MTE
-                Calibrations.
+                <strong>{gaugeAlertItems.length} gauges</strong> are due within 14 days or out of calibration:{' '}
+                {gaugeAlertItems
+                  .map((g) => {
+                    const due = formatGaugeCalibrationDueDate(g) ?? g.next_calibration_date ?? '—'
+                    const days = daysUntilGaugeCalibrationDue(g)
+                    if (days === null) return `${g.gauge_number} (${due})`
+                    if (days < 0) return `${g.gauge_number} (expired ${due})`
+                    if (days === 0) return `${g.gauge_number} (due today)`
+                    return `${g.gauge_number} (due in ${days}d · ${due})`
+                  })
+                  .join(', ')}
+                . This alert stays until each gauge is updated in Quality Team → MTE Calibrations.
               </>
             )}
           </p>

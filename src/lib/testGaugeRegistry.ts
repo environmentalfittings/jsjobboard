@@ -98,8 +98,11 @@ export function filterChartRecorderGauges(gauges: TestGauge[]): TestGauge[] {
   return filterAllowedTestGauges(gauges).filter(isChartRecorderGauge)
 }
 
-/** Orange warning when calibration is within ~3 months. */
+/** Orange warning when calibration is within ~3 months (MTE KPI cards). */
 export const GAUGE_CALIBRATION_WARNING_DAYS = 90
+
+/** Dashboard alert when an active MTE gauge is this many days from expiring (or already past due). */
+export const GAUGE_CALIBRATION_DASHBOARD_ALERT_DAYS = 14
 
 export type GaugeCalibrationStatus = 'ok' | 'expiring' | 'due' | 'critical'
 
@@ -144,7 +147,17 @@ export function isGaugeCalibrationOverdue(gauge: TestGauge, today = new Date()):
   return daysPast !== null && daysPast > 0
 }
 
-/** Same rule as MTE Calibrations “Out of calibration” for an active gauge. */
+/**
+ * Dashboard alert: active MTE gauge is within 14 days of expiring, or already past due.
+ * Clears automatically only when `next_calibration_date` is updated past that window.
+ */
+export function isGaugeCalibrationDashboardAlert(gauge: TestGauge, today = new Date()): boolean {
+  const daysUntil = daysUntilGaugeCalibrationDue(gauge, today)
+  if (daysUntil === null) return false
+  return daysUntil <= GAUGE_CALIBRATION_DASHBOARD_ALERT_DAYS
+}
+
+/** @deprecated Prefer isGaugeCalibrationOverdue / isGaugeCalibrationDashboardAlert */
 export function isGaugeCalibrationCriticallyOverdue(gauge: TestGauge, today = new Date()): boolean {
   return isGaugeCalibrationOverdue(gauge, today)
 }
