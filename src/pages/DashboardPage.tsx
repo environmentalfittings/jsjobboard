@@ -16,9 +16,14 @@ import { displayJobStatus } from '../lib/jobDisplayStatus'
 import { isGaugeCalibrationCriticallyOverdue, loadActiveTestGauges } from '../lib/testGaugeRegistry'
 import type { TestGauge } from '../types/testGauge'
 import { isEligiblePriorityValve, syncPriorityQueueWithValves } from '../lib/priorityQueue'
-import { canWriteShop, permissionDeniedReason } from '../lib/roles'
+import { canWriteShop, can, permissionDeniedReason } from '../lib/roles'
 import { departmentIdForShopStatus } from '../lib/statusPriorityQueue'
 import { openShopDepartmentsParam } from '../constants/priorityDepartments'
+import {
+  clearInventoryMonthlyReportAlert,
+  currentInventoryMonthlyReportLabel,
+  isInventoryMonthlyReportAlertVisible,
+} from '../lib/inventoryMonthlyAlert'
 import { supabase } from '../lib/supabase'
 import type { Valve } from '../types'
 import logo from '../assets/js-logo.png'
@@ -36,16 +41,32 @@ export function DashboardPage() {
   const navigate = useNavigate()
   const { role } = useAuth()
   const canWrite = canWriteShop(role)
+  const canManageInventory = can(role, 'openAdminTools')
   const [valves, setValves] = useState<Valve[]>([])
   const [recentTested, setRecentTested] = useState<RecentTestedRow[]>([])
   const [priorityQueueIds, setPriorityQueueIds] = useState<string[]>([])
   const [criticalGauges, setCriticalGauges] = useState<TestGauge[]>([])
+  const [showInventoryMonthlyAlert, setShowInventoryMonthlyAlert] = useState(false)
   const [loading, setLoading] = useState(true)
   const [lastRefreshed, setLastRefreshed] = useState<Date | null>(null)
   const [refreshTick, setRefreshTick] = useState(0)
   const [dragPriorityId, setDragPriorityId] = useState<string | null>(null)
   const [savingPriority, setSavingPriority] = useState(false)
   const { showToast } = useToast()
+
+  useEffect(() => {
+    if (!canManageInventory) {
+      setShowInventoryMonthlyAlert(false)
+      return
+    }
+    setShowInventoryMonthlyAlert(isInventoryMonthlyReportAlertVisible())
+  }, [canManageInventory])
+
+  const clearInventoryAlert = () => {
+    clearInventoryMonthlyReportAlert()
+    setShowInventoryMonthlyAlert(false)
+    showToast('Monthly inventory reminder cleared for this month')
+  }
 
   const fetchData = useCallback(async () => {
     setLoading(true)
@@ -234,6 +255,34 @@ export function DashboardPage() {
           <Link className="dashboard-gauge-cal-alert-link" to="/quality-team/mte-calibrations">
             Open MTE Calibrations
           </Link>
+        </div>
+      ) : null}
+
+      {!loading && showInventoryMonthlyAlert ? (
+        <div className="dashboard-inventory-report-alert" role="status">
+          <div className="dashboard-inventory-report-alert-title">
+            Monthly customer inventory reports — {currentInventoryMonthlyReportLabel()}
+          </div>
+          <p>
+            It&apos;s time to generate and send customer inventory reports to the salesmen in Messages. Open Customer
+            Inventory, review each customer, then use <strong>Send monthly reports</strong> (or send one customer at a
+            time).
+          </p>
+          <div className="dashboard-inventory-report-alert-foot">
+            <Link className="dashboard-inventory-report-alert-link" to="/admin/inventory">
+              Open Customer Inventory
+            </Link>
+            <label className="dashboard-inventory-report-clear">
+              <input
+                type="checkbox"
+                checked={false}
+                onChange={(e) => {
+                  if (e.target.checked) clearInventoryAlert()
+                }}
+              />
+              <span>Reports sent — clear this reminder</span>
+            </label>
+          </div>
         </div>
       ) : null}
 

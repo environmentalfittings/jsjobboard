@@ -4273,6 +4273,63 @@ a.test-log-reports-item-name:hover {
   text-decoration: underline;
 }
 
+.dashboard-inventory-report-alert {
+  margin-bottom: 16px;
+  padding: 14px 16px;
+  border: 1px solid #99f6e4;
+  border-radius: 10px;
+  background: #f0fdfa;
+  color: #115e59;
+}
+
+.dashboard-inventory-report-alert-title {
+  font-size: 15px;
+  font-weight: 700;
+  margin-bottom: 6px;
+  color: #0f766e;
+}
+
+.dashboard-inventory-report-alert p {
+  margin: 0 0 12px;
+  font-size: 14px;
+  line-height: 1.45;
+  color: #134e4a;
+}
+
+.dashboard-inventory-report-alert-foot {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem 1rem;
+}
+
+.dashboard-inventory-report-alert-link {
+  font-size: 13px;
+  font-weight: 700;
+  color: #0f766e;
+  text-decoration: underline;
+}
+
+.dashboard-inventory-report-clear {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin: 0;
+  font-size: 13px;
+  font-weight: 600;
+  color: #0f766e;
+  cursor: pointer;
+  user-select: none;
+}
+
+.dashboard-inventory-report-clear input[type='checkbox'] {
+  width: 1rem;
+  height: 1rem;
+  accent-color: #0f766e;
+  cursor: pointer;
+}
+
 .test-gauge-cal-overdue {
   color: #b45309;
   font-weight: 600;

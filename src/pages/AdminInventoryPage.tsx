@@ -32,6 +32,7 @@ import {
   groupInventoryByCustomer,
   printInventoryCustomerReport,
 } from '../lib/inventoryCustomerReport'
+import { clearInventoryMonthlyReportAlert } from '../lib/inventoryMonthlyAlert'
 import { printInventoryQrSheet } from '../lib/inventoryQrPrint'
 import {
   notifySalesRepCustomerInventoryReport,
@@ -681,6 +682,7 @@ export function AdminInventoryPage() {
     setSendingMonthly(false)
 
     if (sent > 0) {
+      clearInventoryMonthlyReportAlert()
       showToast(
         `Sent ${sent} monthly inventory report${sent === 1 ? '' : 's'} to salesman Messages` +
           (skipped.length ? ` (${skipped.length} skipped)` : ''),
