@@ -8,11 +8,13 @@ import {
   type ResourceDocumentCategory,
   type ResourceDocumentRow,
   type BaseMetalCategory,
+  type ProcCategory,
   type WeldMode,
   type WeldProcess,
   type WpsType,
   uploadResourceDocument,
   BASE_METAL_CATEGORIES,
+  PROC_CATEGORIES,
   WELD_MODES,
   WELD_PROCESSES,
   WPS_TYPES,
@@ -26,8 +28,7 @@ const RESOURCE_DOC_SELECT =
   'id,scope,valve_type,category,title,notes,storage_path,file_name,mime_type,created_at,updated_at,wps_type,base_metal_category,weld_processes,weld_modes,filler_metal,base_metal_thickness_qualified,filler_metal_thickness_qualified,post_weld_heat_treat_required,pwht_temperature,pwht_time,hf_approved,manufacturer,product_valve_type,sop_number,revision_number,date_updated,proc_category'
 const PROCEDURE_COMPANION_SELECT =
   'id,scope,valve_type,category,title,notes,storage_path,file_name,mime_type,created_at,updated_at,sop_number,revision_number,date_updated,proc_category'
-const PROC_STAT_CATEGORIES = ['Valve-Specific', 'NDE', 'Other', 'Test', 'Answer Key'] as const
-type ProcStatFilter = 'all' | (typeof PROC_STAT_CATEGORIES)[number] | 'uncategorized'
+type ProcStatFilter = 'all' | ProcCategory | 'uncategorized'
 
 export function ResourcesPage() {
   const { showToast } = useToast()
@@ -190,7 +191,7 @@ export function ResourcesPage() {
   const [sopNumber, setSopNumber] = useState('')
   const [revisionNumber, setRevisionNumber] = useState('')
   const [dateUpdated, setDateUpdated] = useState('')
-  const [procCategory, setProcCategory] = useState<'Valve-Specific' | 'NDE' | 'Other' | 'Test' | 'Answer Key' | ''>('')
+  const [procCategory, setProcCategory] = useState<ProcCategory | ''>('')
 
   const toggleWeldProcess = (p: WeldProcess) =>
     setWeldProcesses((prev) => (prev.includes(p) ? prev.filter((x) => x !== p) : [...prev, p]))
@@ -310,7 +311,7 @@ export function ResourcesPage() {
     setSopNumber(row.sop_number ?? '')
     setRevisionNumber(row.revision_number ?? '')
     setDateUpdated(row.date_updated ?? '')
-    setProcCategory((row.proc_category as 'Valve-Specific' | 'NDE' | 'Other' | 'Test' | 'Answer Key' | '') ?? '')
+    setProcCategory((row.proc_category as ProcCategory | '') ?? '')
     setUploadModalOpen(true)
   }
 
@@ -831,7 +832,7 @@ export function ResourcesPage() {
         const loading = sectionLoading[activeSimpleSection.key] ?? false
         const isIom = activeSimpleSection.key === 'iom'
         const isProcedureLike = activeSimpleSection.key === 'procedures' || activeSimpleSection.key === 'qaqc'
-        const procedureCategoryCounts = PROC_STAT_CATEGORIES.map((cat) => ({
+        const procedureCategoryCounts = PROC_CATEGORIES.map((cat) => ({
           key: cat,
           label: cat,
           count: allDocs.filter((d) => d.proc_category === cat).length,
@@ -1295,15 +1296,15 @@ export function ResourcesPage() {
                     id="upload-proc-category"
                     className="modal-status-select"
                     value={procCategory}
-                    onChange={(e) => setProcCategory(e.target.value as 'Valve-Specific' | 'NDE' | 'Other' | 'Test' | 'Answer Key' | '')}
+                    onChange={(e) => setProcCategory(e.target.value as ProcCategory | '')}
                     disabled={uploading}
                   >
                     <option value="">— Select category —</option>
-                    <option value="Valve-Specific">Valve-Specific</option>
-                    <option value="NDE">NDE</option>
-                    <option value="Other">Other</option>
-                    <option value="Test">Test</option>
-                    <option value="Answer Key">Answer Key</option>
+                    {PROC_CATEGORIES.map((cat) => (
+                      <option key={cat} value={cat}>
+                        {cat}
+                      </option>
+                    ))}
                   </select>
                 </>
               )}

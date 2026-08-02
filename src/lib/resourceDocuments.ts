@@ -33,6 +33,16 @@ export const BASE_METAL_CATEGORIES = [
 ] as const
 export type BaseMetalCategory = (typeof BASE_METAL_CATEGORIES)[number]
 
+export const PROC_CATEGORIES = [
+  'Valve-Specific',
+  'NDE',
+  'Other',
+  'Test',
+  'Answer Key',
+  'Calibration',
+] as const
+export type ProcCategory = (typeof PROC_CATEGORIES)[number]
+
 export type ResourceDocumentRow = {
   id: number
   scope: ResourceDocumentScope
@@ -63,7 +73,7 @@ export type ResourceDocumentRow = {
   sop_number: string | null
   revision_number: string | null
   date_updated: string | null
-  proc_category: 'Valve-Specific' | 'NDE' | 'Other' | 'Test' | 'Answer Key' | null
+  proc_category: ProcCategory | null
 }
 
 const MAX_BYTES = 40 * 1024 * 1024
@@ -112,7 +122,7 @@ export async function uploadResourceDocument(args: {
   sopNumber?: string
   revisionNumber?: string
   dateUpdated?: string | null
-  procCategory?: 'Valve-Specific' | 'NDE' | 'Other' | 'Test' | 'Answer Key' | null
+  procCategory?: ProcCategory | null
 }): Promise<{ error: string | null }> {
   const { file, scope, category } = args
   const title = args.title.trim()
