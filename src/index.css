@@ -4325,6 +4325,36 @@ a.test-log-reports-item-name:hover {
   text-decoration: underline;
 }
 
+.dashboard-inventory-report-assign {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 0.5rem 0.65rem;
+}
+
+.dashboard-inventory-report-assign-label {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin: 0;
+  font-size: 12px;
+  font-weight: 700;
+  color: #0f766e;
+}
+
+.dashboard-inventory-report-assign-label select {
+  min-width: 11rem;
+  max-width: 16rem;
+  padding: 7px 10px;
+  border: 1px solid #0f766e;
+  border-radius: 8px;
+  background: #fff;
+  color: #115e59;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 600;
+}
+
 .dashboard-inventory-report-claim {
   display: inline-flex;
   align-items: center;
@@ -4340,6 +4370,7 @@ a.test-log-reports-item-name:hover {
   font-weight: 700;
   cursor: pointer;
   user-select: none;
+  white-space: nowrap;
 }
 
 .dashboard-inventory-report-claim:hover:not(:disabled) {

@@ -4,6 +4,7 @@ import { DashboardNotesPanel } from '../components/DashboardNotesPanel'
 import { ReceivedValvesDashboardPanel } from '../components/ReceivedValvesDashboardPanel'
 import { useToast } from '../components/ToastNotification'
 import { useAuth } from '../contexts/AuthContext'
+import { useEmployees } from '../hooks/useEmployees'
 import {
   calcActiveJobsByCell,
   calcActiveStatusBreakdown,
@@ -48,6 +49,7 @@ type RecentTestedRow = {
 export function DashboardPage() {
   const navigate = useNavigate()
   const { role, user, username } = useAuth()
+  const { employees } = useEmployees()
   const canWrite = canWriteShop(role)
   const canManageInventory = can(role, 'openAdminTools')
   const [valves, setValves] = useState<Valve[]>([])
@@ -55,6 +57,7 @@ export function DashboardPage() {
   const [priorityQueueIds, setPriorityQueueIds] = useState<string[]>([])
   const [gaugeAlertItems, setGaugeAlertItems] = useState<TestGauge[]>([])
   const [showInventoryMonthlyAlert, setShowInventoryMonthlyAlert] = useState(false)
+  const [inventoryAssigneeId, setInventoryAssigneeId] = useState('')
   const [claimingInventoryAlert, setClaimingInventoryAlert] = useState(false)
   const [loading, setLoading] = useState(true)
   const [lastRefreshed, setLastRefreshed] = useState<Date | null>(null)
@@ -62,6 +65,20 @@ export function DashboardPage() {
   const [dragPriorityId, setDragPriorityId] = useState<string | null>(null)
   const [savingPriority, setSavingPriority] = useState(false)
   const { showToast } = useToast()
+
+  const inventoryAssigneeOptions = useMemo(
+    () =>
+      employees
+        .filter((employee) => employee.is_active)
+        .map((employee) => ({
+          id: employee.id,
+          name: employee.full_name.trim() || employee.username.trim() || employee.employee_no,
+          authUserId: employee.auth_user_id,
+        }))
+        .filter((employee) => employee.name)
+        .sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: 'base' })),
+    [employees],
+  )
 
   useEffect(() => {
     if (!canManageInventory) {
@@ -79,17 +96,35 @@ export function DashboardPage() {
     }
   }, [canManageInventory])
 
-  const takeInventoryReportResponsibility = async () => {
+  useEffect(() => {
+    if (!showInventoryMonthlyAlert || inventoryAssigneeId || !inventoryAssigneeOptions.length) return
+    const selfName = username.trim().toLowerCase()
+    const selfMatch =
+      (user?.id
+        ? inventoryAssigneeOptions.find((employee) => employee.authUserId === user.id)
+        : null) ||
+      (selfName
+        ? inventoryAssigneeOptions.find((employee) => employee.name.toLowerCase() === selfName)
+        : null)
+    setInventoryAssigneeId((selfMatch ?? inventoryAssigneeOptions[0]).id)
+  }, [showInventoryMonthlyAlert, inventoryAssigneeId, inventoryAssigneeOptions, user?.id, username])
+
+  const assignInventoryReportResponsibility = async () => {
     if (claimingInventoryAlert) return
+    const assignee = inventoryAssigneeOptions.find((employee) => employee.id === inventoryAssigneeId)
+    const ownerName = assignee?.name.trim() || username.trim() || 'Team member'
+    if (!assignee && inventoryAssigneeOptions.length > 0) {
+      showToast('Select someone to assign')
+      return
+    }
     setClaimingInventoryAlert(true)
-    const ownerName = username.trim() || 'Team member'
     const { claim, error } = await claimInventoryMonthlyReportResponsibility({
       claimedByName: ownerName,
-      claimedByUserId: user?.id ?? null,
+      claimedByUserId: assignee?.authUserId ?? null,
     })
     setClaimingInventoryAlert(false)
     if (!claim) {
-      showToast(error || 'Could not take responsibility for this month')
+      showToast(error || 'Could not assign responsibility for this month')
       return
     }
     setShowInventoryMonthlyAlert(false)
@@ -347,23 +382,41 @@ export function DashboardPage() {
           <p>
             It&apos;s time to generate and send customer inventory reports to the salesmen in Messages. Open Customer
             Inventory, review each customer, then use <strong>Send monthly reports</strong> (or send one customer at a
-            time). Take responsibility below so the shop knows who owns this month&apos;s reports — the reminder clears
-            until the 1st of next month.
+            time). Assign someone below so the shop knows who owns this month&apos;s reports — the reminder clears until
+            the 1st of next month.
           </p>
           <div className="dashboard-inventory-report-alert-foot">
             <Link className="dashboard-inventory-report-alert-link" to="/admin/inventory">
               Open Customer Inventory
             </Link>
-            <button
-              type="button"
-              className="dashboard-inventory-report-claim"
-              onClick={() => void takeInventoryReportResponsibility()}
-              disabled={claimingInventoryAlert}
-            >
-              {claimingInventoryAlert
-                ? 'Saving…'
-                : `I'll take responsibility${username.trim() ? ` (${username.trim()})` : ''}`}
-            </button>
+            <div className="dashboard-inventory-report-assign">
+              <label className="dashboard-inventory-report-assign-label">
+                <span>Assign to</span>
+                <select
+                  value={inventoryAssigneeId}
+                  onChange={(e) => setInventoryAssigneeId(e.target.value)}
+                  disabled={claimingInventoryAlert || inventoryAssigneeOptions.length === 0}
+                >
+                  {inventoryAssigneeOptions.length === 0 ? (
+                    <option value="">{username.trim() || 'Current user'}</option>
+                  ) : (
+                    inventoryAssigneeOptions.map((employee) => (
+                      <option key={employee.id} value={employee.id}>
+                        {employee.name}
+                      </option>
+                    ))
+                  )}
+                </select>
+              </label>
+              <button
+                type="button"
+                className="dashboard-inventory-report-claim"
+                onClick={() => void assignInventoryReportResponsibility()}
+                disabled={claimingInventoryAlert}
+              >
+                {claimingInventoryAlert ? 'Saving…' : 'Assign responsibility'}
+              </button>
+            </div>
           </div>
         </div>
       ) : null}
