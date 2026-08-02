@@ -27,9 +27,10 @@ import { canWriteShop, can, permissionDeniedReason } from '../lib/roles'
 import { departmentIdForShopStatus } from '../lib/statusPriorityQueue'
 import { openShopDepartmentsParam } from '../constants/priorityDepartments'
 import {
-  clearInventoryMonthlyReportAlert,
+  claimInventoryMonthlyReportResponsibility,
   currentInventoryMonthlyReportLabel,
   isInventoryMonthlyReportAlertVisible,
+  loadInventoryMonthlyReportClaim,
 } from '../lib/inventoryMonthlyAlert'
 import { supabase } from '../lib/supabase'
 import type { Valve } from '../types'
@@ -46,7 +47,7 @@ type RecentTestedRow = {
 
 export function DashboardPage() {
   const navigate = useNavigate()
-  const { role } = useAuth()
+  const { role, user, username } = useAuth()
   const canWrite = canWriteShop(role)
   const canManageInventory = can(role, 'openAdminTools')
   const [valves, setValves] = useState<Valve[]>([])
@@ -54,6 +55,7 @@ export function DashboardPage() {
   const [priorityQueueIds, setPriorityQueueIds] = useState<string[]>([])
   const [gaugeAlertItems, setGaugeAlertItems] = useState<TestGauge[]>([])
   const [showInventoryMonthlyAlert, setShowInventoryMonthlyAlert] = useState(false)
+  const [claimingInventoryAlert, setClaimingInventoryAlert] = useState(false)
   const [loading, setLoading] = useState(true)
   const [lastRefreshed, setLastRefreshed] = useState<Date | null>(null)
   const [refreshTick, setRefreshTick] = useState(0)
@@ -66,13 +68,37 @@ export function DashboardPage() {
       setShowInventoryMonthlyAlert(false)
       return
     }
-    setShowInventoryMonthlyAlert(isInventoryMonthlyReportAlertVisible())
+    let cancelled = false
+    void (async () => {
+      const claim = await loadInventoryMonthlyReportClaim()
+      if (cancelled) return
+      setShowInventoryMonthlyAlert(isInventoryMonthlyReportAlertVisible(claim))
+    })()
+    return () => {
+      cancelled = true
+    }
   }, [canManageInventory])
 
-  const clearInventoryAlert = () => {
-    clearInventoryMonthlyReportAlert()
+  const takeInventoryReportResponsibility = async () => {
+    if (claimingInventoryAlert) return
+    setClaimingInventoryAlert(true)
+    const ownerName = username.trim() || 'Team member'
+    const { claim, error } = await claimInventoryMonthlyReportResponsibility({
+      claimedByName: ownerName,
+      claimedByUserId: user?.id ?? null,
+    })
+    setClaimingInventoryAlert(false)
+    if (!claim) {
+      showToast(error || 'Could not take responsibility for this month')
+      return
+    }
     setShowInventoryMonthlyAlert(false)
-    showToast('Monthly inventory reminder cleared for this month')
+    showToast(
+      `${ownerName} is responsible for ${currentInventoryMonthlyReportLabel()} inventory reports. Reminder clears until next month.`,
+    )
+    if (error) {
+      showToast(`Saved locally only — run inventory claim migration if others still see the reminder`)
+    }
   }
 
   const fetchData = useCallback(async () => {
@@ -321,22 +347,23 @@ export function DashboardPage() {
           <p>
             It&apos;s time to generate and send customer inventory reports to the salesmen in Messages. Open Customer
             Inventory, review each customer, then use <strong>Send monthly reports</strong> (or send one customer at a
-            time).
+            time). Take responsibility below so the shop knows who owns this month&apos;s reports — the reminder clears
+            until the 1st of next month.
           </p>
           <div className="dashboard-inventory-report-alert-foot">
             <Link className="dashboard-inventory-report-alert-link" to="/admin/inventory">
               Open Customer Inventory
             </Link>
-            <label className="dashboard-inventory-report-clear">
-              <input
-                type="checkbox"
-                checked={false}
-                onChange={(e) => {
-                  if (e.target.checked) clearInventoryAlert()
-                }}
-              />
-              <span>Reports sent — clear this reminder</span>
-            </label>
+            <button
+              type="button"
+              className="dashboard-inventory-report-claim"
+              onClick={() => void takeInventoryReportResponsibility()}
+              disabled={claimingInventoryAlert}
+            >
+              {claimingInventoryAlert
+                ? 'Saving…'
+                : `I'll take responsibility${username.trim() ? ` (${username.trim()})` : ''}`}
+            </button>
           </div>
         </div>
       ) : null}
