@@ -11951,6 +11951,67 @@ tbody tr:hover {
   margin-bottom: 4px;
 }
 
+.resources-section-stats {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin: 12px 0 4px;
+}
+
+.resources-section-stat {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  min-width: 7.5rem;
+  padding: 10px 12px;
+  border: 1px solid #cbd5e1;
+  border-radius: 10px;
+  background: #f8fafc;
+  color: #0f172a;
+  cursor: pointer;
+  text-align: left;
+  font: inherit;
+  transition: border-color 120ms ease, background-color 120ms ease, color 120ms ease;
+}
+
+.resources-section-stat:hover:not(:disabled) {
+  border-color: #94a3b8;
+  background: #f1f5f9;
+}
+
+.resources-section-stat:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+.resources-section-stat--active {
+  border-color: #0f766e;
+  background: #f0fdfa;
+  box-shadow: inset 0 0 0 1px #0f766e;
+}
+
+.resources-section-stat-value {
+  font-size: 28px;
+  line-height: 1;
+  font-weight: 700;
+  color: #0f172a;
+}
+
+.resources-section-stat-label {
+  font-size: 12px;
+  font-weight: 600;
+  color: #475569;
+  letter-spacing: 0.01em;
+}
+
+@media (max-width: 640px) {
+  .resources-section-stat {
+    min-width: calc(50% - 5px);
+    flex: 1 1 calc(50% - 5px);
+  }
+}
+
 .resources-module-title {
   font-size: 16px;
   font-weight: 700;

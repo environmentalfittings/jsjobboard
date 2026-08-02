@@ -26,6 +26,8 @@ const RESOURCE_DOC_SELECT =
   'id,scope,valve_type,category,title,notes,storage_path,file_name,mime_type,created_at,updated_at,wps_type,base_metal_category,weld_processes,weld_modes,filler_metal,base_metal_thickness_qualified,filler_metal_thickness_qualified,post_weld_heat_treat_required,pwht_temperature,pwht_time,hf_approved,manufacturer,product_valve_type,sop_number,revision_number,date_updated,proc_category'
 const PROCEDURE_COMPANION_SELECT =
   'id,scope,valve_type,category,title,notes,storage_path,file_name,mime_type,created_at,updated_at,sop_number,revision_number,date_updated,proc_category'
+const PROC_STAT_CATEGORIES = ['Valve-Specific', 'NDE', 'Other', 'Test', 'Answer Key'] as const
+type ProcStatFilter = 'all' | (typeof PROC_STAT_CATEGORIES)[number] | 'uncategorized'
 
 export function ResourcesPage() {
   const { showToast } = useToast()
@@ -603,6 +605,13 @@ export function ResourcesPage() {
   const [iomMfgFilter, setIomMfgFilter] = useState('')
   const [iomVtFilter, setIomVtFilter] = useState('')
 
+  // ── Procedure category filter (also driven by stats chips) ───────────────
+  const [procCategoryFilter, setProcCategoryFilter] = useState<ProcStatFilter>('all')
+
+  useEffect(() => {
+    setProcCategoryFilter('all')
+  }, [activeModule])
+
   // ── Procedure details dialog (test + answer key quick access) ───────────
   const [procedureDialogDoc, setProcedureDialogDoc] = useState<ResourceDocumentRow | null>(null)
   const [procedureCompanionsLoading, setProcedureCompanionsLoading] = useState(false)
@@ -822,13 +831,25 @@ export function ResourcesPage() {
         const loading = sectionLoading[activeSimpleSection.key] ?? false
         const isIom = activeSimpleSection.key === 'iom'
         const isProcedureLike = activeSimpleSection.key === 'procedures' || activeSimpleSection.key === 'qaqc'
+        const procedureCategoryCounts = PROC_STAT_CATEGORIES.map((cat) => ({
+          key: cat,
+          label: cat,
+          count: allDocs.filter((d) => d.proc_category === cat).length,
+        }))
+        const uncategorizedCount = allDocs.filter((d) => !(d.proc_category ?? '').trim()).length
         const baseDocs = isIom
           ? allDocs.filter((d) => {
               if (iomMfgFilter && (d.manufacturer ?? '') !== iomMfgFilter) return false
               if (iomVtFilter && (d.product_valve_type ?? '') !== iomVtFilter) return false
               return true
             })
-          : allDocs
+          : isProcedureLike
+            ? allDocs.filter((d) => {
+                if (procCategoryFilter === 'all') return true
+                if (procCategoryFilter === 'uncategorized') return !(d.proc_category ?? '').trim()
+                return d.proc_category === procCategoryFilter
+              })
+            : allDocs
         const docs = isProcedureLike ? [...baseDocs].sort(compareProcedureDocs) : baseDocs
         return (
           <section className="dashboard-panel resources-panel">
@@ -846,6 +867,41 @@ export function ResourcesPage() {
                 {loading ? 'Loading…' : 'Refresh'}
               </button>
             </div>
+
+            {isProcedureLike ? (
+              <div className="resources-section-stats" aria-label={`${activeSimpleSection.title} statistics`}>
+                <button
+                  type="button"
+                  className={`resources-section-stat${procCategoryFilter === 'all' ? ' resources-section-stat--active' : ''}`}
+                  onClick={() => setProcCategoryFilter('all')}
+                >
+                  <span className="resources-section-stat-value">{allDocs.length}</span>
+                  <span className="resources-section-stat-label">Total</span>
+                </button>
+                {procedureCategoryCounts.map((stat) => (
+                  <button
+                    key={stat.key}
+                    type="button"
+                    className={`resources-section-stat${procCategoryFilter === stat.key ? ' resources-section-stat--active' : ''}`}
+                    onClick={() => setProcCategoryFilter(stat.key)}
+                    disabled={stat.count === 0 && procCategoryFilter !== stat.key}
+                  >
+                    <span className="resources-section-stat-value">{stat.count}</span>
+                    <span className="resources-section-stat-label">{stat.label}</span>
+                  </button>
+                ))}
+                {uncategorizedCount > 0 || procCategoryFilter === 'uncategorized' ? (
+                  <button
+                    type="button"
+                    className={`resources-section-stat${procCategoryFilter === 'uncategorized' ? ' resources-section-stat--active' : ''}`}
+                    onClick={() => setProcCategoryFilter('uncategorized')}
+                  >
+                    <span className="resources-section-stat-value">{uncategorizedCount}</span>
+                    <span className="resources-section-stat-label">Uncategorized</span>
+                  </button>
+                ) : null}
+              </div>
+            ) : null}
 
             <div className="resources-upload-trigger-row">
               <button
