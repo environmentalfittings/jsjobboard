@@ -367,6 +367,7 @@ export function JobBoardPage({ role, username }: { role?: UserRole; username?: s
   const [attachmentCounts, setAttachmentCounts] = useState<Record<number, number>>({})
   const [workOrderQuery, setWorkOrderQuery] = useState('')
   const [descriptionQuery, setDescriptionQuery] = useState('')
+  const [customerFilter, setCustomerFilter] = useState('')
   const [selectedWorkOrder, setSelectedWorkOrder] = useState('')
   const [listSort, setListSort] = useState<ValveListSort>('default')
   const [columnFilters, setColumnFilters] = useState(() => {
@@ -730,6 +731,10 @@ export function JobBoardPage({ role, username }: { role?: UserRole; username?: s
       .filter((v) => valveMatchesAllColumnFilters(v, columnFilters, listColumnContext))
       .filter((v) => valveMatchesWorkOrderFilter(v, workOrderQuery, selectedWorkOrder))
       .filter((v) => valveMatchesDescriptionSearch(v, descriptionQuery))
+      .filter((v) => {
+        const q = customerFilter.trim().toLowerCase()
+        return !q || (v.customer ?? '').toLowerCase().includes(q)
+      })
       .sort((a, b) => {
         if (listSort !== 'default') {
           return compareValvesBySort(a, b, listSort, compareValvesForDisplay)
@@ -746,6 +751,7 @@ export function JobBoardPage({ role, username }: { role?: UserRole; username?: s
     selectedWorkOrder,
     listSort,
     descriptionQuery,
+    customerFilter,
   ])
 
   const openModal = (valve: Valve) => {
@@ -1006,6 +1012,10 @@ export function JobBoardPage({ role, username }: { role?: UserRole; username?: s
       if (descriptionQuery.trim()) {
         base = base.filter((valve) => valveMatchesDescriptionSearch(valve, descriptionQuery))
       }
+      if (customerFilter.trim()) {
+        const q = customerFilter.trim().toLowerCase()
+        base = base.filter((valve) => (valve.customer ?? '').toLowerCase().includes(q))
+      }
 
       if (listSort !== 'default') {
         return sortValves(base)
@@ -1028,7 +1038,16 @@ export function JobBoardPage({ role, username }: { role?: UserRole; username?: s
       const rest = sortValves([...byId.values()])
       return [...ordered, ...rest]
     },
-    [baseItemsForPhase, phaseOrder, workOrderQuery, selectedWorkOrder, listSort, sortValves, descriptionQuery],
+    [
+      baseItemsForPhase,
+      phaseOrder,
+      workOrderQuery,
+      selectedWorkOrder,
+      listSort,
+      sortValves,
+      descriptionQuery,
+      customerFilter,
+    ],
   )
 
   const placeInPhaseOrder = useCallback(
@@ -1179,11 +1198,13 @@ export function JobBoardPage({ role, username }: { role?: UserRole; username?: s
           valves={valves}
           query={workOrderQuery}
           descriptionQuery={descriptionQuery}
+          customerFilter={customerFilter}
           selectedValveId={selectedWorkOrder}
           sort={listSort}
           statusMessage={tab === 'kanban' ? workOrderSearchStatus : null}
           onQueryChange={setWorkOrderQuery}
           onDescriptionQueryChange={setDescriptionQuery}
+          onCustomerFilterChange={setCustomerFilter}
           onSelect={(valve) => {
             setSelectedWorkOrder(valve.valve_id)
             setWorkOrderQuery(valve.valve_id)
