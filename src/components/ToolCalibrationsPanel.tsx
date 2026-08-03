@@ -850,11 +850,11 @@ export function ToolCalibrationsPanel() {
       <h3>Tool calibration log</h3>
       <p className="placeholder-copy resources-hint">
         Shop MTE tools (micrometers, calipers, etc.). Dead weight testers, pressure gauges, load cells, and
-        chart recorders belong on <strong>Test gauges</strong>. Use <strong>Recalibrate</strong> for in-house
-        SOP 2010 checks. Torque wrenches and gauge block standards use <strong>Upload cert</strong> for
-        outside-lab certificates. Prior calibrations are archived for every tool — use <strong>History</strong>{' '}
-        to review them. Active tools are shown by default — click a summary card to focus due windows. Use
-        column filters for Category, Department, or Status.
+        chart recorders belong on <strong>Test gauges</strong>. Use <strong>Upload cert</strong> for outside-lab
+        certificates on any tool. Use <strong>Recalibrate</strong> for in-house SOP 2010 checks (torque wrenches
+        and gauge block standards stay cert-upload only). Prior calibrations are archived for every tool — use{' '}
+        <strong>History</strong> to review them. Active tools are shown by default — click a summary card to focus
+        due windows. Use column filters for Category, Department, or Status.
       </p>
 
       <div className="dashboard-kpis tool-cal-kpis" aria-label="Tool calibration summary">
@@ -1075,15 +1075,14 @@ export function ToolCalibrationsPanel() {
                       </td>
                       <td>{row.status === 'out_of_service' ? 'Out of service' : 'Active'}</td>
                       <td className="test-gauge-row-actions">
-                        {external ? (
-                          <button
-                            type="button"
-                            className="link-button"
-                            onClick={() => setExternalCertTool(row)}
-                          >
-                            Upload cert
-                          </button>
-                        ) : (
+                        <button
+                          type="button"
+                          className="link-button"
+                          onClick={() => setExternalCertTool(row)}
+                        >
+                          Upload cert
+                        </button>
+                        {!external ? (
                           <button
                             type="button"
                             className="link-button"
@@ -1091,7 +1090,7 @@ export function ToolCalibrationsPanel() {
                           >
                             Recalibrate
                           </button>
-                        )}
+                        ) : null}
                         <button type="button" className="link-button" onClick={() => setHistoryTool(row)}>
                           History
                         </button>
