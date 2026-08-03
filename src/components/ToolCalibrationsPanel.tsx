@@ -1051,24 +1051,37 @@ export function ToolCalibrationsPanel() {
                           <div className="tool-cal-cert-number">#{row.certificate_number.trim()}</div>
                         ) : null}
                         {certUrl ? (
-                          <a href={certUrl} target="_blank" rel="noreferrer">
-                            {row.certificate_file_name ?? 'View'}
-                          </a>
-                        ) : row.certificate_number?.trim() ? null : (
-                          '—'
+                          <>
+                            <a href={certUrl} target="_blank" rel="noreferrer">
+                              {row.certificate_file_name ?? 'View'}
+                            </a>
+                            <div className="test-gauge-cert-actions">
+                              <button
+                                type="button"
+                                className="link-button"
+                                onClick={() => setExternalCertTool(row)}
+                              >
+                                Replace
+                              </button>
+                              <button
+                                type="button"
+                                className="link-button"
+                                disabled={certBusyId === row.id}
+                                onClick={() => void clearCertificate(row)}
+                              >
+                                Remove
+                              </button>
+                            </div>
+                          </>
+                        ) : (
+                          <button
+                            type="button"
+                            className="link-button"
+                            onClick={() => setExternalCertTool(row)}
+                          >
+                            Upload
+                          </button>
                         )}
-                        {certUrl ? (
-                          <div className="test-gauge-cert-actions">
-                            <button
-                              type="button"
-                              className="link-button"
-                              disabled={certBusyId === row.id}
-                              onClick={() => void clearCertificate(row)}
-                            >
-                              Remove
-                            </button>
-                          </div>
-                        ) : null}
                       </td>
                       <td className="table-cell-clamp" title={row.notes ?? undefined}>
                         {row.notes?.trim() || '—'}
