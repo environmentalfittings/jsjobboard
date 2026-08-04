@@ -45,6 +45,18 @@ function formatWhen(value: string) {
   return date.toLocaleString()
 }
 
+function formatListWhen(value: string) {
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return '—'
+  return date.toLocaleString(undefined, {
+    month: 'numeric',
+    day: 'numeric',
+    year: '2-digit',
+    hour: 'numeric',
+    minute: '2-digit',
+  })
+}
+
 function itemTitle(item: InboxItem) {
   if (item.subject?.trim()) return item.subject.trim()
   if (item.category === 'notification') return 'Notification'
@@ -382,7 +394,7 @@ export function MessagesPage({ userId, username, homePath }: MessagesPageProps) 
                       ) : null}
                       {itemTitle(item)}
                     </span>
-                    <time dateTime={item.createdAt}>{formatWhen(item.createdAt)}</time>
+                    <time dateTime={item.createdAt}>{formatListWhen(item.createdAt)}</time>
                   </div>
                   <div className="messages-list-item-meta">
                     {filter === 'sent'
