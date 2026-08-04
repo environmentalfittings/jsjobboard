@@ -15805,6 +15805,11 @@ body.shop-tv-fullscreen-active .page-content {
   color: #0f172a;
 }
 
+.shop-tv-leaderboard-name .finish-cell-badge {
+  max-width: 100%;
+  vertical-align: middle;
+}
+
 .shop-tv-leaderboard-row.is-leader .shop-tv-leaderboard-name {
   color: #0f766e;
 }
@@ -15831,7 +15836,7 @@ body.shop-tv-fullscreen-active .page-content {
   transition: width 0.35s ease;
 }
 
-.shop-tv-leaderboard-row.is-leader .shop-tv-leaderboard-bar-fill {
+.shop-tv-leaderboard-row.is-leader .shop-tv-leaderboard-bar-fill:not([style*='background']) {
   background: linear-gradient(90deg, #f59e0b 0%, #d97706 100%);
 }
 

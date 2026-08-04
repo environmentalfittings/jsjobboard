@@ -154,8 +154,8 @@ export type ShopTvStatusMove = {
   changedBy: string
 }
 
-export type ShopTvMoverRow = {
-  name: string
+export type ShopTvCellMoveRow = {
+  cell: string
   moveCount: number
 }
 
@@ -169,6 +169,13 @@ function displayMoverName(emailOrName: string): string {
     .replace(/\b\w/g, (ch) => ch.toUpperCase())
 }
 
+/** Prefer the cell the job left; fall back to destination / Unassigned. */
+function cellForMoveAttribution(fromCell: string, toCell: string): string {
+  if (fromCell) return fromCell
+  if (toCell) return toCell
+  return 'Unassigned'
+}
+
 export function parseShopTvStatusMoves(
   rows: Array<{
     valve_row_id: string | null
@@ -177,7 +184,7 @@ export function parseShopTvStatusMoves(
     old_row: Record<string, unknown> | null
     new_row: Record<string, unknown> | null
   }>,
-): { moves: ShopTvStatusMove[]; leaderboard: ShopTvMoverRow[] } {
+): { moves: ShopTvStatusMove[]; cellLeaderboard: ShopTvCellMoveRow[] } {
   const moves: ShopTvStatusMove[] = []
   const counts = new Map<string, number>()
 
@@ -194,7 +201,8 @@ export function parseShopTvStatusMoves(
       (typeof raw.old_row?.valve_id === 'string' ? raw.old_row.valve_id.trim() : '')
     if (!wo) continue
     const changedBy = displayMoverName(String(raw.changed_by_email ?? '').trim() || 'Unknown')
-    counts.set(changedBy, (counts.get(changedBy) ?? 0) + 1)
+    const cell = cellForMoveAttribution(fromCell, toCell)
+    counts.set(cell, (counts.get(cell) ?? 0) + 1)
     moves.push({
       valve_id: wo,
       fromStatus: fromStatus || '—',
@@ -206,11 +214,11 @@ export function parseShopTvStatusMoves(
     })
   }
 
-  const leaderboard = [...counts.entries()]
-    .map(([name, moveCount]) => ({ name, moveCount }))
-    .sort((a, b) => b.moveCount - a.moveCount || a.name.localeCompare(b.name))
+  const cellLeaderboard = [...counts.entries()]
+    .map(([cell, moveCount]) => ({ cell, moveCount }))
+    .sort((a, b) => b.moveCount - a.moveCount || a.cell.localeCompare(b.cell))
 
-  return { moves, leaderboard }
+  return { moves, cellLeaderboard }
 }
 
 function moveLeftFixedColumn(move: ShopTvStatusMove, column: ShopTvColumnDef): boolean {

@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom'
 import { FinishCellBadge } from '../components/FinishCellBadge'
 import { useToast } from '../components/ToastNotification'
 import { useAuth } from '../contexts/AuthContext'
+import { finishCellTone } from '../constants/finishCellColors'
 import { fetchAllValves } from '../lib/fetchAllValves'
 import { displayJobStatus, isActiveShopWork } from '../lib/jobDisplayStatus'
 import { localTodayBounds } from '../lib/managerDashboardMetrics'
@@ -19,7 +20,7 @@ import {
   countMovedOutToday,
   parseShopTvStatusMoves,
   valveMatchesTvColumn,
-  type ShopTvMoverRow,
+  type ShopTvCellMoveRow,
   type ShopTvStatusMove,
 } from '../lib/shopTvBoard'
 import { supabase } from '../lib/supabase'
@@ -206,7 +207,7 @@ export function ShopTvBoardPage() {
   const [valves, setValves] = useState<Valve[]>([])
   const [priorityQueueIds, setPriorityQueueIds] = useState<string[]>([])
   const [movesToday, setMovesToday] = useState<ShopTvStatusMove[]>([])
-  const [moverLeaderboard, setMoverLeaderboard] = useState<ShopTvMoverRow[]>([])
+  const [cellLeaderboard, setCellLeaderboard] = useState<ShopTvCellMoveRow[]>([])
   const [loading, setLoading] = useState(true)
   const [savingPriority, setSavingPriority] = useState(false)
   const [fullscreen, setFullscreen] = useState(false)
@@ -237,7 +238,7 @@ export function ShopTvBoardPage() {
       setValves([])
       setPriorityQueueIds([])
       setMovesToday([])
-      setMoverLeaderboard([])
+      setCellLeaderboard([])
       setLoading(false)
       return
     }
@@ -256,13 +257,13 @@ export function ShopTvBoardPage() {
 
     if (todayRes.error) {
       setMovesToday([])
-      setMoverLeaderboard([])
+      setCellLeaderboard([])
     } else {
       const parsed = parseShopTvStatusMoves(
         (todayRes.data ?? []) as Parameters<typeof parseShopTvStatusMoves>[0],
       )
       setMovesToday(parsed.moves)
-      setMoverLeaderboard(parsed.leaderboard)
+      setCellLeaderboard(parsed.cellLeaderboard)
     }
     setLoading(false)
   }, [showToast])
@@ -324,9 +325,9 @@ export function ShopTvBoardPage() {
     })
   }, [valves, priorityQueueIds, priorityOnly, priorityRank, columnRestOrder, movesToday])
 
-  const maxMoverCount = useMemo(
-    () => moverLeaderboard.reduce((max, row) => Math.max(max, row.moveCount), 0),
-    [moverLeaderboard],
+  const maxCellMoveCount = useMemo(
+    () => cellLeaderboard.reduce((max, row) => Math.max(max, row.moveCount), 0),
+    [cellLeaderboard],
   )
 
   const movePriorityInColumn = useCallback(
@@ -514,31 +515,42 @@ export function ShopTvBoardPage() {
         </div>
       </header>
 
-      <section className="shop-tv-leaderboard" aria-label="Most status moves today">
+      <section className="shop-tv-leaderboard" aria-label="Most status moves by finish cell today">
         <div className="shop-tv-leaderboard-head">
-          <h3 className="shop-tv-leaderboard-title">Today&apos;s movers</h3>
-          <p className="shop-tv-leaderboard-sub">Who moved the most jobs today</p>
+          <h3 className="shop-tv-leaderboard-title">Today&apos;s cell moves</h3>
+          <p className="shop-tv-leaderboard-sub">Which finish cell moved the most jobs today</p>
         </div>
-        {loading && moverLeaderboard.length === 0 ? (
+        {loading && cellLeaderboard.length === 0 ? (
           <p className="shop-tv-leaderboard-empty">Loading…</p>
-        ) : moverLeaderboard.length === 0 ? (
+        ) : cellLeaderboard.length === 0 ? (
           <p className="shop-tv-leaderboard-empty">No status moves logged yet today.</p>
         ) : (
           <ol className="shop-tv-leaderboard-list">
-            {moverLeaderboard.slice(0, 8).map((row, index) => {
-              const widthPct = maxMoverCount > 0 ? Math.round((row.moveCount / maxMoverCount) * 100) : 0
+            {cellLeaderboard.slice(0, 12).map((row, index) => {
+              const widthPct =
+                maxCellMoveCount > 0 ? Math.round((row.moveCount / maxCellMoveCount) * 100) : 0
+              const tone = finishCellTone(row.cell)
+              const barStyle = tone
+                ? { width: `${widthPct}%`, background: tone.background }
+                : { width: `${widthPct}%` }
               return (
-                <li key={row.name} className={`shop-tv-leaderboard-row${index === 0 ? ' is-leader' : ''}`}>
+                <li key={row.cell} className={`shop-tv-leaderboard-row${index === 0 ? ' is-leader' : ''}`}>
                   <span className="shop-tv-leaderboard-rank">{index + 1}</span>
                   <div className="shop-tv-leaderboard-main">
                     <div className="shop-tv-leaderboard-name-row">
-                      <span className="shop-tv-leaderboard-name">{row.name}</span>
+                      <span className="shop-tv-leaderboard-name">
+                        {row.cell === 'Unassigned' ? (
+                          'Unassigned'
+                        ) : (
+                          <FinishCellBadge cell={row.cell} />
+                        )}
+                      </span>
                       <span className="shop-tv-leaderboard-count">
                         {row.moveCount} move{row.moveCount === 1 ? '' : 's'}
                       </span>
                     </div>
                     <div className="shop-tv-leaderboard-bar-track" aria-hidden="true">
-                      <div className="shop-tv-leaderboard-bar-fill" style={{ width: `${widthPct}%` }} />
+                      <div className="shop-tv-leaderboard-bar-fill" style={barStyle} />
                     </div>
                   </div>
                 </li>
