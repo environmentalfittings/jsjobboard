@@ -15845,30 +15845,14 @@ body.shop-tv-fullscreen-active .page-content {
   align-items: center;
   min-height: 0;
   position: relative;
-  padding-top: 2px;
-}
-
-.shop-tv-chart-bar-stack {
-  width: 100%;
-  min-height: 0;
-  display: flex;
-  flex-direction: row;
-  align-items: flex-start;
-  justify-content: center;
-  gap: 4px;
-}
-
-.shop-tv-chart-col.is-zero .shop-tv-chart-bar-stack {
-  height: auto !important;
-  min-height: 1.1rem;
-  align-items: flex-end;
+  padding-top: 1.1rem;
 }
 
 .shop-tv-chart-value {
-  flex-shrink: 0;
-  min-width: 1.5rem;
-  padding-top: 1px;
-  text-align: right;
+  position: absolute;
+  left: 50%;
+  bottom: calc(100% + 4px);
+  transform: translateX(-50%);
   font-size: 0.92rem;
   font-weight: 800;
   color: #0f172a;
@@ -15879,12 +15863,12 @@ body.shop-tv-fullscreen-active .page-content {
 
 .shop-tv-chart-col.is-zero .shop-tv-chart-value {
   color: #94a3b8;
+  bottom: 4px;
 }
 
 .shop-tv-chart-bar {
-  flex: 1 1 auto;
-  align-self: stretch;
-  width: auto;
+  position: relative;
+  width: 72%;
   min-width: 16px;
   max-width: 48px;
   border-radius: 7px 7px 2px 2px;
@@ -15893,7 +15877,7 @@ body.shop-tv-fullscreen-active .page-content {
 
 .shop-tv-chart-col.is-zero .shop-tv-chart-bar {
   min-height: 0;
-  height: 0;
+  height: 0 !important;
 }
 
 .shop-tv-chart-col.is-leader .shop-tv-chart-bar {
@@ -15983,7 +15967,6 @@ body.shop-tv-fullscreen-active .page-content {
 .shop-tv-board--fullscreen .shop-tv-chart-value {
   color: #e2e8f0;
   font-size: 0.85rem;
-  min-width: 1.35rem;
 }
 
 .shop-tv-board--fullscreen .shop-tv-chart-col.is-leader .shop-tv-chart-value {

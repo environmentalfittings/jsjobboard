@@ -663,13 +663,13 @@ export function ShopTvBoardPage() {
                     >
                       <div className="shop-tv-chart-bar-wrap">
                         <div
-                          className="shop-tv-chart-bar-stack"
+                          className="shop-tv-chart-bar"
                           style={{
                             height: `${Math.max(heightPct, row.moveCount > 0 ? 3 : 0)}%`,
+                            background: color,
                           }}
                         >
                           <span className="shop-tv-chart-value">{row.moveCount}</span>
-                          <div className="shop-tv-chart-bar" style={{ background: color }} />
                         </div>
                       </div>
                       <div className="shop-tv-chart-xlabel">
