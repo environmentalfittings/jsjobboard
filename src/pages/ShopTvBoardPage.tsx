@@ -54,6 +54,51 @@ const SCROLL_SPEED_PX: Record<Exclude<ScrollSpeed, 'paused'>, number> = {
   fast: 90,
 }
 
+const DEPT_CHART_COLORS: Record<string, string> = {
+  'dept-teardown': '#f59e0b',
+  'dept-welding': '#38bdf8',
+  'dept-machine-shop': '#a78bfa',
+  'dept-testing': '#34d399',
+  'dept-painting': '#fb7185',
+  'dept-prv': '#f87171',
+}
+
+const DEPT_CHART_BASE: readonly Omit<ShopTvDeptMoveRow, 'moveCount'>[] = [
+  { id: 'dept-teardown', label: 'Teardown', kind: 'department' },
+  { id: 'dept-welding', label: 'Welding', kind: 'department' },
+  { id: 'dept-machine-shop', label: 'Machine shop', kind: 'department' },
+  { id: 'dept-testing', label: 'Testing', kind: 'department' },
+  { id: 'dept-painting', label: 'Painting', kind: 'department' },
+  { id: 'dept-prv', label: 'PRV', kind: 'department' },
+]
+
+function niceChartMax(value: number): number {
+  if (value <= 0) return 5
+  const exp = 10 ** Math.floor(Math.log10(value))
+  const scaled = value / exp
+  const nice = scaled <= 1 ? 1 : scaled <= 2 ? 2 : scaled <= 5 ? 5 : 10
+  return nice * exp
+}
+
+function barColorForDeptRow(row: ShopTvDeptMoveRow): string {
+  if (row.kind === 'department') return DEPT_CHART_COLORS[row.id] ?? '#14b8a6'
+  const tone = finishCellTone(row.cell ?? row.label)
+  return tone?.background ?? '#94a3b8'
+}
+
+function buildDeptMoveChartRows(leaderboard: readonly ShopTvDeptMoveRow[]): ShopTvDeptMoveRow[] {
+  const byId = new Map(leaderboard.map((row) => [row.id, row]))
+  const departments = DEPT_CHART_BASE.map((base) => ({
+    ...base,
+    moveCount: byId.get(base.id)?.moveCount ?? 0,
+  }))
+  const cells = leaderboard
+    .filter((row) => row.kind === 'finish-cell' && row.moveCount > 0)
+    .sort((a, b) => b.moveCount - a.moveCount || a.label.localeCompare(b.label))
+    .slice(0, 8)
+  return [...departments, ...cells]
+}
+
 function readStoredScrollSpeed(): ScrollSpeed {
   if (typeof window === 'undefined') return 'slow'
   try {
@@ -331,10 +376,19 @@ export function ShopTvBoardPage() {
     })
   }, [valves, priorityQueueIds, priorityOnly, priorityRank, columnRestOrder, movesToday])
 
-  const maxDeptMoveCount = useMemo(
-    () => deptLeaderboard.reduce((max, row) => Math.max(max, row.moveCount), 0),
-    [deptLeaderboard],
+  const chartRows = useMemo(() => buildDeptMoveChartRows(deptLeaderboard), [deptLeaderboard])
+  const chartMax = useMemo(
+    () => niceChartMax(chartRows.reduce((max, row) => Math.max(max, row.moveCount), 0)),
+    [chartRows],
   )
+  const chartTopCount = useMemo(
+    () => chartRows.reduce((max, row) => Math.max(max, row.moveCount), 0),
+    [chartRows],
+  )
+  const chartTicks = useMemo(() => {
+    const steps = 4
+    return Array.from({ length: steps + 1 }, (_, i) => Math.round((chartMax * i) / steps))
+  }, [chartMax])
 
   const movePriorityInColumn = useCallback(
     async (valveId: string, columnRows: Valve[], direction: 'top' | 'up' | 'down') => {
@@ -521,50 +575,70 @@ export function ShopTvBoardPage() {
         </div>
       </header>
 
-      <section className="shop-tv-leaderboard" aria-label="Most status moves by department today">
-        <div className="shop-tv-leaderboard-head">
-          <h3 className="shop-tv-leaderboard-title">Today&apos;s department moves</h3>
-          <p className="shop-tv-leaderboard-sub">
-            Teardown · Welding · Machine shop · Testing · Painting · PRV — everything else by finish cell
-          </p>
+      <section className="shop-tv-chart" aria-label="Department moves chart for today">
+        <div className="shop-tv-chart-head">
+          <div>
+            <h3 className="shop-tv-chart-title">Today&apos;s department moves</h3>
+            <p className="shop-tv-chart-sub">
+              Status moves by department — finish cells shown for everything else
+            </p>
+          </div>
+          <span className="shop-tv-chart-yaxis-label">Moves</span>
         </div>
         {loading && deptLeaderboard.length === 0 ? (
-          <p className="shop-tv-leaderboard-empty">Loading…</p>
-        ) : deptLeaderboard.length === 0 ? (
-          <p className="shop-tv-leaderboard-empty">No status moves logged yet today.</p>
+          <p className="shop-tv-chart-empty">Loading…</p>
+        ) : chartRows.every((row) => row.moveCount === 0) ? (
+          <p className="shop-tv-chart-empty">No status moves logged yet today.</p>
         ) : (
-          <ol className="shop-tv-leaderboard-list">
-            {deptLeaderboard.slice(0, 12).map((row, index) => {
-              const widthPct =
-                maxDeptMoveCount > 0 ? Math.round((row.moveCount / maxDeptMoveCount) * 100) : 0
-              const tone = row.kind === 'finish-cell' ? finishCellTone(row.cell) : null
-              const barStyle = tone
-                ? { width: `${widthPct}%`, background: tone.background }
-                : { width: `${widthPct}%` }
-              return (
-                <li key={row.id} className={`shop-tv-leaderboard-row${index === 0 ? ' is-leader' : ''}`}>
-                  <span className="shop-tv-leaderboard-rank">{index + 1}</span>
-                  <div className="shop-tv-leaderboard-main">
-                    <div className="shop-tv-leaderboard-name-row">
-                      <span className="shop-tv-leaderboard-name">
+          <div className="shop-tv-chart-body">
+            <div className="shop-tv-chart-plot" role="img" aria-label="Bar chart of moves by department">
+              <div className="shop-tv-chart-grid" aria-hidden="true">
+                {chartTicks.map((tick) => (
+                  <div
+                    key={tick}
+                    className="shop-tv-chart-gridline"
+                    style={{ bottom: `${chartMax > 0 ? (tick / chartMax) * 100 : 0}%` }}
+                  >
+                    <span className="shop-tv-chart-tick">{tick}</span>
+                  </div>
+                ))}
+              </div>
+              <div className="shop-tv-chart-bars">
+                {chartRows.map((row) => {
+                  const heightPct = chartMax > 0 ? (row.moveCount / chartMax) * 100 : 0
+                  const color = barColorForDeptRow(row)
+                  const topCount = chartTopCount
+                  const leader = row.moveCount > 0 && row.moveCount === topCount
+                  return (
+                    <div
+                      key={row.id}
+                      className={`shop-tv-chart-col${leader ? ' is-leader' : ''}${row.moveCount === 0 ? ' is-zero' : ''}`}
+                      title={`${row.label}: ${row.moveCount} move${row.moveCount === 1 ? '' : 's'}`}
+                    >
+                      <div className="shop-tv-chart-bar-wrap">
+                        <div
+                          className="shop-tv-chart-bar"
+                          style={{
+                            height: `${Math.max(heightPct, row.moveCount > 0 ? 3 : 0)}%`,
+                            background: color,
+                          }}
+                        >
+                          <span className="shop-tv-chart-value">{row.moveCount}</span>
+                        </div>
+                      </div>
+                      <div className="shop-tv-chart-xlabel">
                         {row.kind === 'finish-cell' && row.cell && row.cell !== 'Unassigned' ? (
                           <FinishCellBadge cell={row.cell} />
                         ) : (
-                          row.label
+                          <span>{row.label}</span>
                         )}
-                      </span>
-                      <span className="shop-tv-leaderboard-count">
-                        {row.moveCount} move{row.moveCount === 1 ? '' : 's'}
-                      </span>
+                      </div>
                     </div>
-                    <div className="shop-tv-leaderboard-bar-track" aria-hidden="true">
-                      <div className="shop-tv-leaderboard-bar-fill" style={barStyle} />
-                    </div>
-                  </div>
-                </li>
-              )
-            })}
-          </ol>
+                  )
+                })}
+              </div>
+            </div>
+          </div>
         )}
       </section>
 
