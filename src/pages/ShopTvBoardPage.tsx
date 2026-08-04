@@ -49,9 +49,9 @@ type ScrollSpeed = 'paused' | 'slow' | 'medium' | 'fast'
 type ColumnRestOrder = Record<string, string[]>
 
 const SCROLL_SPEED_PX: Record<Exclude<ScrollSpeed, 'paused'>, number> = {
-  slow: 12,
-  medium: 28,
-  fast: 52,
+  slow: 22,
+  medium: 48,
+  fast: 90,
 }
 
 function readStoredScrollSpeed(): ScrollSpeed {
@@ -159,17 +159,23 @@ function TvColumnScroller({
 
     let frame = 0
     let last = performance.now()
+    // Keep a floating scroll position — browsers often floor scrollTop, which
+    // made "slow" appear stuck when the per-frame delta was < 1px.
+    let scrollPos = viewport.scrollTop
     const speedPxPerSec = SCROLL_SPEED_PX[speed]
 
     const tick = (now: number) => {
-      const dt = Math.min(48, now - last) / 1000
+      const dt = Math.min(64, Math.max(0, now - last)) / 1000
       last = now
       if (!hoverPausedRef.current) {
         const max = viewport.scrollHeight - viewport.clientHeight
         if (max > 0) {
-          let next = viewport.scrollTop + speedPxPerSec * dt
-          if (next >= max) next = 0
-          viewport.scrollTop = next
+          scrollPos += speedPxPerSec * dt
+          if (scrollPos >= max) scrollPos = 0
+          viewport.scrollTop = scrollPos
+          // Re-sync if the browser clamped or the user dragged the scrollbar.
+          const applied = viewport.scrollTop
+          if (Math.abs(applied - scrollPos) > 2) scrollPos = applied
         }
       }
       frame = requestAnimationFrame(tick)
