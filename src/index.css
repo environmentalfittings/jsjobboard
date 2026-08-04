@@ -15731,7 +15731,7 @@ body.shop-tv-fullscreen-active .page-content {
   width: 100%;
   max-height: 25vh;
   box-sizing: border-box;
-  padding: 6px 10px 8px;
+  padding: 4px 8px 6px;
   border: 1px solid #cbd5e1;
   border-radius: 12px;
   background: linear-gradient(180deg, #f8fafc 0%, #eef2f7 100%);
@@ -15743,36 +15743,18 @@ body.shop-tv-fullscreen-active .page-content {
 
 .shop-tv-chart-head {
   display: flex;
-  flex-wrap: wrap;
-  align-items: flex-end;
-  justify-content: space-between;
-  gap: 2px 12px;
-  margin-bottom: 4px;
+  align-items: center;
+  margin-bottom: 2px;
   flex-shrink: 0;
 }
 
 .shop-tv-chart-title {
   margin: 0;
-  font-size: 0.85rem;
+  font-size: 0.8rem;
   font-weight: 800;
   letter-spacing: 0.02em;
   text-transform: uppercase;
   color: #0f172a;
-}
-
-.shop-tv-chart-sub {
-  margin: 1px 0 0;
-  font-size: 0.7rem;
-  font-weight: 600;
-  color: #64748b;
-}
-
-.shop-tv-chart-yaxis-label {
-  font-size: 0.65rem;
-  font-weight: 700;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
-  color: #94a3b8;
 }
 
 .shop-tv-chart-empty {
@@ -15802,32 +15784,8 @@ body.shop-tv-fullscreen-active .page-content {
   min-height: 96px;
   height: auto;
   max-height: 100%;
-  padding: 14px 4px 0 32px;
+  padding: 16px 2px 0;
   box-sizing: border-box;
-}
-
-.shop-tv-chart-grid {
-  position: absolute;
-  inset: 0 4px 28px 32px;
-  pointer-events: none;
-}
-
-.shop-tv-chart-gridline {
-  position: absolute;
-  left: 0;
-  right: 0;
-  border-top: 1px dashed #cbd5e1;
-}
-
-.shop-tv-chart-tick {
-  position: absolute;
-  right: calc(100% + 6px);
-  top: 0;
-  transform: translateY(-50%);
-  font-size: 0.65rem;
-  font-weight: 700;
-  color: #64748b;
-  font-variant-numeric: tabular-nums;
 }
 
 .shop-tv-chart-bars {
@@ -15835,14 +15793,12 @@ body.shop-tv-fullscreen-active .page-content {
   z-index: 1;
   display: flex;
   align-items: stretch;
-  gap: 2px;
+  gap: 6px;
   flex: 1;
   width: 100%;
   min-height: 0;
   height: 100%;
-  padding-bottom: 28px;
-  border-bottom: 2px solid #94a3b8;
-  border-left: 2px solid #94a3b8;
+  padding-bottom: 26px;
   box-sizing: border-box;
 }
 
@@ -15858,22 +15814,21 @@ body.shop-tv-fullscreen-active .page-content {
 .shop-tv-chart-bar-wrap {
   flex: 1;
   width: 100%;
-  max-width: none;
   display: flex;
   flex-direction: column;
   justify-content: flex-end;
   align-items: center;
   min-height: 0;
   position: relative;
-  padding-top: 0.85rem;
+  padding-top: 0.95rem;
 }
 
 .shop-tv-chart-value {
   position: absolute;
   left: 50%;
-  bottom: calc(100% + 2px);
+  bottom: calc(100% + 3px);
   transform: translateX(-50%);
-  font-size: 0.72rem;
+  font-size: 0.95rem;
   font-weight: 800;
   color: #0f172a;
   font-variant-numeric: tabular-nums;
@@ -15881,23 +15836,13 @@ body.shop-tv-fullscreen-active .page-content {
   white-space: nowrap;
 }
 
-.shop-tv-chart-col.is-zero .shop-tv-chart-value {
-  color: #94a3b8;
-  bottom: 4px;
-}
-
 .shop-tv-chart-bar {
   position: relative;
-  width: 86%;
-  min-width: 12px;
+  width: 92%;
+  min-width: 18px;
   max-width: none;
-  border-radius: 6px 6px 2px 2px;
+  border-radius: 8px 8px 3px 3px;
   transition: height 0.4s ease;
-}
-
-.shop-tv-chart-col.is-zero .shop-tv-chart-bar {
-  min-height: 0;
-  height: 0 !important;
 }
 
 .shop-tv-chart-col.is-leader .shop-tv-chart-bar {
@@ -15911,14 +15856,14 @@ body.shop-tv-fullscreen-active .page-content {
 
 .shop-tv-chart-xlabel {
   flex-shrink: 0;
-  height: 26px;
+  height: 24px;
   margin-top: 4px;
-  padding: 0 1px;
+  padding: 0 2px;
   display: flex;
   align-items: flex-start;
   justify-content: center;
   text-align: center;
-  font-size: 0.62rem;
+  font-size: 0.72rem;
   font-weight: 700;
   line-height: 1.1;
   color: #334155;
@@ -15948,51 +15893,28 @@ body.shop-tv-fullscreen-active .page-content {
 
 .shop-tv-board--fullscreen .shop-tv-chart-title {
   color: #f8fafc;
-  font-size: 0.8rem;
+  font-size: 0.78rem;
 }
 
-.shop-tv-board--fullscreen .shop-tv-chart-sub,
-.shop-tv-board--fullscreen .shop-tv-chart-empty,
-.shop-tv-board--fullscreen .shop-tv-chart-yaxis-label,
-.shop-tv-board--fullscreen .shop-tv-chart-tick {
+.shop-tv-board--fullscreen .shop-tv-chart-empty {
   color: #94a3b8;
-}
-
-.shop-tv-board--fullscreen .shop-tv-chart-sub {
-  font-size: 0.65rem;
-}
-
-.shop-tv-board--fullscreen .shop-tv-chart-head {
-  margin-bottom: 2px;
 }
 
 .shop-tv-board--fullscreen .shop-tv-chart-plot {
   min-height: 72px;
-  height: auto;
-  padding-top: 12px;
-  padding-left: 28px;
-  padding-right: 2px;
+  padding-top: 14px;
+  padding-left: 0;
+  padding-right: 0;
 }
 
 .shop-tv-board--fullscreen .shop-tv-chart-bars {
-  min-height: 0;
-  height: 100%;
-  padding-bottom: 24px;
-  border-bottom-color: #475569;
-  border-left-color: #475569;
-}
-
-.shop-tv-board--fullscreen .shop-tv-chart-grid {
-  inset: 0 2px 24px 28px;
-}
-
-.shop-tv-board--fullscreen .shop-tv-chart-gridline {
-  border-top-color: #334155;
+  gap: 8px;
+  padding-bottom: 22px;
 }
 
 .shop-tv-board--fullscreen .shop-tv-chart-value {
   color: #e2e8f0;
-  font-size: 0.68rem;
+  font-size: 0.9rem;
 }
 
 .shop-tv-board--fullscreen .shop-tv-chart-col.is-leader .shop-tv-chart-value {
@@ -16001,9 +15923,8 @@ body.shop-tv-fullscreen-active .page-content {
 
 .shop-tv-board--fullscreen .shop-tv-chart-xlabel {
   height: 22px;
-  margin-top: 2px;
   color: #cbd5e1;
-  font-size: 0.58rem;
+  font-size: 0.68rem;
 }
 
 .shop-tv-board--fullscreen .shop-tv-chart-col.is-leader .shop-tv-chart-bar {
@@ -16011,9 +15932,8 @@ body.shop-tv-fullscreen-active .page-content {
 }
 
 .shop-tv-board--fullscreen .shop-tv-chart-bar {
-  width: 88%;
-  max-width: none;
-  min-width: 10px;
+  width: 94%;
+  min-width: 16px;
 }
 
 .shop-tv-toggle {

@@ -140,10 +140,10 @@ function buildDeptMoveChartRows(leaderboard: readonly ShopTvDeptMoveRow[]): Shop
   const cells = leaderboard
     .filter((row) => row.kind === 'finish-cell' && row.moveCount > 0)
     .slice(0, 8)
-  // Winner (most moves) on the left → least on the right.
-  return [...departments, ...cells].sort(
-    (a, b) => b.moveCount - a.moveCount || a.label.localeCompare(b.label),
-  )
+  // Winner (most moves) on the left → least on the right. Skip zeros so bars stay wide.
+  return [...departments, ...cells]
+    .filter((row) => row.moveCount > 0)
+    .sort((a, b) => b.moveCount - a.moveCount || a.label.localeCompare(b.label))
 }
 
 function readStoredColumnRestOrder(): ColumnRestOrder {
@@ -425,10 +425,6 @@ export function ShopTvBoardPage() {
     () => chartRows.reduce((max, row) => Math.max(max, row.moveCount), 0),
     [chartRows],
   )
-  const chartTicks = useMemo(() => {
-    const steps = 4
-    return Array.from({ length: steps + 1 }, (_, i) => Math.round((chartMax * i) / steps))
-  }, [chartMax])
 
   const movePriorityInColumn = useCallback(
     async (valveId: string, columnRows: Valve[], direction: 'top' | 'up' | 'down') => {
@@ -624,32 +620,15 @@ export function ShopTvBoardPage() {
 
       <section className="shop-tv-chart" aria-label="Department moves chart for today">
         <div className="shop-tv-chart-head">
-          <div>
-            <h3 className="shop-tv-chart-title">Today&apos;s department moves</h3>
-            <p className="shop-tv-chart-sub">
-              Ranked by moves today — winner on the left
-            </p>
-          </div>
-          <span className="shop-tv-chart-yaxis-label">Moves</span>
+          <h3 className="shop-tv-chart-title">Today&apos;s moves</h3>
         </div>
         {loading && deptLeaderboard.length === 0 ? (
           <p className="shop-tv-chart-empty">Loading…</p>
-        ) : chartRows.every((row) => row.moveCount === 0) ? (
+        ) : chartRows.length === 0 ? (
           <p className="shop-tv-chart-empty">No status moves logged yet today.</p>
         ) : (
           <div className="shop-tv-chart-body">
             <div className="shop-tv-chart-plot" role="img" aria-label="Bar chart of moves by department">
-              <div className="shop-tv-chart-grid" aria-hidden="true">
-                {chartTicks.map((tick, index) => (
-                  <div
-                    key={`${tick}-${index}`}
-                    className="shop-tv-chart-gridline"
-                    style={{ bottom: `${chartMax > 0 ? (tick / chartMax) * 100 : 0}%` }}
-                  >
-                    <span className="shop-tv-chart-tick">{tick}</span>
-                  </div>
-                ))}
-              </div>
               <div className="shop-tv-chart-bars">
                 {chartRows.map((row) => {
                   const heightPct = chartMax > 0 ? (row.moveCount / chartMax) * 100 : 0
@@ -658,14 +637,14 @@ export function ShopTvBoardPage() {
                   return (
                     <div
                       key={row.id}
-                      className={`shop-tv-chart-col${leader ? ' is-leader' : ''}${row.moveCount === 0 ? ' is-zero' : ''}`}
+                      className={`shop-tv-chart-col${leader ? ' is-leader' : ''}`}
                       title={`${row.label}: ${row.moveCount} move${row.moveCount === 1 ? '' : 's'}`}
                     >
                       <div className="shop-tv-chart-bar-wrap">
                         <div
                           className="shop-tv-chart-bar"
                           style={{
-                            height: `${Math.max(heightPct, row.moveCount > 0 ? 3 : 0)}%`,
+                            height: `${Math.max(heightPct, 8)}%`,
                             background: color,
                           }}
                         >
