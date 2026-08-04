@@ -15728,7 +15728,9 @@ body.shop-tv-fullscreen-active .page-content {
 
 .shop-tv-chart {
   flex-shrink: 0;
-  padding: 12px 16px 14px;
+  width: 100%;
+  box-sizing: border-box;
+  padding: 12px 12px 14px;
   border: 1px solid #cbd5e1;
   border-radius: 12px;
   background: linear-gradient(180deg, #f8fafc 0%, #eef2f7 100%);
@@ -15777,6 +15779,7 @@ body.shop-tv-fullscreen-active .page-content {
 }
 
 .shop-tv-chart-body {
+  width: 100%;
   min-width: 0;
 }
 
@@ -15784,14 +15787,16 @@ body.shop-tv-fullscreen-active .page-content {
   position: relative;
   display: flex;
   flex-direction: column;
+  width: 100%;
   min-height: 240px;
   height: 240px;
-  padding: 22px 0 0 44px;
+  padding: 22px 4px 0 40px;
+  box-sizing: border-box;
 }
 
 .shop-tv-chart-grid {
   position: absolute;
-  inset: 0 0 48px 44px;
+  inset: 0 4px 48px 40px;
   pointer-events: none;
 }
 
@@ -15818,18 +15823,21 @@ body.shop-tv-fullscreen-active .page-content {
   z-index: 1;
   display: flex;
   align-items: stretch;
-  gap: 8px;
+  gap: 2px;
   flex: 1;
+  width: 100%;
   min-height: 0;
   height: 100%;
   padding-bottom: 48px;
   border-bottom: 2px solid #94a3b8;
   border-left: 2px solid #94a3b8;
+  box-sizing: border-box;
 }
 
 .shop-tv-chart-col {
   flex: 1 1 0;
   min-width: 0;
+  width: 0;
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -15838,7 +15846,7 @@ body.shop-tv-fullscreen-active .page-content {
 .shop-tv-chart-bar-wrap {
   flex: 1;
   width: 100%;
-  max-width: 88px;
+  max-width: none;
   display: flex;
   flex-direction: column;
   justify-content: flex-end;
@@ -15868,10 +15876,10 @@ body.shop-tv-fullscreen-active .page-content {
 
 .shop-tv-chart-bar {
   position: relative;
-  width: 72%;
-  min-width: 16px;
-  max-width: 48px;
-  border-radius: 7px 7px 2px 2px;
+  width: 86%;
+  min-width: 12px;
+  max-width: none;
+  border-radius: 6px 6px 2px 2px;
   transition: height 0.4s ease;
 }
 
@@ -15945,7 +15953,8 @@ body.shop-tv-fullscreen-active .page-content {
   min-height: 220px;
   height: 220px;
   padding-top: 20px;
-  padding-left: 44px;
+  padding-left: 40px;
+  padding-right: 4px;
 }
 
 .shop-tv-board--fullscreen .shop-tv-chart-bars {
@@ -15957,7 +15966,7 @@ body.shop-tv-fullscreen-active .page-content {
 }
 
 .shop-tv-board--fullscreen .shop-tv-chart-grid {
-  inset: 0 0 44px 44px;
+  inset: 0 4px 44px 40px;
 }
 
 .shop-tv-board--fullscreen .shop-tv-chart-gridline {
@@ -15984,8 +15993,9 @@ body.shop-tv-fullscreen-active .page-content {
 }
 
 .shop-tv-board--fullscreen .shop-tv-chart-bar {
-  max-width: 52px;
-  min-width: 18px;
+  width: 88%;
+  max-width: none;
+  min-width: 14px;
 }
 
 .shop-tv-toggle {
@@ -16263,12 +16273,22 @@ body.shop-tv-fullscreen-active .page-content {
 }
 
 .shop-tv-rank {
+  flex-shrink: 0;
   font-size: 0.85rem;
   font-weight: 800;
+  color: #475569;
+  font-variant-numeric: tabular-nums;
+}
+
+.shop-tv-rank--priority {
   color: #b91c1c;
 }
 
 .shop-tv-board--fullscreen .shop-tv-rank {
+  color: #94a3b8;
+}
+
+.shop-tv-board--fullscreen .shop-tv-rank--priority {
   color: #fca5a5;
 }
 

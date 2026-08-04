@@ -727,11 +727,12 @@ export function ShopTvBoardPage() {
               {column.rows.length === 0 ? (
                 <p className="shop-tv-empty">No jobs</p>
               ) : (
-                column.rows.map((valve) => {
+                column.rows.map((valve, listIndex) => {
                   const rank = priorityRank.get(valve.valve_id)
                   const due = formatDue(valve.due_date)
                   const overdue = isOverdue(valve.due_date)
                   const onPriority = rank != null
+                  const listNumber = listIndex + 1
                   const columnPriorityIds = column.rows
                     .map((row) => row.valve_id)
                     .filter((id) => priorityRank.has(id))
@@ -753,7 +754,16 @@ export function ShopTvBoardPage() {
                     >
                       <div className="shop-tv-card-top">
                         <div className="shop-tv-card-ids">
-                          {onPriority ? <span className="shop-tv-rank">#{rank}</span> : null}
+                          <span
+                            className={`shop-tv-rank${onPriority ? ' shop-tv-rank--priority' : ''}`}
+                            title={
+                              onPriority
+                                ? `Scroll #${listNumber} · Priority #${rank}`
+                                : `Scroll #${listNumber}`
+                            }
+                          >
+                            #{listNumber}
+                          </span>
                           <strong className="shop-tv-valve-id">{valve.valve_id}</strong>
                         </div>
                         <FinishCellBadge cell={valve.cell} />
