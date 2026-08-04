@@ -57,8 +57,10 @@ function isOverdue(value: string | null | undefined) {
 }
 
 const SCROLL_SPEED_STORAGE_KEY = 'js-shop-tv-scroll-speed'
+const COLUMN_REST_ORDER_STORAGE_KEY = 'js-shop-tv-column-rest-order'
 
 type ScrollSpeed = 'paused' | 'slow' | 'medium' | 'fast'
+type ColumnRestOrder = Record<string, string[]>
 
 const SCROLL_SPEED_PX: Record<Exclude<ScrollSpeed, 'paused'>, number> = {
   slow: 12,
@@ -75,6 +77,62 @@ function readStoredScrollSpeed(): ScrollSpeed {
     // ignore
   }
   return 'slow'
+}
+
+function readStoredColumnRestOrder(): ColumnRestOrder {
+  if (typeof window === 'undefined') return {}
+  try {
+    const raw = window.localStorage.getItem(COLUMN_REST_ORDER_STORAGE_KEY)
+    if (!raw) return {}
+    const parsed = JSON.parse(raw) as ColumnRestOrder
+    if (!parsed || typeof parsed !== 'object') return {}
+    const next: ColumnRestOrder = {}
+    for (const [key, value] of Object.entries(parsed)) {
+      if (Array.isArray(value)) {
+        next[key] = value.map((id) => String(id)).filter(Boolean)
+      }
+    }
+    return next
+  } catch {
+    return {}
+  }
+}
+
+function sortColumnRows(
+  rows: Valve[],
+  priorityQueueIds: readonly string[],
+  restOrder: readonly string[],
+): Valve[] {
+  const prioritySet = new Set(priorityQueueIds)
+  const priorityRows = rows
+    .filter((row) => prioritySet.has(row.valve_id))
+    .sort((a, b) => compareValvesWithPriorityOrder(a, b, priorityQueueIds))
+  const restRows = rows.filter((row) => !prioritySet.has(row.valve_id))
+  const restRank = new Map(restOrder.map((id, index) => [id, index]))
+  restRows.sort((a, b) => {
+    const aRank = restRank.get(a.valve_id)
+    const bRank = restRank.get(b.valve_id)
+    if (aRank != null && bRank != null) return aRank - bRank
+    if (aRank != null) return -1
+    if (bRank != null) return 1
+    return compareValvesWithPriorityOrder(a, b, priorityQueueIds)
+  })
+  return [...priorityRows, ...restRows]
+}
+
+function reorderIds(order: readonly string[], valveId: string, direction: 'up' | 'down'): string[] | null {
+  const index = order.indexOf(valveId)
+  if (index < 0) return null
+  if (direction === 'up') {
+    if (index === 0) return null
+    const next = [...order]
+    ;[next[index - 1], next[index]] = [next[index], next[index - 1]]
+    return next
+  }
+  if (index >= order.length - 1) return null
+  const next = [...order]
+  ;[next[index + 1], next[index]] = [next[index], next[index + 1]]
+  return next
 }
 
 function TvColumnScroller({
@@ -166,6 +224,7 @@ export function ShopTvBoardPage() {
   const [savingPriority, setSavingPriority] = useState(false)
   const [fullscreen, setFullscreen] = useState(false)
   const [scrollSpeed, setScrollSpeed] = useState<ScrollSpeed>(() => readStoredScrollSpeed())
+  const [columnRestOrder, setColumnRestOrder] = useState<ColumnRestOrder>(() => readStoredColumnRestOrder())
   const [priorityOnly, setPriorityOnly] = useState(false)
 
   useEffect(() => {
@@ -175,6 +234,14 @@ export function ShopTvBoardPage() {
       // ignore
     }
   }, [scrollSpeed])
+
+  useEffect(() => {
+    try {
+      window.localStorage.setItem(COLUMN_REST_ORDER_STORAGE_KEY, JSON.stringify(columnRestOrder))
+    } catch {
+      // ignore
+    }
+  }, [columnRestOrder])
 
   const load = useCallback(async () => {
     const { data, error } = await fetchAllValves()
@@ -242,10 +309,10 @@ export function ShopTvBoardPage() {
       if (priorityOnly) {
         rows = rows.filter((valve) => priorityRank.has(valve.valve_id))
       }
-      rows = [...rows].sort((a, b) => compareValvesWithPriorityOrder(a, b, priorityQueueIds))
+      rows = sortColumnRows(rows, priorityQueueIds, columnRestOrder[column.id] ?? [])
       return { ...column, rows }
     })
-  }, [valves, priorityQueueIds, priorityOnly, priorityRank])
+  }, [valves, priorityQueueIds, priorityOnly, priorityRank, columnRestOrder])
 
   const movePriorityInColumn = useCallback(
     async (valveId: string, columnRows: Valve[], direction: 'top' | 'up' | 'down') => {
@@ -303,6 +370,56 @@ export function ShopTvBoardPage() {
     [canWrite, savingPriority, priorityQueueIds, showToast],
   )
 
+  const moveRestInColumn = useCallback(
+    (columnId: string, columnRows: Valve[], valveId: string, direction: 'top' | 'up' | 'down') => {
+      if (!canWrite) return
+      if (priorityQueueIds.includes(valveId)) return
+
+      const hasPriorityAbove = columnRows.some((row) => priorityQueueIds.includes(row.valve_id))
+      const restIds = columnRows
+        .map((row) => row.valve_id)
+        .filter((id) => !priorityQueueIds.includes(id))
+      const index = restIds.indexOf(valveId)
+      if (index < 0) return
+
+      if (direction === 'top') {
+        if (hasPriorityAbove) {
+          showToast('Add it to the priority list before moving it above priority jobs.')
+          return
+        }
+        if (index === 0) return
+        const nextRest = [valveId, ...restIds.filter((id) => id !== valveId)]
+        setColumnRestOrder((prev) => ({ ...prev, [columnId]: nextRest }))
+        return
+      }
+
+      if (direction === 'up' && index === 0) {
+        if (hasPriorityAbove) {
+          showToast('Add it to the priority list before moving it above priority jobs.')
+        }
+        return
+      }
+
+      if (direction === 'up' || direction === 'down') {
+        const nextRest = reorderIds(restIds, valveId, direction)
+        if (!nextRest) return
+        setColumnRestOrder((prev) => ({ ...prev, [columnId]: nextRest }))
+      }
+    },
+    [canWrite, priorityQueueIds, showToast],
+  )
+
+  const moveCardInColumn = useCallback(
+    (columnId: string, columnRows: Valve[], valveId: string, direction: 'top' | 'up' | 'down') => {
+      if (priorityQueueIds.includes(valveId)) {
+        void movePriorityInColumn(valveId, columnRows, direction)
+        return
+      }
+      moveRestInColumn(columnId, columnRows, valveId, direction)
+    },
+    [priorityQueueIds, movePriorityInColumn, moveRestInColumn],
+  )
+
   const addToPriority = useCallback(
     async (valve: Valve) => {
       if (!canWrite || savingPriority) return
@@ -331,8 +448,7 @@ export function ShopTvBoardPage() {
         <div className="shop-tv-toolbar-left">
           <h2 className="shop-tv-title">Shop TV board</h2>
           <p className="shop-tv-subtitle">
-            Priority order by status · finish cell on every card · hover a column to pause scroll while
-            adjusting priorities
+            Priority order stays on top · reorder any card · hover a column to pause scroll
           </p>
         </div>
         <div className="shop-tv-toolbar-actions">
@@ -403,7 +519,17 @@ export function ShopTvBoardPage() {
                   const columnPriorityIds = column.rows
                     .map((row) => row.valve_id)
                     .filter((id) => priorityRank.has(id))
+                  const restIds = column.rows
+                    .map((row) => row.valve_id)
+                    .filter((id) => !priorityRank.has(id))
                   const columnPriorityIndex = columnPriorityIds.indexOf(valve.valve_id)
+                  const restIndex = restIds.indexOf(valve.valve_id)
+                  const canMoveUp = onPriority
+                    ? columnPriorityIndex > 0
+                    : restIndex > 0
+                  const canMoveDown = onPriority
+                    ? columnPriorityIndex >= 0 && columnPriorityIndex < columnPriorityIds.length - 1
+                    : restIndex >= 0 && restIndex < restIds.length - 1
                   return (
                     <article
                       key={valve.id}
@@ -431,41 +557,44 @@ export function ShopTvBoardPage() {
                       ) : null}
                       {canWrite ? (
                         <div className="shop-tv-card-actions">
-                          {onPriority ? (
-                            <>
-                              <button
-                                type="button"
-                                className="shop-tv-prio-btn"
-                                disabled={savingPriority || columnPriorityIndex <= 0}
-                                onClick={() => void movePriorityInColumn(valve.valve_id, column.rows, 'top')}
-                                title="Move to top of this status column"
-                              >
-                                ⇈
-                              </button>
-                              <button
-                                type="button"
-                                className="shop-tv-prio-btn"
-                                disabled={savingPriority || columnPriorityIndex <= 0}
-                                onClick={() => void movePriorityInColumn(valve.valve_id, column.rows, 'up')}
-                                title="Move priority up in this status"
-                              >
-                                ↑
-                              </button>
-                              <button
-                                type="button"
-                                className="shop-tv-prio-btn"
-                                disabled={
-                                  savingPriority ||
-                                  columnPriorityIndex < 0 ||
-                                  columnPriorityIndex >= columnPriorityIds.length - 1
-                                }
-                                onClick={() => void movePriorityInColumn(valve.valve_id, column.rows, 'down')}
-                                title="Move priority down in this status"
-                              >
-                                ↓
-                              </button>
-                            </>
-                          ) : isEligiblePriorityValve(valve) ? (
+                          <button
+                            type="button"
+                            className="shop-tv-prio-btn"
+                            disabled={savingPriority}
+                            onClick={() => moveCardInColumn(column.id, column.rows, valve.valve_id, 'top')}
+                            title={
+                              onPriority
+                                ? 'Move to top of this status column'
+                                : 'Requires priority list — blocked above priority jobs'
+                            }
+                          >
+                            ⇈
+                          </button>
+                          <button
+                            type="button"
+                            className="shop-tv-prio-btn"
+                            disabled={savingPriority || (onPriority && !canMoveUp)}
+                            onClick={() => moveCardInColumn(column.id, column.rows, valve.valve_id, 'up')}
+                            title={
+                              onPriority
+                                ? 'Move priority up in this status'
+                                : canMoveUp
+                                  ? 'Move up in this status'
+                                  : 'Add to the priority list to move above priority jobs'
+                            }
+                          >
+                            ↑
+                          </button>
+                          <button
+                            type="button"
+                            className="shop-tv-prio-btn"
+                            disabled={savingPriority || !canMoveDown}
+                            onClick={() => moveCardInColumn(column.id, column.rows, valve.valve_id, 'down')}
+                            title="Move down in this status"
+                          >
+                            ↓
+                          </button>
+                          {!onPriority && isEligiblePriorityValve(valve) ? (
                             <button
                               type="button"
                               className="shop-tv-prio-btn shop-tv-prio-btn--add"
