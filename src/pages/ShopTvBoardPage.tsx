@@ -56,16 +56,39 @@ function isOverdue(value: string | null | undefined) {
   return parsed < today
 }
 
+const SCROLL_SPEED_STORAGE_KEY = 'js-shop-tv-scroll-speed'
+
+type ScrollSpeed = 'paused' | 'slow' | 'medium' | 'fast'
+
+const SCROLL_SPEED_PX: Record<Exclude<ScrollSpeed, 'paused'>, number> = {
+  slow: 12,
+  medium: 28,
+  fast: 52,
+}
+
+function readStoredScrollSpeed(): ScrollSpeed {
+  if (typeof window === 'undefined') return 'slow'
+  try {
+    const raw = window.localStorage.getItem(SCROLL_SPEED_STORAGE_KEY)
+    if (raw === 'paused' || raw === 'slow' || raw === 'medium' || raw === 'fast') return raw
+  } catch {
+    // ignore
+  }
+  return 'slow'
+}
+
 function TvColumnScroller({
   children,
-  paused,
+  speed,
 }: {
   children: ReactNode
-  paused: boolean
+  speed: ScrollSpeed
 }) {
   const viewportRef = useRef<HTMLDivElement>(null)
   const contentRef = useRef<HTMLDivElement>(null)
   const [needsScroll, setNeedsScroll] = useState(false)
+  const [hoverPaused, setHoverPaused] = useState(false)
+  const paused = speed === 'paused' || hoverPaused
 
   useEffect(() => {
     const viewport = viewportRef.current
@@ -82,37 +105,49 @@ function TvColumnScroller({
     return () => observer.disconnect()
   }, [children])
 
+  const hoverPausedRef = useRef(false)
+  hoverPausedRef.current = hoverPaused
+
   useEffect(() => {
-    if (!needsScroll || paused) return
+    if (!needsScroll || speed === 'paused') return
     const viewport = viewportRef.current
     if (!viewport) return
 
     let frame = 0
     let last = performance.now()
-    const speedPxPerSec = 28
+    const speedPxPerSec = SCROLL_SPEED_PX[speed]
 
     const tick = (now: number) => {
       const dt = Math.min(48, now - last) / 1000
       last = now
-      const max = viewport.scrollHeight - viewport.clientHeight
-      if (max <= 0) {
-        frame = requestAnimationFrame(tick)
-        return
+      if (!hoverPausedRef.current) {
+        const max = viewport.scrollHeight - viewport.clientHeight
+        if (max > 0) {
+          let next = viewport.scrollTop + speedPxPerSec * dt
+          if (next >= max) next = 0
+          viewport.scrollTop = next
+        }
       }
-      let next = viewport.scrollTop + speedPxPerSec * dt
-      if (next >= max) next = 0
-      viewport.scrollTop = next
       frame = requestAnimationFrame(tick)
     }
 
     frame = requestAnimationFrame(tick)
     return () => cancelAnimationFrame(frame)
-  }, [needsScroll, paused])
+  }, [needsScroll, speed])
 
   return (
     <div
       ref={viewportRef}
       className={`shop-tv-column-scroll${needsScroll && !paused ? ' shop-tv-column-scroll--moving' : ''}`}
+      onMouseEnter={() => setHoverPaused(true)}
+      onMouseLeave={() => setHoverPaused(false)}
+      onFocusCapture={() => setHoverPaused(true)}
+      onBlurCapture={(e) => {
+        if (!e.currentTarget.contains(e.relatedTarget as Node | null)) {
+          setHoverPaused(false)
+        }
+      }}
+      title="Hover or focus a column to pause scrolling while you adjust priorities"
     >
       <div ref={contentRef} className="shop-tv-column-scroll-inner">
         {children}
@@ -130,8 +165,16 @@ export function ShopTvBoardPage() {
   const [loading, setLoading] = useState(true)
   const [savingPriority, setSavingPriority] = useState(false)
   const [fullscreen, setFullscreen] = useState(false)
-  const [scrollPaused, setScrollPaused] = useState(false)
+  const [scrollSpeed, setScrollSpeed] = useState<ScrollSpeed>(() => readStoredScrollSpeed())
   const [priorityOnly, setPriorityOnly] = useState(false)
+
+  useEffect(() => {
+    try {
+      window.localStorage.setItem(SCROLL_SPEED_STORAGE_KEY, scrollSpeed)
+    } catch {
+      // ignore
+    }
+  }, [scrollSpeed])
 
   const load = useCallback(async () => {
     const { data, error } = await fetchAllValves()
@@ -288,7 +331,8 @@ export function ShopTvBoardPage() {
         <div className="shop-tv-toolbar-left">
           <h2 className="shop-tv-title">Shop TV board</h2>
           <p className="shop-tv-subtitle">
-            Priority order by status · finish cell shown on every card · auto-scrolls for TV
+            Priority order by status · finish cell on every card · hover a column to pause scroll while
+            adjusting priorities
           </p>
         </div>
         <div className="shop-tv-toolbar-actions">
@@ -300,14 +344,26 @@ export function ShopTvBoardPage() {
             />
             Priority list only
           </label>
-          <label className="shop-tv-toggle">
-            <input
-              type="checkbox"
-              checked={scrollPaused}
-              onChange={(e) => setScrollPaused(e.target.checked)}
-            />
-            Pause scroll
+          <label className="shop-tv-speed">
+            <span>Scroll</span>
+            <select
+              value={scrollSpeed}
+              onChange={(e) => setScrollSpeed(e.target.value as ScrollSpeed)}
+              aria-label="Auto-scroll speed"
+            >
+              <option value="paused">Paused</option>
+              <option value="slow">Slow</option>
+              <option value="medium">Medium</option>
+              <option value="fast">Fast</option>
+            </select>
           </label>
+          <button
+            type="button"
+            className={scrollSpeed === 'paused' ? 'button-primary' : 'button-secondary'}
+            onClick={() => setScrollSpeed((prev) => (prev === 'paused' ? 'slow' : 'paused'))}
+          >
+            {scrollSpeed === 'paused' ? 'Resume scroll' : 'Pause scroll'}
+          </button>
           <button type="button" className="button-secondary" onClick={() => void load()} disabled={loading}>
             Refresh
           </button>
@@ -335,7 +391,7 @@ export function ShopTvBoardPage() {
               <h3>{column.label}</h3>
               <span className="shop-tv-column-count">{column.rows.length}</span>
             </header>
-            <TvColumnScroller paused={scrollPaused}>
+            <TvColumnScroller speed={scrollSpeed}>
               {column.rows.length === 0 ? (
                 <p className="shop-tv-empty">No jobs</p>
               ) : (

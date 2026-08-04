@@ -15723,9 +15723,41 @@ body.shop-tv-fullscreen-active .page-content {
   user-select: none;
 }
 
-.shop-tv-board--fullscreen .shop-tv-toggle {
+.shop-tv-speed {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0;
+  padding: 4px 8px 4px 10px;
+  border: 1px solid #cbd5e1;
+  border-radius: 8px;
+  background: #fff;
+  font-size: 13px;
+  font-weight: 600;
+  color: #334155;
+}
+
+.shop-tv-speed select {
+  min-width: 6.5rem;
+  padding: 4px 6px;
+  border: 1px solid #94a3b8;
+  border-radius: 6px;
+  background: #f8fafc;
+  color: #0f172a;
+  font: inherit;
+  font-weight: 600;
+}
+
+.shop-tv-board--fullscreen .shop-tv-toggle,
+.shop-tv-board--fullscreen .shop-tv-speed {
   border-color: #334155;
   background: #111827;
+  color: #e2e8f0;
+}
+
+.shop-tv-board--fullscreen .shop-tv-speed select {
+  border-color: #475569;
+  background: #1e293b;
   color: #e2e8f0;
 }
 
