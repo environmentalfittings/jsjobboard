@@ -593,9 +593,9 @@ export function ShopTvBoardPage() {
           <div className="shop-tv-chart-body">
             <div className="shop-tv-chart-plot" role="img" aria-label="Bar chart of moves by department">
               <div className="shop-tv-chart-grid" aria-hidden="true">
-                {chartTicks.map((tick) => (
+                {chartTicks.map((tick, index) => (
                   <div
-                    key={tick}
+                    key={`${tick}-${index}`}
                     className="shop-tv-chart-gridline"
                     style={{ bottom: `${chartMax > 0 ? (tick / chartMax) * 100 : 0}%` }}
                   >
@@ -607,8 +607,7 @@ export function ShopTvBoardPage() {
                 {chartRows.map((row) => {
                   const heightPct = chartMax > 0 ? (row.moveCount / chartMax) * 100 : 0
                   const color = barColorForDeptRow(row)
-                  const topCount = chartTopCount
-                  const leader = row.moveCount > 0 && row.moveCount === topCount
+                  const leader = row.moveCount > 0 && row.moveCount === chartTopCount
                   return (
                     <div
                       key={row.id}
@@ -617,13 +616,13 @@ export function ShopTvBoardPage() {
                     >
                       <div className="shop-tv-chart-bar-wrap">
                         <div
-                          className="shop-tv-chart-bar"
+                          className="shop-tv-chart-bar-stack"
                           style={{
                             height: `${Math.max(heightPct, row.moveCount > 0 ? 3 : 0)}%`,
-                            background: color,
                           }}
                         >
                           <span className="shop-tv-chart-value">{row.moveCount}</span>
+                          <div className="shop-tv-chart-bar" style={{ background: color }} />
                         </div>
                       </div>
                       <div className="shop-tv-chart-xlabel">
