@@ -247,6 +247,9 @@ export function NavBar({ role, username, userId, onLogout }: NavBarProps) {
           <NavLink to="/job-board" className={navLinkClass}>
             Status board
           </NavLink>
+          <NavLink to="/shop-tv" className={navLinkClass}>
+            TV board
+          </NavLink>
           <NavDropdown
             label="Quality Team"
             items={[

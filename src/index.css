@@ -15627,3 +15627,357 @@ tbody tr:hover {
     grid-template-columns: 1fr;
   }
 }
+
+/* ── Shop TV priority board ───────────────────────────────────────── */
+
+.shop-tv-board {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-height: calc(100vh - 96px);
+}
+
+.shop-tv-board--fullscreen {
+  position: fixed;
+  inset: 0;
+  z-index: 80;
+  min-height: 100vh;
+  padding: 12px 14px 16px;
+  background: #0b1220;
+  color: #e2e8f0;
+}
+
+body.shop-tv-fullscreen-active .navbar,
+body.shop-tv-fullscreen-active .page-content > :not(.shop-tv-board) {
+  display: none !important;
+}
+
+body.shop-tv-fullscreen-active .page-content {
+  padding: 0;
+}
+
+.shop-tv-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px 16px;
+}
+
+.shop-tv-title {
+  margin: 0;
+  font-size: 1.5rem;
+  font-weight: 800;
+  color: #0f172a;
+}
+
+.shop-tv-board--fullscreen .shop-tv-title {
+  color: #f8fafc;
+}
+
+.shop-tv-subtitle {
+  margin: 4px 0 0;
+  font-size: 0.95rem;
+  color: #64748b;
+}
+
+.shop-tv-board--fullscreen .shop-tv-subtitle {
+  color: #94a3b8;
+}
+
+.shop-tv-toolbar-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.shop-tv-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0;
+  padding: 6px 10px;
+  border: 1px solid #cbd5e1;
+  border-radius: 8px;
+  background: #fff;
+  font-size: 13px;
+  font-weight: 600;
+  color: #334155;
+  cursor: pointer;
+  user-select: none;
+}
+
+.shop-tv-board--fullscreen .shop-tv-toggle {
+  border-color: #334155;
+  background: #111827;
+  color: #e2e8f0;
+}
+
+.shop-tv-columns {
+  display: grid;
+  grid-template-columns: repeat(6, minmax(220px, 1fr));
+  gap: 12px;
+  flex: 1;
+  min-height: 0;
+  align-items: stretch;
+}
+
+@media (max-width: 1400px) {
+  .shop-tv-columns {
+    grid-template-columns: repeat(3, minmax(220px, 1fr));
+  }
+}
+
+@media (max-width: 900px) {
+  .shop-tv-columns {
+    grid-template-columns: repeat(2, minmax(200px, 1fr));
+  }
+}
+
+@media (max-width: 640px) {
+  .shop-tv-columns {
+    grid-template-columns: 1fr;
+  }
+}
+
+.shop-tv-column {
+  display: flex;
+  flex-direction: column;
+  min-height: 420px;
+  max-height: calc(100vh - 180px);
+  border: 1px solid #cbd5e1;
+  border-radius: 12px;
+  background: #f8fafc;
+  overflow: hidden;
+}
+
+.shop-tv-board--fullscreen .shop-tv-column {
+  min-height: 0;
+  max-height: none;
+  border-color: #1e293b;
+  background: #111827;
+}
+
+.shop-tv-board--fullscreen .shop-tv-columns {
+  flex: 1;
+  min-height: 0;
+}
+
+.shop-tv-board--fullscreen .shop-tv-column {
+  height: 100%;
+}
+
+.shop-tv-column-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 10px 12px;
+  border-bottom: 1px solid #e2e8f0;
+  background: #e2e8f0;
+}
+
+.shop-tv-board--fullscreen .shop-tv-column-header {
+  border-bottom-color: #334155;
+  background: #1e293b;
+}
+
+.shop-tv-column-header h3 {
+  margin: 0;
+  font-size: 1rem;
+  font-weight: 800;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  color: #0f172a;
+}
+
+.shop-tv-board--fullscreen .shop-tv-column-header h3 {
+  color: #f8fafc;
+  font-size: 1.05rem;
+}
+
+.shop-tv-column-count {
+  min-width: 1.75rem;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: #0f172a;
+  color: #fff;
+  font-size: 0.85rem;
+  font-weight: 700;
+  text-align: center;
+}
+
+.shop-tv-board--fullscreen .shop-tv-column-count {
+  background: #38bdf8;
+  color: #0b1220;
+}
+
+.shop-tv-column-scroll {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding: 10px;
+}
+
+.shop-tv-column-scroll-inner {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.shop-tv-empty {
+  margin: 12px 4px;
+  color: #64748b;
+  font-size: 0.95rem;
+}
+
+.shop-tv-card {
+  padding: 12px;
+  border: 1px solid #cbd5e1;
+  border-radius: 10px;
+  background: #fff;
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04);
+}
+
+.shop-tv-card--priority {
+  border-color: #dc2626;
+  border-left-width: 4px;
+}
+
+.shop-tv-board--fullscreen .shop-tv-card {
+  border-color: #334155;
+  background: #0b1220;
+}
+
+.shop-tv-board--fullscreen .shop-tv-card--priority {
+  border-color: #f87171;
+  background: #1a0f12;
+}
+
+.shop-tv-card-top {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 6px;
+}
+
+.shop-tv-card-ids {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 6px 8px;
+  min-width: 0;
+}
+
+.shop-tv-rank {
+  font-size: 0.85rem;
+  font-weight: 800;
+  color: #b91c1c;
+}
+
+.shop-tv-board--fullscreen .shop-tv-rank {
+  color: #fca5a5;
+}
+
+.shop-tv-valve-id {
+  font-size: 1.15rem;
+  font-weight: 800;
+  color: #0f172a;
+  letter-spacing: 0.01em;
+}
+
+.shop-tv-board--fullscreen .shop-tv-valve-id {
+  font-size: 1.35rem;
+  color: #f8fafc;
+}
+
+.shop-tv-customer {
+  font-size: 0.98rem;
+  font-weight: 600;
+  color: #334155;
+  margin-bottom: 6px;
+}
+
+.shop-tv-board--fullscreen .shop-tv-customer {
+  font-size: 1.05rem;
+  color: #cbd5e1;
+}
+
+.shop-tv-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 10px;
+  margin-bottom: 4px;
+  font-size: 0.85rem;
+  font-weight: 600;
+}
+
+.shop-tv-status {
+  color: #475569;
+}
+
+.shop-tv-board--fullscreen .shop-tv-status {
+  color: #94a3b8;
+}
+
+.shop-tv-due {
+  color: #0f766e;
+}
+
+.shop-tv-due--overdue {
+  color: #b91c1c;
+  font-weight: 800;
+}
+
+.shop-tv-description {
+  margin: 6px 0 0;
+  font-size: 0.85rem;
+  line-height: 1.35;
+  color: #64748b;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.shop-tv-board--fullscreen .shop-tv-description {
+  color: #94a3b8;
+  -webkit-line-clamp: 3;
+}
+
+.shop-tv-card-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 8px;
+}
+
+.shop-tv-prio-btn {
+  min-width: 2rem;
+  padding: 4px 8px;
+  border: 1px solid #94a3b8;
+  border-radius: 6px;
+  background: #f8fafc;
+  color: #0f172a;
+  font: inherit;
+  font-size: 0.85rem;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.shop-tv-prio-btn:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+.shop-tv-prio-btn--add {
+  min-width: 0;
+}
+
+.shop-tv-board--fullscreen .shop-tv-prio-btn {
+  border-color: #475569;
+  background: #1e293b;
+  color: #e2e8f0;
+}

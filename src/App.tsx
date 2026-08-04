@@ -8,6 +8,7 @@ import { LoginPage } from './pages/LoginPage'
 import { useEffect } from 'react'
 import { ReportsPage } from './pages/ReportsPage'
 import { StatusPrioritiesPage } from './pages/StatusPrioritiesPage'
+import { ShopTvBoardPage } from './pages/ShopTvBoardPage'
 import { TestLogEntryPage } from './pages/TestLogEntryPage'
 import { ValveCardTicketPage } from './pages/ValveCardTicketPage'
 import { NewJobPage } from './pages/NewJobPage'
@@ -108,6 +109,14 @@ function AppRoutes() {
               element={
                 <ShopRoute>
                   <StatusPrioritiesPage />
+                </ShopRoute>
+              }
+            />
+            <Route
+              path="/shop-tv"
+              element={
+                <ShopRoute>
+                  <ShopTvBoardPage />
                 </ShopRoute>
               }
             />
