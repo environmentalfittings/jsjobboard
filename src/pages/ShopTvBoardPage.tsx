@@ -5,6 +5,7 @@ import { useToast } from '../components/ToastNotification'
 import { useAuth } from '../contexts/AuthContext'
 import { fetchAllValves } from '../lib/fetchAllValves'
 import { displayJobStatus, isActiveShopWork } from '../lib/jobDisplayStatus'
+import { localTodayBounds } from '../lib/managerDashboardMetrics'
 import {
   compareValvesWithPriorityOrder,
   isEligiblePriorityValve,
@@ -13,32 +14,15 @@ import {
   syncPriorityQueueWithValves,
 } from '../lib/priorityQueue'
 import { canWriteShop } from '../lib/roles'
+import {
+  buildShopTvColumns,
+  countMovedOutToday,
+  parseShopTvStatusMoves,
+  valveMatchesTvColumn,
+  type ShopTvStatusMove,
+} from '../lib/shopTvBoard'
 import { supabase } from '../lib/supabase'
 import type { Valve } from '../types'
-
-type TvColumn = {
-  id: string
-  label: string
-  statuses: readonly string[]
-}
-
-/** Active floor columns for the shop TV board (priority within each status group). */
-const TV_COLUMNS: readonly TvColumn[] = [
-  { id: 'teardown', label: 'Teardown', statuses: ['Teardown', 'PRV Teardown'] },
-  {
-    id: 'machine-shop',
-    label: 'Machine shop',
-    statuses: ['Machine 1', 'Machine 2', 'Water Jet', 'Grinding'],
-  },
-  { id: 'welding', label: 'Welding', statuses: ['Welding'] },
-  {
-    id: 'assembly',
-    label: 'Assembly / Fitting',
-    statuses: ['Assembly', 'PRV Assembly', 'Fitting', 'Adaption', 'Actuation'],
-  },
-  { id: 'testing', label: 'Testing', statuses: ['Testing'] },
-  { id: 'painting', label: 'Painting', statuses: ['Painting'] },
-]
 
 function formatDue(value: string | null | undefined) {
   if (!value) return null
@@ -220,6 +204,7 @@ export function ShopTvBoardPage() {
   const { showToast } = useToast()
   const [valves, setValves] = useState<Valve[]>([])
   const [priorityQueueIds, setPriorityQueueIds] = useState<string[]>([])
+  const [movesToday, setMovesToday] = useState<ShopTvStatusMove[]>([])
   const [loading, setLoading] = useState(true)
   const [savingPriority, setSavingPriority] = useState(false)
   const [fullscreen, setFullscreen] = useState(false)
@@ -249,12 +234,28 @@ export function ShopTvBoardPage() {
       showToast(`Could not load jobs: ${error.message}`)
       setValves([])
       setPriorityQueueIds([])
+      setMovesToday([])
       setLoading(false)
       return
     }
     const rows = data ?? []
     setValves(rows)
     setPriorityQueueIds(await syncPriorityQueueWithValves(rows))
+
+    const { startIso, endIso } = localTodayBounds()
+    const todayRes = await supabase
+      .from('valve_change_log')
+      .select('valve_row_id,changed_at,old_row,new_row')
+      .eq('action', 'update')
+      .gte('changed_at', startIso)
+      .lt('changed_at', endIso)
+      .order('changed_at', { ascending: true })
+
+    if (todayRes.error) {
+      setMovesToday([])
+    } else {
+      setMovesToday(parseShopTvStatusMoves((todayRes.data ?? []) as Parameters<typeof parseShopTvStatusMoves>[0]))
+    }
     setLoading(false)
   }, [showToast])
 
@@ -303,16 +304,17 @@ export function ShopTvBoardPage() {
 
   const columns = useMemo(() => {
     const active = valves.filter(isActiveShopWork)
-    return TV_COLUMNS.map((column) => {
-      const statusSet = new Set(column.statuses)
-      let rows = active.filter((valve) => statusSet.has(displayJobStatus(valve)))
+    const defs = buildShopTvColumns(active)
+    return defs.map((column) => {
+      let rows = active.filter((valve) => valveMatchesTvColumn(valve, column))
       if (priorityOnly) {
         rows = rows.filter((valve) => priorityRank.has(valve.valve_id))
       }
       rows = sortColumnRows(rows, priorityQueueIds, columnRestOrder[column.id] ?? [])
-      return { ...column, rows }
+      const movedOutToday = countMovedOutToday(column, movesToday)
+      return { ...column, rows, movedOutToday }
     })
-  }, [valves, priorityQueueIds, priorityOnly, priorityRank, columnRestOrder])
+  }, [valves, priorityQueueIds, priorityOnly, priorityRank, columnRestOrder, movesToday])
 
   const movePriorityInColumn = useCallback(
     async (valveId: string, columnRows: Valve[], direction: 'top' | 'up' | 'down') => {
@@ -448,7 +450,8 @@ export function ShopTvBoardPage() {
         <div className="shop-tv-toolbar-left">
           <h2 className="shop-tv-title">Shop TV board</h2>
           <p className="shop-tv-subtitle">
-            Priority order stays on top · reorder any card · hover a column to pause scroll
+            Teardown · Welding · Machine shop · Testing · Painting · Pull from Customer Yard · Assembly /
+            Fitting / Waiting on Parts by finish cell · Other. Hover a column to pause scroll.
           </p>
         </div>
         <div className="shop-tv-toolbar-actions">
@@ -502,10 +505,28 @@ export function ShopTvBoardPage() {
 
       <div className="shop-tv-columns" aria-label="Shop priority columns by status">
         {columns.map((column) => (
-          <section key={column.id} className="shop-tv-column">
+          <section
+            key={column.id}
+            className={`shop-tv-column${column.kind === 'finish-cell' ? ' shop-tv-column--cell' : ''}${column.kind === 'other' ? ' shop-tv-column--other' : ''}`}
+          >
             <header className="shop-tv-column-header">
-              <h3>{column.label}</h3>
-              <span className="shop-tv-column-count">{column.rows.length}</span>
+              <div className="shop-tv-column-heading">
+                <h3>{column.label}</h3>
+                {column.kind === 'finish-cell' ? (
+                  <span className="shop-tv-column-sub">Assembly · Fitting · Waiting on Parts</span>
+                ) : null}
+                {column.kind === 'other' ? (
+                  <span className="shop-tv-column-sub">All remaining active statuses</span>
+                ) : null}
+              </div>
+              <div className="shop-tv-column-stats">
+                <span className="shop-tv-column-count" title="Jobs currently in this area">
+                  {column.rows.length} in
+                </span>
+                <span className="shop-tv-column-moved" title="Jobs moved out of this area today">
+                  {column.movedOutToday} out today
+                </span>
+              </div>
             </header>
             <TvColumnScroller speed={scrollSpeed}>
               {column.rows.length === 0 ? (
