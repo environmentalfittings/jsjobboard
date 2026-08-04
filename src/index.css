@@ -15642,9 +15642,24 @@ tbody tr:hover {
   inset: 0;
   z-index: 80;
   min-height: 100vh;
+  height: 100vh;
   padding: 12px 14px 16px;
   background: #0b1220;
   color: #e2e8f0;
+}
+
+.shop-tv-board--fullscreen .shop-tv-columns {
+  flex: 1;
+  min-height: 0;
+  height: 100%;
+}
+
+.shop-tv-board--fullscreen .shop-tv-column {
+  min-height: 0;
+  max-height: none;
+  height: 100%;
+  border-color: #1e293b;
+  background: #111827;
 }
 
 body.shop-tv-fullscreen-active .navbar,
@@ -15753,19 +15768,8 @@ body.shop-tv-fullscreen-active .page-content {
 }
 
 .shop-tv-board--fullscreen .shop-tv-column {
-  min-height: 0;
-  max-height: none;
   border-color: #1e293b;
   background: #111827;
-}
-
-.shop-tv-board--fullscreen .shop-tv-columns {
-  flex: 1;
-  min-height: 0;
-}
-
-.shop-tv-board--fullscreen .shop-tv-column {
-  height: 100%;
 }
 
 .shop-tv-column-header {
