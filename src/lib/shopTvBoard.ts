@@ -24,6 +24,12 @@ export type ShopTvColumnDef = {
 }
 
 const FIXED_TV_COLUMNS: readonly ShopTvColumnDef[] = [
+  {
+    id: 'pull-customer-yard',
+    label: 'Pull from Customer Yard',
+    kind: 'fixed',
+    statuses: ['Pull from Customer Yard'],
+  },
   { id: 'teardown', label: 'Teardown', kind: 'fixed', statuses: ['Teardown', 'PRV Teardown'] },
   { id: 'welding', label: 'Welding', kind: 'fixed', statuses: ['Welding'] },
   {
@@ -34,12 +40,6 @@ const FIXED_TV_COLUMNS: readonly ShopTvColumnDef[] = [
   },
   { id: 'testing', label: 'Testing', kind: 'fixed', statuses: ['Testing'] },
   { id: 'painting', label: 'Painting', kind: 'fixed', statuses: ['Painting'] },
-  {
-    id: 'pull-customer-yard',
-    label: 'Pull from Customer Yard',
-    kind: 'fixed',
-    statuses: ['Pull from Customer Yard'],
-  },
 ]
 
 const FIXED_STATUS_SET = new Set(FIXED_TV_COLUMNS.flatMap((column) => [...column.statuses]))
@@ -151,17 +151,36 @@ export type ShopTvStatusMove = {
   fromCell: string
   toCell: string
   changedAt: string
+  changedBy: string
+}
+
+export type ShopTvMoverRow = {
+  name: string
+  moveCount: number
+}
+
+function displayMoverName(emailOrName: string): string {
+  const raw = emailOrName.trim()
+  if (!raw) return 'Unknown'
+  if (!raw.includes('@')) return raw
+  const local = raw.split('@')[0] ?? raw
+  return local
+    .replace(/[._]+/g, ' ')
+    .replace(/\b\w/g, (ch) => ch.toUpperCase())
 }
 
 export function parseShopTvStatusMoves(
   rows: Array<{
     valve_row_id: string | null
     changed_at: string
+    changed_by_email?: string | null
     old_row: Record<string, unknown> | null
     new_row: Record<string, unknown> | null
   }>,
-): ShopTvStatusMove[] {
+): { moves: ShopTvStatusMove[]; leaderboard: ShopTvMoverRow[] } {
   const moves: ShopTvStatusMove[] = []
+  const counts = new Map<string, number>()
+
   for (const raw of rows) {
     const fromStatus = statusFromJson(raw.old_row)
     const toStatus = statusFromJson(raw.new_row)
@@ -169,10 +188,13 @@ export function parseShopTvStatusMoves(
     const toCell = cellFromJson(raw.new_row)
     if (!fromStatus && !toStatus) continue
     if (fromStatus === toStatus && fromCell === toCell) continue
-    const wo = (raw.valve_row_id ?? '').trim() ||
+    const wo =
+      (raw.valve_row_id ?? '').trim() ||
       (typeof raw.new_row?.valve_id === 'string' ? raw.new_row.valve_id.trim() : '') ||
       (typeof raw.old_row?.valve_id === 'string' ? raw.old_row.valve_id.trim() : '')
     if (!wo) continue
+    const changedBy = displayMoverName(String(raw.changed_by_email ?? '').trim() || 'Unknown')
+    counts.set(changedBy, (counts.get(changedBy) ?? 0) + 1)
     moves.push({
       valve_id: wo,
       fromStatus: fromStatus || '—',
@@ -180,9 +202,15 @@ export function parseShopTvStatusMoves(
       fromCell,
       toCell,
       changedAt: raw.changed_at,
+      changedBy,
     })
   }
-  return moves
+
+  const leaderboard = [...counts.entries()]
+    .map(([name, moveCount]) => ({ name, moveCount }))
+    .sort((a, b) => b.moveCount - a.moveCount || a.name.localeCompare(b.name))
+
+  return { moves, leaderboard }
 }
 
 function moveLeftFixedColumn(move: ShopTvStatusMove, column: ShopTvColumnDef): boolean {

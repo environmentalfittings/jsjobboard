@@ -19,6 +19,7 @@ import {
   countMovedOutToday,
   parseShopTvStatusMoves,
   valveMatchesTvColumn,
+  type ShopTvMoverRow,
   type ShopTvStatusMove,
 } from '../lib/shopTvBoard'
 import { supabase } from '../lib/supabase'
@@ -205,6 +206,7 @@ export function ShopTvBoardPage() {
   const [valves, setValves] = useState<Valve[]>([])
   const [priorityQueueIds, setPriorityQueueIds] = useState<string[]>([])
   const [movesToday, setMovesToday] = useState<ShopTvStatusMove[]>([])
+  const [moverLeaderboard, setMoverLeaderboard] = useState<ShopTvMoverRow[]>([])
   const [loading, setLoading] = useState(true)
   const [savingPriority, setSavingPriority] = useState(false)
   const [fullscreen, setFullscreen] = useState(false)
@@ -235,6 +237,7 @@ export function ShopTvBoardPage() {
       setValves([])
       setPriorityQueueIds([])
       setMovesToday([])
+      setMoverLeaderboard([])
       setLoading(false)
       return
     }
@@ -245,7 +248,7 @@ export function ShopTvBoardPage() {
     const { startIso, endIso } = localTodayBounds()
     const todayRes = await supabase
       .from('valve_change_log')
-      .select('valve_row_id,changed_at,old_row,new_row')
+      .select('valve_row_id,changed_at,changed_by_email,old_row,new_row')
       .eq('action', 'update')
       .gte('changed_at', startIso)
       .lt('changed_at', endIso)
@@ -253,8 +256,13 @@ export function ShopTvBoardPage() {
 
     if (todayRes.error) {
       setMovesToday([])
+      setMoverLeaderboard([])
     } else {
-      setMovesToday(parseShopTvStatusMoves((todayRes.data ?? []) as Parameters<typeof parseShopTvStatusMoves>[0]))
+      const parsed = parseShopTvStatusMoves(
+        (todayRes.data ?? []) as Parameters<typeof parseShopTvStatusMoves>[0],
+      )
+      setMovesToday(parsed.moves)
+      setMoverLeaderboard(parsed.leaderboard)
     }
     setLoading(false)
   }, [showToast])
@@ -315,6 +323,11 @@ export function ShopTvBoardPage() {
       return { ...column, rows, movedOutToday }
     })
   }, [valves, priorityQueueIds, priorityOnly, priorityRank, columnRestOrder, movesToday])
+
+  const maxMoverCount = useMemo(
+    () => moverLeaderboard.reduce((max, row) => Math.max(max, row.moveCount), 0),
+    [moverLeaderboard],
+  )
 
   const movePriorityInColumn = useCallback(
     async (valveId: string, columnRows: Valve[], direction: 'top' | 'up' | 'down') => {
@@ -450,7 +463,7 @@ export function ShopTvBoardPage() {
         <div className="shop-tv-toolbar-left">
           <h2 className="shop-tv-title">Shop TV board</h2>
           <p className="shop-tv-subtitle">
-            Teardown · Welding · Machine shop · Testing · Painting · Pull from Customer Yard · Assembly /
+            Pull from Customer Yard · Teardown · Welding · Machine shop · Testing · Painting · Assembly /
             Fitting / Waiting on Parts by finish cell · Other. Hover a column to pause scroll.
           </p>
         </div>
@@ -500,6 +513,40 @@ export function ShopTvBoardPage() {
           ) : null}
         </div>
       </header>
+
+      <section className="shop-tv-leaderboard" aria-label="Most status moves today">
+        <div className="shop-tv-leaderboard-head">
+          <h3 className="shop-tv-leaderboard-title">Today&apos;s movers</h3>
+          <p className="shop-tv-leaderboard-sub">Who moved the most jobs today</p>
+        </div>
+        {loading && moverLeaderboard.length === 0 ? (
+          <p className="shop-tv-leaderboard-empty">Loading…</p>
+        ) : moverLeaderboard.length === 0 ? (
+          <p className="shop-tv-leaderboard-empty">No status moves logged yet today.</p>
+        ) : (
+          <ol className="shop-tv-leaderboard-list">
+            {moverLeaderboard.slice(0, 8).map((row, index) => {
+              const widthPct = maxMoverCount > 0 ? Math.round((row.moveCount / maxMoverCount) * 100) : 0
+              return (
+                <li key={row.name} className={`shop-tv-leaderboard-row${index === 0 ? ' is-leader' : ''}`}>
+                  <span className="shop-tv-leaderboard-rank">{index + 1}</span>
+                  <div className="shop-tv-leaderboard-main">
+                    <div className="shop-tv-leaderboard-name-row">
+                      <span className="shop-tv-leaderboard-name">{row.name}</span>
+                      <span className="shop-tv-leaderboard-count">
+                        {row.moveCount} move{row.moveCount === 1 ? '' : 's'}
+                      </span>
+                    </div>
+                    <div className="shop-tv-leaderboard-bar-track" aria-hidden="true">
+                      <div className="shop-tv-leaderboard-bar-fill" style={{ width: `${widthPct}%` }} />
+                    </div>
+                  </div>
+                </li>
+              )
+            })}
+          </ol>
+        )}
+      </section>
 
       {loading ? <div className="loading">Loading shop board…</div> : null}
 
