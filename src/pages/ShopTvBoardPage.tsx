@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from 'react'
 import { Link } from 'react-router-dom'
 import { FinishCellBadge } from '../components/FinishCellBadge'
 import { useToast } from '../components/ToastNotification'
@@ -570,7 +570,15 @@ export function ShopTvBoardPage() {
 
       {loading ? <div className="loading">Loading shop board…</div> : null}
 
-      <div className="shop-tv-columns" aria-label="Shop priority columns by status">
+      <div
+        className="shop-tv-columns"
+        aria-label="Shop priority columns by status"
+        style={
+          {
+            ['--shop-tv-col-count']: String(Math.max(1, Math.ceil(columns.length / 2))),
+          } as CSSProperties
+        }
+      >
         {columns.map((column) => (
           <section
             key={column.id}

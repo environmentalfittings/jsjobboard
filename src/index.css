@@ -15652,7 +15652,7 @@ tbody tr:hover {
 }
 
 .shop-tv-board--fullscreen .shop-tv-columns {
-  display: flex;
+  display: grid;
   flex: 1 1 0;
   min-height: 0;
   min-width: 0;
@@ -15660,14 +15660,18 @@ tbody tr:hover {
   height: auto;
   gap: 6px;
   overflow: hidden;
+  /* Two equal rows; column count = ceil(n / 2) from --shop-tv-col-count */
+  grid-template-rows: minmax(0, 1fr) minmax(0, 1fr);
+  grid-template-columns: repeat(var(--shop-tv-col-count, 6), minmax(0, 1fr));
+  grid-auto-flow: row;
+  align-content: stretch;
 }
 
 .shop-tv-board--fullscreen .shop-tv-column {
-  flex: 1 1 0;
   min-width: 0;
   min-height: 0;
   max-height: none;
-  height: 100%;
+  height: auto;
   border-color: #1e293b;
   background: #111827;
 }
@@ -16065,14 +16069,14 @@ body.shop-tv-fullscreen-active .page-content {
 
 .shop-tv-board--fullscreen .shop-tv-column-heading h3 {
   color: #f8fafc;
-  font-size: clamp(0.62rem, 0.9vw, 0.85rem);
+  font-size: clamp(0.72rem, 1.05vw, 0.95rem);
   line-height: 1.15;
 }
 
 .shop-tv-board--fullscreen .shop-tv-column-sub {
   color: #94a3b8;
   font-size: 0.62rem;
-  display: none;
+  display: block;
 }
 
 .shop-tv-board--fullscreen .shop-tv-column-count,
@@ -16195,7 +16199,7 @@ body.shop-tv-fullscreen-active .page-content {
 }
 
 .shop-tv-board--fullscreen .shop-tv-valve-id {
-  font-size: clamp(0.85rem, 1.1vw, 1.15rem);
+  font-size: clamp(0.95rem, 1.2vw, 1.2rem);
   color: #f8fafc;
 }
 
