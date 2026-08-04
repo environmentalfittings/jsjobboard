@@ -43,15 +43,60 @@ function isOverdue(value: string | null | undefined) {
 }
 
 const SCROLL_SPEED_STORAGE_KEY = 'js-shop-tv-scroll-speed'
+const SCROLL_RATE_STORAGE_KEY = 'js-shop-tv-scroll-rate-v2'
+const SCROLL_PAUSED_STORAGE_KEY = 'js-shop-tv-scroll-paused-v2'
 const COLUMN_REST_ORDER_STORAGE_KEY = 'js-shop-tv-column-rest-order'
 
-type ScrollSpeed = 'paused' | 'slow' | 'medium' | 'fast'
+/** Pixels per second — slider allows slower than the old “Slow” preset. */
+const SCROLL_RATE_MIN = 4
+const SCROLL_RATE_MAX = 120
+const SCROLL_RATE_DEFAULT = 18
+
 type ColumnRestOrder = Record<string, string[]>
 
-const SCROLL_SPEED_PX: Record<Exclude<ScrollSpeed, 'paused'>, number> = {
-  slow: 22,
-  medium: 48,
-  fast: 90,
+function clampScrollRate(value: number): number {
+  if (!Number.isFinite(value)) return SCROLL_RATE_DEFAULT
+  return Math.min(SCROLL_RATE_MAX, Math.max(SCROLL_RATE_MIN, Math.round(value)))
+}
+
+function readStoredScrollRate(): number {
+  if (typeof window === 'undefined') return SCROLL_RATE_DEFAULT
+  try {
+    const raw = window.localStorage.getItem(SCROLL_RATE_STORAGE_KEY)
+    if (raw != null && raw !== '') {
+      const parsed = Number(raw)
+      if (Number.isFinite(parsed)) return clampScrollRate(parsed)
+    }
+    // Migrate old preset dropdown values.
+    const legacy = window.localStorage.getItem(SCROLL_SPEED_STORAGE_KEY)
+    if (legacy === 'slow') return 22
+    if (legacy === 'medium') return 48
+    if (legacy === 'fast') return 90
+  } catch {
+    // ignore
+  }
+  return SCROLL_RATE_DEFAULT
+}
+
+function readStoredScrollPaused(): boolean {
+  if (typeof window === 'undefined') return false
+  try {
+    const raw = window.localStorage.getItem(SCROLL_PAUSED_STORAGE_KEY)
+    if (raw === '1' || raw === 'true') return true
+    if (raw === '0' || raw === 'false') return false
+    const legacy = window.localStorage.getItem(SCROLL_SPEED_STORAGE_KEY)
+    if (legacy === 'paused') return true
+  } catch {
+    // ignore
+  }
+  return false
+}
+
+function scrollRateLabel(rate: number): string {
+  if (rate <= 12) return 'Crawl'
+  if (rate <= 28) return 'Slow'
+  if (rate <= 60) return 'Medium'
+  return 'Fast'
 }
 
 const DEPT_CHART_COLORS: Record<string, string> = {
@@ -99,17 +144,6 @@ function buildDeptMoveChartRows(leaderboard: readonly ShopTvDeptMoveRow[]): Shop
   return [...departments, ...cells].sort(
     (a, b) => b.moveCount - a.moveCount || a.label.localeCompare(b.label),
   )
-}
-
-function readStoredScrollSpeed(): ScrollSpeed {
-  if (typeof window === 'undefined') return 'slow'
-  try {
-    const raw = window.localStorage.getItem(SCROLL_SPEED_STORAGE_KEY)
-    if (raw === 'paused' || raw === 'slow' || raw === 'medium' || raw === 'fast') return raw
-  } catch {
-    // ignore
-  }
-  return 'slow'
 }
 
 function readStoredColumnRestOrder(): ColumnRestOrder {
@@ -170,16 +204,18 @@ function reorderIds(order: readonly string[], valveId: string, direction: 'up' |
 
 function TvColumnScroller({
   children,
-  speed,
+  speedPxPerSec,
+  paused: pausedProp,
 }: {
   children: ReactNode
-  speed: ScrollSpeed
+  speedPxPerSec: number
+  paused: boolean
 }) {
   const viewportRef = useRef<HTMLDivElement>(null)
   const contentRef = useRef<HTMLDivElement>(null)
   const [needsScroll, setNeedsScroll] = useState(false)
   const [hoverPaused, setHoverPaused] = useState(false)
-  const paused = speed === 'paused' || hoverPaused
+  const paused = pausedProp || hoverPaused
 
   useEffect(() => {
     const viewport = viewportRef.current
@@ -200,24 +236,24 @@ function TvColumnScroller({
   hoverPausedRef.current = hoverPaused
 
   useEffect(() => {
-    if (!needsScroll || speed === 'paused') return
+    if (!needsScroll || pausedProp) return
     const viewport = viewportRef.current
     if (!viewport) return
 
     let frame = 0
     let last = performance.now()
     // Keep a floating scroll position — browsers often floor scrollTop, which
-    // made "slow" appear stuck when the per-frame delta was < 1px.
+    // made very slow rates appear stuck when the per-frame delta was < 1px.
     let scrollPos = viewport.scrollTop
-    const speedPxPerSec = SCROLL_SPEED_PX[speed]
+    const rate = Math.max(0, speedPxPerSec)
 
     const tick = (now: number) => {
       const dt = Math.min(64, Math.max(0, now - last)) / 1000
       last = now
-      if (!hoverPausedRef.current) {
+      if (!hoverPausedRef.current && rate > 0) {
         const max = viewport.scrollHeight - viewport.clientHeight
         if (max > 0) {
-          scrollPos += speedPxPerSec * dt
+          scrollPos += rate * dt
           if (scrollPos >= max) scrollPos = 0
           viewport.scrollTop = scrollPos
           // Re-sync if the browser clamped or the user dragged the scrollbar.
@@ -230,7 +266,7 @@ function TvColumnScroller({
 
     frame = requestAnimationFrame(tick)
     return () => cancelAnimationFrame(frame)
-  }, [needsScroll, speed])
+  }, [needsScroll, pausedProp, speedPxPerSec])
 
   return (
     <div
@@ -264,17 +300,19 @@ export function ShopTvBoardPage() {
   const [loading, setLoading] = useState(true)
   const [savingPriority, setSavingPriority] = useState(false)
   const [fullscreen, setFullscreen] = useState(false)
-  const [scrollSpeed, setScrollSpeed] = useState<ScrollSpeed>(() => readStoredScrollSpeed())
+  const [scrollRate, setScrollRate] = useState(() => readStoredScrollRate())
+  const [scrollPaused, setScrollPaused] = useState(() => readStoredScrollPaused())
   const [columnRestOrder, setColumnRestOrder] = useState<ColumnRestOrder>(() => readStoredColumnRestOrder())
   const [priorityOnly, setPriorityOnly] = useState(false)
 
   useEffect(() => {
     try {
-      window.localStorage.setItem(SCROLL_SPEED_STORAGE_KEY, scrollSpeed)
+      window.localStorage.setItem(SCROLL_RATE_STORAGE_KEY, String(scrollRate))
+      window.localStorage.setItem(SCROLL_PAUSED_STORAGE_KEY, scrollPaused ? '1' : '0')
     } catch {
       // ignore
     }
-  }, [scrollSpeed])
+  }, [scrollRate, scrollPaused])
 
   useEffect(() => {
     try {
@@ -541,23 +579,30 @@ export function ShopTvBoardPage() {
           </label>
           <label className="shop-tv-speed">
             <span>Scroll</span>
-            <select
-              value={scrollSpeed}
-              onChange={(e) => setScrollSpeed(e.target.value as ScrollSpeed)}
+            <input
+              type="range"
+              className="shop-tv-speed-slider"
+              min={SCROLL_RATE_MIN}
+              max={SCROLL_RATE_MAX}
+              step={1}
+              value={scrollRate}
+              disabled={scrollPaused}
+              onChange={(e) => {
+                setScrollRate(clampScrollRate(Number(e.target.value)))
+                setScrollPaused(false)
+              }}
               aria-label="Auto-scroll speed"
-            >
-              <option value="paused">Paused</option>
-              <option value="slow">Slow</option>
-              <option value="medium">Medium</option>
-              <option value="fast">Fast</option>
-            </select>
+            />
+            <span className="shop-tv-speed-value">
+              {scrollPaused ? 'Paused' : scrollRateLabel(scrollRate)}
+            </span>
           </label>
           <button
             type="button"
-            className={scrollSpeed === 'paused' ? 'button-primary' : 'button-secondary'}
-            onClick={() => setScrollSpeed((prev) => (prev === 'paused' ? 'slow' : 'paused'))}
+            className={scrollPaused ? 'button-primary' : 'button-secondary'}
+            onClick={() => setScrollPaused((prev) => !prev)}
           >
-            {scrollSpeed === 'paused' ? 'Resume scroll' : 'Pause scroll'}
+            {scrollPaused ? 'Resume scroll' : 'Pause scroll'}
           </button>
           <button type="button" className="button-secondary" onClick={() => void load()} disabled={loading}>
             Refresh
@@ -678,7 +723,7 @@ export function ShopTvBoardPage() {
                 </span>
               </div>
             </header>
-            <TvColumnScroller speed={scrollSpeed}>
+            <TvColumnScroller speedPxPerSec={scrollRate} paused={scrollPaused}>
               {column.rows.length === 0 ? (
                 <p className="shop-tv-empty">No jobs</p>
               ) : (

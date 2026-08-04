@@ -16024,9 +16024,9 @@ body.shop-tv-fullscreen-active .page-content {
 .shop-tv-speed {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
+  gap: 8px;
   margin: 0;
-  padding: 4px 8px 4px 10px;
+  padding: 4px 10px;
   border: 1px solid #cbd5e1;
   border-radius: 8px;
   background: #fff;
@@ -16035,15 +16035,23 @@ body.shop-tv-fullscreen-active .page-content {
   color: #334155;
 }
 
-.shop-tv-speed select {
-  min-width: 6.5rem;
-  padding: 4px 6px;
-  border: 1px solid #94a3b8;
-  border-radius: 6px;
-  background: #f8fafc;
-  color: #0f172a;
-  font: inherit;
-  font-weight: 600;
+.shop-tv-speed-slider {
+  width: 110px;
+  height: 6px;
+  margin: 0;
+  accent-color: #0f766e;
+  cursor: pointer;
+}
+
+.shop-tv-speed-slider:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+.shop-tv-speed-value {
+  min-width: 3.6rem;
+  font-variant-numeric: tabular-nums;
+  color: #0f766e;
 }
 
 .shop-tv-board--fullscreen .shop-tv-toggle,
@@ -16053,10 +16061,12 @@ body.shop-tv-fullscreen-active .page-content {
   color: #e2e8f0;
 }
 
-.shop-tv-board--fullscreen .shop-tv-speed select {
-  border-color: #475569;
-  background: #1e293b;
-  color: #e2e8f0;
+.shop-tv-board--fullscreen .shop-tv-speed-slider {
+  accent-color: #38bdf8;
+}
+
+.shop-tv-board--fullscreen .shop-tv-speed-value {
+  color: #7dd3fc;
 }
 
 .shop-tv-columns {
