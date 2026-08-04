@@ -100,6 +100,73 @@ function isDueSoon(raw: string | null): boolean {
 }
 
 const ORDER_STORAGE_KEY = 'job-board-phase-order-v1'
+const LIST_REST_ORDER_STORAGE_KEY = 'job-board-list-rest-order-v1'
+
+function readStoredListRestOrder(): string[] {
+  if (typeof window === 'undefined') return []
+  try {
+    const raw = window.localStorage.getItem(LIST_REST_ORDER_STORAGE_KEY)
+    if (!raw) return []
+    const parsed = JSON.parse(raw) as unknown
+    if (!Array.isArray(parsed)) return []
+    return parsed.map((id) => String(id)).filter(Boolean)
+  } catch {
+    return []
+  }
+}
+
+function reorderListIds(order: readonly string[], valveId: string, direction: 'up' | 'down'): string[] | null {
+  const index = order.indexOf(valveId)
+  if (index < 0) return null
+  if (direction === 'up') {
+    if (index === 0) return null
+    const next = [...order]
+    ;[next[index - 1], next[index]] = [next[index], next[index - 1]]
+    return next
+  }
+  if (index >= order.length - 1) return null
+  const next = [...order]
+  ;[next[index + 1], next[index]] = [next[index], next[index + 1]]
+  return next
+}
+
+/** Merge a reordered visible subset back into the full persisted rest order. */
+function applyVisibleRestReorder(
+  fullOrder: readonly string[],
+  visibleOrdered: readonly string[],
+  nextVisibleOrdered: readonly string[],
+): string[] {
+  if (visibleOrdered.length !== nextVisibleOrdered.length) return [...fullOrder]
+  const visibleSet = new Set(visibleOrdered)
+  const queue = [...nextVisibleOrdered]
+  const next = fullOrder.map((id) => (visibleSet.has(id) ? queue.shift()! : id))
+  for (const id of queue) {
+    if (!next.includes(id)) next.push(id)
+  }
+  return next
+}
+
+function sortValvesWithPriorityAndRest(
+  items: Valve[],
+  priorityQueueIds: readonly string[],
+  restOrder: readonly string[],
+): Valve[] {
+  const prioritySet = new Set(priorityQueueIds)
+  const priorityRows = items
+    .filter((row) => prioritySet.has(row.valve_id))
+    .sort((a, b) => compareValvesWithPriorityOrder(a, b, priorityQueueIds))
+  const restRows = items.filter((row) => !prioritySet.has(row.valve_id))
+  const restRank = new Map(restOrder.map((id, index) => [id, index]))
+  restRows.sort((a, b) => {
+    const aRank = restRank.get(a.valve_id)
+    const bRank = restRank.get(b.valve_id)
+    if (aRank != null && bRank != null) return aRank - bRank
+    if (aRank != null) return -1
+    if (bRank != null) return 1
+    return compareValvesWithPriorityOrder(a, b, priorityQueueIds)
+  })
+  return [...priorityRows, ...restRows]
+}
 const EMPTY_ORDER: PhaseOrder = {
   incoming: [],
   'in-shop': [],
@@ -376,6 +443,7 @@ export function JobBoardPage({ role, username }: { role?: UserRole; username?: s
     return filters
   })
   const [listColumnSort, setListColumnSort] = useState<ListSortState>({ column: 'default', direction: 'asc' })
+  const [listRestOrder, setListRestOrder] = useState<string[]>(() => readStoredListRestOrder())
   const [scopeFilter, setScopeFilter] = useState<ScopeFilter>(initialScope)
   const viewingCompletedValves = scopeFilter === 'closed'
   const canCopyJobs = can(role, 'copyJob')
@@ -726,16 +794,23 @@ export function JobBoardPage({ role, username }: { role?: UserRole; username?: s
   )
 
   const tableRows = useMemo(() => {
-    return scopeBaseValves
+    const filtered = scopeBaseValves
       .filter((v) => valveMatchesAllColumnFilters(v, columnFilters, listColumnContext))
       .filter((v) => valveMatchesWorkOrderFilter(v, workOrderQuery, selectedWorkOrder))
       .filter((v) => valveMatchesDescriptionSearch(v, descriptionQuery))
-      .sort((a, b) => {
-        if (listSort !== 'default') {
-          return compareValvesBySort(a, b, listSort, compareValvesForDisplay)
-        }
-        return compareValvesByListColumn(a, b, listColumnSort, listColumnContext, compareValvesForDisplay)
-      })
+
+    const usingCustomOrder =
+      listSort === 'default' && listColumnSort.column === 'default'
+
+    if (usingCustomOrder) {
+      return sortValvesWithPriorityAndRest(filtered, priorityQueueIds, listRestOrder)
+    }
+    if (listSort !== 'default') {
+      return [...filtered].sort((a, b) => compareValvesBySort(a, b, listSort, compareValvesForDisplay))
+    }
+    return [...filtered].sort((a, b) =>
+      compareValvesByListColumn(a, b, listColumnSort, listColumnContext, compareValvesForDisplay),
+    )
   }, [
     scopeBaseValves,
     columnFilters,
@@ -746,7 +821,34 @@ export function JobBoardPage({ role, username }: { role?: UserRole; username?: s
     selectedWorkOrder,
     listSort,
     descriptionQuery,
+    priorityQueueIds,
+    listRestOrder,
   ])
+
+  // Keep persisted rest-order stable: drop removed jobs, append newly seen non-priority jobs at the end.
+  useEffect(() => {
+    const knownIds = new Set(valves.map((v) => v.valve_id))
+    const prioritySet = new Set(priorityQueueIds)
+    const candidateRest = valves
+      .filter((v) => !prioritySet.has(v.valve_id) && !isClosedWorkOrder(v))
+      .map((v) => v.valve_id)
+
+    setListRestOrder((prev) => {
+      const kept = prev.filter((id) => knownIds.has(id) && !prioritySet.has(id))
+      const missing = candidateRest.filter((id) => !kept.includes(id))
+      const next = missing.length ? [...kept, ...missing] : kept
+      if (next.length === prev.length && next.every((id, index) => id === prev[index])) return prev
+      return next
+    })
+  }, [valves, priorityQueueIds])
+
+  useEffect(() => {
+    try {
+      window.localStorage.setItem(LIST_REST_ORDER_STORAGE_KEY, JSON.stringify(listRestOrder))
+    } catch {
+      // ignore
+    }
+  }, [listRestOrder])
 
   const openModal = (valve: Valve) => {
     setActiveValve(valve)
@@ -950,6 +1052,62 @@ export function JobBoardPage({ role, username }: { role?: UserRole; username?: s
       showToast('Priority order updated')
     },
     [canWrite, priorityQueueIds, showToast],
+  )
+
+  const moveRestInList = useCallback(
+    (valveId: string, direction: 'top' | 'up' | 'down') => {
+      if (!canWrite) {
+        showToast(permissionDeniedReason('shopWrite'))
+        return
+      }
+      if (priorityIds.has(valveId)) return
+
+      const visibleRestIds = tableRows
+        .filter((row) => !priorityIds.has(row.valve_id))
+        .map((row) => row.valve_id)
+      const index = visibleRestIds.indexOf(valveId)
+      if (index < 0) return
+
+      const hasPriorityAbove = tableRows.some((row) => priorityIds.has(row.valve_id))
+
+      if (direction === 'top') {
+        if (hasPriorityAbove) {
+          showToast('Add it to the priority list before moving it above priority jobs.')
+          return
+        }
+        if (index === 0) return
+        const nextVisible = [valveId, ...visibleRestIds.filter((id) => id !== valveId)]
+        setListRestOrder((prev) => applyVisibleRestReorder(prev, visibleRestIds, nextVisible))
+        return
+      }
+
+      if (direction === 'up' && index === 0) {
+        if (hasPriorityAbove) {
+          showToast('Add it to the priority list before moving it above priority jobs.')
+        }
+        return
+      }
+
+      const nextVisible = reorderListIds(visibleRestIds, valveId, direction)
+      if (!nextVisible) return
+      setListRestOrder((prev) => applyVisibleRestReorder(prev, visibleRestIds, nextVisible))
+    },
+    [canWrite, priorityIds, tableRows, showToast],
+  )
+
+  const moveListRow = useCallback(
+    (valveId: string, direction: 'top' | 'up' | 'down') => {
+      if (listSort !== 'default' || listColumnSort.column !== 'default') {
+        showToast('Switch Sort to Default (priority) to reorder the list')
+        return
+      }
+      if (priorityIds.has(valveId)) {
+        void movePriorityInQueue(valveId, direction)
+        return
+      }
+      moveRestInList(valveId, direction)
+    },
+    [listSort, listColumnSort.column, priorityIds, movePriorityInQueue, moveRestInList, showToast],
   )
 
   const isValveInPhase = (valve: Valve, phaseKey: PhaseKey) => {
@@ -1303,8 +1461,9 @@ export function JobBoardPage({ role, username }: { role?: UserRole; username?: s
             </p>
           ) : (
             <p className="list-view-priority-hint">
-              Sort by <strong>Default (priority)</strong> to match shop priority order. Use <strong>Add priority</strong>{' '}
-              on a row, then ⇈ ↑ ↓ to reorder. On Hold jobs can be prioritized.
+              Sort by <strong>Default (priority)</strong> to reorder. Priority jobs stay on top — use ⇈ ↑ ↓ on any
+              row. Non-priority jobs cannot move above the priority list (you&apos;ll be asked to add them first). Your
+              list order is saved until you change it.
             </p>
           )}
           <div className="table-wrap list-table-wrap">
@@ -1360,6 +1519,15 @@ export function JobBoardPage({ role, username }: { role?: UserRole; username?: s
                 {tableRows.map((valve) => {
                   const priorityIndex = priorityQueueIds.indexOf(valve.valve_id)
                   const inPriorityQueue = priorityIndex >= 0
+                  const visibleRestIds = tableRows
+                    .filter((row) => priorityQueueIds.indexOf(row.valve_id) < 0)
+                    .map((row) => row.valve_id)
+                  const restIndex = visibleRestIds.indexOf(valve.valve_id)
+                  const canMoveUp = inPriorityQueue ? priorityIndex > 0 : restIndex > 0
+                  const canMoveDown = inPriorityQueue
+                    ? priorityIndex >= 0 && priorityIndex < priorityQueueIds.length - 1
+                    : restIndex >= 0 && restIndex < visibleRestIds.length - 1
+                  const usingCustomOrder = listSort === 'default' && listColumnSort.column === 'default'
                   return (
                   <tr
                     key={valve.id}
@@ -1428,68 +1596,84 @@ export function JobBoardPage({ role, username }: { role?: UserRole; username?: s
                         >
                           Open card
                         </button>
-                      ) : inPriorityQueue && canWrite ? (
+                      ) : canWrite ? (
                         <div className="job-list-priority-actions">
-                          <span className="job-list-priority-label">Priority</span>
+                          <span className="job-list-priority-label">
+                            {inPriorityQueue ? 'Priority' : 'Order'}
+                          </span>
                           <div className="job-card-reorder-buttons">
                             <button
                               type="button"
                               className="job-card-reorder-btn job-card-reorder-btn--top"
-                              title="Move to top of priority"
-                              aria-label={`Move ${valve.valve_id} to top of priority`}
-                              disabled={savingPriorityOrder || priorityIndex === 0}
-                              onClick={() => void movePriorityInQueue(valve.valve_id, 'top')}
+                              title={
+                                inPriorityQueue
+                                  ? 'Move to top of priority'
+                                  : 'Requires priority list — blocked above priority jobs'
+                              }
+                              aria-label={`Move ${valve.valve_id} to top`}
+                              disabled={savingPriorityOrder || !usingCustomOrder}
+                              onClick={() => moveListRow(valve.valve_id, 'top')}
                             >
                               ⇈
                             </button>
                             <button
                               type="button"
                               className="job-card-reorder-btn"
-                              title="Move up in priority"
-                              aria-label={`Move ${valve.valve_id} up in priority`}
-                              disabled={savingPriorityOrder || priorityIndex === 0}
-                              onClick={() => void movePriorityInQueue(valve.valve_id, 'up')}
+                              title={
+                                inPriorityQueue
+                                  ? 'Move up in priority'
+                                  : canMoveUp
+                                    ? 'Move up in list'
+                                    : 'Add to the priority list to move above priority jobs'
+                              }
+                              aria-label={`Move ${valve.valve_id} up`}
+                              disabled={savingPriorityOrder || !usingCustomOrder || (inPriorityQueue && !canMoveUp)}
+                              onClick={() => moveListRow(valve.valve_id, 'up')}
                             >
                               ↑
                             </button>
                             <button
                               type="button"
                               className="job-card-reorder-btn"
-                              title="Move down in priority"
-                              aria-label={`Move ${valve.valve_id} down in priority`}
-                              disabled={
-                                savingPriorityOrder || priorityIndex >= priorityQueueIds.length - 1
-                              }
-                              onClick={() => void movePriorityInQueue(valve.valve_id, 'down')}
+                              title="Move down"
+                              aria-label={`Move ${valve.valve_id} down`}
+                              disabled={savingPriorityOrder || !usingCustomOrder || !canMoveDown}
+                              onClick={() => moveListRow(valve.valve_id, 'down')}
                             >
                               ↓
                             </button>
                           </div>
-                          <button
-                            type="button"
-                            className="job-list-priority-remove"
-                            disabled={savingPriorityOrder}
-                            onClick={() => void togglePriority(valve)}
-                          >
-                            Remove
-                          </button>
+                          {inPriorityQueue ? (
+                            <button
+                              type="button"
+                              className="job-list-priority-remove"
+                              disabled={savingPriorityOrder}
+                              onClick={() => void togglePriority(valve)}
+                            >
+                              Remove
+                            </button>
+                          ) : null}
+                          {!inPriorityQueue && isEligiblePriorityValve(valve) ? (
+                            <button
+                              type="button"
+                              className="job-list-quick-action"
+                              onClick={() => void togglePriority(valve)}
+                            >
+                              Add priority
+                            </button>
+                          ) : null}
+                          {!inPriorityQueue &&
+                          !isEligiblePriorityValve(valve) &&
+                          displayJobStatus(valve) === 'Not Arrived' ? (
+                            <button
+                              type="button"
+                              className="job-list-quick-action"
+                              onClick={() => void quickMarkArrived(valve)}
+                            >
+                              Mark arrived
+                            </button>
+                          ) : null}
                         </div>
-                      ) : canWrite && isEligiblePriorityValve(valve) ? (
-                        <button
-                          type="button"
-                          className="job-list-quick-action"
-                          onClick={() => void togglePriority(valve)}
-                        >
-                          Add priority
-                        </button>
-                      ) : valve.status === 'Not Arrived' && canWrite ? (
-                        <button
-                          type="button"
-                          className="job-list-quick-action"
-                          onClick={() => void quickMarkArrived(valve)}
-                        >
-                          Mark arrived
-                        </button>
                       ) : (
                         '—'
                       )}
