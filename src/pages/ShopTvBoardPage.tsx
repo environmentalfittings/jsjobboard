@@ -94,9 +94,11 @@ function buildDeptMoveChartRows(leaderboard: readonly ShopTvDeptMoveRow[]): Shop
   }))
   const cells = leaderboard
     .filter((row) => row.kind === 'finish-cell' && row.moveCount > 0)
-    .sort((a, b) => b.moveCount - a.moveCount || a.label.localeCompare(b.label))
     .slice(0, 8)
-  return [...departments, ...cells]
+  // Winner (most moves) on the left → least on the right.
+  return [...departments, ...cells].sort(
+    (a, b) => b.moveCount - a.moveCount || a.label.localeCompare(b.label),
+  )
 }
 
 function readStoredScrollSpeed(): ScrollSpeed {
@@ -580,7 +582,7 @@ export function ShopTvBoardPage() {
           <div>
             <h3 className="shop-tv-chart-title">Today&apos;s department moves</h3>
             <p className="shop-tv-chart-sub">
-              Status moves by department — finish cells shown for everything else
+              Ranked by moves today — winner on the left
             </p>
           </div>
           <span className="shop-tv-chart-yaxis-label">Moves</span>
