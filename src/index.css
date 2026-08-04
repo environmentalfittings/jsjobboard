@@ -15785,7 +15785,7 @@ body.shop-tv-fullscreen-active .page-content {
   display: flex;
   flex-direction: column;
   min-height: 160px;
-  padding: 0 0 0 36px;
+  padding: 18px 0 0 36px;
 }
 
 .shop-tv-chart-grid {
