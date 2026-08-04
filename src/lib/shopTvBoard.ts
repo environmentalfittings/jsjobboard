@@ -154,8 +154,14 @@ export type ShopTvStatusMove = {
   changedBy: string
 }
 
-export type ShopTvCellMoveRow = {
-  cell: string
+export type ShopTvDeptMoveKind = 'department' | 'finish-cell'
+
+export type ShopTvDeptMoveRow = {
+  id: string
+  label: string
+  kind: ShopTvDeptMoveKind
+  /** Present when kind === 'finish-cell' (for badge colors). */
+  cell?: string
   moveCount: number
 }
 
@@ -176,6 +182,54 @@ function cellForMoveAttribution(fromCell: string, toCell: string): string {
   return 'Unassigned'
 }
 
+const DEPT_TEARDOWN_STATUSES = new Set(['Pull from Customer Yard', 'Teardown'])
+const DEPT_WELDING_STATUSES = new Set(['Welding'])
+const DEPT_MACHINE_SHOP_STATUSES = new Set(['Machine 1', 'Machine 2'])
+const DEPT_TESTING_STATUSES = new Set(['Testing'])
+const DEPT_PAINTING_STATUSES = new Set(['Painting'])
+
+function isPrvStatus(status: string): boolean {
+  return /\bprv\b/i.test(status)
+}
+
+/**
+ * Map a move to a competitive bucket:
+ * Teardown (Pull from Customer Yard + Teardown), Welding, Machine shop (Machine 1/2),
+ * Testing, Painting, PRV (PRV Assembly + any PRV status). Everything else → finish cell.
+ */
+export function departmentBucketForMove(
+  status: string,
+  fromCell: string,
+  toCell: string,
+): Omit<ShopTvDeptMoveRow, 'moveCount'> {
+  const trimmed = status.trim()
+  if (isPrvStatus(trimmed)) {
+    return { id: 'dept-prv', label: 'PRV', kind: 'department' }
+  }
+  if (DEPT_TEARDOWN_STATUSES.has(trimmed)) {
+    return { id: 'dept-teardown', label: 'Teardown', kind: 'department' }
+  }
+  if (DEPT_WELDING_STATUSES.has(trimmed)) {
+    return { id: 'dept-welding', label: 'Welding', kind: 'department' }
+  }
+  if (DEPT_MACHINE_SHOP_STATUSES.has(trimmed)) {
+    return { id: 'dept-machine-shop', label: 'Machine shop', kind: 'department' }
+  }
+  if (DEPT_TESTING_STATUSES.has(trimmed)) {
+    return { id: 'dept-testing', label: 'Testing', kind: 'department' }
+  }
+  if (DEPT_PAINTING_STATUSES.has(trimmed)) {
+    return { id: 'dept-painting', label: 'Painting', kind: 'department' }
+  }
+  const cell = cellForMoveAttribution(fromCell, toCell)
+  return {
+    id: `cell-${cell}`,
+    label: cell,
+    kind: 'finish-cell',
+    cell,
+  }
+}
+
 export function parseShopTvStatusMoves(
   rows: Array<{
     valve_row_id: string | null
@@ -184,9 +238,9 @@ export function parseShopTvStatusMoves(
     old_row: Record<string, unknown> | null
     new_row: Record<string, unknown> | null
   }>,
-): { moves: ShopTvStatusMove[]; cellLeaderboard: ShopTvCellMoveRow[] } {
+): { moves: ShopTvStatusMove[]; deptLeaderboard: ShopTvDeptMoveRow[] } {
   const moves: ShopTvStatusMove[] = []
-  const counts = new Map<string, number>()
+  const counts = new Map<string, { meta: Omit<ShopTvDeptMoveRow, 'moveCount'>; moveCount: number }>()
 
   for (const raw of rows) {
     const fromStatus = statusFromJson(raw.old_row)
@@ -201,8 +255,12 @@ export function parseShopTvStatusMoves(
       (typeof raw.old_row?.valve_id === 'string' ? raw.old_row.valve_id.trim() : '')
     if (!wo) continue
     const changedBy = displayMoverName(String(raw.changed_by_email ?? '').trim() || 'Unknown')
-    const cell = cellForMoveAttribution(fromCell, toCell)
-    counts.set(cell, (counts.get(cell) ?? 0) + 1)
+    // Attribute the move to the department/status the job left (from), else destination.
+    const statusForBucket = fromStatus || toStatus
+    const bucket = departmentBucketForMove(statusForBucket, fromCell, toCell)
+    const existing = counts.get(bucket.id)
+    if (existing) existing.moveCount += 1
+    else counts.set(bucket.id, { meta: bucket, moveCount: 1 })
     moves.push({
       valve_id: wo,
       fromStatus: fromStatus || '—',
@@ -214,11 +272,11 @@ export function parseShopTvStatusMoves(
     })
   }
 
-  const cellLeaderboard = [...counts.entries()]
-    .map(([cell, moveCount]) => ({ cell, moveCount }))
-    .sort((a, b) => b.moveCount - a.moveCount || a.cell.localeCompare(b.cell))
+  const deptLeaderboard = [...counts.values()]
+    .map(({ meta, moveCount }) => ({ ...meta, moveCount }))
+    .sort((a, b) => b.moveCount - a.moveCount || a.label.localeCompare(b.label))
 
-  return { moves, cellLeaderboard }
+  return { moves, deptLeaderboard }
 }
 
 function moveLeftFixedColumn(move: ShopTvStatusMove, column: ShopTvColumnDef): boolean {

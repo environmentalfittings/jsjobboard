@@ -20,7 +20,7 @@ import {
   countMovedOutToday,
   parseShopTvStatusMoves,
   valveMatchesTvColumn,
-  type ShopTvCellMoveRow,
+  type ShopTvDeptMoveRow,
   type ShopTvStatusMove,
 } from '../lib/shopTvBoard'
 import { supabase } from '../lib/supabase'
@@ -207,7 +207,7 @@ export function ShopTvBoardPage() {
   const [valves, setValves] = useState<Valve[]>([])
   const [priorityQueueIds, setPriorityQueueIds] = useState<string[]>([])
   const [movesToday, setMovesToday] = useState<ShopTvStatusMove[]>([])
-  const [cellLeaderboard, setCellLeaderboard] = useState<ShopTvCellMoveRow[]>([])
+  const [deptLeaderboard, setDeptLeaderboard] = useState<ShopTvDeptMoveRow[]>([])
   const [loading, setLoading] = useState(true)
   const [savingPriority, setSavingPriority] = useState(false)
   const [fullscreen, setFullscreen] = useState(false)
@@ -238,7 +238,7 @@ export function ShopTvBoardPage() {
       setValves([])
       setPriorityQueueIds([])
       setMovesToday([])
-      setCellLeaderboard([])
+      setDeptLeaderboard([])
       setLoading(false)
       return
     }
@@ -257,13 +257,13 @@ export function ShopTvBoardPage() {
 
     if (todayRes.error) {
       setMovesToday([])
-      setCellLeaderboard([])
+      setDeptLeaderboard([])
     } else {
       const parsed = parseShopTvStatusMoves(
         (todayRes.data ?? []) as Parameters<typeof parseShopTvStatusMoves>[0],
       )
       setMovesToday(parsed.moves)
-      setCellLeaderboard(parsed.cellLeaderboard)
+      setDeptLeaderboard(parsed.deptLeaderboard)
     }
     setLoading(false)
   }, [showToast])
@@ -325,9 +325,9 @@ export function ShopTvBoardPage() {
     })
   }, [valves, priorityQueueIds, priorityOnly, priorityRank, columnRestOrder, movesToday])
 
-  const maxCellMoveCount = useMemo(
-    () => cellLeaderboard.reduce((max, row) => Math.max(max, row.moveCount), 0),
-    [cellLeaderboard],
+  const maxDeptMoveCount = useMemo(
+    () => deptLeaderboard.reduce((max, row) => Math.max(max, row.moveCount), 0),
+    [deptLeaderboard],
   )
 
   const movePriorityInColumn = useCallback(
@@ -515,34 +515,36 @@ export function ShopTvBoardPage() {
         </div>
       </header>
 
-      <section className="shop-tv-leaderboard" aria-label="Most status moves by finish cell today">
+      <section className="shop-tv-leaderboard" aria-label="Most status moves by department today">
         <div className="shop-tv-leaderboard-head">
-          <h3 className="shop-tv-leaderboard-title">Today&apos;s cell moves</h3>
-          <p className="shop-tv-leaderboard-sub">Which finish cell moved the most jobs today</p>
+          <h3 className="shop-tv-leaderboard-title">Today&apos;s department moves</h3>
+          <p className="shop-tv-leaderboard-sub">
+            Teardown · Welding · Machine shop · Testing · Painting · PRV — everything else by finish cell
+          </p>
         </div>
-        {loading && cellLeaderboard.length === 0 ? (
+        {loading && deptLeaderboard.length === 0 ? (
           <p className="shop-tv-leaderboard-empty">Loading…</p>
-        ) : cellLeaderboard.length === 0 ? (
+        ) : deptLeaderboard.length === 0 ? (
           <p className="shop-tv-leaderboard-empty">No status moves logged yet today.</p>
         ) : (
           <ol className="shop-tv-leaderboard-list">
-            {cellLeaderboard.slice(0, 12).map((row, index) => {
+            {deptLeaderboard.slice(0, 12).map((row, index) => {
               const widthPct =
-                maxCellMoveCount > 0 ? Math.round((row.moveCount / maxCellMoveCount) * 100) : 0
-              const tone = finishCellTone(row.cell)
+                maxDeptMoveCount > 0 ? Math.round((row.moveCount / maxDeptMoveCount) * 100) : 0
+              const tone = row.kind === 'finish-cell' ? finishCellTone(row.cell) : null
               const barStyle = tone
                 ? { width: `${widthPct}%`, background: tone.background }
                 : { width: `${widthPct}%` }
               return (
-                <li key={row.cell} className={`shop-tv-leaderboard-row${index === 0 ? ' is-leader' : ''}`}>
+                <li key={row.id} className={`shop-tv-leaderboard-row${index === 0 ? ' is-leader' : ''}`}>
                   <span className="shop-tv-leaderboard-rank">{index + 1}</span>
                   <div className="shop-tv-leaderboard-main">
                     <div className="shop-tv-leaderboard-name-row">
                       <span className="shop-tv-leaderboard-name">
-                        {row.cell === 'Unassigned' ? (
-                          'Unassigned'
-                        ) : (
+                        {row.kind === 'finish-cell' && row.cell && row.cell !== 'Unassigned' ? (
                           <FinishCellBadge cell={row.cell} />
+                        ) : (
+                          row.label
                         )}
                       </span>
                       <span className="shop-tv-leaderboard-count">
