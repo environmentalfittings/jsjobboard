@@ -135,9 +135,18 @@ function OutsourcedFieldsGrid({
           type="date"
           className="outsourced-table-input"
           value={toDateInputValue(value.date_received)}
-          disabled={disabled || busy || value.status !== 'received'}
-          title={value.status === 'received' ? undefined : 'Set status to Received to enter date'}
-          onChange={(e) => set('date_received', e.target.value || null)}
+          disabled={disabled || busy}
+          title="Enter a date to mark this item received"
+          onChange={(e) => {
+            const nextDate = e.target.value || null
+            if (nextDate) {
+              onChange({ ...value, date_received: nextDate, status: 'received' })
+            } else if (value.status === 'received') {
+              onChange({ ...value, date_received: null, status: 'shipped' })
+            } else {
+              set('date_received', null)
+            }
+          }}
         />
       </label>
       <label className="outsourced-field">
@@ -336,21 +345,30 @@ export function ValveOutsourcedItemsPanel({ valveRowId, disabled }: ValveOutsour
   const handleQuickStatusChange = async (row: ValveOutsourcedItem, nextStatus: ValveOutsourcedItemStatus) => {
     if (disabled || busy || row.status === nextStatus) return
     const next = applyOutsourcedStatusChange(inputFromOutsourcedItem(row), nextStatus)
-    if (nextStatus === 'received' && !next.date_received) {
-      showToast('Enter the date received')
-      startEdit({ ...row, status: nextStatus })
-      return
-    }
     setBusy(true)
     try {
       await updateValveOutsourcedItem(row.id, next)
-      showToast(`Status set to ${outsourcedStatusLabel(nextStatus)}`)
+      showToast(
+        nextStatus === 'received'
+          ? `Marked received ${toDateInputValue(next.date_received)}`
+          : `Status set to ${outsourcedStatusLabel(nextStatus)}`,
+      )
       await load()
     } catch (error) {
-      showToast(error instanceof Error ? error.message : 'Could not update status')
+      const message = error instanceof Error ? error.message : 'Could not update status'
+      if (/column .* does not exist|Could not find the/i.test(message)) {
+        showToast('Run migration-valve-outsourced-items.sql in Supabase, then try again')
+      } else {
+        showToast(message)
+      }
     } finally {
       setBusy(false)
     }
+  }
+
+  const markReceived = async (row: ValveOutsourcedItem) => {
+    if (disabled || busy || row.status === 'received') return
+    await handleQuickStatusChange(row, 'received')
   }
 
   const handleDelete = async (row: ValveOutsourcedItem) => {
@@ -460,6 +478,16 @@ export function ValveOutsourcedItemsPanel({ valveRowId, disabled }: ValveOutsour
                 </div>
                 {!disabled ? (
                   <div className="outsourced-row-actions">
+                    {row.status !== 'received' ? (
+                      <button
+                        type="button"
+                        className="button-primary outsourced-table-btn"
+                        disabled={busy}
+                        onClick={() => void markReceived(row)}
+                      >
+                        Mark received
+                      </button>
+                    ) : null}
                     <button type="button" className="button-secondary outsourced-table-btn" disabled={busy} onClick={() => startEdit(row)}>
                       Edit
                     </button>
