@@ -445,7 +445,7 @@ export function ReportsPage() {
         <h3>On-time delivery</h3>
         <p className="placeholder-copy">
           Percentage of completed jobs closed on or before their due date. Jobs with no due date are excluded from
-          percentage calculations. Not Arrived / Waiting on Arrival (not received) jobs do not count against on-time
+          percentage calculations. On Hold and Not Arrived / Waiting on Arrival jobs do not count against on-time
           delivery.
         </p>
         <div className="report-filters">

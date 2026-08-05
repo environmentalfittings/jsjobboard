@@ -4,10 +4,11 @@ type OtdEligibility = {
 }
 
 /**
- * Valves the shop never received yet should not count against on-time delivery
+ * Valves that should not count against on-time delivery
  * (Reports OTD, late-job KPIs, or overdue urgency).
  *
- * Shop status is "Not Arrived"; order type "Waiting on Arrival" is the same idea.
+ * - Not Arrived / Waiting on Arrival — shop never received the valve
+ * - On Hold / On-Hold — paused work should not hurt OTD while held
  */
 export function isExcludedFromOnTimeDelivery(valve: OtdEligibility | null | undefined): boolean {
   if (!valve) return false
@@ -16,6 +17,18 @@ export function isExcludedFromOnTimeDelivery(valve: OtdEligibility | null | unde
   if (status === 'Not Arrived') return true
   if (/^not\s+(arrived|received)$/i.test(status)) return true
   if (orderType === 'Waiting on Arrival') return true
+  if (isOnHoldForMetrics(valve)) return true
+  return false
+}
+
+/** Shop status On Hold or order type On-Hold. */
+export function isOnHoldForMetrics(valve: OtdEligibility | null | undefined): boolean {
+  if (!valve) return false
+  const status = String(valve.status ?? '').trim()
+  const orderType = String(valve.order_type ?? '').trim()
+  if (status === 'On Hold') return true
+  if (/^on[-\s]?hold$/i.test(status)) return true
+  if (orderType === 'On-Hold') return true
   return false
 }
 

@@ -9,6 +9,7 @@ import {
   latestStatusEnteredAtByWo,
   localTodayBounds,
   localTodayDateString,
+  overdueOnHoldInShop,
   parseStatusMovesFromChangeLog,
   type LateJobRow,
   type MoverLeaderboardRow,
@@ -106,6 +107,7 @@ export function ManagerDashboardPage() {
   const kpis = useMemo(() => calcDashboardKpis(valves), [valves])
   const inShopCount = useMemo(() => valves.filter((v) => isActiveShopWork(v)).length, [valves])
   const lateJobs: LateJobRow[] = useMemo(() => lateJobsInShop(valves), [valves])
+  const overdueOnHold: LateJobRow[] = useMemo(() => overdueOnHoldInShop(valves), [valves])
 
   const dwellSample = useMemo(() => {
     return valves
@@ -150,12 +152,18 @@ export function ManagerDashboardPage() {
         <div className="kpi-card">
           <span className="kpi-label">Late jobs</span>
           <div className="kpi-number amber">{loading ? '—' : lateJobs.length}</div>
-          <span className="kpi-sublabel">Past due, still open</span>
+          <span className="kpi-sublabel">Past due (excl. hold / not arrived)</span>
         </div>
         <div className="kpi-card">
-          <span className="kpi-label">In-process</span>
-          <div className="kpi-number slate">{loading ? '—' : kpis.inProcess}</div>
-          <span className="kpi-sublabel">Order type</span>
+          <span className="kpi-label">On hold</span>
+          <div className="kpi-number slate">{loading ? '—' : kpis.onHold}</div>
+          <span className="kpi-sublabel">
+            {loading
+              ? 'Does not count against OTD'
+              : overdueOnHold.length > 0
+                ? `${overdueOnHold.length} past due · excluded from late`
+                : 'Does not count against OTD'}
+          </span>
         </div>
       </div>
 
@@ -196,35 +204,48 @@ export function ManagerDashboardPage() {
             <p className="placeholder-copy">Loading…</p>
           ) : lateJobs.length === 0 ? (
             <p className="placeholder-copy">
-              No late open jobs. Not Arrived / Waiting on Arrival (not received) are excluded from on-time delivery.
+              No late open jobs. On Hold and Not Arrived / Waiting on Arrival do not count against on-time delivery
+              {overdueOnHold.length > 0 ? ` (${overdueOnHold.length} past-due on hold excluded)` : ''}.
             </p>
           ) : (
-            <div className="dashboard-table-wrap manager-dashboard-scroll">
-              <table className="dashboard-table">
-                <thead>
-                  <tr>
-                    <th>WO #</th>
-                    <th>Customer</th>
-                    <th>Status</th>
-                    <th>Cell</th>
-                    <th>Due</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {lateJobs.map((row) => (
-                    <tr key={row.valveRowId}>
-                      <td>
-                        <Link to={`/job-board?open=${row.valveRowId}`}>{row.valve_id}</Link>
-                      </td>
-                      <td>{row.customer ?? '—'}</td>
-                      <td>{row.status}</td>
-                      <td>{row.cell ?? '—'}</td>
-                      <td className="due-date-overdue">{row.due_date}</td>
+            <>
+              {overdueOnHold.length > 0 ? (
+                <p className="placeholder-copy resources-hint">
+                  {overdueOnHold.length} past-due on-hold job{overdueOnHold.length === 1 ? '' : 's'} excluded from this
+                  list and from on-time delivery.
+                </p>
+              ) : (
+                <p className="placeholder-copy resources-hint">
+                  On Hold and Not Arrived jobs are excluded from on-time delivery.
+                </p>
+              )}
+              <div className="dashboard-table-wrap manager-dashboard-scroll">
+                <table className="dashboard-table">
+                  <thead>
+                    <tr>
+                      <th>WO #</th>
+                      <th>Customer</th>
+                      <th>Status</th>
+                      <th>Cell</th>
+                      <th>Due</th>
                     </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
+                  </thead>
+                  <tbody>
+                    {lateJobs.map((row) => (
+                      <tr key={row.valveRowId}>
+                        <td>
+                          <Link to={`/job-board?open=${row.valveRowId}`}>{row.valve_id}</Link>
+                        </td>
+                        <td>{row.customer ?? '—'}</td>
+                        <td>{row.status}</td>
+                        <td>{row.cell ?? '—'}</td>
+                        <td className="due-date-overdue">{row.due_date}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </>
           )}
         </section>
       </div>

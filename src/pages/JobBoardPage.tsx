@@ -19,7 +19,7 @@ import {
 import { parseAssignedTechnicianIds } from '../lib/valveTechnicianIds'
 import { fetchAllValves } from '../lib/fetchAllValves'
 import { displayJobStatus, isActiveOrderType, isActiveShopWork, isClosedWorkOrder } from '../lib/jobDisplayStatus'
-import { countsAgainstOnTimeDelivery } from '../lib/onTimeDelivery'
+import { countsAgainstOnTimeDelivery, isOnHoldForMetrics } from '../lib/onTimeDelivery'
 import { valveStatusPatch } from '../lib/valveStatusPatch'
 import {
   compareValvesBySort,
@@ -89,7 +89,7 @@ function isDueDateOverdue(raw: string | null): boolean {
   return label < todayIso
 }
 
-/** Overdue for OTD / urgency — Not Arrived (not received) does not count. */
+/** Overdue for OTD / urgency — Not Arrived and On Hold do not count. */
 function isDeliveryOverdue(valve: Valve): boolean {
   return countsAgainstOnTimeDelivery(valve) && isDueDateOverdue(valve.due_date)
 }
@@ -688,7 +688,7 @@ export function JobBoardPage({ role, username }: { role?: UserRole; username?: s
         scopeFilter === 'all' ||
         scopeFilter === 'closed' ||
         (scopeFilter === 'in-process' && v.order_type === 'In-Process Order') ||
-        (scopeFilter === 'on-hold' && v.order_type === 'On-Hold') ||
+        (scopeFilter === 'on-hold' && isOnHoldForMetrics(v)) ||
         (scopeFilter === 'waiting-on-arrival' && v.order_type === 'Waiting on Arrival') ||
         (scopeFilter === 'on-order' && isActiveOrderType(v.order_type)) ||
         (scopeFilter === 'ready-to-ship' && v.status === 'Warehouse RTS') ||
