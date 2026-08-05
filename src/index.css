@@ -8144,6 +8144,57 @@ tbody tr:hover {
   overflow-wrap: anywhere;
 }
 
+.outsourced-field-label-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 4px 8px;
+}
+
+.outsourced-field-label-row > span {
+  font-size: 0.66rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  color: #64748b;
+}
+
+.outsourced-field--vendor {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+}
+
+.outsourced-add-vendor-toggle {
+  border: none;
+  background: transparent;
+  color: #2563eb;
+  font: inherit;
+  font-size: 0.72rem;
+  font-weight: 700;
+  cursor: pointer;
+  padding: 0;
+}
+
+.outsourced-add-vendor-toggle:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.outsourced-add-vendor-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+  margin-top: 4px;
+}
+
+.outsourced-add-vendor-row .outsourced-table-input {
+  flex: 1 1 140px;
+}
+
 .outsourced-field--wide {
   grid-column: span 2;
 }
