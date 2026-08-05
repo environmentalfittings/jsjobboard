@@ -8063,6 +8063,196 @@ tbody tr:hover {
   padding-bottom: 8px;
 }
 
+.outsourced-items-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.outsourced-items-panel-hdr {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.outsourced-items-title {
+  margin: 0 0 4px;
+  font-size: 1.05rem;
+  font-weight: 800;
+  color: #0f172a;
+}
+
+.outsourced-items-hint {
+  margin: 0;
+  font-size: 0.85rem;
+  color: #64748b;
+  line-height: 1.4;
+}
+
+.outsourced-items-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.outsourced-item-card {
+  background: #fff;
+  border: 1px solid #e2e8f0;
+  border-radius: 10px;
+  padding: 12px 14px;
+}
+
+.outsourced-item-card--form {
+  background: #f8fafc;
+}
+
+.outsourced-item-card-top {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 10px;
+}
+
+.outsourced-item-name {
+  font-size: 0.98rem;
+  font-weight: 700;
+  color: #0f172a;
+}
+
+.outsourced-item-meta {
+  margin-top: 2px;
+  font-size: 0.82rem;
+  color: #64748b;
+}
+
+.outsourced-item-card-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.outsourced-item-dl {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px 14px;
+  margin: 0;
+}
+
+.outsourced-item-dl > div {
+  min-width: 0;
+}
+
+.outsourced-item-dl-span {
+  grid-column: 1 / -1;
+}
+
+.outsourced-item-dl dt {
+  margin: 0;
+  font-size: 0.68rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: #94a3b8;
+}
+
+.outsourced-item-dl dd {
+  margin: 2px 0 0;
+  font-size: 0.9rem;
+  color: #0f172a;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.outsourced-item-form-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px 12px;
+}
+
+.outsourced-item-form-span {
+  grid-column: 1 / -1;
+}
+
+.outsourced-item-form .modal-label {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin: 0;
+}
+
+.outsourced-item-form-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.outsourced-item-status-control {
+  margin: 0;
+}
+
+.outsourced-item-status-select {
+  min-width: 8.5rem;
+  padding: 6px 10px;
+  border: 1px solid #cbd5e1;
+  border-radius: 999px;
+  background: #f8fafc;
+  color: #0f172a;
+  font: inherit;
+  font-size: 0.82rem;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.outsourced-item-status-select--not_shipped {
+  background: #f1f5f9;
+  border-color: #94a3b8;
+  color: #334155;
+}
+
+.outsourced-item-status-select--shipped {
+  background: #eff6ff;
+  border-color: #93c5fd;
+  color: #1d4ed8;
+}
+
+.outsourced-item-status-select--received {
+  background: #ecfdf5;
+  border-color: #6ee7b7;
+  color: #047857;
+}
+
+.outsourced-item-card--received {
+  border-color: #a7f3d0;
+}
+
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+@media (max-width: 640px) {
+  .outsourced-item-form-grid,
+  .outsourced-item-dl {
+    grid-template-columns: 1fr;
+  }
+}
+
 .job-card-section-head {
   display: flex;
   flex-wrap: wrap;

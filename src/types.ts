@@ -56,6 +56,23 @@ export interface ValveAttachment {
   created_at: string
 }
 
+export interface ValveOutsourcedItem {
+  id: number
+  valve_row_id: number
+  status: ValveOutsourcedItemStatus
+  date_shipped: string | null
+  expected_date_back: string | null
+  date_received: string | null
+  netsuite_po_number: string | null
+  vendor: string | null
+  item_shipped: string | null
+  work_description: string | null
+  created_at: string
+  updated_at: string
+}
+
+export type ValveOutsourcedItemStatus = 'not_shipped' | 'shipped' | 'received'
+
 export interface Technician {
   id: number
   name: string
