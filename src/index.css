@@ -8292,6 +8292,13 @@ tbody tr:hover {
   flex: 1 1 160px;
 }
 
+.outsourced-chip--item {
+  flex: 1 1 140px;
+  font-weight: 600;
+  background: #eff6ff;
+  border-color: #bfdbfe;
+}
+
 .outsourced-chip--full {
   flex: 1 1 100%;
 }

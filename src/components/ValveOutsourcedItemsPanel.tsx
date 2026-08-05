@@ -81,6 +81,17 @@ function OutsourcedFieldsGrid({
 
   return (
     <div className="outsourced-fields-grid">
+      <label className="outsourced-field outsourced-field--wide">
+        <span>Item shipped</span>
+        <input
+          type="text"
+          className="outsourced-table-input"
+          value={value.item_shipped}
+          disabled={disabled || busy}
+          placeholder="What was sent out"
+          onChange={(e) => set('item_shipped', e.target.value)}
+        />
+      </label>
       <label className="outsourced-field">
         <span>Status</span>
         <select
@@ -198,17 +209,6 @@ function OutsourcedFieldsGrid({
           </div>
         ) : null}
       </div>
-      <label className="outsourced-field outsourced-field--wide">
-        <span>Item shipped</span>
-        <input
-          type="text"
-          className="outsourced-table-input"
-          value={value.item_shipped}
-          disabled={disabled || busy}
-          placeholder="What was sent out"
-          onChange={(e) => set('item_shipped', e.target.value)}
-        />
-      </label>
       <label className="outsourced-field outsourced-field--full">
         <span>Work to be done</span>
         <textarea
@@ -423,6 +423,9 @@ export function ValveOutsourcedItemsPanel({ valveRowId, disabled }: ValveOutsour
             ) : (
               <>
                 <div className="outsourced-row-summary">
+                  <span className="outsourced-chip outsourced-chip--item">
+                    <strong>Item</strong> {row.item_shipped?.trim() || '—'}
+                  </span>
                   <select
                     className={`outsourced-table-input outsourced-table-status outsourced-table-status--${row.status}`}
                     value={row.status}
@@ -450,9 +453,6 @@ export function ValveOutsourcedItemsPanel({ valveRowId, disabled }: ValveOutsour
                   </span>
                   <span className="outsourced-chip">
                     <strong>Vendor</strong> {row.vendor?.trim() || '—'}
-                  </span>
-                  <span className="outsourced-chip outsourced-chip--grow">
-                    <strong>Item</strong> {row.item_shipped?.trim() || '—'}
                   </span>
                   <span className="outsourced-chip outsourced-chip--full">
                     <strong>Work</strong> {row.work_description?.trim() || '—'}
