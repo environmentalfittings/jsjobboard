@@ -12,6 +12,12 @@ import { buildTestLogEntryHref } from '../lib/testLogEntryPrefill'
 import { type JobCardSaveFields, toDateInputValue } from '../lib/jobCardSave'
 import { supabase } from '../lib/supabase'
 import { openValveTicketPdfForPrint } from '../lib/valveTicketPrint'
+import {
+  formatOutsourcedExpectedLabel,
+  listValveOutsourcedItems,
+  summarizeOutsourcedItemsForCard,
+  type OutsourcedCardSummary,
+} from '../lib/valveOutsourcedItems'
 import type { Technician, TestLogEntry, Valve } from '../types'
 import { ValveAttachmentsPanel } from './ValveAttachmentsPanel'
 import { ValveOutsourcedItemsPanel } from './ValveOutsourcedItemsPanel'
@@ -21,10 +27,10 @@ export type JobCardTab = 'summary' | 'details' | 'itp' | 'test-log' | 'photos' |
 const JOB_CARD_TABS: { id: JobCardTab; label: string }[] = [
   { id: 'summary', label: 'Summary' },
   { id: 'details', label: 'Details' },
+  { id: 'outsourced', label: 'Outsourced parts' },
   { id: 'itp', label: 'ITP' },
   { id: 'test-log', label: 'Test Log' },
   { id: 'photos', label: 'Photos' },
-  { id: 'outsourced', label: 'Outsourced items' },
   { id: 'notes', label: 'Notes' },
 ]
 
@@ -163,14 +169,39 @@ export function StatusChangeModal({
   const [orderTypeOptions, setOrderTypeOptions] = useState<string[]>([])
   const [testTypeOptions, setTestTypeOptions] = useState<string[]>([])
   const [customers, setCustomers] = useState<{ id: number; name: string }[]>([])
+  const [outsourcedSummary, setOutsourcedSummary] = useState<Omit<OutsourcedCardSummary, 'valveRowId'> | null>(null)
   const { showToast } = useToast()
   const travelerValveId = (valve.valve_id ?? '').trim()
   const assignedTechKey = useMemo(() => assignedTechnicianIds.slice().sort((a, b) => a - b).join(','), [assignedTechnicianIds])
+
+  const refreshOutsourcedSummary = async () => {
+    try {
+      const rows = await listValveOutsourcedItems(valve.id)
+      setOutsourcedSummary(summarizeOutsourcedItemsForCard(rows))
+    } catch {
+      setOutsourcedSummary(null)
+    }
+  }
 
   useEffect(() => {
     setIsMaximized(forceMaximized)
     setActiveTab(initialTab)
   }, [valve.id, forceMaximized, initialTab])
+
+  useEffect(() => {
+    let cancelled = false
+    void (async () => {
+      try {
+        const rows = await listValveOutsourcedItems(valve.id)
+        if (!cancelled) setOutsourcedSummary(summarizeOutsourcedItemsForCard(rows))
+      } catch {
+        if (!cancelled) setOutsourcedSummary(null)
+      }
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [valve.id])
 
   useEffect(() => {
     let cancelled = false
@@ -792,6 +823,47 @@ export function StatusChangeModal({
 
               <div className="job-card-panel">
                 <div className="job-card-panel-head">
+                  <span className="job-card-panel-title">Outsourced parts</span>
+                </div>
+                <div className="job-card-panel-body">
+                  {outsourcedSummary ? (
+                    <button
+                      type="button"
+                      className={`job-card-outsourced job-card-outsourced--${outsourcedSummary.tone} job-card-outsourced--in-modal`}
+                      onClick={() => setActiveTab('outsourced')}
+                    >
+                      <span className="job-card-outsourced-label">Outsourced parts</span>
+                      {outsourcedSummary.tone === 'received' ? (
+                        <span className="job-card-outsourced-meta">All received</span>
+                      ) : formatOutsourcedExpectedLabel(outsourcedSummary.latestExpectedBack) ? (
+                        <span className="job-card-outsourced-meta">
+                          Expect by {formatOutsourcedExpectedLabel(outsourcedSummary.latestExpectedBack)}
+                          {outsourcedSummary.openCount > 1 ? ` · ${outsourcedSummary.openCount} open` : ''}
+                        </span>
+                      ) : (
+                        <span className="job-card-outsourced-meta">
+                          {outsourcedSummary.openCount} open · open details
+                        </span>
+                      )}
+                    </button>
+                  ) : (
+                    <div className="job-card-priority-inline">
+                      <span className="job-card-muted">No outsourced parts logged for this job yet.</span>
+                      <button
+                        type="button"
+                        className="button-secondary"
+                        onClick={() => setActiveTab('outsourced')}
+                        disabled={isSaving}
+                      >
+                        Add outsourced parts
+                      </button>
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              <div className="job-card-panel">
+                <div className="job-card-panel-head">
                   <span className="job-card-panel-title">Valve info</span>
                 </div>
                 <div className="job-card-panel-row">
@@ -1244,7 +1316,10 @@ export function StatusChangeModal({
               <ValveOutsourcedItemsPanel
                 valveRowId={valve.id}
                 disabled={isSaving || !canEditJobDetails}
-                onListChange={onOutsourcedChanged}
+                onListChange={() => {
+                  onOutsourcedChanged?.()
+                  void refreshOutsourcedSummary()
+                }}
               />
             </div>
           ) : null}

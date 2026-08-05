@@ -7490,6 +7490,10 @@ a.test-log-reports-item-name:hover {
   color: #166534;
 }
 
+.job-card-outsourced--in-modal {
+  margin-top: 0;
+}
+
 .job-card-due-date--editable {
   align-items: flex-start;
 }
