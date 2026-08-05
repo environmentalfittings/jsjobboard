@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { useToast } from '../components/ToastNotification'
+import { ItpTemplateBuilderPanel } from '../components/ItpTemplateBuilderPanel'
 import { ValveTypeProceduresPanel } from '../components/ValveTypeProceduresPanel'
 import { JOB_TYPES, normalizeJobType } from '../constants/jobTypes'
 import { LOOKUP_CATEGORY_DEFS, type LookupCategory } from '../constants/lookupCategories'
@@ -31,7 +32,15 @@ import {
 import type { LookupValueRow } from '../lib/lookupValues'
 import { supabase } from '../lib/supabase'
 
-type Tab = 'lookups' | 'customers' | 'itpTemplates' | 'valveTypes' | 'flangeThickness' | 'b1610' | 'b1634'
+type Tab =
+  | 'lookups'
+  | 'customers'
+  | 'itpTemplates'
+  | 'itpTemplateBuilder'
+  | 'valveTypes'
+  | 'flangeThickness'
+  | 'b1610'
+  | 'b1634'
 
 type CustomerRow = CustomerSalesRepRow
 type ItpTemplateRow = {
@@ -918,6 +927,15 @@ export function AdminListsPage() {
         <button
           type="button"
           role="tab"
+          aria-selected={tab === 'itpTemplateBuilder'}
+          className={`admin-lists-tab ${tab === 'itpTemplateBuilder' ? 'active' : ''}`}
+          onClick={() => setTab('itpTemplateBuilder')}
+        >
+          ITP template builder
+        </button>
+        <button
+          type="button"
+          role="tab"
           aria-selected={tab === 'customers'}
           className={`admin-lists-tab ${tab === 'customers' ? 'active' : ''}`}
           onClick={() => setTab('customers')}
@@ -1078,6 +1096,8 @@ export function AdminListsPage() {
           )}
         </section>
       )}
+
+      {tab === 'itpTemplateBuilder' && <ItpTemplateBuilderPanel />}
 
       {tab === 'itpTemplates' && (
         <section className="dashboard-panel admin-lists-panel">

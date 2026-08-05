@@ -40,9 +40,9 @@ import {
   qualityTeamLevelLabel,
   type QualityTeamLevel,
 } from '../types/employees'
+import { applyLibraryTemplateAsync } from '../lib/itpLibraryTemplates'
 import {
   allScopeItems,
-  applyLibraryTemplate,
   emptyItemExec,
   emptyItemSel,
   emptyQcReview,
@@ -893,10 +893,21 @@ export function ItpLibraryEditor({ valve, onClose, readOnly = false }: ItpLibrar
 
   const reapplyTemplate = () => {
     if (!canEditScope || !plan) return
-    if (!window.confirm('Re-apply the template for this job/valve type? Existing selections stay; template items will be included.')) {
+    if (
+      !window.confirm(
+        'Re-apply the template for this job/valve type? Existing selections stay; template items will be included. Uses the Manage lists ITP template builder when one is saved for this valve type.',
+      )
+    ) {
       return
     }
-    updatePlan((prev) => applyLibraryTemplate(prev))
+    void (async () => {
+      try {
+        const next = await applyLibraryTemplateAsync(plan)
+        updatePlan(() => next)
+      } catch (error) {
+        showToast(error instanceof Error ? error.message : 'Could not re-apply template')
+      }
+    })()
   }
 
   if (loading) {
