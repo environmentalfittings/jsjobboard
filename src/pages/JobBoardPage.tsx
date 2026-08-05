@@ -5,7 +5,7 @@ import { DueDateChangeModal } from '../components/DueDateChangeModal'
 import { StatusBadge } from '../components/StatusBadge'
 import { FinishCellBadge } from '../components/FinishCellBadge'
 import { TechnicianAvatars } from '../components/TechnicianAvatars'
-import { StatusChangeModal } from '../components/StatusChangeModal'
+import { StatusChangeModal, type JobCardTab } from '../components/StatusChangeModal'
 import { useToast } from '../components/ToastNotification'
 import { normalizeJobType } from '../constants/jobTypes'
 import { ColumnFilterCombobox } from '../components/ColumnFilterCombobox'
@@ -20,6 +20,11 @@ import { parseAssignedTechnicianIds } from '../lib/valveTechnicianIds'
 import { fetchAllValves } from '../lib/fetchAllValves'
 import { displayJobStatus, isActiveOrderType, isActiveShopWork, isClosedWorkOrder } from '../lib/jobDisplayStatus'
 import { countsAgainstOnTimeDelivery, isOnHoldForMetrics } from '../lib/onTimeDelivery'
+import {
+  formatOutsourcedExpectedLabel,
+  loadOutsourcedCardSummaries,
+  type OutsourcedCardSummary,
+} from '../lib/valveOutsourcedItems'
 import { valveStatusPatch } from '../lib/valveStatusPatch'
 import {
   compareValvesBySort,
@@ -191,8 +196,9 @@ interface KanbanJobCardProps {
   phaseKey: PhaseKey
   priorityIds: Set<string>
   attachmentCounts: Record<number, number>
+  outsourcedSummaries: Record<number, OutsourcedCardSummary>
   techniciansById: Map<number, Technician>
-  onOpen: (v: Valve) => void
+  onOpen: (v: Valve, tab?: JobCardTab) => void
   onStatusChange: (v: Valve, nextStatus: string) => void | Promise<void>
   onEditDueDate: (v: Valve) => void
   onQuickReceive: (v: Valve) => void | Promise<void>
@@ -213,6 +219,7 @@ function KanbanJobCard({
   phaseKey,
   priorityIds,
   attachmentCounts,
+  outsourcedSummaries,
   techniciansById,
   onOpen,
   onStatusChange,
@@ -240,6 +247,10 @@ function KanbanJobCard({
   const isInTesting = valve.status === 'Testing'
   const testedDateLabel = formatShortDate(valve.date_tested)
   const showTestedBadge = Boolean(testedDateLabel) && !isInTesting
+  const outsourced = outsourcedSummaries[valve.id]
+  const outsourcedExpectedLabel = outsourced
+    ? formatOutsourcedExpectedLabel(outsourced.latestExpectedBack)
+    : null
   return (
     <div
       className={`job-card${urgencyClass}${isInTesting ? ' job-card-in-testing' : ''}${showTestedBadge ? ' job-card-was-tested' : ''} ${priorityIds.has(valve.valve_id) ? 'priority' : ''}`}
@@ -366,6 +377,37 @@ function KanbanJobCard({
           <span className="job-card-overdue-badge">Overdue</span>
         ) : null}
       </div>
+        {outsourced ? (
+          <button
+            type="button"
+            className={`job-card-outsourced job-card-outsourced--${outsourced.tone}`}
+            title={
+              outsourced.tone === 'received'
+                ? 'All outsourced parts received — open Outsourced items'
+                : outsourced.tone === 'overdue'
+                  ? 'Outsourced parts past expected back date — open Outsourced items'
+                  : 'Outsourced parts outstanding — open Outsourced items'
+            }
+            onClick={(e) => {
+              e.stopPropagation()
+              onOpen(valve, 'outsourced')
+            }}
+          >
+            <span className="job-card-outsourced-label">Outsourced parts</span>
+            {outsourced.tone === 'received' ? (
+              <span className="job-card-outsourced-meta">Received</span>
+            ) : outsourcedExpectedLabel ? (
+              <span className="job-card-outsourced-meta">
+                Expect by {outsourcedExpectedLabel}
+                {outsourced.openCount > 1 ? ` · ${outsourced.openCount} open` : ''}
+              </span>
+            ) : (
+              <span className="job-card-outsourced-meta">
+                {outsourced.openCount} open
+              </span>
+            )}
+          </button>
+        ) : null}
         {(attachmentCounts[valve.id] ?? 0) > 0 ? (
           <div className="job-card-attachments" title="Attachments & photos">
             <span className="job-card-attachments-icon" aria-hidden>
@@ -442,6 +484,8 @@ export function JobBoardPage({ role, username }: { role?: UserRole; username?: s
   const [selectedStatus, setSelectedStatus] = useState('')
   const [isSaving, setIsSaving] = useState(false)
   const [attachmentCounts, setAttachmentCounts] = useState<Record<number, number>>({})
+  const [outsourcedSummaries, setOutsourcedSummaries] = useState<Record<number, OutsourcedCardSummary>>({})
+  const [modalInitialTab, setModalInitialTab] = useState<JobCardTab>('summary')
   const [workOrderQuery, setWorkOrderQuery] = useState('')
   const [descriptionQuery, setDescriptionQuery] = useState('')
   const [selectedWorkOrder, setSelectedWorkOrder] = useState('')
@@ -575,6 +619,15 @@ export function JobBoardPage({ role, username }: { role?: UserRole; username?: s
     setAttachmentCounts(next)
   }, [])
 
+  const loadOutsourcedSummaries = useCallback(async () => {
+    try {
+      const next = await loadOutsourcedCardSummaries()
+      setOutsourcedSummaries(next)
+    } catch {
+      setOutsourcedSummaries({})
+    }
+  }, [])
+
   const loadJobTechnicianAssignments = useCallback(async () => {
     const { data, error } = await supabase.from('job_technicians').select('valve_row_id,technician_id')
     if (error) return
@@ -598,6 +651,7 @@ export function JobBoardPage({ role, username }: { role?: UserRole; username?: s
     }
     setLoading(false)
     void loadAttachmentCounts()
+    void loadOutsourcedSummaries()
   }
 
   useEffect(() => {
@@ -860,7 +914,8 @@ export function JobBoardPage({ role, username }: { role?: UserRole; username?: s
     }
   }, [listRestOrder])
 
-  const openModal = (valve: Valve) => {
+  const openModal = (valve: Valve, tab: JobCardTab = 'summary') => {
+    setModalInitialTab(tab)
     setActiveValve(valve)
     setSelectedStatus(valve.status)
   }
@@ -924,6 +979,7 @@ export function JobBoardPage({ role, username }: { role?: UserRole; username?: s
     setActiveValve(null)
     setSelectedStatus('')
     setIsSaving(false)
+    setModalInitialTab('summary')
     if (isDedicatedDetailRoute) {
       navigate('/job-board', { replace: true })
       return
@@ -1392,6 +1448,7 @@ export function JobBoardPage({ role, username }: { role?: UserRole; username?: s
                       phaseKey={phase.key}
                       priorityIds={priorityIds}
                       attachmentCounts={attachmentCounts}
+                      outsourcedSummaries={outsourcedSummaries}
                       techniciansById={techniciansById}
                       onOpen={openModal}
                       onStatusChange={moveValveToStatus}
@@ -1721,11 +1778,13 @@ export function JobBoardPage({ role, username }: { role?: UserRole; username?: s
           assignedTechnicianId={activeValve.assigned_technician_id ?? null}
           onAssignmentsChanged={loadJobTechnicianAssignments}
           onAttachmentsChanged={loadAttachmentCounts}
+          onOutsourcedChanged={loadOutsourcedSummaries}
           onOpenItp={() => navigate(`/itp/${activeValve.id}`)}
           onOpenFullPage={() => navigate(`/jobs/${activeValve.id}`)}
           onCopy={canCopyJobs ? () => setCopySourceValve(activeValve) : undefined}
           forceMaximized={isDedicatedDetailRoute}
           canEditJobDetails={canWrite}
+          initialTab={modalInitialTab}
         />
       ) : null}
 

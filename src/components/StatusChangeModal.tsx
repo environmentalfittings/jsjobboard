@@ -16,7 +16,7 @@ import type { Technician, TestLogEntry, Valve } from '../types'
 import { ValveAttachmentsPanel } from './ValveAttachmentsPanel'
 import { ValveOutsourcedItemsPanel } from './ValveOutsourcedItemsPanel'
 
-type JobCardTab = 'summary' | 'details' | 'itp' | 'test-log' | 'photos' | 'outsourced' | 'notes'
+export type JobCardTab = 'summary' | 'details' | 'itp' | 'test-log' | 'photos' | 'outsourced' | 'notes'
 
 const JOB_CARD_TABS: { id: JobCardTab; label: string }[] = [
   { id: 'summary', label: 'Summary' },
@@ -90,10 +90,13 @@ interface StatusChangeModalProps {
   assignedTechnicianId?: number | null
   onAssignmentsChanged?: () => void
   onAttachmentsChanged?: () => void
+  onOutsourcedChanged?: () => void
   onOpenItp: () => void
   onOpenFullPage?: () => void
   onCopy?: () => void
   forceMaximized?: boolean
+  /** Open to a specific tab (e.g. outsourced from board badge). */
+  initialTab?: JobCardTab
 }
 
 export function StatusChangeModal({
@@ -109,14 +112,16 @@ export function StatusChangeModal({
   assignedTechnicianId = null,
   onAssignmentsChanged,
   onAttachmentsChanged,
+  onOutsourcedChanged,
   onOpenItp,
   onOpenFullPage,
   onCopy,
   forceMaximized = false,
   canEditJobDetails = true,
+  initialTab = 'summary',
 }: StatusChangeModalProps) {
   const navigate = useNavigate()
-  const [activeTab, setActiveTab] = useState<JobCardTab>('summary')
+  const [activeTab, setActiveTab] = useState<JobCardTab>(initialTab)
   const [description, setDescription] = useState(valve.description ?? '')
   const [notes, setNotes] = useState(valve.notes ?? '')
   const [bowlTypeDraft, setBowlTypeDraft] = useState(valve.bowl_type ?? '')
@@ -164,8 +169,8 @@ export function StatusChangeModal({
 
   useEffect(() => {
     setIsMaximized(forceMaximized)
-    setActiveTab('summary')
-  }, [valve.id, forceMaximized])
+    setActiveTab(initialTab)
+  }, [valve.id, forceMaximized, initialTab])
 
   useEffect(() => {
     let cancelled = false
@@ -1236,7 +1241,11 @@ export function StatusChangeModal({
 
           {activeTab === 'outsourced' ? (
             <div className="job-card-tab-pad">
-              <ValveOutsourcedItemsPanel valveRowId={valve.id} disabled={isSaving || !canEditJobDetails} />
+              <ValveOutsourcedItemsPanel
+                valveRowId={valve.id}
+                disabled={isSaving || !canEditJobDetails}
+                onListChange={onOutsourcedChanged}
+              />
             </div>
           ) : null}
 

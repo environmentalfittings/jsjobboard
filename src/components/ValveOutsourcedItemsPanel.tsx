@@ -20,6 +20,7 @@ import type { ValveOutsourcedItem, ValveOutsourcedItemStatus } from '../types'
 type ValveOutsourcedItemsPanelProps = {
   valveRowId: number
   disabled?: boolean
+  onListChange?: () => void
 }
 
 function isBlankInput(input: ValveOutsourcedItemInput): boolean {
@@ -233,7 +234,7 @@ function OutsourcedFieldsGrid({
   )
 }
 
-export function ValveOutsourcedItemsPanel({ valveRowId, disabled }: ValveOutsourcedItemsPanelProps) {
+export function ValveOutsourcedItemsPanel({ valveRowId, disabled, onListChange }: ValveOutsourcedItemsPanelProps) {
   const { showToast } = useToast()
   const [rows, setRows] = useState<ValveOutsourcedItem[]>([])
   const [vendors, setVendors] = useState<string[]>([])
@@ -269,6 +270,10 @@ export function ValveOutsourcedItemsPanel({ valveRowId, disabled }: ValveOutsour
     void load()
   }, [load])
 
+  const notifyChange = () => {
+    onListChange?.()
+  }
+
   const handleAddVendor = async (vendorName: string) => {
     try {
       const saved = await addLookupValue('vendor', vendorName)
@@ -302,6 +307,7 @@ export function ValveOutsourcedItemsPanel({ valveRowId, disabled }: ValveOutsour
       setDraft(emptyOutsourcedItemInput())
       showToast('Outsourced item added')
       await load()
+      notifyChange()
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Could not save'
       if (/relation .* does not exist|Could not find the table/i.test(message)) {
@@ -335,6 +341,7 @@ export function ValveOutsourcedItemsPanel({ valveRowId, disabled }: ValveOutsour
       setEditingId(null)
       showToast('Outsourced item updated')
       await load()
+      notifyChange()
     } catch (error) {
       showToast(error instanceof Error ? error.message : 'Could not update')
     } finally {
@@ -354,6 +361,7 @@ export function ValveOutsourcedItemsPanel({ valveRowId, disabled }: ValveOutsour
           : `Status set to ${outsourcedStatusLabel(nextStatus)}`,
       )
       await load()
+      notifyChange()
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Could not update status'
       if (/column .* does not exist|Could not find the/i.test(message)) {
@@ -381,6 +389,7 @@ export function ValveOutsourcedItemsPanel({ valveRowId, disabled }: ValveOutsour
       if (editingId === row.id) setEditingId(null)
       showToast('Outsourced item removed')
       await load()
+      notifyChange()
     } catch (error) {
       showToast(error instanceof Error ? error.message : 'Could not delete')
     } finally {

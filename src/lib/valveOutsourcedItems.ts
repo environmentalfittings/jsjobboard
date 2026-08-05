@@ -173,3 +173,107 @@ export async function deleteValveOutsourcedItem(id: number): Promise<void> {
   const { error } = await supabase.from('valve_outsourced_items').delete().eq('id', id)
   if (error) throw error
 }
+
+export type OutsourcedCardTone = 'pending' | 'overdue' | 'received'
+
+export type OutsourcedCardSummary = {
+  valveRowId: number
+  itemCount: number
+  openCount: number
+  receivedCount: number
+  /** Latest expected_date_back among open (not received) items, YYYY-MM-DD */
+  latestExpectedBack: string | null
+  tone: OutsourcedCardTone
+}
+
+function dueDateIso(raw: string | null | undefined): string | null {
+  if (!raw) return null
+  const trimmed = String(raw).trim()
+  const match = /^(\d{4})-(\d{2})-(\d{2})/.exec(trimmed)
+  if (match) return `${match[1]}-${match[2]}-${match[3]}`
+  return null
+}
+
+function localTodayIso(now = new Date()): string {
+  const y = now.getFullYear()
+  const m = String(now.getMonth() + 1).padStart(2, '0')
+  const d = String(now.getDate()).padStart(2, '0')
+  return `${y}-${m}-${d}`
+}
+
+export function summarizeOutsourcedItemsForCard(
+  rows: Array<{ status?: string | null; expected_date_back?: string | null }>,
+  todayIso = localTodayIso(),
+): Omit<OutsourcedCardSummary, 'valveRowId'> | null {
+  if (!rows.length) return null
+
+  let openCount = 0
+  let receivedCount = 0
+  let latestExpectedBack: string | null = null
+  let anyOpenPastExpected = false
+
+  for (const row of rows) {
+    const status = normalizeOutsourcedStatus(row.status)
+    if (status === 'received') {
+      receivedCount += 1
+      continue
+    }
+    openCount += 1
+    const expected = dueDateIso(row.expected_date_back)
+    if (expected && (!latestExpectedBack || expected > latestExpectedBack)) {
+      latestExpectedBack = expected
+    }
+    if (expected && expected < todayIso) {
+      anyOpenPastExpected = true
+    }
+  }
+
+  const tone: OutsourcedCardTone =
+    openCount === 0 ? 'received' : anyOpenPastExpected ? 'overdue' : 'pending'
+
+  return {
+    itemCount: rows.length,
+    openCount,
+    receivedCount,
+    latestExpectedBack,
+    tone,
+  }
+}
+
+/** Board-wide summaries keyed by valve_row_id. Silent if table missing. */
+export async function loadOutsourcedCardSummaries(): Promise<Record<number, OutsourcedCardSummary>> {
+  const { data, error } = await supabase
+    .from('valve_outsourced_items')
+    .select('valve_row_id,status,expected_date_back')
+
+  if (error || !data) return {}
+
+  const byValve = new Map<number, Array<{ status?: string | null; expected_date_back?: string | null }>>()
+  for (const row of data as Array<{
+    valve_row_id: number
+    status?: string | null
+    expected_date_back?: string | null
+  }>) {
+    const id = Number(row.valve_row_id)
+    if (!Number.isFinite(id)) continue
+    const list = byValve.get(id) ?? []
+    list.push(row)
+    byValve.set(id, list)
+  }
+
+  const today = localTodayIso()
+  const out: Record<number, OutsourcedCardSummary> = {}
+  for (const [valveRowId, rows] of byValve) {
+    const summary = summarizeOutsourcedItemsForCard(rows, today)
+    if (summary) out[valveRowId] = { valveRowId, ...summary }
+  }
+  return out
+}
+
+export function formatOutsourcedExpectedLabel(iso: string | null | undefined): string | null {
+  const d = dueDateIso(iso)
+  if (!d) return null
+  const parsed = new Date(`${d}T12:00:00`)
+  if (Number.isNaN(parsed.getTime())) return d
+  return parsed.toLocaleDateString(undefined, { month: 'short', day: 'numeric' })
+}
