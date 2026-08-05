@@ -14,8 +14,9 @@ import { supabase } from '../lib/supabase'
 import { openValveTicketPdfForPrint } from '../lib/valveTicketPrint'
 import type { Technician, TestLogEntry, Valve } from '../types'
 import { ValveAttachmentsPanel } from './ValveAttachmentsPanel'
+import { ValveOutsourcedItemsPanel } from './ValveOutsourcedItemsPanel'
 
-type JobCardTab = 'summary' | 'details' | 'itp' | 'test-log' | 'photos' | 'notes'
+type JobCardTab = 'summary' | 'details' | 'itp' | 'test-log' | 'photos' | 'outsourced' | 'notes'
 
 const JOB_CARD_TABS: { id: JobCardTab; label: string }[] = [
   { id: 'summary', label: 'Summary' },
@@ -23,6 +24,7 @@ const JOB_CARD_TABS: { id: JobCardTab; label: string }[] = [
   { id: 'itp', label: 'ITP' },
   { id: 'test-log', label: 'Test Log' },
   { id: 'photos', label: 'Photos' },
+  { id: 'outsourced', label: 'Outsourced items' },
   { id: 'notes', label: 'Notes' },
 ]
 
@@ -1229,6 +1231,12 @@ export function StatusChangeModal({
                 disabled={isSaving || !canEditJobDetails}
                 onListChange={onAttachmentsChanged}
               />
+            </div>
+          ) : null}
+
+          {activeTab === 'outsourced' ? (
+            <div className="job-card-tab-pad">
+              <ValveOutsourcedItemsPanel valveRowId={valve.id} disabled={isSaving || !canEditJobDetails} />
             </div>
           ) : null}
 

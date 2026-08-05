@@ -21,6 +21,7 @@ export type LookupCategory =
   | 'pressure_class'
   | 'body_material'
   | 'manufacturer'
+  | 'vendor'
 
 export const LOOKUP_CATEGORY_DEFS: readonly {
   key: LookupCategory
@@ -37,4 +38,5 @@ export const LOOKUP_CATEGORY_DEFS: readonly {
   { key: 'finish_cell', label: 'Finish cell', fallback: FINISH_CELLS },
   { key: 'order_type', label: 'Order type', fallback: ORDER_TYPES },
   { key: 'manufacturer', label: 'Manufacturer', fallback: [] },
+  { key: 'vendor', label: 'Vendor', fallback: [] },
 ]
