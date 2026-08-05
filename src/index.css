@@ -14004,6 +14004,20 @@ tbody tr:hover {
   background: #fafbfc;
 }
 
+.itp-library-add-row--top {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  border-top: none;
+  border-bottom: 1px solid var(--itp-lib-border);
+  background: #f3f7fb;
+}
+
+.itp-library-add-row--top .itp-library-add-inp {
+  flex: 1;
+  min-width: 0;
+}
+
 .itp-library-empty {
   flex: 1;
   display: flex;

@@ -377,6 +377,25 @@ export function ItpTemplateBuilderPanel() {
                     </div>
                   </div>
 
+                  <div className="itp-library-add-row itp-library-add-row--top">
+                    <input
+                      className="itp-library-add-inp"
+                      type="text"
+                      placeholder="+ Type an additional step…"
+                      value={customDrafts[section.id] ?? ''}
+                      onChange={(e) => setCustomDrafts((prev) => ({ ...prev, [section.id]: e.target.value }))}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') {
+                          e.preventDefault()
+                          addCustomItem(section.id)
+                        }
+                      }}
+                    />
+                    <button type="button" className="itp-library-add-btn" onClick={() => addCustomItem(section.id)}>
+                      Add
+                    </button>
+                  </div>
+
                   {section.items.map((item) => {
                     const sel = getSel(scope, item.id)
                     return (
@@ -514,41 +533,82 @@ export function ItpTemplateBuilderPanel() {
                           </div>
                         </div>
                         {sel.included ? (
-                          <div className="itp-library-sub-reqs-area">
-                            <label className="itp-library-scope-notes">
-                              Notes
-                              <textarea
-                                rows={2}
-                                value={sel.notes}
-                                placeholder="Add notes for this line…"
-                                onClick={(e) => e.stopPropagation()}
-                                onChange={(e) => updateSel(custom.id, { notes: e.target.value })}
-                              />
-                            </label>
-                          </div>
+                          <>
+                            <div className="itp-library-attr-bar">
+                              <button
+                                type="button"
+                                className={`itp-library-attr-toggle hp${sel.holdPoint ? ' on' : ''}`}
+                                onClick={(e) => {
+                                  e.stopPropagation()
+                                  toggleHoldPoint(custom.id)
+                                }}
+                              >
+                                Hold Point
+                              </button>
+                              <button
+                                type="button"
+                                className={`itp-library-attr-toggle meas${itemRequiresMeasurements(sel) ? ' on' : ''}`}
+                                onClick={(e) => {
+                                  e.stopPropagation()
+                                  toggleRequiresMeasurements(custom.id)
+                                }}
+                              >
+                                Requires Measurements
+                              </button>
+                            </div>
+                            <div className="itp-library-sub-reqs-area">
+                              <label className="itp-library-scope-notes">
+                                Notes
+                                <textarea
+                                  rows={2}
+                                  value={sel.notes}
+                                  placeholder="Add notes for this line…"
+                                  onClick={(e) => e.stopPropagation()}
+                                  onChange={(e) => updateSel(custom.id, { notes: e.target.value })}
+                                />
+                              </label>
+                              {sel.subReqs.map((sr, idx) => (
+                                <div key={`${custom.id}-sr-${idx}`} className="itp-library-sub-req-row">
+                                  <span>• {sr}</span>
+                                  <button
+                                    type="button"
+                                    className="itp-library-sr-del"
+                                    onClick={() => removeSubReq(custom.id, idx)}
+                                  >
+                                    ✕
+                                  </button>
+                                </div>
+                              ))}
+                              <div className="itp-library-add-sr-row">
+                                <input
+                                  className="itp-library-add-sr-inp"
+                                  type="text"
+                                  placeholder="+ Add sub-requirement…"
+                                  value={subReqDrafts[custom.id] ?? ''}
+                                  onChange={(e) =>
+                                    setSubReqDrafts((prev) => ({ ...prev, [custom.id]: e.target.value }))
+                                  }
+                                  onKeyDown={(e) => {
+                                    if (e.key === 'Enter') {
+                                      e.preventDefault()
+                                      addSubReq(custom.id)
+                                    }
+                                  }}
+                                />
+                                <button
+                                  type="button"
+                                  className="itp-library-add-sr-btn"
+                                  onClick={() => addSubReq(custom.id)}
+                                >
+                                  Add
+                                </button>
+                              </div>
+                            </div>
+                          </>
                         ) : null}
                       </div>
                     )
                   })}
-
-                  <div className="itp-library-add-row">
-                    <input
-                      className="itp-library-add-inp"
-                      type="text"
-                      placeholder="+ Add custom item…"
-                      value={customDrafts[section.id] ?? ''}
-                      onChange={(e) => setCustomDrafts((prev) => ({ ...prev, [section.id]: e.target.value }))}
-                      onKeyDown={(e) => {
-                        if (e.key === 'Enter') {
-                          e.preventDefault()
-                          addCustomItem(section.id)
-                        }
-                      }}
-                    />
-                    <button type="button" className="itp-library-add-btn" onClick={() => addCustomItem(section.id)}>
-                      Add
-                    </button>
-                  </div>
                 </div>
               )
             })}
