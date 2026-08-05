@@ -14,7 +14,7 @@ const FINISH_CELL_TONES: Record<string, FinishCellTone> = {
   'Field Service': { background: '#FB9205', color: '#1f2937' },
   'G/G/C': { background: '#95CA82', color: '#1f2937' },
   Pipeline: { background: '#FF0000', color: '#ffffff' },
-  PRV: { background: '#C00000', color: '#ffffff' },
+  PRV: { background: '#7A5230', color: '#ffffff' },
   'Test Only': { background: '#FFFF00', color: '#1f2937' },
   Outsourced: { background: '#7030A0', color: '#ffffff' },
   // Spreadsheet lists these without a fill — keep a light neutral chip.
