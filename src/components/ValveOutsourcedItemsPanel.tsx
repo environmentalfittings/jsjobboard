@@ -35,7 +35,15 @@ function isBlankInput(input: ValveOutsourcedItemInput): boolean {
   )
 }
 
-function OutsourcedRowFields({
+function formatDisplayDate(raw: string | null): string {
+  const v = toDateInputValue(raw)
+  if (!v) return '—'
+  const d = new Date(`${v}T12:00:00`)
+  if (Number.isNaN(d.getTime())) return v
+  return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: '2-digit' })
+}
+
+function OutsourcedFieldsGrid({
   value,
   vendors,
   disabled,
@@ -53,13 +61,13 @@ function OutsourcedRowFields({
   }
 
   return (
-    <>
-      <td>
+    <div className="outsourced-fields-grid">
+      <label className="outsourced-field">
+        <span>Status</span>
         <select
-          className="outsourced-table-input"
+          className={`outsourced-table-input outsourced-table-status outsourced-table-status--${value.status}`}
           value={value.status}
           disabled={disabled || busy}
-          aria-label="Status"
           onChange={(e) =>
             onChange(applyOutsourcedStatusChange(value, e.target.value as ValveOutsourcedItemStatus))
           }
@@ -70,58 +78,58 @@ function OutsourcedRowFields({
             </option>
           ))}
         </select>
-      </td>
-      <td>
+      </label>
+      <label className="outsourced-field">
+        <span>Date shipped</span>
         <input
           type="date"
           className="outsourced-table-input"
           value={toDateInputValue(value.date_shipped)}
           disabled={disabled || busy}
-          aria-label="Date shipped"
           onChange={(e) => set('date_shipped', e.target.value || null)}
         />
-      </td>
-      <td>
+      </label>
+      <label className="outsourced-field">
+        <span>Expected back</span>
         <input
           type="date"
           className="outsourced-table-input"
           value={toDateInputValue(value.expected_date_back)}
           disabled={disabled || busy}
-          aria-label="Expected date back"
           onChange={(e) => set('expected_date_back', e.target.value || null)}
         />
-      </td>
-      <td>
+      </label>
+      <label className="outsourced-field">
+        <span>Date received</span>
         <input
           type="date"
           className="outsourced-table-input"
           value={toDateInputValue(value.date_received)}
           disabled={disabled || busy || value.status !== 'received'}
-          aria-label="Date received"
           title={value.status === 'received' ? undefined : 'Set status to Received to enter date'}
           onChange={(e) => set('date_received', e.target.value || null)}
         />
-      </td>
-      <td>
+      </label>
+      <label className="outsourced-field">
+        <span>NetSuite PO #</span>
         <input
           type="text"
           className="outsourced-table-input"
           value={value.netsuite_po_number}
           disabled={disabled || busy}
           placeholder="PO #"
-          aria-label="NetSuite PO number"
           onChange={(e) => set('netsuite_po_number', e.target.value)}
         />
-      </td>
-      <td>
+      </label>
+      <label className="outsourced-field">
+        <span>Vendor</span>
         <select
           className="outsourced-table-input"
           value={value.vendor}
           disabled={disabled || busy}
-          aria-label="Vendor"
           onChange={(e) => set('vendor', e.target.value)}
         >
-          <option value="">Vendor…</option>
+          <option value="">Select vendor…</option>
           {value.vendor && !vendors.includes(value.vendor) ? (
             <option value={value.vendor}>{value.vendor}</option>
           ) : null}
@@ -131,30 +139,30 @@ function OutsourcedRowFields({
             </option>
           ))}
         </select>
-      </td>
-      <td>
+      </label>
+      <label className="outsourced-field outsourced-field--wide">
+        <span>Item shipped</span>
         <input
           type="text"
           className="outsourced-table-input"
           value={value.item_shipped}
           disabled={disabled || busy}
-          placeholder="Item"
-          aria-label="Item shipped"
+          placeholder="What was sent out"
           onChange={(e) => set('item_shipped', e.target.value)}
         />
-      </td>
-      <td>
-        <input
-          type="text"
-          className="outsourced-table-input"
+      </label>
+      <label className="outsourced-field outsourced-field--full">
+        <span>Work to be done</span>
+        <textarea
+          className="outsourced-table-input outsourced-table-textarea"
+          rows={2}
           value={value.work_description}
           disabled={disabled || busy}
-          placeholder="Work to be done"
-          aria-label="Description of work"
+          placeholder="Description of work"
           onChange={(e) => set('work_description', e.target.value)}
         />
-      </td>
-    </>
+      </label>
+    </div>
   )
 }
 
@@ -297,129 +305,114 @@ export function ValveOutsourcedItemsPanel({ valveRowId, disabled }: ValveOutsour
         <div>
           <h3 className="outsourced-items-title">Outsourced items</h3>
           <p className="outsourced-items-hint">
-            Enter rows below. Add vendors under <Link to="/admin/lists">Manage lists → Vendor</Link>.
+            Compact entry grid — fields wrap to fit. Add vendors under{' '}
+            <Link to="/admin/lists">Manage lists → Vendor</Link>.
           </p>
         </div>
       </div>
 
-      {loadError ? <p className="status-breakdown-note">{loadError}</p> : null}
+      {loadError ? (
+        <p className="status-breakdown-note">
+          Could not load outsourced items. Run <code>migration-valve-outsourced-items.sql</code> in Supabase, then
+          refresh.
+        </p>
+      ) : null}
 
-      <div className="outsourced-table-wrap">
-        <table className="outsourced-table">
-          <thead>
-            <tr>
-              <th>Status</th>
-              <th>Shipped</th>
-              <th>Expected back</th>
-              <th>Received</th>
-              <th>PO #</th>
-              <th>Vendor</th>
-              <th>Item</th>
-              <th>Work to be done</th>
-              <th aria-label="Actions" />
-            </tr>
-          </thead>
-          <tbody>
-            {rows.map((row) =>
-              editingId === row.id ? (
-                <tr key={row.id} className="outsourced-table-row--editing">
-                  <OutsourcedRowFields
-                    value={editDraft}
-                    vendors={vendors}
-                    disabled={disabled}
-                    busy={busy}
-                    onChange={setEditDraft}
-                  />
-                  <td className="outsourced-table-actions">
-                    <button type="button" className="button-primary outsourced-table-btn" disabled={busy} onClick={() => void handleUpdate()}>
-                      Save
+      <ul className="outsourced-rows">
+        {rows.map((row) => (
+          <li key={row.id} className={`outsourced-row outsourced-row--${row.status}`}>
+            {editingId === row.id ? (
+              <>
+                <OutsourcedFieldsGrid
+                  value={editDraft}
+                  vendors={vendors}
+                  disabled={disabled}
+                  busy={busy}
+                  onChange={setEditDraft}
+                />
+                <div className="outsourced-row-actions">
+                  <button type="button" className="button-primary outsourced-table-btn" disabled={busy} onClick={() => void handleUpdate()}>
+                    Save
+                  </button>
+                  <button
+                    type="button"
+                    className="button-secondary outsourced-table-btn"
+                    disabled={busy}
+                    onClick={() => setEditingId(null)}
+                  >
+                    Cancel
+                  </button>
+                </div>
+              </>
+            ) : (
+              <>
+                <div className="outsourced-row-summary">
+                  <select
+                    className={`outsourced-table-input outsourced-table-status outsourced-table-status--${row.status}`}
+                    value={row.status}
+                    disabled={disabled || busy}
+                    aria-label="Status"
+                    onChange={(e) => void handleQuickStatusChange(row, e.target.value as ValveOutsourcedItemStatus)}
+                  >
+                    {OUTSOURCED_ITEM_STATUSES.map((opt) => (
+                      <option key={opt.value} value={opt.value}>
+                        {opt.label}
+                      </option>
+                    ))}
+                  </select>
+                  <span className="outsourced-chip">
+                    <strong>Shipped</strong> {formatDisplayDate(row.date_shipped)}
+                  </span>
+                  <span className="outsourced-chip">
+                    <strong>Back</strong> {formatDisplayDate(row.expected_date_back)}
+                  </span>
+                  <span className="outsourced-chip">
+                    <strong>Received</strong> {formatDisplayDate(row.date_received)}
+                  </span>
+                  <span className="outsourced-chip">
+                    <strong>PO</strong> {row.netsuite_po_number?.trim() || '—'}
+                  </span>
+                  <span className="outsourced-chip">
+                    <strong>Vendor</strong> {row.vendor?.trim() || '—'}
+                  </span>
+                  <span className="outsourced-chip outsourced-chip--grow">
+                    <strong>Item</strong> {row.item_shipped?.trim() || '—'}
+                  </span>
+                  <span className="outsourced-chip outsourced-chip--full">
+                    <strong>Work</strong> {row.work_description?.trim() || '—'}
+                  </span>
+                </div>
+                {!disabled ? (
+                  <div className="outsourced-row-actions">
+                    <button type="button" className="button-secondary outsourced-table-btn" disabled={busy} onClick={() => startEdit(row)}>
+                      Edit
                     </button>
                     <button
                       type="button"
                       className="button-secondary outsourced-table-btn"
                       disabled={busy}
-                      onClick={() => setEditingId(null)}
+                      onClick={() => void handleDelete(row)}
                     >
-                      Cancel
+                      Remove
                     </button>
-                  </td>
-                </tr>
-              ) : (
-                <tr key={row.id} className={`outsourced-table-row--${row.status}`}>
-                  <td>
-                    <select
-                      className={`outsourced-table-input outsourced-table-status outsourced-table-status--${row.status}`}
-                      value={row.status}
-                      disabled={disabled || busy}
-                      aria-label="Status"
-                      onChange={(e) =>
-                        void handleQuickStatusChange(row, e.target.value as ValveOutsourcedItemStatus)
-                      }
-                    >
-                      {OUTSOURCED_ITEM_STATUSES.map((opt) => (
-                        <option key={opt.value} value={opt.value}>
-                          {opt.label}
-                        </option>
-                      ))}
-                    </select>
-                  </td>
-                  <td>{toDateInputValue(row.date_shipped) || '—'}</td>
-                  <td>{toDateInputValue(row.expected_date_back) || '—'}</td>
-                  <td>{toDateInputValue(row.date_received) || '—'}</td>
-                  <td>{row.netsuite_po_number?.trim() || '—'}</td>
-                  <td>{row.vendor?.trim() || '—'}</td>
-                  <td>{row.item_shipped?.trim() || '—'}</td>
-                  <td className="outsourced-table-work">{row.work_description?.trim() || '—'}</td>
-                  <td className="outsourced-table-actions">
-                    {!disabled ? (
-                      <>
-                        <button
-                          type="button"
-                          className="button-secondary outsourced-table-btn"
-                          disabled={busy}
-                          onClick={() => startEdit(row)}
-                        >
-                          Edit
-                        </button>
-                        <button
-                          type="button"
-                          className="button-secondary outsourced-table-btn"
-                          disabled={busy}
-                          onClick={() => void handleDelete(row)}
-                        >
-                          Remove
-                        </button>
-                      </>
-                    ) : null}
-                  </td>
-                </tr>
-              ),
+                  </div>
+                ) : null}
+              </>
             )}
+          </li>
+        ))}
 
-            {!disabled ? (
-              <tr className="outsourced-table-row--add">
-                <OutsourcedRowFields
-                  value={draft}
-                  vendors={vendors}
-                  disabled={disabled}
-                  busy={busy}
-                  onChange={setDraft}
-                />
-                <td className="outsourced-table-actions">
-                  <button
-                    type="button"
-                    className="button-primary outsourced-table-btn"
-                    disabled={busy}
-                    onClick={() => void handleCreate()}
-                  >
-                    {busy ? '…' : 'Add'}
-                  </button>
-                </td>
-              </tr>
-            ) : null}
-          </tbody>
-        </table>
-      </div>
+        {!disabled ? (
+          <li className="outsourced-row outsourced-row--add">
+            <OutsourcedFieldsGrid value={draft} vendors={vendors} disabled={disabled} busy={busy} onChange={setDraft} />
+            <div className="outsourced-row-actions">
+              <button type="button" className="button-primary outsourced-table-btn" disabled={busy} onClick={() => void handleCreate()}>
+                {busy ? 'Saving…' : 'Add item'}
+              </button>
+            </div>
+          </li>
+        ) : null}
+      </ul>
 
       {rows.length === 0 && disabled ? <p className="outsourced-items-hint">No outsourced items yet.</p> : null}
     </div>
