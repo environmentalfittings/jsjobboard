@@ -9,6 +9,7 @@ import {
   latestStatusEnteredAtByWo,
   localTodayBounds,
   localTodayDateString,
+  onHoldJobsInShop,
   overdueOnHoldInShop,
   parseStatusMovesFromChangeLog,
   type LateJobRow,
@@ -107,6 +108,7 @@ export function ManagerDashboardPage() {
   const kpis = useMemo(() => calcDashboardKpis(valves), [valves])
   const inShopCount = useMemo(() => valves.filter((v) => isActiveShopWork(v)).length, [valves])
   const lateJobs: LateJobRow[] = useMemo(() => lateJobsInShop(valves), [valves])
+  const onHoldJobs: LateJobRow[] = useMemo(() => onHoldJobsInShop(valves), [valves])
   const overdueOnHold: LateJobRow[] = useMemo(() => overdueOnHoldInShop(valves), [valves])
 
   const dwellSample = useMemo(() => {
@@ -169,27 +171,36 @@ export function ManagerDashboardPage() {
 
       <div className="manager-dashboard-grid">
         <section className="dashboard-panel">
-          <h3>Who moved the most cards today</h3>
+          <h3>Late jobs</h3>
+          <p className="placeholder-copy resources-hint">
+            Past due and still open. On Hold jobs are listed separately and do not count here.
+          </p>
           {loading ? (
             <p className="placeholder-copy">Loading…</p>
-          ) : leaderboard.length === 0 ? (
-            <p className="placeholder-copy">No status moves logged today.</p>
+          ) : lateJobs.length === 0 ? (
+            <p className="placeholder-copy">No late open jobs.</p>
           ) : (
             <div className="dashboard-table-wrap manager-dashboard-scroll">
               <table className="dashboard-table">
                 <thead>
                   <tr>
-                    <th>#</th>
-                    <th>User</th>
-                    <th>Moves</th>
+                    <th>WO #</th>
+                    <th>Customer</th>
+                    <th>Status</th>
+                    <th>Cell</th>
+                    <th>Due</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {leaderboard.map((row, index) => (
-                    <tr key={row.name}>
-                      <td>{index + 1}</td>
-                      <td>{row.name}</td>
-                      <td>{row.moveCount}</td>
+                  {lateJobs.map((row) => (
+                    <tr key={row.valveRowId}>
+                      <td>
+                        <Link to={`/job-board?open=${row.valveRowId}`}>{row.valve_id}</Link>
+                      </td>
+                      <td>{row.customer ?? '—'}</td>
+                      <td>{row.status}</td>
+                      <td>{row.cell ?? '—'}</td>
+                      <td className="due-date-overdue">{row.due_date || '—'}</td>
                     </tr>
                   ))}
                 </tbody>
@@ -199,56 +210,78 @@ export function ManagerDashboardPage() {
         </section>
 
         <section className="dashboard-panel">
-          <h3>Late jobs</h3>
+          <h3>Jobs on hold</h3>
+          <p className="placeholder-copy resources-hint">
+            Does not count against late jobs or on-time delivery
+            {overdueOnHold.length > 0 ? ` · ${overdueOnHold.length} past due` : ''}.
+          </p>
           {loading ? (
             <p className="placeholder-copy">Loading…</p>
-          ) : lateJobs.length === 0 ? (
-            <p className="placeholder-copy">
-              No late open jobs. On Hold and Not Arrived / Waiting on Arrival do not count against on-time delivery
-              {overdueOnHold.length > 0 ? ` (${overdueOnHold.length} past-due on hold excluded)` : ''}.
-            </p>
+          ) : onHoldJobs.length === 0 ? (
+            <p className="placeholder-copy">No jobs on hold.</p>
           ) : (
-            <>
-              {overdueOnHold.length > 0 ? (
-                <p className="placeholder-copy resources-hint">
-                  {overdueOnHold.length} past-due on-hold job{overdueOnHold.length === 1 ? '' : 's'} excluded from this
-                  list and from on-time delivery.
-                </p>
-              ) : (
-                <p className="placeholder-copy resources-hint">
-                  On Hold and Not Arrived jobs are excluded from on-time delivery.
-                </p>
-              )}
-              <div className="dashboard-table-wrap manager-dashboard-scroll">
-                <table className="dashboard-table">
-                  <thead>
-                    <tr>
-                      <th>WO #</th>
-                      <th>Customer</th>
-                      <th>Status</th>
-                      <th>Cell</th>
-                      <th>Due</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {lateJobs.map((row) => (
+            <div className="dashboard-table-wrap manager-dashboard-scroll">
+              <table className="dashboard-table">
+                <thead>
+                  <tr>
+                    <th>WO #</th>
+                    <th>Customer</th>
+                    <th>Status</th>
+                    <th>Cell</th>
+                    <th>Due</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {onHoldJobs.map((row) => {
+                    const pastDue = Boolean(row.due_date && row.due_date < todayLabel)
+                    return (
                       <tr key={row.valveRowId}>
                         <td>
                           <Link to={`/job-board?open=${row.valveRowId}`}>{row.valve_id}</Link>
                         </td>
                         <td>{row.customer ?? '—'}</td>
-                        <td>{row.status}</td>
+                        <td>{row.status || 'On Hold'}</td>
                         <td>{row.cell ?? '—'}</td>
-                        <td className="due-date-overdue">{row.due_date}</td>
+                        <td className={pastDue ? 'due-date-overdue' : undefined}>{row.due_date || '—'}</td>
                       </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            </>
+                    )
+                  })}
+                </tbody>
+              </table>
+            </div>
           )}
         </section>
       </div>
+
+      <section className="dashboard-panel">
+        <h3>Who moved the most cards today</h3>
+        {loading ? (
+          <p className="placeholder-copy">Loading…</p>
+        ) : leaderboard.length === 0 ? (
+          <p className="placeholder-copy">No status moves logged today.</p>
+        ) : (
+          <div className="dashboard-table-wrap manager-dashboard-scroll">
+            <table className="dashboard-table">
+              <thead>
+                <tr>
+                  <th>#</th>
+                  <th>User</th>
+                  <th>Moves</th>
+                </tr>
+              </thead>
+              <tbody>
+                {leaderboard.map((row, index) => (
+                  <tr key={row.name}>
+                    <td>{index + 1}</td>
+                    <td>{row.name}</td>
+                    <td>{row.moveCount}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </section>
 
       <section className="dashboard-panel">
         <h3>Status moves today</h3>
