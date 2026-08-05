@@ -4,15 +4,18 @@ import { useToast } from './ToastNotification'
 import { loadLookupOptionsMap } from '../lib/lookupValues'
 import { toDateInputValue } from '../lib/jobCardSave'
 import {
+  OUTSOURCED_ITEM_STATUSES,
+  applyOutsourcedStatusChange,
   createValveOutsourcedItem,
   deleteValveOutsourcedItem,
   emptyOutsourcedItemInput,
   inputFromOutsourcedItem,
   listValveOutsourcedItems,
+  outsourcedStatusLabel,
   updateValveOutsourcedItem,
   type ValveOutsourcedItemInput,
 } from '../lib/valveOutsourcedItems'
-import type { ValveOutsourcedItem } from '../types'
+import type { ValveOutsourcedItem, ValveOutsourcedItemStatus } from '../types'
 
 type ValveOutsourcedItemsPanelProps = {
   valveRowId: number
@@ -30,10 +33,12 @@ function isBlankInput(input: ValveOutsourcedItemInput): boolean {
   return (
     !input.date_shipped &&
     !input.expected_date_back &&
+    !input.date_received &&
     !input.netsuite_po_number.trim() &&
     !input.vendor.trim() &&
     !input.item_shipped.trim() &&
-    !input.work_description.trim()
+    !input.work_description.trim() &&
+    input.status === 'not_shipped'
   )
 }
 
@@ -69,6 +74,38 @@ function OutsourcedItemForm({
       }}
     >
       <div className="outsourced-item-form-grid">
+        <label className="modal-label">
+          Status
+          <select
+            className="modal-status-select"
+            value={value.status}
+            disabled={disabled || busy}
+            onChange={(e) =>
+              onChange(applyOutsourcedStatusChange(value, e.target.value as ValveOutsourcedItemStatus))
+            }
+          >
+            {OUTSOURCED_ITEM_STATUSES.map((opt) => (
+              <option key={opt.value} value={opt.value}>
+                {opt.label}
+              </option>
+            ))}
+          </select>
+        </label>
+        {value.status === 'received' ? (
+          <label className="modal-label">
+            Date received
+            <input
+              type="date"
+              className="modal-status-select"
+              value={toDateInputValue(value.date_received)}
+              disabled={disabled || busy}
+              required
+              onChange={(e) => set('date_received', e.target.value || null)}
+            />
+          </label>
+        ) : (
+          <div aria-hidden className="outsourced-item-form-spacer" />
+        )}
         <label className="modal-label">
           Date shipped
           <input
@@ -199,6 +236,10 @@ export function ValveOutsourcedItemsPanel({ valveRowId, disabled }: ValveOutsour
       showToast('Fill in at least one field')
       return
     }
+    if (draft.status === 'received' && !draft.date_received) {
+      showToast('Enter the date received')
+      return
+    }
     setBusy(true)
     try {
       await createValveOutsourcedItem(valveRowId, draft)
@@ -230,6 +271,10 @@ export function ValveOutsourcedItemsPanel({ valveRowId, disabled }: ValveOutsour
       showToast('Fill in at least one field')
       return
     }
+    if (editDraft.status === 'received' && !editDraft.date_received) {
+      showToast('Enter the date received')
+      return
+    }
     setBusy(true)
     try {
       await updateValveOutsourcedItem(editingId, editDraft)
@@ -238,6 +283,26 @@ export function ValveOutsourcedItemsPanel({ valveRowId, disabled }: ValveOutsour
       await load()
     } catch (error) {
       showToast(error instanceof Error ? error.message : 'Could not update')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const handleQuickStatusChange = async (row: ValveOutsourcedItem, nextStatus: ValveOutsourcedItemStatus) => {
+    if (disabled || busy || row.status === nextStatus) return
+    const next = applyOutsourcedStatusChange(inputFromOutsourcedItem(row), nextStatus)
+    if (nextStatus === 'received' && !next.date_received) {
+      showToast('Enter the date received')
+      startEdit({ ...row, status: nextStatus })
+      return
+    }
+    setBusy(true)
+    try {
+      await updateValveOutsourcedItem(row.id, next)
+      showToast(`Status set to ${outsourcedStatusLabel(nextStatus)}`)
+      await load()
+    } catch (error) {
+      showToast(error instanceof Error ? error.message : 'Could not update status')
     } finally {
       setBusy(false)
     }
@@ -318,7 +383,7 @@ export function ValveOutsourcedItemsPanel({ valveRowId, disabled }: ValveOutsour
 
       <ul className="outsourced-items-list">
         {rows.map((row) => (
-          <li key={row.id} className="outsourced-item-card">
+          <li key={row.id} className={`outsourced-item-card outsourced-item-card--${row.status}`}>
             {editingId === row.id ? (
               <OutsourcedItemForm
                 value={editDraft}
@@ -340,21 +405,40 @@ export function ValveOutsourcedItemsPanel({ valveRowId, disabled }: ValveOutsour
                       {row.netsuite_po_number?.trim() ? ` · PO ${row.netsuite_po_number.trim()}` : ''}
                     </div>
                   </div>
-                  {!disabled ? (
-                    <div className="outsourced-item-card-actions">
-                      <button type="button" className="button-secondary" disabled={busy} onClick={() => startEdit(row)}>
-                        Edit
-                      </button>
-                      <button
-                        type="button"
-                        className="button-secondary"
-                        disabled={busy}
-                        onClick={() => void handleDelete(row)}
+                  <div className="outsourced-item-card-actions">
+                    <label className="outsourced-item-status-control">
+                      <span className="visually-hidden">Status</span>
+                      <select
+                        className={`outsourced-item-status-select outsourced-item-status-select--${row.status}`}
+                        value={row.status}
+                        disabled={disabled || busy}
+                        onChange={(e) =>
+                          void handleQuickStatusChange(row, e.target.value as ValveOutsourcedItemStatus)
+                        }
                       >
-                        Remove
-                      </button>
-                    </div>
-                  ) : null}
+                        {OUTSOURCED_ITEM_STATUSES.map((opt) => (
+                          <option key={opt.value} value={opt.value}>
+                            {opt.label}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                    {!disabled ? (
+                      <>
+                        <button type="button" className="button-secondary" disabled={busy} onClick={() => startEdit(row)}>
+                          Edit
+                        </button>
+                        <button
+                          type="button"
+                          className="button-secondary"
+                          disabled={busy}
+                          onClick={() => void handleDelete(row)}
+                        >
+                          Remove
+                        </button>
+                      </>
+                    ) : null}
+                  </div>
                 </div>
                 <dl className="outsourced-item-dl">
                   <div>
@@ -365,6 +449,12 @@ export function ValveOutsourcedItemsPanel({ valveRowId, disabled }: ValveOutsour
                     <dt>Expected back</dt>
                     <dd>{formatDisplayDate(row.expected_date_back)}</dd>
                   </div>
+                  {row.status === 'received' ? (
+                    <div>
+                      <dt>Date received</dt>
+                      <dd>{formatDisplayDate(row.date_received)}</dd>
+                    </div>
+                  ) : null}
                   <div className="outsourced-item-dl-span">
                     <dt>Work to be done</dt>
                     <dd>{row.work_description?.trim() || '—'}</dd>
