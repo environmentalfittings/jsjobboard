@@ -22,13 +22,6 @@ type ValveOutsourcedItemsPanelProps = {
   disabled?: boolean
 }
 
-function formatDisplayDate(raw: string | null): string {
-  if (!raw) return '—'
-  const d = new Date(`${raw}T12:00:00`)
-  if (Number.isNaN(d.getTime())) return raw
-  return d.toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' })
-}
-
 function isBlankInput(input: ValveOutsourcedItemInput): boolean {
   return (
     !input.date_shipped &&
@@ -42,154 +35,126 @@ function isBlankInput(input: ValveOutsourcedItemInput): boolean {
   )
 }
 
-function OutsourcedItemForm({
+function OutsourcedRowFields({
   value,
   vendors,
   disabled,
   busy,
-  submitLabel,
   onChange,
-  onSubmit,
-  onCancel,
 }: {
   value: ValveOutsourcedItemInput
   vendors: string[]
   disabled?: boolean
   busy?: boolean
-  submitLabel: string
   onChange: (next: ValveOutsourcedItemInput) => void
-  onSubmit: () => void
-  onCancel?: () => void
 }) {
   const set = <K extends keyof ValveOutsourcedItemInput>(key: K, next: ValveOutsourcedItemInput[K]) => {
     onChange({ ...value, [key]: next })
   }
 
   return (
-    <form
-      className="outsourced-item-form"
-      onSubmit={(e) => {
-        e.preventDefault()
-        onSubmit()
-      }}
-    >
-      <div className="outsourced-item-form-grid">
-        <label className="modal-label">
-          Status
-          <select
-            className="modal-status-select"
-            value={value.status}
-            disabled={disabled || busy}
-            onChange={(e) =>
-              onChange(applyOutsourcedStatusChange(value, e.target.value as ValveOutsourcedItemStatus))
-            }
-          >
-            {OUTSOURCED_ITEM_STATUSES.map((opt) => (
-              <option key={opt.value} value={opt.value}>
-                {opt.label}
-              </option>
-            ))}
-          </select>
-        </label>
-        {value.status === 'received' ? (
-          <label className="modal-label">
-            Date received
-            <input
-              type="date"
-              className="modal-status-select"
-              value={toDateInputValue(value.date_received)}
-              disabled={disabled || busy}
-              required
-              onChange={(e) => set('date_received', e.target.value || null)}
-            />
-          </label>
-        ) : (
-          <div aria-hidden className="outsourced-item-form-spacer" />
-        )}
-        <label className="modal-label">
-          Date shipped
-          <input
-            type="date"
-            className="modal-status-select"
-            value={toDateInputValue(value.date_shipped)}
-            disabled={disabled || busy}
-            onChange={(e) => set('date_shipped', e.target.value || null)}
-          />
-        </label>
-        <label className="modal-label">
-          Expected date back
-          <input
-            type="date"
-            className="modal-status-select"
-            value={toDateInputValue(value.expected_date_back)}
-            disabled={disabled || busy}
-            onChange={(e) => set('expected_date_back', e.target.value || null)}
-          />
-        </label>
-        <label className="modal-label">
-          NetSuite PO number
-          <input
-            type="text"
-            className="modal-status-select"
-            value={value.netsuite_po_number}
-            disabled={disabled || busy}
-            placeholder="PO #"
-            onChange={(e) => set('netsuite_po_number', e.target.value)}
-          />
-        </label>
-        <label className="modal-label">
-          Vendor
-          <select
-            className="modal-status-select"
-            value={value.vendor}
-            disabled={disabled || busy}
-            onChange={(e) => set('vendor', e.target.value)}
-          >
-            <option value="">Select vendor…</option>
-            {value.vendor && !vendors.includes(value.vendor) ? (
-              <option value={value.vendor}>{value.vendor} (not in list)</option>
-            ) : null}
-            {vendors.map((v) => (
-              <option key={v} value={v}>
-                {v}
-              </option>
-            ))}
-          </select>
-        </label>
-        <label className="modal-label outsourced-item-form-span">
-          Item shipped
-          <input
-            type="text"
-            className="modal-status-select"
-            value={value.item_shipped}
-            disabled={disabled || busy}
-            placeholder="What was sent out"
-            onChange={(e) => set('item_shipped', e.target.value)}
-          />
-        </label>
-        <label className="modal-label outsourced-item-form-span">
-          Description of work to be done
-          <textarea
-            className="modal-textarea"
-            rows={3}
-            value={value.work_description}
-            disabled={disabled || busy}
-            placeholder="Work the vendor should perform"
-            onChange={(e) => set('work_description', e.target.value)}
-          />
-        </label>
-      </div>
-      <div className="outsourced-item-form-actions">
-        {onCancel ? (
-          <button type="button" className="button-secondary" disabled={busy} onClick={onCancel}>
-            Cancel
-          </button>
-        ) : null}
-        <button type="submit" className="button-primary" disabled={disabled || busy}>
-          {busy ? 'Saving…' : submitLabel}
-        </button>
-      </div>
-    </form>
+    <>
+      <td>
+        <select
+          className="outsourced-table-input"
+          value={value.status}
+          disabled={disabled || busy}
+          aria-label="Status"
+          onChange={(e) =>
+            onChange(applyOutsourcedStatusChange(value, e.target.value as ValveOutsourcedItemStatus))
+          }
+        >
+          {OUTSOURCED_ITEM_STATUSES.map((opt) => (
+            <option key={opt.value} value={opt.value}>
+              {opt.label}
+            </option>
+          ))}
+        </select>
+      </td>
+      <td>
+        <input
+          type="date"
+          className="outsourced-table-input"
+          value={toDateInputValue(value.date_shipped)}
+          disabled={disabled || busy}
+          aria-label="Date shipped"
+          onChange={(e) => set('date_shipped', e.target.value || null)}
+        />
+      </td>
+      <td>
+        <input
+          type="date"
+          className="outsourced-table-input"
+          value={toDateInputValue(value.expected_date_back)}
+          disabled={disabled || busy}
+          aria-label="Expected date back"
+          onChange={(e) => set('expected_date_back', e.target.value || null)}
+        />
+      </td>
+      <td>
+        <input
+          type="date"
+          className="outsourced-table-input"
+          value={toDateInputValue(value.date_received)}
+          disabled={disabled || busy || value.status !== 'received'}
+          aria-label="Date received"
+          title={value.status === 'received' ? undefined : 'Set status to Received to enter date'}
+          onChange={(e) => set('date_received', e.target.value || null)}
+        />
+      </td>
+      <td>
+        <input
+          type="text"
+          className="outsourced-table-input"
+          value={value.netsuite_po_number}
+          disabled={disabled || busy}
+          placeholder="PO #"
+          aria-label="NetSuite PO number"
+          onChange={(e) => set('netsuite_po_number', e.target.value)}
+        />
+      </td>
+      <td>
+        <select
+          className="outsourced-table-input"
+          value={value.vendor}
+          disabled={disabled || busy}
+          aria-label="Vendor"
+          onChange={(e) => set('vendor', e.target.value)}
+        >
+          <option value="">Vendor…</option>
+          {value.vendor && !vendors.includes(value.vendor) ? (
+            <option value={value.vendor}>{value.vendor}</option>
+          ) : null}
+          {vendors.map((v) => (
+            <option key={v} value={v}>
+              {v}
+            </option>
+          ))}
+        </select>
+      </td>
+      <td>
+        <input
+          type="text"
+          className="outsourced-table-input"
+          value={value.item_shipped}
+          disabled={disabled || busy}
+          placeholder="Item"
+          aria-label="Item shipped"
+          onChange={(e) => set('item_shipped', e.target.value)}
+        />
+      </td>
+      <td>
+        <input
+          type="text"
+          className="outsourced-table-input"
+          value={value.work_description}
+          disabled={disabled || busy}
+          placeholder="Work to be done"
+          aria-label="Description of work"
+          onChange={(e) => set('work_description', e.target.value)}
+        />
+      </td>
+    </>
   )
 }
 
@@ -203,7 +168,6 @@ export function ValveOutsourcedItemsPanel({ valveRowId, disabled }: ValveOutsour
   const [draft, setDraft] = useState<ValveOutsourcedItemInput>(() => emptyOutsourcedItemInput())
   const [editingId, setEditingId] = useState<number | null>(null)
   const [editDraft, setEditDraft] = useState<ValveOutsourcedItemInput>(() => emptyOutsourcedItemInput())
-  const [showAddForm, setShowAddForm] = useState(false)
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -244,7 +208,6 @@ export function ValveOutsourcedItemsPanel({ valveRowId, disabled }: ValveOutsour
     try {
       await createValveOutsourcedItem(valveRowId, draft)
       setDraft(emptyOutsourcedItemInput())
-      setShowAddForm(false)
       showToast('Outsourced item added')
       await load()
     } catch (error) {
@@ -262,7 +225,6 @@ export function ValveOutsourcedItemsPanel({ valveRowId, disabled }: ValveOutsour
   const startEdit = (row: ValveOutsourcedItem) => {
     setEditingId(row.id)
     setEditDraft(inputFromOutsourcedItem(row))
-    setShowAddForm(false)
   }
 
   const handleUpdate = async () => {
@@ -335,102 +297,93 @@ export function ValveOutsourcedItemsPanel({ valveRowId, disabled }: ValveOutsour
         <div>
           <h3 className="outsourced-items-title">Outsourced items</h3>
           <p className="outsourced-items-hint">
-            Track parts or work sent to a vendor. Add vendors under{' '}
-            <Link to="/admin/lists">Manage lists → Vendor</Link>.
+            Enter rows below. Add vendors under <Link to="/admin/lists">Manage lists → Vendor</Link>.
           </p>
         </div>
-        {!disabled ? (
-          <button
-            type="button"
-            className="button-primary"
-            disabled={busy}
-            onClick={() => {
-              setShowAddForm((v) => !v)
-              setEditingId(null)
-            }}
-          >
-            {showAddForm ? 'Close form' : '+ Add item'}
-          </button>
-        ) : null}
       </div>
 
       {loadError ? <p className="status-breakdown-note">{loadError}</p> : null}
 
-      {showAddForm && !disabled ? (
-        <div className="outsourced-item-card outsourced-item-card--form">
-          <OutsourcedItemForm
-            value={draft}
-            vendors={vendors}
-            disabled={disabled}
-            busy={busy}
-            submitLabel="Add outsourced item"
-            onChange={setDraft}
-            onSubmit={() => void handleCreate()}
-            onCancel={() => {
-              setShowAddForm(false)
-              setDraft(emptyOutsourcedItemInput())
-            }}
-          />
-        </div>
-      ) : null}
-
-      {rows.length === 0 && !showAddForm ? (
-        <div className="job-card-empty-state">
-          <p>No outsourced items yet.</p>
-          {!disabled ? <p className="outsourced-items-hint">Use + Add item to record a shipment to a vendor.</p> : null}
-        </div>
-      ) : null}
-
-      <ul className="outsourced-items-list">
-        {rows.map((row) => (
-          <li key={row.id} className={`outsourced-item-card outsourced-item-card--${row.status}`}>
-            {editingId === row.id ? (
-              <OutsourcedItemForm
-                value={editDraft}
-                vendors={vendors}
-                disabled={disabled}
-                busy={busy}
-                submitLabel="Save changes"
-                onChange={setEditDraft}
-                onSubmit={() => void handleUpdate()}
-                onCancel={() => setEditingId(null)}
-              />
-            ) : (
-              <>
-                <div className="outsourced-item-card-top">
-                  <div>
-                    <div className="outsourced-item-name">{row.item_shipped?.trim() || 'Outsourced item'}</div>
-                    <div className="outsourced-item-meta">
-                      {row.vendor?.trim() || 'No vendor'}
-                      {row.netsuite_po_number?.trim() ? ` · PO ${row.netsuite_po_number.trim()}` : ''}
-                    </div>
-                  </div>
-                  <div className="outsourced-item-card-actions">
-                    <label className="outsourced-item-status-control">
-                      <span className="visually-hidden">Status</span>
-                      <select
-                        className={`outsourced-item-status-select outsourced-item-status-select--${row.status}`}
-                        value={row.status}
-                        disabled={disabled || busy}
-                        onChange={(e) =>
-                          void handleQuickStatusChange(row, e.target.value as ValveOutsourcedItemStatus)
-                        }
-                      >
-                        {OUTSOURCED_ITEM_STATUSES.map((opt) => (
-                          <option key={opt.value} value={opt.value}>
-                            {opt.label}
-                          </option>
-                        ))}
-                      </select>
-                    </label>
+      <div className="outsourced-table-wrap">
+        <table className="outsourced-table">
+          <thead>
+            <tr>
+              <th>Status</th>
+              <th>Shipped</th>
+              <th>Expected back</th>
+              <th>Received</th>
+              <th>PO #</th>
+              <th>Vendor</th>
+              <th>Item</th>
+              <th>Work to be done</th>
+              <th aria-label="Actions" />
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map((row) =>
+              editingId === row.id ? (
+                <tr key={row.id} className="outsourced-table-row--editing">
+                  <OutsourcedRowFields
+                    value={editDraft}
+                    vendors={vendors}
+                    disabled={disabled}
+                    busy={busy}
+                    onChange={setEditDraft}
+                  />
+                  <td className="outsourced-table-actions">
+                    <button type="button" className="button-primary outsourced-table-btn" disabled={busy} onClick={() => void handleUpdate()}>
+                      Save
+                    </button>
+                    <button
+                      type="button"
+                      className="button-secondary outsourced-table-btn"
+                      disabled={busy}
+                      onClick={() => setEditingId(null)}
+                    >
+                      Cancel
+                    </button>
+                  </td>
+                </tr>
+              ) : (
+                <tr key={row.id} className={`outsourced-table-row--${row.status}`}>
+                  <td>
+                    <select
+                      className={`outsourced-table-input outsourced-table-status outsourced-table-status--${row.status}`}
+                      value={row.status}
+                      disabled={disabled || busy}
+                      aria-label="Status"
+                      onChange={(e) =>
+                        void handleQuickStatusChange(row, e.target.value as ValveOutsourcedItemStatus)
+                      }
+                    >
+                      {OUTSOURCED_ITEM_STATUSES.map((opt) => (
+                        <option key={opt.value} value={opt.value}>
+                          {opt.label}
+                        </option>
+                      ))}
+                    </select>
+                  </td>
+                  <td>{toDateInputValue(row.date_shipped) || '—'}</td>
+                  <td>{toDateInputValue(row.expected_date_back) || '—'}</td>
+                  <td>{toDateInputValue(row.date_received) || '—'}</td>
+                  <td>{row.netsuite_po_number?.trim() || '—'}</td>
+                  <td>{row.vendor?.trim() || '—'}</td>
+                  <td>{row.item_shipped?.trim() || '—'}</td>
+                  <td className="outsourced-table-work">{row.work_description?.trim() || '—'}</td>
+                  <td className="outsourced-table-actions">
                     {!disabled ? (
                       <>
-                        <button type="button" className="button-secondary" disabled={busy} onClick={() => startEdit(row)}>
+                        <button
+                          type="button"
+                          className="button-secondary outsourced-table-btn"
+                          disabled={busy}
+                          onClick={() => startEdit(row)}
+                        >
                           Edit
                         </button>
                         <button
                           type="button"
-                          className="button-secondary"
+                          className="button-secondary outsourced-table-btn"
                           disabled={busy}
                           onClick={() => void handleDelete(row)}
                         >
@@ -438,33 +391,37 @@ export function ValveOutsourcedItemsPanel({ valveRowId, disabled }: ValveOutsour
                         </button>
                       </>
                     ) : null}
-                  </div>
-                </div>
-                <dl className="outsourced-item-dl">
-                  <div>
-                    <dt>Date shipped</dt>
-                    <dd>{formatDisplayDate(row.date_shipped)}</dd>
-                  </div>
-                  <div>
-                    <dt>Expected back</dt>
-                    <dd>{formatDisplayDate(row.expected_date_back)}</dd>
-                  </div>
-                  {row.status === 'received' ? (
-                    <div>
-                      <dt>Date received</dt>
-                      <dd>{formatDisplayDate(row.date_received)}</dd>
-                    </div>
-                  ) : null}
-                  <div className="outsourced-item-dl-span">
-                    <dt>Work to be done</dt>
-                    <dd>{row.work_description?.trim() || '—'}</dd>
-                  </div>
-                </dl>
-              </>
+                  </td>
+                </tr>
+              ),
             )}
-          </li>
-        ))}
-      </ul>
+
+            {!disabled ? (
+              <tr className="outsourced-table-row--add">
+                <OutsourcedRowFields
+                  value={draft}
+                  vendors={vendors}
+                  disabled={disabled}
+                  busy={busy}
+                  onChange={setDraft}
+                />
+                <td className="outsourced-table-actions">
+                  <button
+                    type="button"
+                    className="button-primary outsourced-table-btn"
+                    disabled={busy}
+                    onClick={() => void handleCreate()}
+                  >
+                    {busy ? '…' : 'Add'}
+                  </button>
+                </td>
+              </tr>
+            ) : null}
+          </tbody>
+        </table>
+      </div>
+
+      {rows.length === 0 && disabled ? <p className="outsourced-items-hint">No outsourced items yet.</p> : null}
     </div>
   )
 }
