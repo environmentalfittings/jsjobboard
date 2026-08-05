@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { useToast } from './ToastNotification'
-import { loadLookupOptionsMap } from '../lib/lookupValues'
+import { addLookupValue, loadLookupOptionsMap } from '../lib/lookupValues'
 import { toDateInputValue } from '../lib/jobCardSave'
 import {
   OUTSOURCED_ITEM_STATUSES,
@@ -49,15 +49,34 @@ function OutsourcedFieldsGrid({
   disabled,
   busy,
   onChange,
+  onAddVendor,
 }: {
   value: ValveOutsourcedItemInput
   vendors: string[]
   disabled?: boolean
   busy?: boolean
   onChange: (next: ValveOutsourcedItemInput) => void
+  onAddVendor?: (vendorName: string) => Promise<void>
 }) {
+  const [addingVendor, setAddingVendor] = useState(false)
+  const [vendorDraft, setVendorDraft] = useState('')
+  const [savingVendor, setSavingVendor] = useState(false)
+
   const set = <K extends keyof ValveOutsourcedItemInput>(key: K, next: ValveOutsourcedItemInput[K]) => {
     onChange({ ...value, [key]: next })
+  }
+
+  const submitNewVendor = async () => {
+    const name = vendorDraft.trim()
+    if (!name || !onAddVendor || savingVendor) return
+    setSavingVendor(true)
+    try {
+      await onAddVendor(name)
+      setVendorDraft('')
+      setAddingVendor(false)
+    } finally {
+      setSavingVendor(false)
+    }
   }
 
   return (
@@ -121,8 +140,20 @@ function OutsourcedFieldsGrid({
           onChange={(e) => set('netsuite_po_number', e.target.value)}
         />
       </label>
-      <label className="outsourced-field">
-        <span>Vendor</span>
+      <div className="outsourced-field outsourced-field--vendor">
+        <div className="outsourced-field-label-row">
+          <span>Vendor</span>
+          {!disabled && onAddVendor ? (
+            <button
+              type="button"
+              className="outsourced-add-vendor-toggle"
+              disabled={busy || savingVendor}
+              onClick={() => setAddingVendor((v) => !v)}
+            >
+              {addingVendor ? 'Cancel' : '+ Add vendor'}
+            </button>
+          ) : null}
+        </div>
         <select
           className="outsourced-table-input"
           value={value.vendor}
@@ -139,7 +170,34 @@ function OutsourcedFieldsGrid({
             </option>
           ))}
         </select>
-      </label>
+        {addingVendor && !disabled && onAddVendor ? (
+          <div className="outsourced-add-vendor-row">
+            <input
+              type="text"
+              className="outsourced-table-input"
+              value={vendorDraft}
+              disabled={busy || savingVendor}
+              placeholder="New vendor name"
+              aria-label="New vendor name"
+              onChange={(e) => setVendorDraft(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') {
+                  e.preventDefault()
+                  void submitNewVendor()
+                }
+              }}
+            />
+            <button
+              type="button"
+              className="button-primary outsourced-table-btn"
+              disabled={busy || savingVendor || !vendorDraft.trim()}
+              onClick={() => void submitNewVendor()}
+            >
+              {savingVendor ? '…' : 'Save'}
+            </button>
+          </div>
+        ) : null}
+      </div>
       <label className="outsourced-field outsourced-field--wide">
         <span>Item shipped</span>
         <input
@@ -201,6 +259,23 @@ export function ValveOutsourcedItemsPanel({ valveRowId, disabled }: ValveOutsour
   useEffect(() => {
     void load()
   }, [load])
+
+  const handleAddVendor = async (vendorName: string) => {
+    try {
+      const saved = await addLookupValue('vendor', vendorName)
+      const map = await loadLookupOptionsMap()
+      setVendors(map.vendor ?? [])
+      if (editingId != null) {
+        setEditDraft((prev) => ({ ...prev, vendor: saved }))
+      } else {
+        setDraft((prev) => ({ ...prev, vendor: saved }))
+      }
+      showToast(`Vendor “${saved}” added`)
+    } catch (error) {
+      showToast(error instanceof Error ? error.message : 'Could not add vendor')
+      throw error
+    }
+  }
 
   const handleCreate = async () => {
     if (disabled || busy) return
@@ -305,8 +380,8 @@ export function ValveOutsourcedItemsPanel({ valveRowId, disabled }: ValveOutsour
         <div>
           <h3 className="outsourced-items-title">Outsourced items</h3>
           <p className="outsourced-items-hint">
-            Compact entry grid — fields wrap to fit. Add vendors under{' '}
-            <Link to="/admin/lists">Manage lists → Vendor</Link>.
+            Compact entry grid — fields wrap to fit. Use <strong>+ Add vendor</strong> next to Vendor, or manage the
+            full list under <Link to="/admin/lists">Manage lists → Vendor</Link>.
           </p>
         </div>
       </div>
@@ -329,6 +404,7 @@ export function ValveOutsourcedItemsPanel({ valveRowId, disabled }: ValveOutsour
                   disabled={disabled}
                   busy={busy}
                   onChange={setEditDraft}
+                  onAddVendor={handleAddVendor}
                 />
                 <div className="outsourced-row-actions">
                   <button type="button" className="button-primary outsourced-table-btn" disabled={busy} onClick={() => void handleUpdate()}>
@@ -404,7 +480,14 @@ export function ValveOutsourcedItemsPanel({ valveRowId, disabled }: ValveOutsour
 
         {!disabled ? (
           <li className="outsourced-row outsourced-row--add">
-            <OutsourcedFieldsGrid value={draft} vendors={vendors} disabled={disabled} busy={busy} onChange={setDraft} />
+            <OutsourcedFieldsGrid
+              value={draft}
+              vendors={vendors}
+              disabled={disabled}
+              busy={busy}
+              onChange={setDraft}
+              onAddVendor={handleAddVendor}
+            />
             <div className="outsourced-row-actions">
               <button type="button" className="button-primary outsourced-table-btn" disabled={busy} onClick={() => void handleCreate()}>
                 {busy ? 'Saving…' : 'Add item'}

@@ -60,3 +60,33 @@ export async function loadLookupOptionsMap(): Promise<Record<LookupCategory, str
   }
   return out
 }
+
+/** Insert a Manage-lists value. Returns the saved value (trimmed). */
+export async function addLookupValue(category: LookupCategory, rawValue: string): Promise<string> {
+  const value = rawValue.trim()
+  if (!value) throw new Error('Enter a value')
+
+  const { data: existing, error: existingError } = await supabase
+    .from('lookup_values')
+    .select('id,value,sort_order')
+    .eq('category', category)
+    .order('sort_order', { ascending: false })
+    .limit(200)
+
+  if (existingError) throw existingError
+
+  const match = (existing ?? []).find((row) => String(row.value).trim().toLowerCase() === value.toLowerCase())
+  if (match) return String(match.value)
+
+  const maxOrder = (existing ?? []).reduce((max, row) => Math.max(max, Number(row.sort_order) || 0), -1)
+  const { error } = await supabase.from('lookup_values').insert({
+    category,
+    value,
+    sort_order: maxOrder + 1,
+  })
+  if (error) {
+    if (error.code === '23505' || /duplicate/i.test(error.message)) return value
+    throw error
+  }
+  return value
+}
