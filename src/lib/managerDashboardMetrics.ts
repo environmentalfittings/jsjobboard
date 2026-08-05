@@ -1,4 +1,5 @@
-import { isActiveShopWork } from './jobDisplayStatus'
+import { displayJobStatus, isActiveShopWork } from './jobDisplayStatus'
+import { countsAgainstOnTimeDelivery, isOnHoldForMetrics } from './onTimeDelivery'
 import type { Valve } from '../types'
 
 function dueDateIso(raw: string | null | undefined): string | null {
@@ -43,16 +44,59 @@ export type LateJobRow = {
 
 export function lateJobsInShop(valves: Valve[], todayIso = localTodayDateString()): LateJobRow[] {
   return valves
-    .filter((v) => isActiveShopWork(v) && isValveOverdue(v, todayIso))
+    .filter(
+      (v) =>
+        isActiveShopWork(v) &&
+        countsAgainstOnTimeDelivery(v) &&
+        isValveOverdue(v, todayIso),
+    )
     .map((v) => ({
       valve_id: v.valve_id,
       valveRowId: v.id,
       customer: v.customer,
-      status: v.status,
+      status: displayJobStatus(v),
       cell: v.cell,
       due_date: dueDateIso(v.due_date) ?? '',
     }))
     .sort((a, b) => a.due_date.localeCompare(b.due_date) || a.valve_id.localeCompare(b.valve_id))
+}
+
+/** Past-due open jobs that are on hold (excluded from lateJobsInShop / OTD). */
+export function overdueOnHoldInShop(valves: Valve[], todayIso = localTodayDateString()): LateJobRow[] {
+  return valves
+    .filter((v) => isActiveShopWork(v) && isOnHoldForMetrics(v) && isValveOverdue(v, todayIso))
+    .map((v) => ({
+      valve_id: v.valve_id,
+      valveRowId: v.id,
+      customer: v.customer,
+      status: displayJobStatus(v),
+      cell: v.cell,
+      due_date: dueDateIso(v.due_date) ?? '',
+    }))
+    .sort((a, b) => a.due_date.localeCompare(b.due_date) || a.valve_id.localeCompare(b.valve_id))
+}
+
+/** All open on-hold jobs (for Manager dashboard list; not counted as late). */
+export function onHoldJobsInShop(valves: Valve[], todayIso = localTodayDateString()): LateJobRow[] {
+  return valves
+    .filter((v) => isActiveShopWork(v) && isOnHoldForMetrics(v))
+    .map((v) => ({
+      valve_id: v.valve_id,
+      valveRowId: v.id,
+      customer: v.customer,
+      status: displayJobStatus(v),
+      cell: v.cell,
+      due_date: dueDateIso(v.due_date) ?? '',
+    }))
+    .sort((a, b) => {
+      const aOverdue = Boolean(a.due_date && a.due_date < todayIso)
+      const bOverdue = Boolean(b.due_date && b.due_date < todayIso)
+      if (aOverdue !== bOverdue) return aOverdue ? -1 : 1
+      if (a.due_date && b.due_date) return a.due_date.localeCompare(b.due_date)
+      if (a.due_date) return -1
+      if (b.due_date) return 1
+      return a.valve_id.localeCompare(b.valve_id)
+    })
 }
 
 export type StatusMoveRow = {

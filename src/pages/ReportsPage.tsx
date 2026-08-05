@@ -6,6 +6,7 @@ import { JOB_TYPES, normalizeJobType } from '../constants/jobTypes'
 import { TERMINAL_STATUSES } from '../constants/statuses'
 import { supabase } from '../lib/supabase'
 import { fetchDueDateChanges } from '../lib/dueDateChanges'
+import { isExcludedFromOnTimeDelivery } from '../lib/onTimeDelivery'
 import { fetchValveDescriptionsByIds } from '../lib/testLogValveLookup'
 import { VALVE_LIST_SELECT } from '../lib/valveSelect'
 import type { DueDateChangeRecord, TestLogEntry, Valve } from '../types'
@@ -123,7 +124,7 @@ export function ReportsPage() {
     const { start, end } = getYearRange(year)
     const { data, error } = await supabase
       .from('valves')
-      .select('valve_id,date_closed,due_date')
+      .select('valve_id,date_closed,due_date,status,order_type')
       .in('status', ['Completed', 'Warehouse RTS'])
       .gte('date_closed', start)
       .lte('date_closed', end)
@@ -134,14 +135,22 @@ export function ReportsPage() {
       showToast(`Could not load OTD data: ${error.message}`)
       return
     }
-    const parsed: OtdRow[] = ((data ?? []) as { valve_id: string; date_closed: string; due_date: string | null }[]).map(
-      (r) => ({
+    const parsed: OtdRow[] = (
+      (data ?? []) as {
+        valve_id: string
+        date_closed: string
+        due_date: string | null
+        status: string | null
+        order_type: string | null
+      }[]
+    )
+      .filter((r) => !isExcludedFromOnTimeDelivery(r))
+      .map((r) => ({
         valve_id: r.valve_id,
         date_closed: r.date_closed,
         due_date: r.due_date ?? null,
         on_time: r.due_date ? r.date_closed <= r.due_date : false,
-      }),
-    )
+      }))
     setOtdRows(parsed)
   }
 
@@ -435,7 +444,9 @@ export function ReportsPage() {
       <section className="dashboard-panel">
         <h3>On-time delivery</h3>
         <p className="placeholder-copy">
-          Percentage of completed jobs closed on or before their due date. Jobs with no due date are excluded from percentage calculations.
+          Percentage of completed jobs closed on or before their due date. Jobs with no due date are excluded from
+          percentage calculations. On Hold and Not Arrived / Waiting on Arrival jobs do not count against on-time
+          delivery.
         </p>
         <div className="report-filters">
           <label>
