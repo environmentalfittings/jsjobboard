@@ -1697,10 +1697,10 @@ export function ReportsPage() {
       <section className="dashboard-panel">
         <h3>Rework / backward status moves</h3>
         <p className="placeholder-copy">
-          Forward shop flow: Pull → Teardown → Machine 1 → Welding → Machine 2 → Fitting → Assembly → Adaption →
-          Actuation → Testing → Painting → Warehouse RTS → Completed. Cards may skip steps. When a card moves to an
-          earlier stage, the technician must enter a rework reason. Only moves logged <strong>after</strong> the rework
-          table is set up in Supabase appear here.
+          Forward shop flow (editable in Manage Lists → Shop workflow): Pull → Teardown → Machine 1 → Welding →
+          Machine 2 → Fitting → Assembly → Adaption → Actuation → Testing → Painting → Warehouse RTS → Completed.
+          Cards may skip steps. When a card moves to an earlier stage, the technician must enter a rework reason. Only
+          moves logged <strong>after</strong> the rework table is set up in Supabase appear here.
         </p>
         <div className="report-filters">
           <label>

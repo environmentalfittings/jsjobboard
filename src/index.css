@@ -5560,6 +5560,119 @@ a.test-log-reports-item-name:hover {
   color: #0f5dc7;
 }
 
+.admin-lists-tabs {
+  flex-wrap: wrap;
+}
+
+.shop-workflow-admin {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.shop-workflow-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+}
+
+.shop-workflow-unassigned {
+  margin: 0;
+}
+
+.shop-workflow-stage-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.shop-workflow-stage-card {
+  border: 1px solid #e2e8f0;
+  border-radius: 10px;
+  background: #f8fafc;
+  padding: 12px;
+}
+
+.shop-workflow-stage-head {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+}
+
+.shop-workflow-stage-order {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 28px;
+  height: 28px;
+  border-radius: 999px;
+  background: #0f5dc7;
+  color: #fff;
+  font-weight: 700;
+  font-size: 13px;
+}
+
+.shop-workflow-stage-label {
+  flex: 1 1 180px;
+  min-width: 140px;
+  padding: 8px 10px;
+  border: 1px solid #cbd5e1;
+  border-radius: 8px;
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.shop-workflow-stage-count {
+  font-size: 13px;
+}
+
+.shop-workflow-stage-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-left: auto;
+}
+
+.shop-workflow-stage-summary {
+  margin: 8px 0 0;
+  font-size: 13px;
+  color: #334155;
+}
+
+.shop-workflow-status-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 6px 12px;
+  margin-top: 12px;
+}
+
+.shop-workflow-status-option {
+  display: flex;
+  gap: 8px;
+  align-items: flex-start;
+  font-size: 13px;
+  color: #0f172a;
+}
+
+.shop-workflow-status-option.muted {
+  color: #94a3b8;
+}
+
+.shop-workflow-neutrals {
+  border-top: 1px solid #e2e8f0;
+  padding-top: 12px;
+}
+
+.shop-workflow-neutrals h4 {
+  margin: 0 0 6px;
+  font-size: 16px;
+}
+
 .admin-lists-panel {
   margin-top: 0;
 }

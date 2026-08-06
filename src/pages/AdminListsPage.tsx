@@ -30,8 +30,17 @@ import {
 } from '../lib/b1634WallThickness'
 import type { LookupValueRow } from '../lib/lookupValues'
 import { supabase } from '../lib/supabase'
+import { ShopWorkflowAdminPanel } from '../components/ShopWorkflowAdminPanel'
 
-type Tab = 'lookups' | 'customers' | 'itpTemplates' | 'valveTypes' | 'flangeThickness' | 'b1610' | 'b1634'
+type Tab =
+  | 'lookups'
+  | 'customers'
+  | 'itpTemplates'
+  | 'valveTypes'
+  | 'flangeThickness'
+  | 'b1610'
+  | 'b1634'
+  | 'shopWorkflow'
 
 type CustomerRow = CustomerSalesRepRow
 type ItpTemplateRow = {
@@ -892,8 +901,8 @@ export function AdminListsPage() {
       </div>
 
       <p className="placeholder-copy admin-lists-intro">
-        Admin only. Changes apply to New job dropdowns for everyone. Edit each list tab below to add, rename, or
-        remove options.
+        Admin only. Changes apply for everyone. Edit each list tab below to add, rename, or remove options. Use{' '}
+        <strong>Shop workflow</strong> to change the forward path used for rework detection.
       </p>
 
       <div className="admin-lists-tabs" role="tablist">
@@ -905,6 +914,15 @@ export function AdminListsPage() {
           onClick={() => setTab('lookups')}
         >
           Job field lists
+        </button>
+        <button
+          type="button"
+          role="tab"
+          aria-selected={tab === 'shopWorkflow'}
+          className={`admin-lists-tab ${tab === 'shopWorkflow' ? 'active' : ''}`}
+          onClick={() => setTab('shopWorkflow')}
+        >
+          Shop workflow
         </button>
         <button
           type="button"
@@ -1076,6 +1094,13 @@ export function AdminListsPage() {
               </div>
             </>
           )}
+        </section>
+      )}
+
+      {tab === 'shopWorkflow' && (
+        <section className="dashboard-panel admin-lists-panel">
+          <h3>Shop workflow</h3>
+          <ShopWorkflowAdminPanel showToast={showToast} />
         </section>
       )}
 

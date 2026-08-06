@@ -32,6 +32,7 @@ import { ManagerDashboardPage } from './pages/ManagerDashboardPage'
 import { MteCalibrationsPage } from './pages/MteCalibrationsPage'
 import { QualityTeamPage } from './pages/QualityTeamPage'
 import { can, canAccessEmployeesPage, canAccessTestLog, defaultHomePath, isShopRole } from './lib/roles'
+import { loadStatusWorkflowConfig } from './lib/statusWorkflow'
 
 function ShopRoute({ children }: { children: React.ReactNode }) {
   const { role } = useAuth()
@@ -59,6 +60,11 @@ function AppRoutes() {
     window.addEventListener('keydown', onKeyDown)
     return () => window.removeEventListener('keydown', onKeyDown)
   }, [role, navigate])
+
+  useEffect(() => {
+    if (!role || !isShopRole(role)) return
+    void loadStatusWorkflowConfig()
+  }, [role])
 
   return (
     <div className="app-shell">
