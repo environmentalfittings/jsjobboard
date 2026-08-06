@@ -3796,6 +3796,20 @@ a.test-log-reports-item-name:hover {
   margin-top: 0.75rem;
 }
 
+/* Show ~15 body rows; scroll for the rest. Sticky header stays visible. */
+.daily-priority-table-scroll {
+  max-height: calc(2.75rem + 15 * 3.35rem);
+  overflow: auto;
+}
+
+.daily-priority-table-scroll .dashboard-table thead th {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  background: #f8fafc;
+  box-shadow: inset 0 -1px 0 #e5e7eb;
+}
+
 .daily-priority-filter-grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(16rem, 1fr));

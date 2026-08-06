@@ -486,7 +486,7 @@ export function DailyPriorityWorksheet({
             {rows.length === 0 ? (
               <p className="placeholder-copy">No open valves for this filter.</p>
             ) : (
-              <div className="dashboard-table-wrap">
+              <div className="dashboard-table-wrap daily-priority-table-scroll">
                 <table className="dashboard-table status-priorities-table">
                   <thead>
                     <tr>
