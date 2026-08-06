@@ -1,9 +1,11 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 import { DailyPriorityWorksheet } from '../components/DailyPriorityWorksheet'
+import { FinishCellBadge } from '../components/FinishCellBadge'
 import { useToast } from '../components/ToastNotification'
 import { JOB_TYPES, normalizeJobType } from '../constants/jobTypes'
 import { TERMINAL_STATUSES } from '../constants/statuses'
+import { downloadCompletedJobsReportPdf } from '../lib/completedJobsReportPdf'
 import { supabase } from '../lib/supabase'
 import { fetchDueDateChanges } from '../lib/dueDateChanges'
 import { isExcludedFromOnTimeDelivery } from '../lib/onTimeDelivery'
@@ -57,10 +59,6 @@ const MONTH_NAMES = [
   'January','February','March','April','May','June',
   'July','August','September','October','November','December',
 ]
-
-function isTurnaroundValve(v: Valve): boolean {
-  return v.is_turnaround === true
-}
 
 function toInputDate(date: Date) {
   return date.toISOString().slice(0, 10)
@@ -265,8 +263,8 @@ export function ReportsPage() {
       'Customer',
       'Cell',
       'Size',
-      'Turnaround',
-      'Status',
+      'Pressure',
+      'Valve Type',
       'Date Closed',
       'Description',
       'Notes',
@@ -278,8 +276,8 @@ export function ReportsPage() {
         row.customer ?? '',
         row.cell ?? '',
         row.size ?? '',
-        isTurnaroundValve(row) ? 'Yes' : 'No',
-        row.status,
+        row.pressure_class ?? '',
+        row.valve_type ?? '',
         row.date_closed ?? '',
         row.description ?? '',
         row.notes ?? '',
@@ -295,6 +293,22 @@ export function ReportsPage() {
     a.download = `completed-jobs-${startDate}-to-${endDate}.csv`
     a.click()
     URL.revokeObjectURL(url)
+  }
+
+  const exportPdf = () => {
+    if (!rows.length || !startDate || !endDate) return
+    const turnaroundFilterLabel =
+      completedTurnaroundFilter === 'turnaround'
+        ? 'Turnarounds only'
+        : completedTurnaroundFilter === 'not_turnaround'
+          ? 'Exclude turnarounds'
+          : 'All'
+    downloadCompletedJobsReportPdf(rows, {
+      startDate,
+      endDate,
+      turnaroundFilterLabel,
+      jobTypeFilterLabel: completedJobTypeFilter === 'all' ? 'All' : completedJobTypeFilter,
+    })
   }
 
   const exportActiveTurnaroundCsv = () => {
@@ -588,6 +602,9 @@ export function ReportsPage() {
           <button type="button" className="button-secondary" onClick={exportCsv} disabled={!rows.length || loading}>
             Export CSV
           </button>
+          <button type="button" className="button-secondary" onClick={exportPdf} disabled={!rows.length || loading}>
+            Export PDF
+          </button>
         </div>
         <p className="status-breakdown-note">Results: {rows.length} completed job(s)</p>
 
@@ -600,8 +617,8 @@ export function ReportsPage() {
                 <th>Customer</th>
                 <th>Cell</th>
                 <th>Size</th>
-                <th>Turnaround</th>
-                <th>Status</th>
+                <th>Pressure</th>
+                <th>Valve type</th>
                 <th>Date closed</th>
                 <th>Description</th>
                 <th>Notes</th>
@@ -614,10 +631,12 @@ export function ReportsPage() {
                   <td>{row.valve_id}</td>
                   <td>{normalizeJobType(row.job_type)}</td>
                   <td>{row.customer ?? '-'}</td>
-                  <td>{row.cell ?? '-'}</td>
+                  <td>
+                    <FinishCellBadge cell={row.cell} />
+                  </td>
                   <td>{row.size ?? '-'}</td>
-                  <td>{isTurnaroundValve(row) ? 'Yes' : 'No'}</td>
-                  <td>{row.status}</td>
+                  <td>{row.pressure_class ?? '-'}</td>
+                  <td>{row.valve_type ?? '-'}</td>
                   <td>{row.date_closed ?? '-'}</td>
                   <td className="table-cell-clamp">{row.description ?? '-'}</td>
                   <td className="table-cell-clamp">{row.notes ?? '-'}</td>
