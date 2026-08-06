@@ -9,6 +9,7 @@ export type ResourceDocumentCategory =
   | 'quality_control'
   | 'iom'
   | 'maintenance_manual'
+  | 'employee_training'
   | 'other'
 
 export const WPS_TYPES = ['Joint', 'Corrosion Resistant Overlay', 'Hardface Overlay'] as const

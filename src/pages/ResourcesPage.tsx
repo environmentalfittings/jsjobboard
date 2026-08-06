@@ -121,6 +121,13 @@ export function ResourcesPage() {
       categories: ['quality_control'] as ResourceDocumentCategory[],
       addLabel: '+ Add QA/QC document',
     },
+    {
+      key: 'employee_training',
+      title: 'Employee Training',
+      description: 'Training materials, certifications, and employee learning documents.',
+      categories: ['employee_training'] as ResourceDocumentCategory[],
+      addLabel: '+ Add training document',
+    },
   ] as const
 
   type SectionKey = (typeof SIMPLE_SECTIONS)[number]['key']
@@ -596,6 +603,16 @@ export function ResourcesPage() {
       bg: '#f5f3ff',
       border: '#7c3aed',
       count: (sectionDocs['qaqc'] ?? []).length,
+    },
+    {
+      key: 'employee_training' as const,
+      title: 'Employee Training',
+      description: 'Training materials, certifications, and employee learning documents.',
+      icon: '🎓',
+      color: '#0f766e',
+      bg: '#f0fdfa',
+      border: '#14b8a6',
+      count: (sectionDocs['employee_training'] ?? []).length,
     },
   ]
 
