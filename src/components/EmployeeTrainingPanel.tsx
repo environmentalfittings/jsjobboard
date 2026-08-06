@@ -17,12 +17,14 @@ import {
   formatTrainingDate,
   inputFromTraining,
   isTrainingExpired,
+  daysUntilTrainingExpiration,
   listAllAttendeeTrainings,
   listAttendeeTrainingsForEmployee,
   listEmployeeSkills,
   listEmployeeTrainings,
   listTrainingAttendees,
   listTrainingFiles,
+  trainingExpirationStatusLabel,
   trainingFilePublicUrl,
   trainingRecertIntervalLabel,
   trainingStatusLabel,
@@ -43,8 +45,9 @@ import {
 } from '../lib/employeeTraining'
 import type { Employee } from '../types/employees'
 
-type Tab = 'schedule' | 'log' | 'employees' | 'library'
+type Tab = 'schedule' | 'log' | 'employees' | 'expiring' | 'library'
 type LibraryFilter = 'all' | TrainingFileKind
+type ExpiringWindow = 'overdue' | '30' | '60' | '90' | '180' | 'all'
 
 type EmployeeTrainingPanelProps = {
   canWrite: boolean
@@ -116,6 +119,8 @@ export function EmployeeTrainingPanel({ canWrite, onCountsChange }: EmployeeTrai
   const [shopLocation, setShopLocation] = useState('')
   const certFileInputRef = useRef<HTMLInputElement>(null)
   const [certUploadTrainingId, setCertUploadTrainingId] = useState<number | null>(null)
+  const [expiringWindow, setExpiringWindow] = useState<ExpiringWindow>('90')
+  const [expiringSearch, setExpiringSearch] = useState('')
 
   const selected = useMemo(() => rows.find((r) => r.id === selectedId) ?? null, [rows, selectedId])
 
@@ -158,6 +163,68 @@ export function EmployeeTrainingPanel({ canWrite, onCountsChange }: EmployeeTrai
       }
     })
   }, [activeEmployees, allAttendeeRows, allSkills, employeeSearch])
+
+  const expiringReportRows = useMemo(() => {
+    const q = expiringSearch.trim().toLowerCase()
+    const windowDays =
+      expiringWindow === 'overdue' || expiringWindow === 'all' ? null : Number(expiringWindow)
+
+    const rows = allAttendeeRows
+      .map((row) => {
+        const training = row.training
+        const expires = training?.recert_due_date ?? null
+        if (!training || !expires) return null
+        if (training.status === 'cancelled') return null
+        const daysUntil = daysUntilTrainingExpiration(expires)
+        if (daysUntil == null) return null
+
+        if (expiringWindow === 'overdue' && daysUntil >= 0) return null
+        if (windowDays != null && (daysUntil < 0 || daysUntil > windowDays)) return null
+
+        const employeeName = row.employee_name || activeEmployees.find((e) => e.id === row.employee_id)?.full_name || '—'
+        if (
+          q &&
+          !employeeName.toLowerCase().includes(q) &&
+          !training.title.toLowerCase().includes(q) &&
+          !training.record_no.toLowerCase().includes(q) &&
+          !(training.departments || '').toLowerCase().includes(q)
+        ) {
+          return null
+        }
+
+        return {
+          attendeeId: row.id,
+          employeeId: row.employee_id,
+          employeeName,
+          training,
+          expires,
+          daysUntil,
+        }
+      })
+      .filter((row): row is NonNullable<typeof row> => Boolean(row))
+      .sort((a, b) => {
+        if (a.daysUntil !== b.daysUntil) return a.daysUntil - b.daysUntil
+        return a.employeeName.localeCompare(b.employeeName)
+      })
+
+    return rows
+  }, [activeEmployees, allAttendeeRows, expiringSearch, expiringWindow])
+
+  const expiringSummary = useMemo(() => {
+    let overdue = 0
+    let due30 = 0
+    let due90 = 0
+    for (const row of allAttendeeRows) {
+      const expires = row.training?.recert_due_date
+      if (!expires || row.training?.status === 'cancelled') continue
+      const daysUntil = daysUntilTrainingExpiration(expires)
+      if (daysUntil == null) continue
+      if (daysUntil < 0) overdue += 1
+      if (daysUntil >= 0 && daysUntil <= 30) due30 += 1
+      if (daysUntil >= 0 && daysUntil <= 90) due90 += 1
+    }
+    return { overdue, due30, due90 }
+  }, [allAttendeeRows])
 
   const loadTrainings = useCallback(async () => {
     setLoading(true)
@@ -265,7 +332,7 @@ export function EmployeeTrainingPanel({ canWrite, onCountsChange }: EmployeeTrai
   }, [tab, loadLibrary])
 
   useEffect(() => {
-    if (tab === 'employees') void loadEmployeeRoster()
+    if (tab === 'employees' || tab === 'expiring') void loadEmployeeRoster()
   }, [tab, loadEmployeeRoster])
 
   useEffect(() => {
@@ -596,6 +663,46 @@ export function EmployeeTrainingPanel({ canWrite, onCountsChange }: EmployeeTrai
 
   const skillLevelFor = (key: string): TrainingSkillLevel =>
     (skills.find((s) => s.skill_key === key)?.level as TrainingSkillLevel) ?? ''
+
+  const exportExpiringCsv = () => {
+    const header = [
+      'Employee',
+      'Record #',
+      'Title',
+      'Completed',
+      'Expires',
+      'Days until / overdue',
+      'Status',
+      'Interval',
+      'Department(s)',
+      'Trainer',
+    ]
+    const lines = expiringReportRows.map((row) =>
+      [
+        row.employeeName,
+        row.training.record_no,
+        row.training.title,
+        row.training.completed_date ?? '',
+        row.expires,
+        String(row.daysUntil),
+        trainingExpirationStatusLabel(row.daysUntil),
+        trainingRecertIntervalLabel(row.training.recert_interval),
+        row.training.departments || '',
+        row.training.trainer_name || '',
+      ]
+        .map((cell) => `"${String(cell).replace(/"/g, '""')}"`)
+        .join(','),
+    )
+    const csv = [header.join(','), ...lines].join('\n')
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = `training-recert-expiring-${todayIso()}.csv`
+    a.click()
+    URL.revokeObjectURL(url)
+    showToast(`Exported ${expiringReportRows.length} row${expiringReportRows.length === 1 ? '' : 's'}`)
+  }
 
   const renderTrainingTable = (list: EmployeeTraining[], emptyLabel: string) => (
     <div className="dashboard-table-wrap training-table-scroll">
@@ -985,6 +1092,7 @@ export function EmployeeTrainingPanel({ canWrite, onCountsChange }: EmployeeTrai
           [
             ['schedule', 'Schedule'],
             ['log', 'Training Log'],
+            ['expiring', 'Expiring'],
             ['employees', 'Employee Records'],
             ['library', 'Library'],
           ] as const
@@ -996,6 +1104,9 @@ export function EmployeeTrainingPanel({ canWrite, onCountsChange }: EmployeeTrai
             onClick={() => setTab(id)}
           >
             {label}
+            {id === 'expiring' && expiringSummary.overdue > 0 ? (
+              <span className="training-tab-badge">{expiringSummary.overdue}</span>
+            ) : null}
           </button>
         ))}
       </nav>
@@ -1029,6 +1140,105 @@ export function EmployeeTrainingPanel({ canWrite, onCountsChange }: EmployeeTrai
             )}
           </div>
           <div className="training-detail-pane">{renderDetail()}</div>
+        </div>
+      ) : null}
+
+      {tab === 'expiring' ? (
+        <div className="training-detail">
+          <div className="training-list-toolbar">
+            <div className="training-expiring-summary">
+              <span className="training-expiring-stat training-expiring-stat--overdue">
+                {expiringSummary.overdue} overdue
+              </span>
+              <span className="training-expiring-stat">{expiringSummary.due30} due in 30 days</span>
+              <span className="training-expiring-stat">{expiringSummary.due90} due in 90 days</span>
+            </div>
+            <div className="training-inline-add">
+              <label>
+                Window
+                <select value={expiringWindow} onChange={(e) => setExpiringWindow(e.target.value as ExpiringWindow)}>
+                  <option value="overdue">Overdue only</option>
+                  <option value="30">Next 30 days</option>
+                  <option value="60">Next 60 days</option>
+                  <option value="90">Next 90 days</option>
+                  <option value="180">Next 180 days</option>
+                  <option value="all">All with expiration</option>
+                </select>
+              </label>
+              <label>
+                Search
+                <input
+                  value={expiringSearch}
+                  onChange={(e) => setExpiringSearch(e.target.value)}
+                  placeholder="Employee, TR#, title…"
+                />
+              </label>
+              <button
+                type="button"
+                className="button-secondary"
+                disabled={expiringReportRows.length === 0}
+                onClick={exportExpiringCsv}
+              >
+                Export CSV
+              </button>
+            </div>
+          </div>
+          <p className="placeholder-copy resources-hint" style={{ marginTop: '0.35rem' }}>
+            Shows each employee on a completed training with an expiration date. Sorted soonest first — overdue at the
+            top.
+          </p>
+          <div className="dashboard-table-wrap training-table-scroll" style={{ marginTop: '0.75rem' }}>
+            <table className="dashboard-table">
+              <thead>
+                <tr>
+                  <th>Employee</th>
+                  <th>Record #</th>
+                  <th>Title</th>
+                  <th>Completed</th>
+                  <th>Expires</th>
+                  <th>Status</th>
+                  <th>Interval</th>
+                  <th>Department(s)</th>
+                </tr>
+              </thead>
+              <tbody>
+                {expiringReportRows.map((row) => (
+                  <tr
+                    key={row.attendeeId}
+                    className={row.daysUntil < 0 ? 'training-row--expired' : undefined}
+                    onClick={() => {
+                      openTraining(row.training)
+                      setTab('log')
+                    }}
+                    style={{ cursor: 'pointer' }}
+                  >
+                    <td>
+                      <strong>{row.employeeName}</strong>
+                    </td>
+                    <td>{row.training.record_no}</td>
+                    <td>{row.training.title}</td>
+                    <td>{formatTrainingDate(row.training.completed_date)}</td>
+                    <td className={row.daysUntil < 0 ? 'training-expired' : undefined}>
+                      {formatTrainingDate(row.expires)}
+                    </td>
+                    <td className={row.daysUntil < 0 ? 'training-expired' : undefined}>
+                      {trainingExpirationStatusLabel(row.daysUntil)}
+                    </td>
+                    <td>{trainingRecertIntervalLabel(row.training.recert_interval)}</td>
+                    <td>{row.training.departments || '—'}</td>
+                  </tr>
+                ))}
+                {expiringReportRows.length === 0 ? (
+                  <tr>
+                    <td colSpan={8} className="table-empty-cell">
+                      No trainings match this window. Add a recert interval on completed trainings so expiration dates
+                      populate.
+                    </td>
+                  </tr>
+                ) : null}
+              </tbody>
+            </table>
+          </div>
         </div>
       ) : null}
 

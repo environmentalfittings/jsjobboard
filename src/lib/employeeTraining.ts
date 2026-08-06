@@ -610,3 +610,20 @@ export function isTrainingExpired(dueDate: string | null | undefined): boolean {
   due.setHours(0, 0, 0, 0)
   return due.getTime() < today.getTime()
 }
+
+/** Signed day difference: negative = overdue, 0 = due today, positive = days until due. */
+export function daysUntilTrainingExpiration(dueDate: string | null | undefined): number | null {
+  if (!dueDate) return null
+  const due = new Date(`${dueDate}T12:00:00`)
+  if (Number.isNaN(due.getTime())) return null
+  const today = new Date()
+  today.setHours(12, 0, 0, 0)
+  return Math.round((due.getTime() - today.getTime()) / (24 * 60 * 60 * 1000))
+}
+
+export function trainingExpirationStatusLabel(daysUntil: number | null): string {
+  if (daysUntil == null) return '—'
+  if (daysUntil < 0) return `Overdue ${Math.abs(daysUntil)} day${Math.abs(daysUntil) === 1 ? '' : 's'}`
+  if (daysUntil === 0) return 'Due today'
+  return `Due in ${daysUntil} day${daysUntil === 1 ? '' : 's'}`
+}

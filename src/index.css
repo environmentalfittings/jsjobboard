@@ -12333,6 +12333,43 @@ tbody tr:hover {
   border-bottom-color: #14b8a6;
 }
 
+.training-tab-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 1.25rem;
+  height: 1.25rem;
+  margin-left: 0.35rem;
+  padding: 0 0.35rem;
+  border-radius: 999px;
+  background: #b91c1c;
+  color: #fff;
+  font-size: 0.7rem;
+  font-weight: 700;
+  line-height: 1;
+}
+
+.training-expiring-summary {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem 0.85rem;
+  align-items: center;
+}
+
+.training-expiring-stat {
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: #334155;
+}
+
+.training-expiring-stat--overdue {
+  color: #b91c1c;
+}
+
+.training-row--expired {
+  background: #fef2f2;
+}
+
 .training-split {
   display: grid;
   grid-template-columns: minmax(0, 1.1fr) minmax(0, 1fr);
