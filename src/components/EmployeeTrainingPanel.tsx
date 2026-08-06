@@ -76,6 +76,7 @@ export function EmployeeTrainingPanel({ canWrite, onCountsChange }: EmployeeTrai
   const [creating, setCreating] = useState(false)
 
   const [attendees, setAttendees] = useState<EmployeeTrainingAttendee[]>([])
+  const [draftAttendees, setDraftAttendees] = useState<Array<{ employeeId: string; employeeName: string }>>([])
   const [files, setFiles] = useState<EmployeeTrainingFile[]>([])
   const [attendeePickId, setAttendeePickId] = useState('')
   const [fileKind, setFileKind] = useState<TrainingFileKind>('material')
@@ -100,6 +101,15 @@ export function EmployeeTrainingPanel({ canWrite, onCountsChange }: EmployeeTrai
     [rows],
   )
   const logRows = useMemo(() => rows.filter((r) => r.status === 'completed' || r.status === 'cancelled'), [rows])
+
+  const availableAttendeeEmployees = useMemo(() => {
+    const taken = new Set(
+      creating
+        ? draftAttendees.map((a) => a.employeeId)
+        : attendees.map((a) => a.employee_id).filter((id): id is string => Boolean(id)),
+    )
+    return activeEmployees.filter((e) => !taken.has(e.id))
+  }, [activeEmployees, attendees, creating, draftAttendees])
 
   const loadTrainings = useCallback(async () => {
     setLoading(true)
@@ -204,6 +214,8 @@ export function EmployeeTrainingPanel({ canWrite, onCountsChange }: EmployeeTrai
       ...preset,
     })
     setAttendees([])
+    setDraftAttendees([])
+    setAttendeePickId('')
     setFiles([])
   }
 
@@ -211,6 +223,8 @@ export function EmployeeTrainingPanel({ canWrite, onCountsChange }: EmployeeTrai
     setCreating(false)
     setSelectedId(row.id)
     setDraft(inputFromTraining(row))
+    setDraftAttendees([])
+    setAttendeePickId('')
   }
 
   const saveTraining = async () => {
@@ -219,11 +233,26 @@ export function EmployeeTrainingPanel({ canWrite, onCountsChange }: EmployeeTrai
     try {
       if (creating) {
         const created = await createEmployeeTraining(draft)
-        showToast(`Created ${created.record_no}`)
+        for (const attendee of draftAttendees) {
+          await upsertTrainingAttendee({
+            trainingId: created.id,
+            employeeId: attendee.employeeId,
+            employeeName: attendee.employeeName,
+            signedOff: created.status === 'completed',
+            signedOffAt: created.status === 'completed' ? created.completed_date || todayIso() : null,
+          })
+        }
+        const countLabel =
+          draftAttendees.length > 0
+            ? ` with ${draftAttendees.length} attendee${draftAttendees.length === 1 ? '' : 's'}`
+            : ''
+        showToast(`Created ${created.record_no}${countLabel}`)
+        setDraftAttendees([])
         await loadTrainings()
         setCreating(false)
         setSelectedId(created.id)
         setDraft(inputFromTraining(created))
+        await loadDetail(created.id)
       } else if (selectedId != null) {
         const updated = await updateEmployeeTraining(selectedId, draft)
         showToast(`Saved ${updated.record_no}`)
@@ -281,9 +310,21 @@ export function EmployeeTrainingPanel({ canWrite, onCountsChange }: EmployeeTrai
   }
 
   const addAttendee = async () => {
-    if (!canWrite || busy || selectedId == null || !attendeePickId) return
+    if (!canWrite || busy || !attendeePickId) return
     const emp = activeEmployees.find((e) => e.id === attendeePickId)
     if (!emp) return
+
+    if (creating) {
+      if (draftAttendees.some((a) => a.employeeId === emp.id)) {
+        showToast(`${emp.full_name} is already added`)
+        return
+      }
+      setDraftAttendees((prev) => [...prev, { employeeId: emp.id, employeeName: emp.full_name }])
+      setAttendeePickId('')
+      return
+    }
+
+    if (selectedId == null) return
     setBusy(true)
     try {
       await upsertTrainingAttendee({
@@ -298,6 +339,10 @@ export function EmployeeTrainingPanel({ canWrite, onCountsChange }: EmployeeTrai
     } finally {
       setBusy(false)
     }
+  }
+
+  const removeDraftAttendee = (employeeId: string) => {
+    setDraftAttendees((prev) => prev.filter((a) => a.employeeId !== employeeId))
   }
 
   const toggleSignedOff = async (row: EmployeeTrainingAttendee) => {
@@ -597,39 +642,57 @@ export function EmployeeTrainingPanel({ canWrite, onCountsChange }: EmployeeTrai
           </label>
         </div>
 
-        {!creating && selectedId != null ? (
-          <>
-            <div className="training-subsection">
-              <div className="training-subsection-head">
-                <h5>Attendees</h5>
-                {canWrite ? (
-                  <div className="training-inline-add">
-                    <select value={attendeePickId} disabled={busy} onChange={(e) => setAttendeePickId(e.target.value)}>
-                      <option value="">Add employee…</option>
-                      {activeEmployees.map((e: Employee) => (
-                        <option key={e.id} value={e.id}>
-                          {e.full_name}
-                        </option>
-                      ))}
-                    </select>
-                    <button type="button" className="button-secondary" disabled={busy || !attendeePickId} onClick={() => void addAttendee()}>
-                      Add
-                    </button>
-                  </div>
-                ) : null}
+        <div className="training-subsection">
+          <div className="training-subsection-head">
+            <h5>Attendees</h5>
+            {canWrite ? (
+              <div className="training-inline-add">
+                <select value={attendeePickId} disabled={busy} onChange={(e) => setAttendeePickId(e.target.value)}>
+                  <option value="">Add employee…</option>
+                  {availableAttendeeEmployees.map((e: Employee) => (
+                    <option key={e.id} value={e.id}>
+                      {e.full_name}
+                    </option>
+                  ))}
+                </select>
+                <button type="button" className="button-secondary" disabled={busy || !attendeePickId} onClick={() => void addAttendee()}>
+                  Add
+                </button>
               </div>
-              <div className="dashboard-table-wrap">
-                <table className="dashboard-table">
-                  <thead>
-                    <tr>
-                      <th>Employee</th>
-                      <th>Signed off</th>
-                      <th>Date</th>
-                      <th />
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {attendees.map((a) => (
+            ) : null}
+          </div>
+          <div className="dashboard-table-wrap">
+            <table className="dashboard-table">
+              <thead>
+                <tr>
+                  <th>Employee</th>
+                  <th>Signed off</th>
+                  <th>Date</th>
+                  <th />
+                </tr>
+              </thead>
+              <tbody>
+                {creating
+                  ? draftAttendees.map((a) => (
+                      <tr key={a.employeeId}>
+                        <td>{a.employeeName}</td>
+                        <td>{draft.status === 'completed' ? 'On create' : 'After create'}</td>
+                        <td>—</td>
+                        <td>
+                          {canWrite ? (
+                            <button
+                              type="button"
+                              className="button-secondary admin-list-btn danger"
+                              disabled={busy}
+                              onClick={() => removeDraftAttendee(a.employeeId)}
+                            >
+                              Remove
+                            </button>
+                          ) : null}
+                        </td>
+                      </tr>
+                    ))
+                  : attendees.map((a) => (
                       <tr key={a.id}>
                         <td>{a.employee_name}</td>
                         <td>
@@ -652,71 +715,80 @@ export function EmployeeTrainingPanel({ canWrite, onCountsChange }: EmployeeTrai
                         <td>{formatTrainingDate(a.signed_off_at)}</td>
                         <td>
                           {canWrite ? (
-                            <button type="button" className="button-secondary admin-list-btn danger" disabled={busy} onClick={() => void removeAttendee(a)}>
+                            <button
+                              type="button"
+                              className="button-secondary admin-list-btn danger"
+                              disabled={busy}
+                              onClick={() => void removeAttendee(a)}
+                            >
                               Remove
                             </button>
                           ) : null}
                         </td>
                       </tr>
                     ))}
-                    {attendees.length === 0 ? (
-                      <tr>
-                        <td colSpan={4} className="table-empty-cell">
-                          No attendees yet.
-                        </td>
-                      </tr>
-                    ) : null}
-                  </tbody>
-                </table>
-              </div>
-            </div>
-
-            <div className="training-subsection">
-              <div className="training-subsection-head">
-                <h5>Materials & tests</h5>
-                {canWrite ? (
-                  <div className="training-inline-add">
-                    <select value={fileKind} disabled={busy} onChange={(e) => setFileKind(e.target.value as TrainingFileKind)}>
-                      {TRAINING_FILE_KINDS.map((k) => (
-                        <option key={k.value} value={k.value}>
-                          {k.label}
-                        </option>
-                      ))}
-                    </select>
-                    <button type="button" className="button-secondary" disabled={busy} onClick={() => fileInputRef.current?.click()}>
-                      Upload
-                    </button>
-                    <input
-                      ref={fileInputRef}
-                      type="file"
-                      multiple
-                      hidden
-                      onChange={(e) => void uploadDetailFile(e.target.files)}
-                    />
-                  </div>
+                {(creating ? draftAttendees.length === 0 : attendees.length === 0) ? (
+                  <tr>
+                    <td colSpan={4} className="table-empty-cell">
+                      No attendees yet. Use the dropdown to add employees who attended.
+                    </td>
+                  </tr>
                 ) : null}
-              </div>
-              <ul className="training-file-list">
-                {files.map((f) => (
-                  <li key={f.id} className="training-file-row">
-                    <span className="training-file-kind">{TRAINING_FILE_KINDS.find((k) => k.value === f.kind)?.label ?? f.kind}</span>
-                    <a href={trainingFilePublicUrl(f.storage_path)} target="_blank" rel="noreferrer">
-                      {f.title || f.file_name}
-                    </a>
-                    {canWrite ? (
-                      <button type="button" className="button-secondary admin-list-btn danger" disabled={busy} onClick={() => void removeFile(f, 'detail')}>
-                        Delete
-                      </button>
-                    ) : null}
-                  </li>
-                ))}
-                {files.length === 0 ? <li className="placeholder-copy">No files attached to this training.</li> : null}
-              </ul>
+              </tbody>
+            </table>
+          </div>
+          {creating ? (
+            <p className="placeholder-copy resources-hint" style={{ marginTop: '0.5rem' }}>
+              Selected employees are saved with the training and will show on their Employee Records. A TR number is
+              assigned when you create. Files can be uploaded after create.
+            </p>
+          ) : null}
+        </div>
+
+        {!creating && selectedId != null ? (
+          <div className="training-subsection">
+            <div className="training-subsection-head">
+              <h5>Materials & tests</h5>
+              {canWrite ? (
+                <div className="training-inline-add">
+                  <select value={fileKind} disabled={busy} onChange={(e) => setFileKind(e.target.value as TrainingFileKind)}>
+                    {TRAINING_FILE_KINDS.map((k) => (
+                      <option key={k.value} value={k.value}>
+                        {k.label}
+                      </option>
+                    ))}
+                  </select>
+                  <button type="button" className="button-secondary" disabled={busy} onClick={() => fileInputRef.current?.click()}>
+                    Upload
+                  </button>
+                  <input
+                    ref={fileInputRef}
+                    type="file"
+                    multiple
+                    hidden
+                    onChange={(e) => void uploadDetailFile(e.target.files)}
+                  />
+                </div>
+              ) : null}
             </div>
-          </>
-        ) : (
-          <p className="placeholder-copy">Save the training first to add attendees and files. A TR number is assigned on create.</p>
-        )}
+            <ul className="training-file-list">
+              {files.map((f) => (
+                <li key={f.id} className="training-file-row">
+                  <span className="training-file-kind">{TRAINING_FILE_KINDS.find((k) => k.value === f.kind)?.label ?? f.kind}</span>
+                  <a href={trainingFilePublicUrl(f.storage_path)} target="_blank" rel="noreferrer">
+                    {f.title || f.file_name}
+                  </a>
+                  {canWrite ? (
+                    <button type="button" className="button-secondary admin-list-btn danger" disabled={busy} onClick={() => void removeFile(f, 'detail')}>
+                      Delete
+                    </button>
+                  ) : null}
+                </li>
+              ))}
+              {files.length === 0 ? <li className="placeholder-copy">No files attached to this training.</li> : null}
+            </ul>
+          </div>
+        ) : null}
       </div>
     )
   }
