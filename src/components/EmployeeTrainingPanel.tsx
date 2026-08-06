@@ -16,6 +16,7 @@ import {
   emptyTrainingInput,
   formatTrainingDate,
   inputFromTraining,
+  isTrainingExpired,
   listAttendeeTrainingsForEmployee,
   listEmployeeSkills,
   listEmployeeTrainings,
@@ -58,7 +59,7 @@ function todayIso() {
 }
 
 function migrationHint(message: string) {
-  return /relation .* does not exist|Could not find the table|function .* does not exist|allocate_training_record_no|row-level security|employee_training|recert_interval|recert_due_date/i.test(
+  return /relation .* does not exist|Could not find the table|function .* does not exist|allocate_training_record_no|row-level security|employee_training|recert_interval|recert_due_date|certificate/i.test(
     message,
   )
 }
@@ -105,7 +106,10 @@ export function EmployeeTrainingPanel({ canWrite, onCountsChange }: EmployeeTrai
   const [employeeHistory, setEmployeeHistory] = useState<
     Array<EmployeeTrainingAttendee & { training?: EmployeeTraining | null }>
   >([])
+  const [employeeCertificates, setEmployeeCertificates] = useState<EmployeeTrainingFile[]>([])
   const [shopLocation, setShopLocation] = useState('')
+  const certFileInputRef = useRef<HTMLInputElement>(null)
+  const [certUploadTrainingId, setCertUploadTrainingId] = useState<number | null>(null)
 
   const selected = useMemo(() => rows.find((r) => r.id === selectedId) ?? null, [rows, selectedId])
 
@@ -181,21 +185,25 @@ export function EmployeeTrainingPanel({ canWrite, onCountsChange }: EmployeeTrai
       if (!employeeId) {
         setSkills([])
         setEmployeeHistory([])
+        setEmployeeCertificates([])
         setShopLocation('')
         return
       }
       try {
-        const [skillRows, history] = await Promise.all([
+        const [skillRows, history, certificates] = await Promise.all([
           listEmployeeSkills(employeeId),
           listAttendeeTrainingsForEmployee(employeeId),
+          listTrainingFiles({ employeeId, kind: 'certificate' }),
         ])
         setSkills(skillRows)
         setEmployeeHistory(history)
+        setEmployeeCertificates(certificates)
         setShopLocation(skillRows.find((s) => s.shop_location)?.shop_location ?? '')
       } catch (error) {
-        showToast(error instanceof Error ? error.message : 'Could not load employee training record')
+        showToast(errorMessage(error, 'Could not load employee training record'))
         setSkills([])
         setEmployeeHistory([])
+        setEmployeeCertificates([])
       }
     },
     [showToast],
@@ -417,11 +425,58 @@ export function EmployeeTrainingPanel({ canWrite, onCountsChange }: EmployeeTrai
       showToast(fileList.length > 1 ? 'Files uploaded' : 'File uploaded')
       await loadLibrary()
     } catch (error) {
-      showToast(error instanceof Error ? error.message : 'Upload failed')
+      showToast(errorMessage(error, 'Upload failed'))
     } finally {
       setBusy(false)
       if (libraryFileRef.current) libraryFileRef.current.value = ''
     }
+  }
+
+  const uploadEmployeeCertificate = async (fileList: FileList | null) => {
+    if (!fileList?.length || !canWrite || busy || !selectedEmployeeId || certUploadTrainingId == null) return
+    const file = fileList[0]
+    if (!file) return
+    if (file.type && file.type !== 'application/pdf' && !file.name.toLowerCase().endsWith('.pdf')) {
+      showToast('Please upload a PDF certificate')
+      return
+    }
+    setBusy(true)
+    try {
+      await uploadTrainingFile({
+        file,
+        kind: 'certificate',
+        title: `${file.name.replace(/\.pdf$/i, '')} certificate`,
+        trainingId: certUploadTrainingId,
+        employeeId: selectedEmployeeId,
+      })
+      showToast('Certificate uploaded')
+      await loadEmployeeDetail(selectedEmployeeId)
+    } catch (error) {
+      showToast(errorMessage(error, 'Could not upload certificate'))
+    } finally {
+      setBusy(false)
+      setCertUploadTrainingId(null)
+      if (certFileInputRef.current) certFileInputRef.current.value = ''
+    }
+  }
+
+  const removeEmployeeCertificate = async (row: EmployeeTrainingFile) => {
+    if (!canWrite || busy || !selectedEmployeeId) return
+    if (!window.confirm(`Remove certificate “${row.file_name}”?`)) return
+    setBusy(true)
+    try {
+      await deleteTrainingFile(row)
+      await loadEmployeeDetail(selectedEmployeeId)
+    } catch (error) {
+      showToast(errorMessage(error, 'Could not delete certificate'))
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const certificateForTraining = (trainingId: number | null | undefined) => {
+    if (trainingId == null) return null
+    return employeeCertificates.find((f) => f.training_id === trainingId) ?? null
   }
 
   const removeFile = async (row: EmployeeTrainingFile, from: 'detail' | 'library') => {
@@ -491,7 +546,7 @@ export function EmployeeTrainingPanel({ canWrite, onCountsChange }: EmployeeTrai
             <th>Status</th>
             <th>Scheduled</th>
             <th>Completed</th>
-            <th>Recert due</th>
+            <th>Expires</th>
             <th>Trainer</th>
             <th>Department(s)</th>
           </tr>
@@ -515,7 +570,9 @@ export function EmployeeTrainingPanel({ canWrite, onCountsChange }: EmployeeTrai
               </td>
               <td>{formatTrainingDate(row.scheduled_date)}</td>
               <td>{formatTrainingDate(row.completed_date)}</td>
-              <td>{formatTrainingDate(row.recert_due_date)}</td>
+              <td className={isTrainingExpired(row.recert_due_date) ? 'training-expired' : undefined}>
+                {formatTrainingDate(row.recert_due_date)}
+              </td>
               <td>{row.trainer_name || '—'}</td>
               <td>{row.departments || '—'}</td>
             </tr>
@@ -656,7 +713,7 @@ export function EmployeeTrainingPanel({ canWrite, onCountsChange }: EmployeeTrai
             />
           </label>
           <label>
-            Recertification
+            Recert interval
             <select
               value={draft.recert_interval}
               disabled={!canWrite || busy}
@@ -677,7 +734,7 @@ export function EmployeeTrainingPanel({ canWrite, onCountsChange }: EmployeeTrai
             </select>
           </label>
           <label>
-            Recert due date
+            Expiration date
             <input
               type="date"
               value={draft.recert_due_date ?? ''}
@@ -992,39 +1049,95 @@ export function EmployeeTrainingPanel({ canWrite, onCountsChange }: EmployeeTrai
             {!selectedEmployeeId ? (
               <p className="placeholder-copy">No employee selected.</p>
             ) : (
-              <div className="dashboard-table-wrap">
-                <table className="dashboard-table">
-                  <thead>
-                    <tr>
-                      <th>Record #</th>
-                      <th>Title</th>
-                      <th>Completed</th>
-                      <th>Recert due</th>
-                      <th>Interval</th>
-                      <th>Signed off</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {employeeHistory.map((row) => (
-                      <tr key={row.id}>
-                        <td>{row.training?.record_no ?? '—'}</td>
-                        <td>{row.training?.title ?? '—'}</td>
-                        <td>{formatTrainingDate(row.training?.completed_date ?? null)}</td>
-                        <td>{formatTrainingDate(row.training?.recert_due_date ?? null)}</td>
-                        <td>{trainingRecertIntervalLabel(row.training?.recert_interval)}</td>
-                        <td>{row.signed_off ? formatTrainingDate(row.signed_off_at) : 'No'}</td>
-                      </tr>
-                    ))}
-                    {employeeHistory.length === 0 ? (
+              <>
+                <input
+                  ref={certFileInputRef}
+                  type="file"
+                  accept="application/pdf,.pdf"
+                  hidden
+                  onChange={(e) => void uploadEmployeeCertificate(e.target.files)}
+                />
+                <div className="dashboard-table-wrap">
+                  <table className="dashboard-table">
+                    <thead>
                       <tr>
-                        <td colSpan={6} className="table-empty-cell">
-                          No trainings on file for this employee.
-                        </td>
+                        <th>Record #</th>
+                        <th>Title</th>
+                        <th>Completed</th>
+                        <th>Expires</th>
+                        <th>Interval</th>
+                        <th>Certificate</th>
+                        <th>Signed off</th>
                       </tr>
-                    ) : null}
-                  </tbody>
-                </table>
-              </div>
+                    </thead>
+                    <tbody>
+                      {employeeHistory.map((row) => {
+                        const cert = certificateForTraining(row.training_id)
+                        const expires = row.training?.recert_due_date ?? null
+                        return (
+                          <tr key={row.id}>
+                            <td>{row.training?.record_no ?? '—'}</td>
+                            <td>{row.training?.title ?? '—'}</td>
+                            <td>{formatTrainingDate(row.training?.completed_date ?? null)}</td>
+                            <td className={isTrainingExpired(expires) ? 'training-expired' : undefined}>
+                              {formatTrainingDate(expires)}
+                            </td>
+                            <td>{trainingRecertIntervalLabel(row.training?.recert_interval)}</td>
+                            <td>
+                              <div className="training-cert-actions">
+                                {cert ? (
+                                  <>
+                                    <a
+                                      href={trainingFilePublicUrl(cert.storage_path)}
+                                      target="_blank"
+                                      rel="noreferrer"
+                                    >
+                                      View PDF
+                                    </a>
+                                    {canWrite ? (
+                                      <button
+                                        type="button"
+                                        className="button-secondary admin-list-btn danger"
+                                        disabled={busy}
+                                        onClick={() => void removeEmployeeCertificate(cert)}
+                                      >
+                                        Remove
+                                      </button>
+                                    ) : null}
+                                  </>
+                                ) : canWrite && row.training_id ? (
+                                  <button
+                                    type="button"
+                                    className="button-secondary admin-list-btn"
+                                    disabled={busy}
+                                    onClick={() => {
+                                      setCertUploadTrainingId(row.training_id)
+                                      certFileInputRef.current?.click()
+                                    }}
+                                  >
+                                    Upload PDF
+                                  </button>
+                                ) : (
+                                  '—'
+                                )}
+                              </div>
+                            </td>
+                            <td>{row.signed_off ? formatTrainingDate(row.signed_off_at) : 'No'}</td>
+                          </tr>
+                        )
+                      })}
+                      {employeeHistory.length === 0 ? (
+                        <tr>
+                          <td colSpan={7} className="table-empty-cell">
+                            No trainings on file for this employee. Expiration fills in when a training has a
+                            completed date and recert interval.
+                          </td>
+                        </tr>
+                      ) : null}
+                    </tbody>
+                  </table>
+                </div>
+              </>
             )}
           </div>
         </div>

@@ -15,7 +15,7 @@ export type TrainingReason =
   | 'Cross training'
   | 'Other'
 
-export type TrainingFileKind = 'material' | 'test' | 'completed_test' | 'signoff' | 'other'
+export type TrainingFileKind = 'material' | 'test' | 'completed_test' | 'signoff' | 'certificate' | 'other'
 
 export type TrainingSkillLevel = '' | 'in_training' | 'trained' | 'C' | 'A' | 'M' | 'NEW' | 'Pending'
 
@@ -68,6 +68,7 @@ export const TRAINING_FILE_KINDS: { value: TrainingFileKind; label: string }[] =
   { value: 'test', label: 'Test (blank)' },
   { value: 'completed_test', label: 'Completed test' },
   { value: 'signoff', label: 'Sign-off sheet' },
+  { value: 'certificate', label: 'Certificate' },
   { value: 'other', label: 'Other' },
 ]
 
@@ -471,11 +472,13 @@ export async function deleteTrainingAttendee(id: number): Promise<void> {
 
 export async function listTrainingFiles(opts?: {
   trainingId?: number | null
+  employeeId?: string | null
   kind?: TrainingFileKind | 'all'
   libraryOnly?: boolean
 }): Promise<EmployeeTrainingFile[]> {
   let query = supabase.from('employee_training_files').select(FILE_SELECT)
   if (opts?.trainingId != null) query = query.eq('training_id', opts.trainingId)
+  if (opts?.employeeId) query = query.eq('employee_id', opts.employeeId)
   if (opts?.libraryOnly) query = query.is('training_id', null)
   if (opts?.kind && opts.kind !== 'all') query = query.eq('kind', opts.kind)
   const { data, error } = await query.order('created_at', { ascending: false }).limit(400)
@@ -495,7 +498,14 @@ export async function uploadTrainingFile(args: {
   if (file.size > MAX_BYTES) throw new Error('File is too large (max 40 MB).')
 
   const title = (args.title ?? file.name).trim() || file.name
-  const folder = args.trainingId != null ? `training-${args.trainingId}` : 'library'
+  const folder =
+    args.trainingId != null && args.employeeId
+      ? `training-${args.trainingId}/employee-${args.employeeId}`
+      : args.trainingId != null
+        ? `training-${args.trainingId}`
+        : args.employeeId
+          ? `employee-${args.employeeId}`
+          : 'library'
   const storagePath = `resources/employee-training/${folder}/${crypto.randomUUID()}${fileExt(file.name)}`
 
   const { error: uploadErr } = await supabase.storage.from(RESOURCE_DOCS_BUCKET).upload(storagePath, file, {
@@ -570,4 +580,15 @@ export function formatTrainingDate(value: string | null | undefined): string {
   const parsed = new Date(`${value}T12:00:00`)
   if (Number.isNaN(parsed.getTime())) return value
   return parsed.toLocaleDateString()
+}
+
+/** True when expiration/recert due date is before today (local). */
+export function isTrainingExpired(dueDate: string | null | undefined): boolean {
+  if (!dueDate) return false
+  const due = new Date(`${dueDate}T12:00:00`)
+  if (Number.isNaN(due.getTime())) return false
+  const today = new Date()
+  today.setHours(0, 0, 0, 0)
+  due.setHours(0, 0, 0, 0)
+  return due.getTime() < today.getTime()
 }

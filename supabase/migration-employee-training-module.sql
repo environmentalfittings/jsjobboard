@@ -164,7 +164,7 @@ create table if not exists public.employee_training_files (
   training_id bigint references public.employee_trainings (id) on delete cascade,
   employee_id uuid references public.employees (id) on delete set null,
   kind text not null
-    check (kind in ('material', 'test', 'completed_test', 'signoff', 'other')),
+    check (kind in ('material', 'test', 'completed_test', 'signoff', 'certificate', 'other')),
   title text not null default '',
   notes text not null default '',
   storage_path text not null unique,
