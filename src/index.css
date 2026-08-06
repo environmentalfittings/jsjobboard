@@ -5540,6 +5540,7 @@ a.test-log-reports-item-name:hover {
 
 .admin-lists-tabs {
   display: flex;
+  flex-wrap: wrap;
   gap: 8px;
   margin-bottom: 14px;
 }
@@ -5558,10 +5559,6 @@ a.test-log-reports-item-name:hover {
   border-color: #0f5dc7;
   background: #eff6ff;
   color: #0f5dc7;
-}
-
-.admin-lists-tabs {
-  flex-wrap: wrap;
 }
 
 .shop-workflow-admin {
