@@ -15,6 +15,7 @@ const MARGIN_Y = 12
 const ROW_PAD_Y = 1.6
 const LINE_H = 3.4
 const HEADER_H = 8
+const BORDER: [number, number, number] = [148, 163, 184]
 
 type Col = {
   key: string
@@ -26,17 +27,20 @@ type Col = {
 
 /** Landscape letter content width ≈ 259.4mm with 10mm side margins. */
 const COLS: Col[] = [
-  { key: 'valve_id', label: 'Job ID', width: 22 },
-  { key: 'job_type', label: 'Job type', width: 24 },
-  { key: 'customer', label: 'Customer', width: 34 },
-  { key: 'cell', label: 'Cell', width: 26 },
-  { key: 'size', label: 'Size', width: 14 },
-  { key: 'pressure', label: 'Pressure', width: 18 },
-  { key: 'valve_type', label: 'Valve type', width: 26 },
-  { key: 'date_closed', label: 'Date closed', width: 22 },
-  { key: 'description', label: 'Description', width: 38, wrap: true },
-  { key: 'notes', label: 'Notes', width: 35.4, wrap: true },
+  { key: 'valve_id', label: 'Job ID', width: 24 },
+  { key: 'job_type', label: 'Job type', width: 26 },
+  { key: 'customer', label: 'Customer', width: 38 },
+  { key: 'cell', label: 'Cell', width: 28 },
+  { key: 'size', label: 'Size', width: 16 },
+  { key: 'pressure', label: 'Pressure', width: 20 },
+  { key: 'valve_type', label: 'Valve type', width: 28 },
+  { key: 'date_closed', label: 'Date closed', width: 24 },
+  { key: 'description', label: 'Description', width: 55.4, wrap: true },
 ]
+
+function tableWidth(): number {
+  return COLS.reduce((sum, col) => sum + col.width, 0)
+}
 
 function display(value: string | null | undefined): string {
   const trimmed = String(value ?? '').trim()
@@ -66,7 +70,21 @@ function cellValues(row: Valve): Record<string, string> {
     valve_type: display(row.valve_type),
     date_closed: display(row.date_closed),
     description: display(row.description),
-    notes: display(row.notes),
+  }
+}
+
+function setBorderStroke(doc: jsPDF) {
+  doc.setDrawColor(...BORDER)
+  doc.setLineWidth(0.25)
+}
+
+function drawVerticalGrid(doc: jsPDF, y: number, height: number) {
+  setBorderStroke(doc)
+  let x = MARGIN_X
+  doc.line(x, y, x, y + height)
+  for (const col of COLS) {
+    x += col.width
+    doc.line(x, y, x, y + height)
   }
 }
 
@@ -88,13 +106,15 @@ function drawPageHeader(doc: jsPDF, filters: CompletedJobsPdfFilters, pageWidth:
   ].join('  ·  ')
   doc.text(meta, MARGIN_X, MARGIN_Y + 6)
   doc.setDrawColor(203, 213, 225)
+  doc.setLineWidth(0.3)
   doc.line(MARGIN_X, MARGIN_Y + 9, pageWidth - MARGIN_X, MARGIN_Y + 9)
   return MARGIN_Y + 12
 }
 
 function drawTableHeader(doc: jsPDF, y: number): number {
+  const width = tableWidth()
   doc.setFillColor(241, 245, 249)
-  doc.rect(MARGIN_X, y, COLS.reduce((s, c) => s + c.width, 0), HEADER_H, 'F')
+  doc.rect(MARGIN_X, y, width, HEADER_H, 'F')
   doc.setFont('helvetica', 'bold')
   doc.setFontSize(8)
   doc.setTextColor(51, 65, 85)
@@ -103,8 +123,9 @@ function drawTableHeader(doc: jsPDF, y: number): number {
     doc.text(col.label, x + 1.2, y + 5.2)
     x += col.width
   }
-  doc.setDrawColor(203, 213, 225)
-  doc.line(MARGIN_X, y + HEADER_H, MARGIN_X + COLS.reduce((s, c) => s + c.width, 0), y + HEADER_H)
+  setBorderStroke(doc)
+  doc.rect(MARGIN_X, y, width, HEADER_H, 'S')
+  drawVerticalGrid(doc, y, HEADER_H)
   return y + HEADER_H
 }
 
@@ -131,10 +152,10 @@ function measureRowHeight(doc: jsPDF, values: Record<string, string>): number {
 
 function drawRow(doc: jsPDF, y: number, row: Valve, rowHeight: number, zebra: boolean) {
   const values = cellValues(row)
-  const tableWidth = COLS.reduce((s, c) => s + c.width, 0)
+  const width = tableWidth()
   if (zebra) {
     doc.setFillColor(248, 250, 252)
-    doc.rect(MARGIN_X, y, tableWidth, rowHeight, 'F')
+    doc.rect(MARGIN_X, y, width, rowHeight, 'F')
   }
 
   doc.setFont('helvetica', 'normal')
@@ -181,8 +202,9 @@ function drawRow(doc: jsPDF, y: number, row: Valve, rowHeight: number, zebra: bo
     x += col.width
   }
 
-  doc.setDrawColor(226, 232, 240)
-  doc.line(MARGIN_X, y + rowHeight, MARGIN_X + tableWidth, y + rowHeight)
+  setBorderStroke(doc)
+  doc.rect(MARGIN_X, y, width, rowHeight, 'S')
+  drawVerticalGrid(doc, y, rowHeight)
 }
 
 function addFooter(doc: jsPDF, pageWidth: number, pageHeight: number, page: number, total: number) {
@@ -197,7 +219,6 @@ export function buildCompletedJobsReportPdf(rows: Valve[], filters: CompletedJob
   const pageWidth = doc.internal.pageSize.getWidth()
   const pageHeight = doc.internal.pageSize.getHeight()
 
-  // First pass: compute page breaks so footers can show total pages.
   type LayoutRow = { row: Valve; height: number }
   const layout: LayoutRow[] = rows.map((row) => ({
     row,
@@ -206,13 +227,9 @@ export function buildCompletedJobsReportPdf(rows: Valve[], filters: CompletedJob
 
   const pages: LayoutRow[][] = []
   let current: LayoutRow[] = []
-  let yCursor = 0
-  const startBodyY = () => {
-    // Approximate: header block + table header
-    return MARGIN_Y + 12 + HEADER_H
-  }
+  const startBodyY = () => MARGIN_Y + 12 + HEADER_H
 
-  yCursor = startBodyY()
+  let yCursor = startBodyY()
   for (const item of layout) {
     if (yCursor + item.height > pageHeight - 12) {
       pages.push(current)
@@ -223,9 +240,6 @@ export function buildCompletedJobsReportPdf(rows: Valve[], filters: CompletedJob
     yCursor += item.height
   }
   pages.push(current)
-  if (pages.length === 1 && pages[0].length === 0) {
-    // Still produce a titled empty report.
-  }
 
   const totalPages = Math.max(1, pages.length)
 

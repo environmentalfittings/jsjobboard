@@ -267,7 +267,6 @@ export function ReportsPage() {
       'Valve Type',
       'Date Closed',
       'Description',
-      'Notes',
     ]
     const lines = rows.map((row) =>
       [
@@ -280,7 +279,6 @@ export function ReportsPage() {
         row.valve_type ?? '',
         row.date_closed ?? '',
         row.description ?? '',
-        row.notes ?? '',
       ]
         .map((value) => `"${String(value).replaceAll('"', '""')}"`)
         .join(','),
@@ -621,7 +619,6 @@ export function ReportsPage() {
                 <th>Valve type</th>
                 <th>Date closed</th>
                 <th>Description</th>
-                <th>Notes</th>
                 <th className="report-table-action-header" aria-label="Actions" />
               </tr>
             </thead>
@@ -639,7 +636,6 @@ export function ReportsPage() {
                   <td>{row.valve_type ?? '-'}</td>
                   <td>{row.date_closed ?? '-'}</td>
                   <td className="table-cell-clamp">{row.description ?? '-'}</td>
-                  <td className="table-cell-clamp">{row.notes ?? '-'}</td>
                   <td className="report-table-action">
                     <Link
                       className="button-secondary report-table-open-link"
