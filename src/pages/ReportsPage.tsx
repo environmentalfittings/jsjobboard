@@ -9,6 +9,7 @@ import { downloadCompletedJobsReportPdf } from '../lib/completedJobsReportPdf'
 import { supabase } from '../lib/supabase'
 import { fetchDueDateChanges } from '../lib/dueDateChanges'
 import { isExcludedFromOnTimeDelivery } from '../lib/onTimeDelivery'
+import { printOnTimeDeliveryReport } from '../lib/onTimeDeliveryPrint'
 import { fetchValveDescriptionsByIds } from '../lib/testLogValveLookup'
 import { VALVE_LIST_SELECT } from '../lib/valveSelect'
 import type { DueDateChangeRecord, TestLogEntry, Valve } from '../types'
@@ -585,15 +586,17 @@ export function ReportsPage() {
         <h2 className="dashboard-title">Reports</h2>
       </div>
 
-      <DailyPriorityWorksheet />
-
-      <section className="dashboard-panel">
-        <h3>On-time delivery</h3>
-        <p className="placeholder-copy">
-          Percentage of completed jobs closed on or before their due date. Jobs with no due date are excluded from
-          percentage calculations. On Hold and Not Arrived / Waiting on Arrival jobs do not count against on-time
-          delivery.
-        </p>
+      <section className="dashboard-panel" id="on-time-delivery">
+        <div className="training-list-toolbar" style={{ alignItems: 'flex-start' }}>
+          <div>
+            <h3 style={{ margin: 0 }}>On-time delivery</h3>
+            <p className="placeholder-copy" style={{ marginTop: '0.35rem' }}>
+              Percentage of completed jobs closed on or before their due date. Jobs with no due date are excluded from
+              percentage calculations. On Hold and Not Arrived / Waiting on Arrival jobs do not count against on-time
+              delivery.
+            </p>
+          </div>
+        </div>
         <div className="report-filters">
           <label>
             Year
@@ -613,6 +616,23 @@ export function ReportsPage() {
           </label>
           <button type="button" className="button-primary" onClick={() => void loadOtdData(otdYear)} disabled={otdLoading}>
             {otdLoading ? 'Loading…' : 'Refresh'}
+          </button>
+          <button
+            type="button"
+            className="button-secondary"
+            disabled={otdLoading || otdRows.length === 0}
+            onClick={() => {
+              const { error } = printOnTimeDeliveryReport({
+                year: otdYear,
+                monthLabel: MONTH_NAMES[otdMonth],
+                yearSummary: otdYearSummary,
+                monthSummary: otdMonthSummary,
+                byMonth: otdByMonth,
+              })
+              if (error) showToast(error)
+            }}
+          >
+            Print / chart
           </button>
         </div>
 
@@ -658,6 +678,53 @@ export function ReportsPage() {
           </div>
         </div>
 
+        <div
+          className="otd-chart"
+          role="img"
+          aria-label={`Monthly on-time delivery percentage for ${otdYear}`}
+        >
+          <div className="otd-chart-head">
+            <h4 className="otd-chart-title">Monthly on-time %</h4>
+            <div className="otd-chart-legend" aria-hidden="true">
+              <span><i className="otd-swatch otd-swatch--good" /> ≥ 90%</span>
+              <span><i className="otd-swatch otd-swatch--mid" /> 75–89%</span>
+              <span><i className="otd-swatch otd-swatch--low" /> &lt; 75%</span>
+            </div>
+          </div>
+          <div className="otd-chart-plot">
+            {[100, 75, 50, 25, 0].map((tick) => (
+              <div key={tick} className="otd-chart-gridline" style={{ bottom: `${tick}%` }}>
+                <span>{tick}%</span>
+              </div>
+            ))}
+            <div className="otd-chart-bars">
+              {otdByMonth.map((row) => {
+                const height = row.total > 0 ? Math.max(3, row.pct) : 0
+                const tone =
+                  row.total <= 0 ? 'empty' : row.pct >= 90 ? 'good' : row.pct >= 75 ? 'mid' : 'low'
+                return (
+                  <div
+                    key={row.month}
+                    className={`otd-chart-col${row.month === otdMonth ? ' is-selected' : ''}`}
+                    title={
+                      row.total > 0
+                        ? `${row.label}: ${row.pct.toFixed(1)}% (${row.onTime} on-time / ${row.late} late)`
+                        : `${row.label}: no jobs with due date`
+                    }
+                  >
+                    <div className="otd-chart-bar-wrap">
+                      <div className={`otd-chart-bar otd-chart-bar--${tone}`} style={{ height: `${height}%` }}>
+                        {row.total > 0 && height >= 18 ? <span>{row.pct.toFixed(0)}%</span> : null}
+                      </div>
+                    </div>
+                    <div className="otd-chart-xlabel">{row.label.slice(0, 3)}</div>
+                  </div>
+                )
+              })}
+            </div>
+          </div>
+        </div>
+
         <div className="dashboard-table-wrap">
           <table className="dashboard-table">
             <thead>
@@ -691,6 +758,8 @@ export function ReportsPage() {
           </table>
         </div>
       </section>
+
+      <DailyPriorityWorksheet />
 
       <section className="dashboard-panel">
         <h3>Completed jobs report</h3>

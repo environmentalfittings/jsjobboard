@@ -5899,6 +5899,150 @@ a.test-log-reports-item-name:hover {
   font-size: 15px;
 }
 
+.otd-chart {
+  margin: 0.85rem 0 1rem;
+  border: 1px solid #e2e8f0;
+  border-radius: 10px;
+  background: #fff;
+  padding: 0.75rem 0.85rem 0.65rem;
+}
+
+.otd-chart-head {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem 1rem;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 0.55rem;
+}
+
+.otd-chart-title {
+  margin: 0;
+  font-size: 0.95rem;
+}
+
+.otd-chart-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.65rem;
+  font-size: 0.78rem;
+  color: #64748b;
+}
+
+.otd-chart-legend span {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+}
+
+.otd-swatch {
+  display: inline-block;
+  width: 0.7rem;
+  height: 0.7rem;
+  border-radius: 2px;
+}
+
+.otd-swatch--good { background: #16a34a; }
+.otd-swatch--mid { background: #ca8a04; }
+.otd-swatch--low { background: #dc2626; }
+
+.otd-chart-plot {
+  position: relative;
+  height: 11.5rem;
+  padding: 0.25rem 0 1.5rem;
+}
+
+.otd-chart-gridline {
+  position: absolute;
+  left: 2.25rem;
+  right: 0;
+  border-top: 1px dashed #e2e8f0;
+  pointer-events: none;
+}
+
+.otd-chart-gridline span {
+  position: absolute;
+  left: -2.15rem;
+  top: -0.55em;
+  font-size: 0.68rem;
+  color: #94a3b8;
+}
+
+.otd-chart-bars {
+  position: absolute;
+  left: 2.25rem;
+  right: 0;
+  top: 0.25rem;
+  bottom: 1.5rem;
+  display: flex;
+  align-items: flex-end;
+  gap: 0.35rem;
+}
+
+.otd-chart-col {
+  flex: 1;
+  min-width: 0;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+.otd-chart-bar-wrap {
+  flex: 1;
+  width: 100%;
+  max-width: 2rem;
+  display: flex;
+  align-items: flex-end;
+  background: #f8fafc;
+  border-radius: 4px 4px 0 0;
+}
+
+.otd-chart-bar {
+  width: 100%;
+  border-radius: 4px 4px 0 0;
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  padding-top: 0.2rem;
+  color: #fff;
+  font-size: 0.65rem;
+  font-weight: 700;
+  transition: height 0.2s ease;
+}
+
+.otd-chart-bar--good { background: #16a34a; }
+.otd-chart-bar--mid { background: #ca8a04; }
+.otd-chart-bar--low { background: #dc2626; }
+.otd-chart-bar--empty { background: transparent; }
+
+.otd-chart-xlabel {
+  margin-top: 0.35rem;
+  font-size: 0.72rem;
+  color: #64748b;
+  font-weight: 600;
+}
+
+.otd-chart-col.is-selected .otd-chart-xlabel {
+  color: #0f766e;
+  font-weight: 800;
+}
+
+.otd-chart-col.is-selected .otd-chart-bar-wrap {
+  outline: 2px solid #99f6e4;
+  outline-offset: 1px;
+}
+
+@media (max-width: 700px) {
+  .otd-chart-bars {
+    gap: 0.2rem;
+  }
+  .otd-chart-bar span {
+    display: none;
+  }
+}
+
+
 .ticket-layout {
   display: grid;
   grid-template-columns: 320px minmax(0, 1fr);
