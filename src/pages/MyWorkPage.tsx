@@ -1,10 +1,14 @@
 import { useEffect, useMemo, useState } from 'react'
 import type { User } from '@supabase/supabase-js'
+import { ReworkReasonModal } from '../components/ReworkReasonModal'
 import { TechJobCard } from '../components/TechJobCard'
 import { useToast } from '../components/ToastNotification'
 import { useAuth } from '../contexts/AuthContext'
+import { resolveChangedByName } from '../lib/dueDateChanges'
 import { resolveTechnicianForUser } from '../lib/resolveTechnicianForUser'
 import { canWriteShop, permissionDeniedReason } from '../lib/roles'
+import { recordStatusRework } from '../lib/statusReworkLog'
+import { isBackwardStatusMove } from '../lib/statusWorkflow'
 import { supabase } from '../lib/supabase'
 import { valveStatusPatch } from '../lib/valveStatusPatch'
 import type { Technician, Valve } from '../types'
@@ -23,6 +27,8 @@ export function MyWorkPage({ user, onLogout }: MyWorkPageProps) {
   const [assignedJobs, setAssignedJobs] = useState<Valve[]>([])
   const [cellPriorityJobs, setCellPriorityJobs] = useState<Valve[]>([])
   const [techById, setTechById] = useState<Map<number, Technician>>(new Map())
+  const [pendingRework, setPendingRework] = useState<{ valve: Valve; nextStatus: string } | null>(null)
+  const [savingRework, setSavingRework] = useState(false)
 
   const todayLabel = useMemo(
     () => new Date().toLocaleDateString(undefined, { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' }),
@@ -89,19 +95,53 @@ export function MyWorkPage({ user, onLogout }: MyWorkPageProps) {
     void loadData()
   }, [user?.id])
 
+  const applyMyJobStatus = async (job: Valve, nextStatus: string, reworkReason?: string) => {
+    const patch = valveStatusPatch(nextStatus, job)
+    const { error } = await supabase.from('valves').update(patch).eq('id', job.id)
+    if (error) {
+      showToast('Could not update status')
+      return false
+    }
+    if (reworkReason) {
+      const changedByName = await resolveChangedByName(displayName)
+      const { error: reworkError } = await recordStatusRework({
+        valveRowId: job.id,
+        valveId: job.valve_id,
+        previousStatus: job.status,
+        newStatus: nextStatus,
+        reason: reworkReason,
+        changedByName,
+      })
+      if (reworkError) {
+        showToast(`Status updated, but rework log failed: ${reworkError.message}`)
+      }
+    }
+    setAssignedJobs((prev) => prev.map((row) => (row.id === job.id ? { ...row, ...patch } : row)))
+    return true
+  }
+
   const updateMyJobStatus = async (job: Valve, nextStatus: string) => {
     if (!canWrite) {
       showToast(permissionDeniedReason('shopWrite'))
       return
     }
     if (job.status === nextStatus) return
-    const patch = valveStatusPatch(nextStatus, job)
-    const { error } = await supabase.from('valves').update(patch).eq('id', job.id)
-    if (error) {
-      showToast('Could not update status')
+    if (isBackwardStatusMove(job.status, nextStatus)) {
+      setPendingRework({ valve: job, nextStatus })
       return
     }
-    setAssignedJobs((prev) => prev.map((row) => (row.id === job.id ? { ...row, ...patch } : row)))
+    await applyMyJobStatus(job, nextStatus)
+  }
+
+  const confirmPendingRework = async (reason: string) => {
+    if (!pendingRework) return
+    setSavingRework(true)
+    try {
+      const ok = await applyMyJobStatus(pendingRework.valve, pendingRework.nextStatus, reason)
+      if (ok) setPendingRework(null)
+    } finally {
+      setSavingRework(false)
+    }
   }
 
   const flagForSupervisor = async (job: Valve) => {
@@ -175,6 +215,19 @@ export function MyWorkPage({ user, onLogout }: MyWorkPageProps) {
           {cellPriorityJobs.length === 0 ? <p className="placeholder-copy">No priority jobs in your work cells.</p> : null}
         </div>
       </section>
+
+      {pendingRework ? (
+        <ReworkReasonModal
+          valve={pendingRework.valve}
+          fromStatus={pendingRework.valve.status}
+          toStatus={pendingRework.nextStatus}
+          isSaving={savingRework}
+          onCancel={() => {
+            if (!savingRework) setPendingRework(null)
+          }}
+          onConfirm={confirmPendingRework}
+        />
+      ) : null}
     </section>
   )
 }

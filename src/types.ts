@@ -118,3 +118,14 @@ export interface DueDateChangeRecord {
   changed_by_name: string | null
   changed_at: string
 }
+
+export interface StatusReworkRecord {
+  id: number
+  valve_row_id: number
+  valve_id: string
+  previous_status: string
+  new_status: string
+  reason: string
+  changed_by_name: string | null
+  changed_at: string
+}

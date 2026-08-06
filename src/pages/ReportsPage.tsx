@@ -8,6 +8,7 @@ import { TERMINAL_STATUSES } from '../constants/statuses'
 import { downloadCompletedJobsReportPdf } from '../lib/completedJobsReportPdf'
 import { supabase } from '../lib/supabase'
 import { countDueDateChanges, fetchDueDateChanges } from '../lib/dueDateChanges'
+import { countStatusReworkLog, fetchStatusReworkLog } from '../lib/statusReworkLog'
 import { isExcludedFromOnTimeDelivery } from '../lib/onTimeDelivery'
 import { printOnTimeDeliveryReport } from '../lib/onTimeDeliveryPrint'
 import {
@@ -21,7 +22,7 @@ import {
 } from '../lib/topJobsAggregation'
 import { fetchValveDescriptionsByIds } from '../lib/testLogValveLookup'
 import { VALVE_LIST_SELECT } from '../lib/valveSelect'
-import type { DueDateChangeRecord, TestLogEntry, Valve } from '../types'
+import type { DueDateChangeRecord, StatusReworkRecord, TestLogEntry, Valve } from '../types'
 
 type TurnaroundReportFilter = 'all' | 'turnaround' | 'not_turnaround'
 
@@ -253,6 +254,12 @@ export function ReportsPage() {
   const [dueDateChangeLoading, setDueDateChangeLoading] = useState(false)
   const [dueDateChangeTotalLogged, setDueDateChangeTotalLogged] = useState<number | null>(null)
 
+  const [reworkStart, setReworkStart] = useState(defaultRange.start)
+  const [reworkEnd, setReworkEnd] = useState(defaultRange.end)
+  const [reworkRows, setReworkRows] = useState<StatusReworkRecord[]>([])
+  const [reworkLoading, setReworkLoading] = useState(false)
+  const [reworkTotalLogged, setReworkTotalLogged] = useState<number | null>(null)
+
   const loadOtdData = async (year: number) => {
     setOtdLoading(true)
     const { start, end } = getYearRange(year)
@@ -325,6 +332,47 @@ export function ReportsPage() {
     const a = document.createElement('a')
     a.href = url
     a.download = `due-date-changes-${dueDateStart}-to-${dueDateEnd}.csv`
+    a.click()
+    URL.revokeObjectURL(url)
+  }
+
+  const loadReworkLog = async () => {
+    if (!reworkStart || !reworkEnd) return
+    setReworkLoading(true)
+    const [{ data, error }, totalLogged] = await Promise.all([
+      fetchStatusReworkLog(reworkStart, reworkEnd),
+      countStatusReworkLog(),
+    ])
+    setReworkLoading(false)
+    setReworkTotalLogged(totalLogged)
+    if (error) {
+      showToast(`Could not load rework log: ${error.message}`)
+      setReworkRows([])
+      return
+    }
+    setReworkRows(data)
+  }
+
+  const exportReworkCsv = () => {
+    const header = ['Changed at', 'Valve ID', 'From status', 'To status', 'Reason', 'Changed by']
+    const lines = reworkRows.map((row) =>
+      [
+        row.changed_at,
+        row.valve_id,
+        row.previous_status,
+        row.new_status,
+        row.reason,
+        row.changed_by_name ?? '',
+      ]
+        .map((cell) => `"${String(cell).replace(/"/g, '""')}"`)
+        .join(','),
+    )
+    const csv = [header.join(','), ...lines].join('\n')
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = `rework-moves-${reworkStart}-to-${reworkEnd}.csv`
     a.click()
     URL.revokeObjectURL(url)
   }
@@ -1636,6 +1684,92 @@ export function ReportsPage() {
                     <td>{row.valve_id}</td>
                     <td>{row.previous_due_date ?? '—'}</td>
                     <td>{row.new_due_date ?? '—'}</td>
+                    <td className="table-cell-clamp">{row.reason}</td>
+                    <td>{row.changed_by_name ?? '—'}</td>
+                  </tr>
+                ))
+              )}
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <section className="dashboard-panel">
+        <h3>Rework / backward status moves</h3>
+        <p className="placeholder-copy">
+          Forward shop flow: Pull → Teardown → Machine 1 → Welding → Machine 2 → Fitting → Assembly → Adaption →
+          Actuation → Testing → Painting → Warehouse RTS → Completed. Cards may skip steps. When a card moves to an
+          earlier stage, the technician must enter a rework reason. Only moves logged <strong>after</strong> the rework
+          table is set up in Supabase appear here.
+        </p>
+        <div className="report-filters">
+          <label>
+            From
+            <input type="date" value={reworkStart} onChange={(e) => setReworkStart(e.target.value)} />
+          </label>
+          <label>
+            To
+            <input type="date" value={reworkEnd} onChange={(e) => setReworkEnd(e.target.value)} />
+          </label>
+          <button
+            type="button"
+            className="button-primary"
+            onClick={() => void loadReworkLog()}
+            disabled={reworkLoading}
+          >
+            {reworkLoading ? 'Loading…' : 'Run report'}
+          </button>
+          <button
+            type="button"
+            className="button-secondary"
+            onClick={exportReworkCsv}
+            disabled={reworkRows.length === 0}
+          >
+            Export CSV
+          </button>
+        </div>
+
+        <div className="report-summary-bar">
+          <div className="report-summary-item">
+            <span>Rework moves in range</span>
+            <strong>{reworkRows.length}</strong>
+          </div>
+          <div className="report-summary-item">
+            <span>Total logged (all time)</span>
+            <strong>{reworkTotalLogged == null ? '—' : reworkTotalLogged}</strong>
+          </div>
+        </div>
+
+        <div className="dashboard-table-wrap">
+          <table className="dashboard-table">
+            <thead>
+              <tr>
+                <th>Changed</th>
+                <th>Valve ID</th>
+                <th>From</th>
+                <th>To</th>
+                <th>Reason</th>
+                <th>By</th>
+              </tr>
+            </thead>
+            <tbody>
+              {reworkRows.length === 0 ? (
+                <tr>
+                  <td colSpan={6} className="job-muted">
+                    {reworkLoading
+                      ? 'Loading…'
+                      : reworkTotalLogged === 0
+                        ? 'No rework moves have been logged yet. Move a card backward on the job board (with a reason) after the Supabase table is set up, then run this report again.'
+                        : 'No rework moves in this date range. Try widening From/To, or check Total logged (all time).'}
+                  </td>
+                </tr>
+              ) : (
+                reworkRows.map((row) => (
+                  <tr key={row.id}>
+                    <td>{new Date(row.changed_at).toLocaleString()}</td>
+                    <td>{row.valve_id}</td>
+                    <td>{row.previous_status}</td>
+                    <td>{row.new_status}</td>
                     <td className="table-cell-clamp">{row.reason}</td>
                     <td>{row.changed_by_name ?? '—'}</td>
                   </tr>

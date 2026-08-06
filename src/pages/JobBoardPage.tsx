@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { CopyJobModal } from '../components/CopyJobModal'
 import { DueDateChangeModal } from '../components/DueDateChangeModal'
+import { ReworkReasonModal } from '../components/ReworkReasonModal'
 import { StatusBadge } from '../components/StatusBadge'
 import { FinishCellBadge } from '../components/FinishCellBadge'
 import { TechnicianAvatars } from '../components/TechnicianAvatars'
@@ -43,6 +44,8 @@ import {
   type ColumnFilterState,
 } from '../lib/jobBoardListColumns'
 import { recordDueDateChange, resolveChangedByName } from '../lib/dueDateChanges'
+import { recordStatusRework } from '../lib/statusReworkLog'
+import { isBackwardStatusMove } from '../lib/statusWorkflow'
 import { isEligiblePriorityValve, syncPriorityQueueWithValves, compareValvesWithPriorityOrder, persistPriorityQueueOrder, reorderPriorityQueueIds } from '../lib/priorityQueue'
 import { supabase } from '../lib/supabase'
 import type { JobCardSaveFields } from '../lib/jobCardSave'
@@ -507,6 +510,13 @@ export function JobBoardPage({ role, username }: { role?: UserRole; username?: s
   const [dueDateEditValve, setDueDateEditValve] = useState<Valve | null>(null)
   const [copySourceValve, setCopySourceValve] = useState<Valve | null>(null)
   const [savingDueDate, setSavingDueDate] = useState(false)
+  const [pendingRework, setPendingRework] = useState<{
+    valve: Valve
+    nextStatus: string
+    mode: 'status-only' | 'modal-save'
+    modalFields?: JobCardSaveFields
+  } | null>(null)
+  const [savingRework, setSavingRework] = useState(false)
   const [phaseOrder, setPhaseOrder] = useState<PhaseOrder>(() => {
     try {
       const stored = window.localStorage.getItem(ORDER_STORAGE_KEY)
@@ -1003,8 +1013,12 @@ export function JobBoardPage({ role, username }: { role?: UserRole; username?: s
     return () => window.removeEventListener('keydown', onKey)
   }, [activeValve, closeModal])
 
-  const saveModalChanges = async (fields: JobCardSaveFields) => {
-    if (!activeValve || !selectedStatus) return
+  const applyModalSave = async (
+    valve: Valve,
+    fields: JobCardSaveFields,
+    nextStatus: string,
+    reworkReason?: string,
+  ) => {
     const patch: Partial<Valve> = {
       description: fields.description.trim() || null,
       notes: fields.notes.trim() || null,
@@ -1025,27 +1039,43 @@ export function JobBoardPage({ role, username }: { role?: UserRole; username?: s
       material_spec: fields.materialSpec,
       drawing_po_number: fields.drawingPoNumber,
     }
-    if (selectedStatus !== activeValve.status) {
-      Object.assign(patch, valveStatusPatch(selectedStatus, activeValve))
+    const statusChanged = nextStatus !== valve.status
+    if (statusChanged) {
+      Object.assign(patch, valveStatusPatch(nextStatus, valve))
     }
 
-    const previousDueDate = dueDateLabel(activeValve.due_date)
+    const previousDueDate = dueDateLabel(valve.due_date)
     const nextDueDate = fields.dueDate?.trim() || null
     const dueDateChanged = (previousDueDate ?? null) !== nextDueDate
 
     setIsSaving(true)
-    const { error } = await supabase.from('valves').update(patch).eq('id', activeValve.id)
+    const { error } = await supabase.from('valves').update(patch).eq('id', valve.id)
     if (error) {
       setIsSaving(false)
       showToast(`Could not save changes: ${error.message}`)
-      return
+      return false
+    }
+
+    const changedByName = await resolveChangedByName(username ?? 'Unknown')
+
+    if (statusChanged && reworkReason) {
+      const { error: reworkError } = await recordStatusRework({
+        valveRowId: valve.id,
+        valveId: valve.valve_id,
+        previousStatus: valve.status,
+        newStatus: nextStatus,
+        reason: reworkReason,
+        changedByName,
+      })
+      if (reworkError) {
+        showToast(`Saved, but rework log failed: ${reworkError.message}`)
+      }
     }
 
     if (dueDateChanged) {
-      const changedByName = await resolveChangedByName(username ?? 'Unknown')
       const { error: logError } = await recordDueDateChange({
-        valveRowId: activeValve.id,
-        valveId: activeValve.valve_id,
+        valveRowId: valve.id,
+        valveId: valve.valve_id,
         previousDueDate,
         newDueDate: nextDueDate,
         reason: 'Updated from job card',
@@ -1057,9 +1087,90 @@ export function JobBoardPage({ role, username }: { role?: UserRole; username?: s
     }
 
     setIsSaving(false)
-    setValves((prev) => prev.map((v) => (v.id === activeValve.id ? { ...v, ...patch } : v)))
-    setActiveValve((prev) => (prev && prev.id === activeValve.id ? { ...prev, ...patch } : prev))
+    setValves((prev) => prev.map((v) => (v.id === valve.id ? { ...v, ...patch } : v)))
+    setActiveValve((prev) => (prev && prev.id === valve.id ? { ...prev, ...patch } : prev))
     showToast('Saved')
+    return true
+  }
+
+  const saveModalChanges = async (fields: JobCardSaveFields) => {
+    if (!activeValve || !selectedStatus) return
+    if (isBackwardStatusMove(activeValve.status, selectedStatus)) {
+      setPendingRework({
+        valve: activeValve,
+        nextStatus: selectedStatus,
+        mode: 'modal-save',
+        modalFields: fields,
+      })
+      return
+    }
+    await applyModalSave(activeValve, fields, selectedStatus)
+  }
+
+  const applyStatusMove = async (valve: Valve, nextStatus: string, reworkReason?: string) => {
+    if (!nextStatus || valve.status === nextStatus) return false
+    const previous = { ...valve }
+    const patch = valveStatusPatch(nextStatus, valve)
+
+    setValves((prev) => prev.map((v) => (v.id === valve.id ? { ...v, ...patch } : v)))
+    if (activeValve?.id === valve.id) {
+      setActiveValve((prev) => (prev && prev.id === valve.id ? { ...prev, ...patch } : prev))
+      setSelectedStatus(nextStatus)
+    }
+
+    const { error } = await supabase.from('valves').update(patch).eq('id', valve.id)
+    if (error) {
+      setValves((prev) => prev.map((v) => (v.id === previous.id ? previous : v)))
+      if (activeValve?.id === valve.id) {
+        setActiveValve(previous)
+        setSelectedStatus(previous.status)
+      }
+      showToast(`Could not move ${valve.valve_id}: ${error.message}`)
+      return false
+    }
+
+    if (reworkReason) {
+      const changedByName = await resolveChangedByName(username ?? 'Unknown')
+      const { error: reworkError } = await recordStatusRework({
+        valveRowId: valve.id,
+        valveId: valve.valve_id,
+        previousStatus: previous.status,
+        newStatus: nextStatus,
+        reason: reworkReason,
+        changedByName,
+      })
+      if (reworkError) {
+        showToast(`Moved, but rework log failed: ${reworkError.message}`)
+      }
+    }
+
+    showToast(
+      reworkReason
+        ? `${valve.valve_id} moved back to ${nextStatus} (rework logged)`
+        : `${valve.valve_id} moved to ${nextStatus}`,
+    )
+    return true
+  }
+
+  const confirmPendingRework = async (reason: string) => {
+    if (!pendingRework) return
+    setSavingRework(true)
+    try {
+      if (pendingRework.mode === 'modal-save' && pendingRework.modalFields) {
+        const ok = await applyModalSave(
+          pendingRework.valve,
+          pendingRework.modalFields,
+          pendingRework.nextStatus,
+          reason,
+        )
+        if (ok) setPendingRework(null)
+      } else {
+        const ok = await applyStatusMove(pendingRework.valve, pendingRework.nextStatus, reason)
+        if (ok) setPendingRework(null)
+      }
+    } finally {
+      setSavingRework(false)
+    }
   }
 
   const togglePriority = async (valve: Valve) => {
@@ -1303,19 +1414,11 @@ export function JobBoardPage({ role, username }: { role?: UserRole; username?: s
       return
     }
     if (!nextStatus || valve.status === nextStatus) return
-    const previous = { ...valve }
-    const patch = valveStatusPatch(nextStatus, valve)
-
-    setValves((prev) => prev.map((v) => (v.id === valve.id ? { ...v, ...patch } : v)))
-    const { error } = await supabase.from('valves').update(patch).eq('id', valve.id)
-
-    if (error) {
-      setValves((prev) => prev.map((v) => (v.id === previous.id ? previous : v)))
-      showToast(`Could not move ${valve.valve_id}: ${error.message}`)
+    if (isBackwardStatusMove(valve.status, nextStatus)) {
+      setPendingRework({ valve, nextStatus, mode: 'status-only' })
       return
     }
-
-    showToast(`${valve.valve_id} moved to ${nextStatus}`)
+    await applyStatusMove(valve, nextStatus)
   }
 
   const quickMarkArrived = async (valve: Valve) => {
@@ -1761,6 +1864,19 @@ export function JobBoardPage({ role, username }: { role?: UserRole; username?: s
             if (!savingDueDate) setDueDateEditValve(null)
           }}
           onSave={saveDueDateChange}
+        />
+      ) : null}
+
+      {pendingRework ? (
+        <ReworkReasonModal
+          valve={pendingRework.valve}
+          fromStatus={pendingRework.valve.status}
+          toStatus={pendingRework.nextStatus}
+          isSaving={savingRework}
+          onCancel={() => {
+            if (!savingRework) setPendingRework(null)
+          }}
+          onConfirm={confirmPendingRework}
         />
       ) : null}
 

@@ -1,10 +1,14 @@
 import { useEffect, useMemo, useState } from 'react'
 import type { User } from '@supabase/supabase-js'
 import { AssignJobModal } from '../components/AssignJobModal'
+import { ReworkReasonModal } from '../components/ReworkReasonModal'
 import { RoleBadge } from '../components/RoleBadge'
 import { TeamJobsTable } from '../components/TeamJobsTable'
 import { TechJobCard } from '../components/TechJobCard'
 import { useToast } from '../components/ToastNotification'
+import { resolveChangedByName } from '../lib/dueDateChanges'
+import { recordStatusRework } from '../lib/statusReworkLog'
+import { isBackwardStatusMove } from '../lib/statusWorkflow'
 import { supabase } from '../lib/supabase'
 import { valveStatusPatch } from '../lib/valveStatusPatch'
 import type { Technician, Valve } from '../types'
@@ -30,6 +34,8 @@ export function SupervisorDashboardPage({ user, appRole, onLogout }: SupervisorD
   const [teamJobs, setTeamJobs] = useState<Valve[]>([])
   const [myJobs, setMyJobs] = useState<Valve[]>([])
   const [activeAssignJob, setActiveAssignJob] = useState<Valve | null>(null)
+  const [pendingRework, setPendingRework] = useState<{ valve: Valve; nextStatus: string } | null>(null)
+  const [savingRework, setSavingRework] = useState(false)
 
   const techById = useMemo(() => new Map(team.concat(me ? [me] : []).map((t) => [t.id, t])), [team, me])
 
@@ -97,6 +103,51 @@ export function SupervisorDashboardPage({ user, appRole, onLogout }: SupervisorD
     void load()
   }
 
+  const applySupervisorJobStatus = async (job: Valve, nextStatus: string, reworkReason?: string) => {
+    const patch = valveStatusPatch(nextStatus, job)
+    const { error } = await supabase.from('valves').update(patch).eq('id', job.id)
+    if (error) {
+      showToast('Could not update status')
+      return false
+    }
+    if (reworkReason) {
+      const changedByName = await resolveChangedByName(me?.name ?? 'Unknown')
+      const { error: reworkError } = await recordStatusRework({
+        valveRowId: job.id,
+        valveId: job.valve_id,
+        previousStatus: job.status,
+        newStatus: nextStatus,
+        reason: reworkReason,
+        changedByName,
+      })
+      if (reworkError) {
+        showToast(`Status updated, but rework log failed: ${reworkError.message}`)
+      }
+    }
+    setMyJobs((prev) => prev.map((row) => (row.id === job.id ? { ...row, ...patch } : row)))
+    return true
+  }
+
+  const updateMyJobStatus = async (job: Valve, nextStatus: string) => {
+    if (job.status === nextStatus) return
+    if (isBackwardStatusMove(job.status, nextStatus)) {
+      setPendingRework({ valve: job, nextStatus })
+      return
+    }
+    await applySupervisorJobStatus(job, nextStatus)
+  }
+
+  const confirmPendingRework = async (reason: string) => {
+    if (!pendingRework) return
+    setSavingRework(true)
+    try {
+      const ok = await applySupervisorJobStatus(pendingRework.valve, pendingRework.nextStatus, reason)
+      if (ok) setPendingRework(null)
+    } finally {
+      setSavingRework(false)
+    }
+  }
+
   return (
     <section className="dashboard-page">
       <div className="dashboard-title-row">
@@ -153,13 +204,7 @@ export function SupervisorDashboardPage({ user, appRole, onLogout }: SupervisorD
         <h3>My Own Assigned Jobs</h3>
         <div className="dashboard-grid">
           {myJobs.map((job) => (
-            <TechJobCard key={job.id} job={job} onStatusChange={async (v, next) => {
-              if (v.status === next) return
-              const patch = valveStatusPatch(next, v)
-              const { error } = await supabase.from('valves').update(patch).eq('id', v.id)
-              if (error) showToast('Could not update status')
-              else setMyJobs((prev) => prev.map((row) => (row.id === v.id ? { ...row, ...patch } : row)))
-            }} />
+            <TechJobCard key={job.id} job={job} onStatusChange={updateMyJobStatus} />
           ))}
           {myJobs.length === 0 ? <p className="placeholder-copy">No jobs assigned directly to you.</p> : null}
         </div>
@@ -167,6 +212,19 @@ export function SupervisorDashboardPage({ user, appRole, onLogout }: SupervisorD
 
       {activeAssignJob ? (
         <AssignJobModal job={activeAssignJob} assignableTechs={team} onClose={() => setActiveAssignJob(null)} onConfirm={assignJob} />
+      ) : null}
+
+      {pendingRework ? (
+        <ReworkReasonModal
+          valve={pendingRework.valve}
+          fromStatus={pendingRework.valve.status}
+          toStatus={pendingRework.nextStatus}
+          isSaving={savingRework}
+          onCancel={() => {
+            if (!savingRework) setPendingRework(null)
+          }}
+          onConfirm={confirmPendingRework}
+        />
       ) : null}
     </section>
   )
