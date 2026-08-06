@@ -404,6 +404,24 @@ export async function listAttendeeTrainingsForEmployee(employeeId: string): Prom
   })
 }
 
+export async function listAllAttendeeTrainings(): Promise<
+  Array<EmployeeTrainingAttendee & { training?: EmployeeTraining | null }>
+> {
+  const { data, error } = await supabase
+    .from('employee_training_attendees')
+    .select(`${ATTENDEE_SELECT},employee_trainings(${TRAINING_SELECT})`)
+    .order('id', { ascending: false })
+    .limit(2000)
+  throwDbError(error)
+  return ((data ?? []) as unknown as Array<
+    EmployeeTrainingAttendee & { employee_trainings?: EmployeeTraining | EmployeeTraining[] | null }
+  >).map((row) => {
+    const linked = row.employee_trainings
+    const training = Array.isArray(linked) ? (linked[0] ?? null) : (linked ?? null)
+    return { ...row, training }
+  })
+}
+
 export async function upsertTrainingAttendee(args: {
   trainingId: number
   employeeId?: string | null

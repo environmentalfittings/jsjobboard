@@ -17,6 +17,7 @@ import {
   formatTrainingDate,
   inputFromTraining,
   isTrainingExpired,
+  listAllAttendeeTrainings,
   listAttendeeTrainingsForEmployee,
   listEmployeeSkills,
   listEmployeeTrainings,
@@ -102,6 +103,11 @@ export function EmployeeTrainingPanel({ canWrite, onCountsChange }: EmployeeTrai
   const libraryFileRef = useRef<HTMLInputElement>(null)
 
   const [selectedEmployeeId, setSelectedEmployeeId] = useState<string>('')
+  const [employeeSearch, setEmployeeSearch] = useState('')
+  const [allAttendeeRows, setAllAttendeeRows] = useState<
+    Array<EmployeeTrainingAttendee & { training?: EmployeeTraining | null }>
+  >([])
+  const [allSkills, setAllSkills] = useState<EmployeeTrainingSkill[]>([])
   const [skills, setSkills] = useState<EmployeeTrainingSkill[]>([])
   const [employeeHistory, setEmployeeHistory] = useState<
     Array<EmployeeTrainingAttendee & { training?: EmployeeTraining | null }>
@@ -127,6 +133,31 @@ export function EmployeeTrainingPanel({ canWrite, onCountsChange }: EmployeeTrai
     )
     return activeEmployees.filter((e) => !taken.has(e.id))
   }, [activeEmployees, attendees, creating, draftAttendees])
+
+  const employeeRoster = useMemo(() => {
+    const q = employeeSearch.trim().toLowerCase()
+    const filtered = q
+      ? activeEmployees.filter((e) => e.full_name.toLowerCase().includes(q))
+      : activeEmployees
+
+    return filtered.map((employee) => {
+      const history = allAttendeeRows.filter((row) => row.employee_id === employee.id)
+      const expirations = history
+        .map((row) => row.training?.recert_due_date)
+        .filter((d): d is string => Boolean(d))
+        .sort()
+      const nextExpires = expirations[0] ?? null
+      const shop =
+        allSkills.find((s) => s.employee_id === employee.id && s.shop_location.trim())?.shop_location ||
+        ''
+      return {
+        employee,
+        trainingCount: history.length,
+        nextExpires,
+        shop,
+      }
+    })
+  }, [activeEmployees, allAttendeeRows, allSkills, employeeSearch])
 
   const loadTrainings = useCallback(async () => {
     setLoading(true)
@@ -180,6 +211,18 @@ export function EmployeeTrainingPanel({ canWrite, onCountsChange }: EmployeeTrai
     }
   }, [libraryFilter, showToast])
 
+  const loadEmployeeRoster = useCallback(async () => {
+    try {
+      const [skillRows, attendeeRows] = await Promise.all([listEmployeeSkills(), listAllAttendeeTrainings()])
+      setAllSkills(skillRows)
+      setAllAttendeeRows(attendeeRows)
+    } catch (error) {
+      setAllSkills([])
+      setAllAttendeeRows([])
+      showToast(errorMessage(error, 'Could not load employee roster'))
+    }
+  }, [showToast])
+
   const loadEmployeeDetail = useCallback(
     async (employeeId: string) => {
       if (!employeeId) {
@@ -222,8 +265,22 @@ export function EmployeeTrainingPanel({ canWrite, onCountsChange }: EmployeeTrai
   }, [tab, loadLibrary])
 
   useEffect(() => {
+    if (tab === 'employees') void loadEmployeeRoster()
+  }, [tab, loadEmployeeRoster])
+
+  useEffect(() => {
     if (tab === 'employees') void loadEmployeeDetail(selectedEmployeeId)
   }, [tab, selectedEmployeeId, loadEmployeeDetail])
+
+  useEffect(() => {
+    if (tab !== 'employees') return
+    if (selectedEmployeeId) {
+      const stillActive = activeEmployees.some((e) => e.id === selectedEmployeeId)
+      if (!stillActive && activeEmployees[0]) setSelectedEmployeeId(activeEmployees[0].id)
+      return
+    }
+    if (activeEmployees[0]) setSelectedEmployeeId(activeEmployees[0].id)
+  }, [tab, activeEmployees, selectedEmployeeId])
 
   const openCreate = (preset?: Partial<EmployeeTrainingInput>) => {
     setCreating(true)
@@ -451,6 +508,7 @@ export function EmployeeTrainingPanel({ canWrite, onCountsChange }: EmployeeTrai
       })
       showToast('Certificate uploaded')
       await loadEmployeeDetail(selectedEmployeeId)
+      await loadEmployeeRoster()
     } catch (error) {
       showToast(errorMessage(error, 'Could not upload certificate'))
     } finally {
@@ -467,6 +525,7 @@ export function EmployeeTrainingPanel({ canWrite, onCountsChange }: EmployeeTrai
     try {
       await deleteTrainingFile(row)
       await loadEmployeeDetail(selectedEmployeeId)
+      await loadEmployeeRoster()
     } catch (error) {
       showToast(errorMessage(error, 'Could not delete certificate'))
     } finally {
@@ -505,8 +564,9 @@ export function EmployeeTrainingPanel({ canWrite, onCountsChange }: EmployeeTrai
         shopLocation,
       })
       await loadEmployeeDetail(selectedEmployeeId)
+      await loadEmployeeRoster()
     } catch (error) {
-      showToast(error instanceof Error ? error.message : 'Could not save skill')
+      showToast(errorMessage(error, 'Could not save skill'))
     } finally {
       setBusy(false)
     }
@@ -525,9 +585,10 @@ export function EmployeeTrainingPanel({ canWrite, onCountsChange }: EmployeeTrai
         shopLocation,
       })
       await loadEmployeeDetail(selectedEmployeeId)
+      await loadEmployeeRoster()
       showToast('Shop location saved')
     } catch (error) {
-      showToast(error instanceof Error ? error.message : 'Could not save shop location')
+      showToast(errorMessage(error, 'Could not save shop location'))
     } finally {
       setBusy(false)
     }
@@ -974,17 +1035,58 @@ export function EmployeeTrainingPanel({ canWrite, onCountsChange }: EmployeeTrai
       {tab === 'employees' ? (
         <div className="training-split">
           <div className="training-list-pane">
-            <label className="training-employee-pick">
-              Employee
-              <select value={selectedEmployeeId} onChange={(e) => setSelectedEmployeeId(e.target.value)}>
-                <option value="">Select employee…</option>
-                {activeEmployees.map((e) => (
-                  <option key={e.id} value={e.id}>
-                    {e.full_name}
-                  </option>
-                ))}
-              </select>
-            </label>
+            <div className="training-list-toolbar">
+              <p className="placeholder-copy" style={{ margin: 0 }}>
+                {activeEmployees.length} employee{activeEmployees.length === 1 ? '' : 's'}
+              </p>
+              <label className="training-employee-pick" style={{ minWidth: '12rem' }}>
+                Search
+                <input
+                  value={employeeSearch}
+                  onChange={(e) => setEmployeeSearch(e.target.value)}
+                  placeholder="Filter by name…"
+                />
+              </label>
+            </div>
+            <div className="dashboard-table-wrap training-table-scroll">
+              <table className="dashboard-table">
+                <thead>
+                  <tr>
+                    <th>Employee</th>
+                    <th>Shop</th>
+                    <th>Trainings</th>
+                    <th>Next expires</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {employeeRoster.map((row) => (
+                    <tr
+                      key={row.employee.id}
+                      className={selectedEmployeeId === row.employee.id ? 'training-row--selected' : undefined}
+                      onClick={() => setSelectedEmployeeId(row.employee.id)}
+                      style={{ cursor: 'pointer' }}
+                    >
+                      <td>
+                        <strong>{row.employee.full_name}</strong>
+                      </td>
+                      <td>{row.shop || '—'}</td>
+                      <td>{row.trainingCount}</td>
+                      <td className={isTrainingExpired(row.nextExpires) ? 'training-expired' : undefined}>
+                        {formatTrainingDate(row.nextExpires)}
+                      </td>
+                    </tr>
+                  ))}
+                  {employeeRoster.length === 0 ? (
+                    <tr>
+                      <td colSpan={4} className="table-empty-cell">
+                        {activeEmployees.length === 0 ? 'No active employees found.' : 'No employees match this search.'}
+                      </td>
+                    </tr>
+                  ) : null}
+                </tbody>
+              </table>
+            </div>
+
             {selectedEmployeeId ? (
               <>
                 <div className="training-form-grid" style={{ marginTop: '0.75rem' }}>
@@ -1041,13 +1143,18 @@ export function EmployeeTrainingPanel({ canWrite, onCountsChange }: EmployeeTrai
                 </div>
               </>
             ) : (
-              <p className="placeholder-copy">Choose an employee to view skills and training history.</p>
+              <p className="placeholder-copy">Loading employees…</p>
             )}
           </div>
           <div className="training-detail-pane">
-            <h4 className="training-detail-title">Training history</h4>
+            <h4 className="training-detail-title">
+              Training history
+              {selectedEmployeeId
+                ? ` — ${activeEmployees.find((e) => e.id === selectedEmployeeId)?.full_name ?? ''}`
+                : ''}
+            </h4>
             {!selectedEmployeeId ? (
-              <p className="placeholder-copy">No employee selected.</p>
+              <p className="placeholder-copy">Select an employee from the list.</p>
             ) : (
               <>
                 <input
