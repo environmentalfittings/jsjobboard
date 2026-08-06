@@ -784,15 +784,17 @@ export function ReportsPage() {
             className="button-secondary"
             disabled={otdLoading || otdRows.length === 0}
             onClick={() => {
-              const { error } = printOnTimeDeliveryReport({
-                year: otdYear,
-                monthLabel: MONTH_NAMES[otdMonth],
-                yearSummary: otdYearSummary,
-                monthSummary: otdMonthSummary,
-                byMonth: otdByMonth,
-              })
-              if (error) showToast(error)
-              else showToast(`Downloaded on-time delivery PDF for ${otdYear}`)
+              void (async () => {
+                const { error } = await printOnTimeDeliveryReport({
+                  year: otdYear,
+                  monthLabel: MONTH_NAMES[otdMonth],
+                  yearSummary: otdYearSummary,
+                  monthSummary: otdMonthSummary,
+                  byMonth: otdByMonth,
+                })
+                if (error) showToast(error)
+                else showToast(`Downloaded on-time delivery PDF for ${otdYear}`)
+              })()
             }}
           >
             Export PDF

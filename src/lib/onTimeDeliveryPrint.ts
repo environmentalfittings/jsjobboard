@@ -1,4 +1,5 @@
 import { jsPDF } from 'jspdf'
+import logoUrl from '../assets/js-logo.png'
 
 export type OnTimeDeliveryMonthRow = {
   month: number
@@ -20,6 +21,27 @@ export type OnTimeDeliverySummary = {
 
 const MARGIN_X = 14
 const MARGIN_Y = 14
+const LOGO_SIZE = 18
+
+let cachedLogoDataUrl: string | null | undefined
+
+async function getLogoDataUrl(): Promise<string | null> {
+  if (cachedLogoDataUrl !== undefined) return cachedLogoDataUrl
+  try {
+    const res = await fetch(logoUrl)
+    if (!res.ok) throw new Error(`Logo fetch failed (${res.status})`)
+    const blob = await res.blob()
+    cachedLogoDataUrl = await new Promise<string>((resolve, reject) => {
+      const reader = new FileReader()
+      reader.onload = () => resolve(String(reader.result))
+      reader.onerror = () => reject(reader.error ?? new Error('Could not read logo'))
+      reader.readAsDataURL(blob)
+    })
+  } catch {
+    cachedLogoDataUrl = null
+  }
+  return cachedLogoDataUrl
+}
 
 function pctLabel(pct: number, total: number) {
   return total > 0 ? `${pct.toFixed(1)}%` : '—'
@@ -116,16 +138,27 @@ export function buildOnTimeDeliveryPdf(options: {
   yearSummary: OnTimeDeliverySummary
   monthSummary: OnTimeDeliverySummary
   byMonth: OnTimeDeliveryMonthRow[]
+  logoDataUrl?: string | null
 }): jsPDF {
-  const { year, monthLabel, yearSummary, monthSummary, byMonth } = options
+  const { year, monthLabel, yearSummary, monthSummary, byMonth, logoDataUrl } = options
   const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'letter' })
   const pageWidth = doc.internal.pageSize.getWidth()
   const contentW = pageWidth - MARGIN_X * 2
 
+  const logoX = pageWidth - MARGIN_X - LOGO_SIZE
+  if (logoDataUrl) {
+    try {
+      doc.addImage(logoDataUrl, 'PNG', logoX, MARGIN_Y - 4, LOGO_SIZE, LOGO_SIZE)
+    } catch {
+      // Continue without logo if the image cannot be embedded.
+    }
+  }
+
+  const titleMaxWidth = contentW - (logoDataUrl ? LOGO_SIZE + 6 : 0)
   doc.setFont('helvetica', 'bold')
   doc.setFontSize(16)
   doc.setTextColor(15, 23, 42)
-  doc.text(`On-time delivery — ${year}`, MARGIN_X, MARGIN_Y)
+  doc.text(`On-time delivery — ${year}`, MARGIN_X, MARGIN_Y + 4, { maxWidth: titleMaxWidth })
 
   doc.setFont('helvetica', 'normal')
   doc.setFontSize(9)
@@ -133,11 +166,12 @@ export function buildOnTimeDeliveryPdf(options: {
   doc.text(
     'Percentage of completed jobs closed on or before their due date. Jobs with no due date are excluded.',
     MARGIN_X,
-    MARGIN_Y + 6,
+    MARGIN_Y + 11,
+    { maxWidth: titleMaxWidth },
   )
-  doc.text(`Generated ${new Date().toLocaleString()}`, MARGIN_X, MARGIN_Y + 11)
+  doc.text(`Generated ${new Date().toLocaleString()}`, MARGIN_X, MARGIN_Y + 17)
 
-  const cardY = MARGIN_Y + 16
+  const cardY = MARGIN_Y + 24
   const cardH = 34
   const cardGap = 4
   const cardW = (contentW - cardGap) / 2
@@ -234,27 +268,27 @@ export function buildOnTimeDeliveryPdf(options: {
   return doc
 }
 
-export function downloadOnTimeDeliveryPdf(options: {
+export async function downloadOnTimeDeliveryPdf(options: {
   year: number
   monthLabel: string
   yearSummary: OnTimeDeliverySummary
   monthSummary: OnTimeDeliverySummary
   byMonth: OnTimeDeliveryMonthRow[]
-}): void {
-  const doc = buildOnTimeDeliveryPdf(options)
+}): Promise<void> {
+  const logoDataUrl = await getLogoDataUrl()
+  const doc = buildOnTimeDeliveryPdf({ ...options, logoDataUrl })
   doc.save(`on-time-delivery-${options.year}.pdf`)
 }
 
-/** @deprecated Use downloadOnTimeDeliveryPdf — kept name for call-site clarity during transition. */
-export function printOnTimeDeliveryReport(options: {
+export async function printOnTimeDeliveryReport(options: {
   year: number
   monthLabel: string
   yearSummary: OnTimeDeliverySummary
   monthSummary: OnTimeDeliverySummary
   byMonth: OnTimeDeliveryMonthRow[]
-}): { error: string | null } {
+}): Promise<{ error: string | null }> {
   try {
-    downloadOnTimeDeliveryPdf(options)
+    await downloadOnTimeDeliveryPdf(options)
     return { error: null }
   } catch (error) {
     return { error: error instanceof Error ? error.message : 'Could not create PDF' }
