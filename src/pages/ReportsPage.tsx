@@ -7,7 +7,7 @@ import { JOB_TYPES, normalizeJobType } from '../constants/jobTypes'
 import { TERMINAL_STATUSES } from '../constants/statuses'
 import { downloadCompletedJobsReportPdf } from '../lib/completedJobsReportPdf'
 import { supabase } from '../lib/supabase'
-import { fetchDueDateChanges } from '../lib/dueDateChanges'
+import { countDueDateChanges, fetchDueDateChanges } from '../lib/dueDateChanges'
 import { isExcludedFromOnTimeDelivery } from '../lib/onTimeDelivery'
 import { printOnTimeDeliveryReport } from '../lib/onTimeDeliveryPrint'
 import {
@@ -251,6 +251,7 @@ export function ReportsPage() {
   const [dueDateEnd, setDueDateEnd] = useState(defaultRange.end)
   const [dueDateChangeRows, setDueDateChangeRows] = useState<DueDateChangeRecord[]>([])
   const [dueDateChangeLoading, setDueDateChangeLoading] = useState(false)
+  const [dueDateChangeTotalLogged, setDueDateChangeTotalLogged] = useState<number | null>(null)
 
   const loadOtdData = async (year: number) => {
     setOtdLoading(true)
@@ -290,8 +291,12 @@ export function ReportsPage() {
   const loadDueDateChanges = async () => {
     if (!dueDateStart || !dueDateEnd) return
     setDueDateChangeLoading(true)
-    const { data, error } = await fetchDueDateChanges(dueDateStart, dueDateEnd)
+    const [{ data, error }, totalLogged] = await Promise.all([
+      fetchDueDateChanges(dueDateStart, dueDateEnd),
+      countDueDateChanges(),
+    ])
     setDueDateChangeLoading(false)
+    setDueDateChangeTotalLogged(totalLogged)
     if (error) {
       showToast(`Could not load due date changes: ${error.message}`)
       setDueDateChangeRows([])
@@ -1556,7 +1561,9 @@ export function ReportsPage() {
       <section className="dashboard-panel">
         <h3>Due date changes</h3>
         <p className="placeholder-copy">
-          Every due date move from the job board is logged with the reason entered at the time of change.
+          Logs due date moves from the job board (click the due date on a card, or change it on the job card and save).
+          Only changes made <strong>after</strong> the due-date log table was set up in Supabase are recorded — older
+          moves are not available.
         </p>
         <div className="report-filters">
           <label>
@@ -1590,6 +1597,10 @@ export function ReportsPage() {
             <span>Changes in range</span>
             <strong>{dueDateChangeRows.length}</strong>
           </div>
+          <div className="report-summary-item">
+            <span>Total logged (all time)</span>
+            <strong>{dueDateChangeTotalLogged == null ? '—' : dueDateChangeTotalLogged}</strong>
+          </div>
         </div>
 
         <div className="dashboard-table-wrap">
@@ -1608,7 +1619,11 @@ export function ReportsPage() {
               {dueDateChangeRows.length === 0 ? (
                 <tr>
                   <td colSpan={6} className="job-muted">
-                    {dueDateChangeLoading ? 'Loading…' : 'No due date changes in this range.'}
+                    {dueDateChangeLoading
+                      ? 'Loading…'
+                      : dueDateChangeTotalLogged === 0
+                        ? 'No due date changes have been logged yet. Change a due date on the job board (with a reason) after the Supabase table is set up, then run this report again.'
+                        : 'No due date changes in this date range. Try widening From/To, or check Total logged (all time).'}
                   </td>
                 </tr>
               ) : (
