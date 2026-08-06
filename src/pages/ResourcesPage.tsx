@@ -1,7 +1,9 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
+import { EmployeeTrainingPanel } from '../components/EmployeeTrainingPanel'
 import { useToast } from '../components/ToastNotification'
 import { useAuth } from '../contexts/AuthContext'
+import { countEmployeeTrainings } from '../lib/employeeTraining'
 import {
   deleteResourceDocument,
   resourceDocumentPublicUrl,
@@ -134,6 +136,11 @@ export function ResourcesPage() {
 
   const [sectionDocs, setSectionDocs] = useState<Record<string, ResourceDocumentRow[]>>({})
   const [sectionLoading, setSectionLoading] = useState<Record<string, boolean>>({})
+  const [trainingCount, setTrainingCount] = useState(0)
+
+  const refreshTrainingCount = useCallback(async () => {
+    setTrainingCount(await countEmployeeTrainings())
+  }, [])
 
   const loadSection = async (key: string, categories: readonly ResourceDocumentCategory[]) => {
     setSectionLoading((prev) => ({ ...prev, [key]: true }))
@@ -164,6 +171,7 @@ export function ResourcesPage() {
 
   useEffect(() => {
     loadAllSections()
+    void refreshTrainingCount()
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
@@ -607,12 +615,12 @@ export function ResourcesPage() {
     {
       key: 'employee_training' as const,
       title: 'Employee Training',
-      description: 'Training materials, certifications, and employee learning documents.',
+      description: 'Schedule sessions, training log, employee records, materials and tests.',
       icon: '🎓',
       color: '#0f766e',
       bg: '#f0fdfa',
       border: '#14b8a6',
-      count: (sectionDocs['employee_training'] ?? []).length,
+      count: trainingCount,
     },
   ]
 
@@ -728,7 +736,9 @@ export function ResourcesPage() {
                   <p className="resources-module-card-desc">{m.description}</p>
                 </div>
                 <div className="resources-module-card-footer" style={{ color: m.color }}>
-                  {m.count} document{m.count !== 1 ? 's' : ''}
+                  {m.key === 'employee_training'
+                    ? `${m.count} training${m.count !== 1 ? 's' : ''}`
+                    : `${m.count} document${m.count !== 1 ? 's' : ''}`}
                 </div>
               </button>
             ))}
@@ -842,8 +852,12 @@ export function ResourcesPage() {
       </section>
       ) : null}
 
+      {activeModule === 'employee_training' ? (
+        <EmployeeTrainingPanel canWrite={canWrite} onCountsChange={() => void refreshTrainingCount()} />
+      ) : null}
+
       {/* ── Simple module drill-down (IOMs / Procedures / QA/QC) ─────────── */}
-      {activeSimpleSection ? (() => {
+      {activeSimpleSection && activeModule !== 'employee_training' ? (() => {
         const allDocs = sectionDocs[activeSimpleSection.key] ?? []
         const loading = sectionLoading[activeSimpleSection.key] ?? false
         const isIom = activeSimpleSection.key === 'iom'
