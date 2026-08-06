@@ -10,6 +10,15 @@ import { supabase } from '../lib/supabase'
 import { fetchDueDateChanges } from '../lib/dueDateChanges'
 import { isExcludedFromOnTimeDelivery } from '../lib/onTimeDelivery'
 import { printOnTimeDeliveryReport } from '../lib/onTimeDeliveryPrint'
+import {
+  aggregateTopCounts,
+  customerKey,
+  filterJobsByCustomer,
+  filterJobsByValveType,
+  isValveRepairJob,
+  printTopCountsChart,
+  valveTypeKey,
+} from '../lib/topJobsAggregation'
 import { fetchValveDescriptionsByIds } from '../lib/testLogValveLookup'
 import { VALVE_LIST_SELECT } from '../lib/valveSelect'
 import type { DueDateChangeRecord, TestLogEntry, Valve } from '../types'
@@ -229,6 +238,15 @@ export function ReportsPage() {
   const [otdYear, setOtdYear] = useState(currentYear)
   const [otdMonth, setOtdMonth] = useState(currentMonth)
 
+  const defaultTopRange = useMemo(() => getCompletedDatePresetRange('this_year_to_date'), [])
+  const [topPreset, setTopPreset] = useState<CompletedDatePreset>('this_year_to_date')
+  const [topStartDate, setTopStartDate] = useState(defaultTopRange.start)
+  const [topEndDate, setTopEndDate] = useState(defaultTopRange.end)
+  const [topRows, setTopRows] = useState<Valve[]>([])
+  const [topLoading, setTopLoading] = useState(false)
+  const [selectedTopCustomer, setSelectedTopCustomer] = useState<string | null>(null)
+  const [selectedTopValveType, setSelectedTopValveType] = useState<string | null>(null)
+
   const [dueDateStart, setDueDateStart] = useState(defaultRange.start)
   const [dueDateEnd, setDueDateEnd] = useState(defaultRange.end)
   const [dueDateChangeRows, setDueDateChangeRows] = useState<DueDateChangeRecord[]>([])
@@ -324,6 +342,58 @@ export function ReportsPage() {
       return { month: m, label: MONTH_NAMES[m], ...calcOtdSummary(monthRows) }
     })
   }, [otdRows, otdYear])
+
+  const topCustomerRows = useMemo(() => aggregateTopCounts(topRows, customerKey, 10), [topRows])
+  const topRepairRows = useMemo(() => {
+    const repairs = topRows.filter(isValveRepairJob)
+    return aggregateTopCounts(repairs, valveTypeKey, 10)
+  }, [topRows])
+  const topRepairTotal = useMemo(() => topRows.filter(isValveRepairJob).length, [topRows])
+  const selectedCustomerJobs = useMemo(
+    () => (selectedTopCustomer ? filterJobsByCustomer(topRows, selectedTopCustomer) : []),
+    [selectedTopCustomer, topRows],
+  )
+  const selectedValveTypeJobs = useMemo(() => {
+    if (!selectedTopValveType) return []
+    return filterJobsByValveType(topRows.filter(isValveRepairJob), selectedTopValveType)
+  }, [selectedTopValveType, topRows])
+
+  const applyTopDatePreset = (preset: CompletedDatePreset) => {
+    setTopPreset(preset)
+    if (preset === 'custom') return
+    const range = getCompletedDatePresetRange(preset)
+    setTopStartDate(range.start)
+    setTopEndDate(range.end)
+  }
+
+  const loadTopJobsReport = async () => {
+    if (!topStartDate || !topEndDate) return
+    setTopLoading(true)
+    const { data, error } = await supabase
+      .from('valves')
+      .select(VALVE_LIST_SELECT)
+      .eq('status', 'Completed')
+      .gte('date_closed', topStartDate)
+      .lte('date_closed', topEndDate)
+      .order('date_closed', { ascending: false })
+      .order('valve_id', { ascending: true })
+      .limit(8000)
+    setTopLoading(false)
+    if (error) {
+      showToast(`Could not load top customers / valve types: ${error.message}`)
+      setTopRows([])
+      return
+    }
+    setTopRows((data as Valve[]) ?? [])
+    setSelectedTopCustomer(null)
+    setSelectedTopValveType(null)
+  }
+
+  useEffect(() => {
+    void loadTopJobsReport()
+    // Initial load for YTD top customers / repairs.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   const applyCompletedDatePreset = (preset: CompletedDatePreset) => {
     setCompletedDatePreset(preset)
@@ -757,6 +827,303 @@ export function ReportsPage() {
             </tbody>
           </table>
         </div>
+      </section>
+
+      <section className="dashboard-panel" id="top-customers-valve-types">
+        <h3>Top customers &amp; repairs by valve type</h3>
+        <p className="placeholder-copy">
+          Rank completed jobs in the date range. Click a customer bar to list and print that customer&apos;s jobs.
+          Valve-type chart counts <strong>Valve Repair</strong> jobs only.
+        </p>
+        <div className="report-filters">
+          <label>
+            Date range
+            <select value={topPreset} onChange={(e) => applyTopDatePreset(e.target.value as CompletedDatePreset)}>
+              {COMPLETED_DATE_PRESETS.map((preset) => (
+                <option key={preset.value} value={preset.value}>
+                  {preset.label}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label>
+            Start date
+            <input
+              type="date"
+              value={topStartDate}
+              onChange={(e) => {
+                setTopPreset('custom')
+                setTopStartDate(e.target.value)
+              }}
+            />
+          </label>
+          <label>
+            End date
+            <input
+              type="date"
+              value={topEndDate}
+              onChange={(e) => {
+                setTopPreset('custom')
+                setTopEndDate(e.target.value)
+              }}
+            />
+          </label>
+          <button type="button" className="button-primary" disabled={topLoading} onClick={() => void loadTopJobsReport()}>
+            {topLoading ? 'Loading…' : 'Refresh'}
+          </button>
+        </div>
+
+        <div className="report-summary-bar">
+          <div className="report-summary-item">
+            <span>Completed jobs in range</span>
+            <strong>{topRows.length}</strong>
+          </div>
+          <div className="report-summary-item">
+            <span>Valve repairs in range</span>
+            <strong>{topRepairTotal}</strong>
+          </div>
+          <div className="report-summary-item">
+            <span>Distinct customers</span>
+            <strong>{new Set(topRows.map(customerKey)).size}</strong>
+          </div>
+          <div className="report-summary-item">
+            <span>Repair valve types</span>
+            <strong>{new Set(topRows.filter(isValveRepairJob).map(valveTypeKey)).size}</strong>
+          </div>
+        </div>
+
+        <div className="top-jobs-charts">
+          <div className="top-jobs-chart-panel">
+            <div className="top-jobs-chart-head">
+              <h4>Top customers</h4>
+              <button
+                type="button"
+                className="button-secondary"
+                disabled={topCustomerRows.length === 0}
+                onClick={() => {
+                  const { error } = printTopCountsChart({
+                    title: 'Top customers',
+                    subtitle: `Completed jobs ${topStartDate} to ${topEndDate}`,
+                    rows: topCustomerRows,
+                    totalJobs: topRows.length,
+                  })
+                  if (error) showToast(error)
+                }}
+              >
+                Print chart
+              </button>
+            </div>
+            {topCustomerRows.length === 0 ? (
+              <p className="placeholder-copy">No completed jobs in this range.</p>
+            ) : (
+              <div className="top-jobs-bars" role="img" aria-label="Top customers by completed job count">
+                {topCustomerRows.map((row) => {
+                  const max = topCustomerRows[0]?.count || 1
+                  const width = Math.max(4, (row.count / max) * 100)
+                  const selected = selectedTopCustomer === row.key
+                  return (
+                    <button
+                      key={row.key}
+                      type="button"
+                      className={`top-jobs-bar-row${selected ? ' is-selected' : ''}`}
+                      onClick={() => {
+                        setSelectedTopCustomer(row.key)
+                        setSelectedTopValveType(null)
+                      }}
+                      title={`${row.label}: ${row.count} jobs (${row.pct.toFixed(1)}%)`}
+                    >
+                      <span className="top-jobs-bar-label">{row.label}</span>
+                      <span className="top-jobs-bar-track">
+                        <span className="top-jobs-bar-fill" style={{ width: `${width}%` }} />
+                      </span>
+                      <span className="top-jobs-bar-count">{row.count}</span>
+                    </button>
+                  )
+                })}
+              </div>
+            )}
+          </div>
+
+          <div className="top-jobs-chart-panel">
+            <div className="top-jobs-chart-head">
+              <h4>Top repairs by valve type</h4>
+              <button
+                type="button"
+                className="button-secondary"
+                disabled={topRepairRows.length === 0}
+                onClick={() => {
+                  const { error } = printTopCountsChart({
+                    title: 'Top repairs by valve type',
+                    subtitle: `Valve Repair jobs ${topStartDate} to ${topEndDate}`,
+                    rows: topRepairRows,
+                    totalJobs: topRepairTotal,
+                    valueLabel: 'Repairs',
+                  })
+                  if (error) showToast(error)
+                }}
+              >
+                Print chart
+              </button>
+            </div>
+            {topRepairRows.length === 0 ? (
+              <p className="placeholder-copy">No valve repair jobs in this range.</p>
+            ) : (
+              <div className="top-jobs-bars" role="img" aria-label="Top valve types by repair count">
+                {topRepairRows.map((row) => {
+                  const max = topRepairRows[0]?.count || 1
+                  const width = Math.max(4, (row.count / max) * 100)
+                  const selected = selectedTopValveType === row.key
+                  return (
+                    <button
+                      key={row.key}
+                      type="button"
+                      className={`top-jobs-bar-row${selected ? ' is-selected' : ''}`}
+                      onClick={() => {
+                        setSelectedTopValveType(row.key)
+                        setSelectedTopCustomer(null)
+                      }}
+                      title={`${row.label}: ${row.count} repairs (${row.pct.toFixed(1)}%)`}
+                    >
+                      <span className="top-jobs-bar-label">{row.label}</span>
+                      <span className="top-jobs-bar-track">
+                        <span className="top-jobs-bar-fill top-jobs-bar-fill--accent" style={{ width: `${width}%` }} />
+                      </span>
+                      <span className="top-jobs-bar-count">{row.count}</span>
+                    </button>
+                  )
+                })}
+              </div>
+            )}
+          </div>
+        </div>
+
+        {selectedTopCustomer ? (
+          <div className="top-jobs-detail">
+            <div className="training-list-toolbar">
+              <h4 style={{ margin: 0 }}>
+                Jobs for {selectedTopCustomer}{' '}
+                <span className="status-breakdown-note">({selectedCustomerJobs.length})</span>
+              </h4>
+              <div className="training-inline-add">
+                <button
+                  type="button"
+                  className="button-primary"
+                  disabled={selectedCustomerJobs.length === 0}
+                  onClick={() => {
+                    downloadCompletedJobsReportPdf(selectedCustomerJobs, {
+                      startDate: topStartDate,
+                      endDate: topEndDate,
+                      turnaroundFilterLabel: 'All',
+                      jobTypeFilterLabel: 'All',
+                      reportTitle: `Completed jobs — ${selectedTopCustomer}`,
+                      fileNameStem: `completed-jobs-${selectedTopCustomer}`,
+                    })
+                  }}
+                >
+                  Print / PDF jobs
+                </button>
+                <button type="button" className="button-secondary" onClick={() => setSelectedTopCustomer(null)}>
+                  Clear
+                </button>
+              </div>
+            </div>
+            <div className="dashboard-table-wrap">
+              <table className="dashboard-table">
+                <thead>
+                  <tr>
+                    <th>Job ID</th>
+                    <th>Job type</th>
+                    <th>Valve type</th>
+                    <th>Cell</th>
+                    <th>Date closed</th>
+                    <th>Description</th>
+                    <th />
+                  </tr>
+                </thead>
+                <tbody>
+                  {selectedCustomerJobs.map((row) => (
+                    <tr key={row.id}>
+                      <td>{row.valve_id}</td>
+                      <td>{normalizeJobType(row.job_type)}</td>
+                      <td>{row.valve_type ?? '—'}</td>
+                      <td>{row.cell ?? '—'}</td>
+                      <td>{row.date_closed ?? '—'}</td>
+                      <td className="table-cell-clamp">{row.description ?? '—'}</td>
+                      <td className="report-table-action">
+                        <Link className="button-secondary report-table-open-link" to={`/job-board?open=${row.id}`}>
+                          Open card
+                        </Link>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        ) : null}
+
+        {selectedTopValveType ? (
+          <div className="top-jobs-detail">
+            <div className="training-list-toolbar">
+              <h4 style={{ margin: 0 }}>
+                Valve Repair — {selectedTopValveType}{' '}
+                <span className="status-breakdown-note">({selectedValveTypeJobs.length})</span>
+              </h4>
+              <div className="training-inline-add">
+                <button
+                  type="button"
+                  className="button-primary"
+                  disabled={selectedValveTypeJobs.length === 0}
+                  onClick={() => {
+                    downloadCompletedJobsReportPdf(selectedValveTypeJobs, {
+                      startDate: topStartDate,
+                      endDate: topEndDate,
+                      turnaroundFilterLabel: 'All',
+                      jobTypeFilterLabel: 'Valve Repair',
+                      reportTitle: `Valve repairs — ${selectedTopValveType}`,
+                      fileNameStem: `valve-repairs-${selectedTopValveType}`,
+                    })
+                  }}
+                >
+                  Print / PDF jobs
+                </button>
+                <button type="button" className="button-secondary" onClick={() => setSelectedTopValveType(null)}>
+                  Clear
+                </button>
+              </div>
+            </div>
+            <div className="dashboard-table-wrap">
+              <table className="dashboard-table">
+                <thead>
+                  <tr>
+                    <th>Job ID</th>
+                    <th>Customer</th>
+                    <th>Cell</th>
+                    <th>Date closed</th>
+                    <th>Description</th>
+                    <th />
+                  </tr>
+                </thead>
+                <tbody>
+                  {selectedValveTypeJobs.map((row) => (
+                    <tr key={row.id}>
+                      <td>{row.valve_id}</td>
+                      <td>{row.customer ?? '—'}</td>
+                      <td>{row.cell ?? '—'}</td>
+                      <td>{row.date_closed ?? '—'}</td>
+                      <td className="table-cell-clamp">{row.description ?? '—'}</td>
+                      <td className="report-table-action">
+                        <Link className="button-secondary report-table-open-link" to={`/job-board?open=${row.id}`}>
+                          Open card
+                        </Link>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        ) : null}
       </section>
 
       <DailyPriorityWorksheet />

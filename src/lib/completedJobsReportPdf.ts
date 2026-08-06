@@ -8,6 +8,10 @@ export type CompletedJobsPdfFilters = {
   endDate: string
   turnaroundFilterLabel: string
   jobTypeFilterLabel: string
+  /** Optional heading override (e.g. customer-specific print). */
+  reportTitle?: string
+  /** Optional download filename stem override (without .pdf). */
+  fileNameStem?: string
 }
 
 const MARGIN_X = 10
@@ -92,7 +96,7 @@ function drawPageHeader(doc: jsPDF, filters: CompletedJobsPdfFilters, pageWidth:
   doc.setFont('helvetica', 'bold')
   doc.setFontSize(14)
   doc.setTextColor(15, 23, 42)
-  doc.text('Completed jobs report', MARGIN_X, MARGIN_Y)
+  doc.text(filters.reportTitle?.trim() || 'Completed jobs report', MARGIN_X, MARGIN_Y)
 
   doc.setFont('helvetica', 'normal')
   doc.setFontSize(9)
@@ -265,11 +269,12 @@ export function buildCompletedJobsReportPdf(rows: Valve[], filters: CompletedJob
   return doc
 }
 
-export function completedJobsReportFileName(startDate: string, endDate: string): string {
-  return `completed-jobs-${startDate}-to-${endDate}.pdf`
+export function completedJobsReportFileName(startDate: string, endDate: string, stem?: string): string {
+  const base = (stem ?? 'completed-jobs').replace(/[^\w.-]+/g, '-').replace(/-+/g, '-').replace(/^-|-$/g, '')
+  return `${base || 'completed-jobs'}-${startDate}-to-${endDate}.pdf`
 }
 
 export function downloadCompletedJobsReportPdf(rows: Valve[], filters: CompletedJobsPdfFilters): void {
   const doc = buildCompletedJobsReportPdf(rows, filters)
-  doc.save(completedJobsReportFileName(filters.startDate, filters.endDate))
+  doc.save(completedJobsReportFileName(filters.startDate, filters.endDate, filters.fileNameStem))
 }
