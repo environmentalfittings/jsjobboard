@@ -1,5 +1,6 @@
 import { normalizeJobType } from '../constants/jobTypes'
 import type { Valve } from '../types'
+import { openPrintHtml } from './printHtml'
 
 export type TopCountRow = {
   key: string
@@ -72,9 +73,6 @@ export function printTopCountsChart(options: {
   totalJobs: number
   valueLabel?: string
 }): { error: string | null } {
-  const popup = window.open('', '_blank', 'noopener,noreferrer,width=900,height=1100')
-  if (!popup) return { error: 'Allow pop-ups to print this report' }
-
   const max = Math.max(1, ...options.rows.map((r) => r.count))
   const valueLabel = options.valueLabel ?? 'Jobs'
   const bars = options.rows
@@ -100,7 +98,7 @@ export function printTopCountsChart(options: {
     )
     .join('')
 
-  popup.document.write(`<!doctype html>
+  const html = `<!doctype html>
 <html lang="en">
 <head>
   <meta charset="utf-8" />
@@ -152,9 +150,13 @@ export function printTopCountsChart(options: {
     </thead>
     <tbody>${tableRows || '<tr><td colspan="4">No rows</td></tr>'}</tbody>
   </table>
-  <script>setTimeout(function () { window.focus(); window.print(); }, 200);</script>
+  <script>
+    window.addEventListener('load', function () {
+      setTimeout(function () { window.focus(); window.print(); }, 250);
+    });
+  </script>
 </body>
-</html>`)
-  popup.document.close()
-  return { error: null }
+</html>`
+
+  return openPrintHtml(html, { width: 900, height: 1100 })
 }

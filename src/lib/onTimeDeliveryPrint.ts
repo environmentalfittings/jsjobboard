@@ -1,3 +1,5 @@
+import { openPrintHtml } from './printHtml'
+
 export type OnTimeDeliveryMonthRow = {
   month: number
   label: string
@@ -43,9 +45,6 @@ export function printOnTimeDeliveryReport(options: {
   monthSummary: OnTimeDeliverySummary
   byMonth: OnTimeDeliveryMonthRow[]
 }): { error: string | null } {
-  const popup = window.open('', '_blank', 'noopener,noreferrer,width=960,height=1100')
-  if (!popup) return { error: 'Allow pop-ups to print the on-time delivery report' }
-
   const { year, monthLabel, yearSummary, monthSummary, byMonth } = options
   const generated = new Date().toLocaleString()
 
@@ -78,7 +77,7 @@ export function printOnTimeDeliveryReport(options: {
     )
     .join('')
 
-  popup.document.write(`<!doctype html>
+  const html = `<!doctype html>
 <html lang="en">
 <head>
   <meta charset="utf-8" />
@@ -179,10 +178,12 @@ export function printOnTimeDeliveryReport(options: {
     <tbody>${tableRows}</tbody>
   </table>
   <script>
-    setTimeout(function () { window.focus(); window.print(); }, 200);
+    window.addEventListener('load', function () {
+      setTimeout(function () { window.focus(); window.print(); }, 250);
+    });
   </script>
 </body>
-</html>`)
-  popup.document.close()
-  return { error: null }
+</html>`
+
+  return openPrintHtml(html, { width: 960, height: 1100 })
 }
