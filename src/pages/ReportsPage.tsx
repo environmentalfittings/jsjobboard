@@ -60,21 +60,136 @@ const MONTH_NAMES = [
   'July','August','September','October','November','December',
 ]
 
-function toInputDate(date: Date) {
-  return date.toISOString().slice(0, 10)
+/** Local calendar YYYY-MM-DD (avoids UTC day shift from toISOString). */
+function toLocalInputDate(date: Date) {
+  const y = date.getFullYear()
+  const m = String(date.getMonth() + 1).padStart(2, '0')
+  const d = String(date.getDate()).padStart(2, '0')
+  return `${y}-${m}-${d}`
+}
+
+function startOfLocalDay(date: Date) {
+  const next = new Date(date)
+  next.setHours(0, 0, 0, 0)
+  return next
 }
 
 function getCurrentWeekRange() {
-  const now = new Date()
+  const now = startOfLocalDay(new Date())
   const day = now.getDay()
   const diffToMonday = day === 0 ? -6 : 1 - day
   const start = new Date(now)
   start.setDate(now.getDate() + diffToMonday)
-  start.setHours(0, 0, 0, 0)
 
   const end = new Date(start)
   end.setDate(start.getDate() + 6)
-  return { start: toInputDate(start), end: toInputDate(end) }
+  return { start: toLocalInputDate(start), end: toLocalInputDate(end) }
+}
+
+type CompletedDatePreset =
+  | 'custom'
+  | 'this_week'
+  | 'last_week'
+  | 'this_month'
+  | 'last_month'
+  | 'last_30_days'
+  | 'last_90_days'
+  | 'this_quarter'
+  | 'last_quarter'
+  | 'this_year_to_date'
+  | 'last_year_to_date'
+  | 'this_year'
+  | 'last_year'
+
+const COMPLETED_DATE_PRESETS: { value: CompletedDatePreset; label: string }[] = [
+  { value: 'this_week', label: 'This week' },
+  { value: 'last_week', label: 'Last week' },
+  { value: 'this_month', label: 'This month' },
+  { value: 'last_month', label: 'Last month' },
+  { value: 'last_30_days', label: 'Last 30 days' },
+  { value: 'last_90_days', label: 'Last 90 days' },
+  { value: 'this_quarter', label: 'This quarter' },
+  { value: 'last_quarter', label: 'Last quarter' },
+  { value: 'this_year_to_date', label: 'This year to date' },
+  { value: 'last_year_to_date', label: 'Last year to date' },
+  { value: 'this_year', label: 'This year (full)' },
+  { value: 'last_year', label: 'Last year (full)' },
+  { value: 'custom', label: 'Custom dates' },
+]
+
+function getCompletedDatePresetRange(preset: Exclude<CompletedDatePreset, 'custom'>, now = new Date()) {
+  const today = startOfLocalDay(now)
+  const y = today.getFullYear()
+  const m = today.getMonth()
+
+  if (preset === 'this_week') return getCurrentWeekRange()
+
+  if (preset === 'last_week') {
+    const thisWeek = getCurrentWeekRange()
+    const start = new Date(`${thisWeek.start}T12:00:00`)
+    start.setDate(start.getDate() - 7)
+    const end = new Date(`${thisWeek.end}T12:00:00`)
+    end.setDate(end.getDate() - 7)
+    return { start: toLocalInputDate(start), end: toLocalInputDate(end) }
+  }
+
+  if (preset === 'this_month') {
+    return {
+      start: toLocalInputDate(new Date(y, m, 1)),
+      end: toLocalInputDate(today),
+    }
+  }
+
+  if (preset === 'last_month') {
+    const start = new Date(y, m - 1, 1)
+    const end = new Date(y, m, 0)
+    return { start: toLocalInputDate(start), end: toLocalInputDate(end) }
+  }
+
+  if (preset === 'last_30_days') {
+    const start = new Date(today)
+    start.setDate(start.getDate() - 29)
+    return { start: toLocalInputDate(start), end: toLocalInputDate(today) }
+  }
+
+  if (preset === 'last_90_days') {
+    const start = new Date(today)
+    start.setDate(start.getDate() - 89)
+    return { start: toLocalInputDate(start), end: toLocalInputDate(today) }
+  }
+
+  if (preset === 'this_quarter') {
+    const qStartMonth = Math.floor(m / 3) * 3
+    return {
+      start: toLocalInputDate(new Date(y, qStartMonth, 1)),
+      end: toLocalInputDate(today),
+    }
+  }
+
+  if (preset === 'last_quarter') {
+    const qStartMonth = Math.floor(m / 3) * 3 - 3
+    const start = new Date(y, qStartMonth, 1)
+    const end = new Date(y, qStartMonth + 3, 0)
+    return { start: toLocalInputDate(start), end: toLocalInputDate(end) }
+  }
+
+  if (preset === 'this_year_to_date') {
+    return { start: `${y}-01-01`, end: toLocalInputDate(today) }
+  }
+
+  if (preset === 'last_year_to_date') {
+    const end = new Date(y - 1, m, today.getDate())
+    // Clamp if last year lacked this calendar day (e.g. Feb 29).
+    if (end.getMonth() !== m) end.setDate(0)
+    return { start: `${y - 1}-01-01`, end: toLocalInputDate(end) }
+  }
+
+  if (preset === 'this_year') {
+    return { start: `${y}-01-01`, end: `${y}-12-31` }
+  }
+
+  // last_year
+  return { start: `${y - 1}-01-01`, end: `${y - 1}-12-31` }
 }
 
 export function ReportsPage() {
@@ -83,6 +198,7 @@ export function ReportsPage() {
   const defaultRange = useMemo(() => getCurrentWeekRange(), [])
   const [startDate, setStartDate] = useState(defaultRange.start)
   const [endDate, setEndDate] = useState(defaultRange.end)
+  const [completedDatePreset, setCompletedDatePreset] = useState<CompletedDatePreset>('this_week')
   const [rows, setRows] = useState<Valve[]>([])
   const [loading, setLoading] = useState(false)
   const [completedTurnaroundFilter, setCompletedTurnaroundFilter] = useState<TurnaroundReportFilter>('all')
@@ -207,6 +323,24 @@ export function ReportsPage() {
       return { month: m, label: MONTH_NAMES[m], ...calcOtdSummary(monthRows) }
     })
   }, [otdRows, otdYear])
+
+  const applyCompletedDatePreset = (preset: CompletedDatePreset) => {
+    setCompletedDatePreset(preset)
+    if (preset === 'custom') return
+    const range = getCompletedDatePresetRange(preset)
+    setStartDate(range.start)
+    setEndDate(range.end)
+  }
+
+  const onCompletedStartDateChange = (value: string) => {
+    setCompletedDatePreset('custom')
+    setStartDate(value)
+  }
+
+  const onCompletedEndDateChange = (value: string) => {
+    setCompletedDatePreset('custom')
+    setEndDate(value)
+  }
 
   const runReport = async () => {
     if (!startDate || !endDate) return
@@ -561,16 +695,30 @@ export function ReportsPage() {
       <section className="dashboard-panel">
         <h3>Completed jobs report</h3>
         <p className="placeholder-copy">
-          Filter by close date. Use turnaround filter for customer update packages or to exclude turnarounds.
+          Filter by close date. Pick a common date range, or set custom start/end dates. Use turnaround filter for
+          customer update packages or to exclude turnarounds.
         </p>
         <div className="report-filters">
           <label>
+            Date range
+            <select
+              value={completedDatePreset}
+              onChange={(e) => applyCompletedDatePreset(e.target.value as CompletedDatePreset)}
+            >
+              {COMPLETED_DATE_PRESETS.map((preset) => (
+                <option key={preset.value} value={preset.value}>
+                  {preset.label}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label>
             Start date
-            <input type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)} />
+            <input type="date" value={startDate} onChange={(e) => onCompletedStartDateChange(e.target.value)} />
           </label>
           <label>
             End date
-            <input type="date" value={endDate} onChange={(e) => setEndDate(e.target.value)} />
+            <input type="date" value={endDate} onChange={(e) => onCompletedEndDateChange(e.target.value)} />
           </label>
           <label>
             Turnaround
