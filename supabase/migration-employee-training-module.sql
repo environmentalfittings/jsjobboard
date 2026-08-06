@@ -70,6 +70,24 @@ create table if not exists public.employee_trainings (
   scheduled_date date,
   completed_date date,
   notes text not null default '',
+  recert_interval text not null default ''
+    check (
+      recert_interval in (
+        '',
+        '6_months',
+        '1_year',
+        '2_year',
+        '3_year',
+        '4_year',
+        '5_year',
+        '6_year',
+        '7_year',
+        '8_year',
+        '9_year',
+        '10_year'
+      )
+    ),
+  recert_due_date date,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
 );

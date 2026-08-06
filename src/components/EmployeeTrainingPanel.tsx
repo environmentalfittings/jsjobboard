@@ -4,9 +4,11 @@ import { useEmployees } from '../hooks/useEmployees'
 import {
   TRAINING_FILE_KINDS,
   TRAINING_REASONS,
+  TRAINING_RECERT_INTERVALS,
   TRAINING_SKILL_KEYS,
   TRAINING_SKILL_LEVELS,
   TRAINING_STATUSES,
+  computeRecertDueDate,
   createEmployeeTraining,
   deleteEmployeeTraining,
   deleteTrainingAttendee,
@@ -20,6 +22,7 @@ import {
   listTrainingAttendees,
   listTrainingFiles,
   trainingFilePublicUrl,
+  trainingRecertIntervalLabel,
   trainingStatusLabel,
   updateEmployeeTraining,
   updateTrainingAttendee,
@@ -32,6 +35,7 @@ import {
   type EmployeeTrainingInput,
   type EmployeeTrainingSkill,
   type TrainingFileKind,
+  type TrainingRecertInterval,
   type TrainingSkillLevel,
   type TrainingStatus,
 } from '../lib/employeeTraining'
@@ -54,7 +58,7 @@ function todayIso() {
 }
 
 function migrationHint(message: string) {
-  return /relation .* does not exist|Could not find the table|function .* does not exist|allocate_training_record_no|row-level security|employee_training/i.test(
+  return /relation .* does not exist|Could not find the table|function .* does not exist|allocate_training_record_no|row-level security|employee_training|recert_interval|recert_due_date/i.test(
     message,
   )
 }
@@ -284,17 +288,19 @@ export function EmployeeTrainingPanel({ canWrite, onCountsChange }: EmployeeTrai
     if (!canWrite || busy || selectedId == null) return
     setBusy(true)
     try {
+      const completed_date = draft.completed_date || todayIso()
       const updated = await updateEmployeeTraining(selectedId, {
         ...draft,
         status: 'completed',
-        completed_date: draft.completed_date || todayIso(),
+        completed_date,
+        recert_due_date: draft.recert_due_date || computeRecertDueDate(completed_date, draft.recert_interval),
       })
       showToast(`${updated.record_no} marked completed`)
       await loadTrainings()
       setDraft(inputFromTraining(updated))
       setTab('log')
     } catch (error) {
-      showToast(error instanceof Error ? error.message : 'Could not complete training')
+      showToast(errorMessage(error, 'Could not complete training'))
     } finally {
       setBusy(false)
     }
@@ -485,6 +491,7 @@ export function EmployeeTrainingPanel({ canWrite, onCountsChange }: EmployeeTrai
             <th>Status</th>
             <th>Scheduled</th>
             <th>Completed</th>
+            <th>Recert due</th>
             <th>Trainer</th>
             <th>Department(s)</th>
           </tr>
@@ -508,13 +515,14 @@ export function EmployeeTrainingPanel({ canWrite, onCountsChange }: EmployeeTrai
               </td>
               <td>{formatTrainingDate(row.scheduled_date)}</td>
               <td>{formatTrainingDate(row.completed_date)}</td>
+              <td>{formatTrainingDate(row.recert_due_date)}</td>
               <td>{row.trainer_name || '—'}</td>
               <td>{row.departments || '—'}</td>
             </tr>
           ))}
           {!loading && list.length === 0 ? (
             <tr>
-              <td colSpan={7} className="table-empty-cell">
+              <td colSpan={8} className="table-empty-cell">
                 {emptyLabel}
               </td>
             </tr>
@@ -637,7 +645,44 @@ export function EmployeeTrainingPanel({ canWrite, onCountsChange }: EmployeeTrai
               type="date"
               value={draft.completed_date ?? ''}
               disabled={!canWrite || busy}
-              onChange={(e) => setDraft((d) => ({ ...d, completed_date: e.target.value || null }))}
+              onChange={(e) => {
+                const completed_date = e.target.value || null
+                setDraft((d) => ({
+                  ...d,
+                  completed_date,
+                  recert_due_date: computeRecertDueDate(completed_date, d.recert_interval),
+                }))
+              }}
+            />
+          </label>
+          <label>
+            Recertification
+            <select
+              value={draft.recert_interval}
+              disabled={!canWrite || busy}
+              onChange={(e) => {
+                const recert_interval = e.target.value as TrainingRecertInterval
+                setDraft((d) => ({
+                  ...d,
+                  recert_interval,
+                  recert_due_date: computeRecertDueDate(d.completed_date, recert_interval),
+                }))
+              }}
+            >
+              {TRAINING_RECERT_INTERVALS.map((interval) => (
+                <option key={interval.value || 'none'} value={interval.value}>
+                  {interval.label}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label>
+            Recert due date
+            <input
+              type="date"
+              value={draft.recert_due_date ?? ''}
+              disabled={!canWrite || busy || !draft.recert_interval}
+              onChange={(e) => setDraft((d) => ({ ...d, recert_due_date: e.target.value || null }))}
             />
           </label>
           <label className="training-form-full">
@@ -954,6 +999,8 @@ export function EmployeeTrainingPanel({ canWrite, onCountsChange }: EmployeeTrai
                       <th>Record #</th>
                       <th>Title</th>
                       <th>Completed</th>
+                      <th>Recert due</th>
+                      <th>Interval</th>
                       <th>Signed off</th>
                     </tr>
                   </thead>
@@ -963,12 +1010,14 @@ export function EmployeeTrainingPanel({ canWrite, onCountsChange }: EmployeeTrai
                         <td>{row.training?.record_no ?? '—'}</td>
                         <td>{row.training?.title ?? '—'}</td>
                         <td>{formatTrainingDate(row.training?.completed_date ?? null)}</td>
+                        <td>{formatTrainingDate(row.training?.recert_due_date ?? null)}</td>
+                        <td>{trainingRecertIntervalLabel(row.training?.recert_interval)}</td>
                         <td>{row.signed_off ? formatTrainingDate(row.signed_off_at) : 'No'}</td>
                       </tr>
                     ))}
                     {employeeHistory.length === 0 ? (
                       <tr>
-                        <td colSpan={4} className="table-empty-cell">
+                        <td colSpan={6} className="table-empty-cell">
                           No trainings on file for this employee.
                         </td>
                       </tr>

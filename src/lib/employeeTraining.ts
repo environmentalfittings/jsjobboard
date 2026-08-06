@@ -19,6 +19,20 @@ export type TrainingFileKind = 'material' | 'test' | 'completed_test' | 'signoff
 
 export type TrainingSkillLevel = '' | 'in_training' | 'trained' | 'C' | 'A' | 'M' | 'NEW' | 'Pending'
 
+export type TrainingRecertInterval =
+  | ''
+  | '6_months'
+  | '1_year'
+  | '2_year'
+  | '3_year'
+  | '4_year'
+  | '5_year'
+  | '6_year'
+  | '7_year'
+  | '8_year'
+  | '9_year'
+  | '10_year'
+
 export const TRAINING_STATUSES: { value: TrainingStatus; label: string }[] = [
   { value: 'scheduled', label: 'Scheduled' },
   { value: 'in_progress', label: 'In progress' },
@@ -32,6 +46,21 @@ export const TRAINING_REASONS: { value: Exclude<TrainingReason, ''>; label: stri
   { value: 'Preventative Action', label: 'Preventative Action' },
   { value: 'Cross training', label: 'Cross training' },
   { value: 'Other', label: 'Other' },
+]
+
+export const TRAINING_RECERT_INTERVALS: { value: TrainingRecertInterval; label: string }[] = [
+  { value: '', label: 'None' },
+  { value: '6_months', label: '6 months' },
+  { value: '1_year', label: 'Annual (1 year)' },
+  { value: '2_year', label: '2 years' },
+  { value: '3_year', label: '3 years' },
+  { value: '4_year', label: '4 years' },
+  { value: '5_year', label: '5 years' },
+  { value: '6_year', label: '6 years' },
+  { value: '7_year', label: '7 years' },
+  { value: '8_year', label: '8 years' },
+  { value: '9_year', label: '9 years' },
+  { value: '10_year', label: '10 years' },
 ]
 
 export const TRAINING_FILE_KINDS: { value: TrainingFileKind; label: string }[] = [
@@ -81,6 +110,8 @@ export type EmployeeTraining = {
   scheduled_date: string | null
   completed_date: string | null
   notes: string
+  recert_interval: TrainingRecertInterval
+  recert_due_date: string | null
   created_at: string
   updated_at: string
 }
@@ -129,10 +160,12 @@ export type EmployeeTrainingInput = {
   scheduled_date: string | null
   completed_date: string | null
   notes: string
+  recert_interval: TrainingRecertInterval
+  recert_due_date: string | null
 }
 
 const TRAINING_SELECT =
-  'id,record_no,title,status,reason,departments,car_number,trainer_name,scheduled_date,completed_date,notes,created_at,updated_at'
+  'id,record_no,title,status,reason,departments,car_number,trainer_name,scheduled_date,completed_date,notes,recert_interval,recert_due_date,created_at,updated_at'
 
 const ATTENDEE_SELECT =
   'id,training_id,employee_id,employee_name,signed_off,signed_off_at,notes,created_at'
@@ -167,6 +200,8 @@ export function emptyTrainingInput(): EmployeeTrainingInput {
     scheduled_date: null,
     completed_date: null,
     notes: '',
+    recert_interval: '',
+    recert_due_date: null,
   }
 }
 
@@ -181,7 +216,39 @@ export function inputFromTraining(row: EmployeeTraining): EmployeeTrainingInput 
     scheduled_date: row.scheduled_date,
     completed_date: row.completed_date,
     notes: row.notes,
+    recert_interval: row.recert_interval || '',
+    recert_due_date: row.recert_due_date,
   }
+}
+
+export function trainingRecertIntervalLabel(interval: TrainingRecertInterval | string | null | undefined): string {
+  return TRAINING_RECERT_INTERVALS.find((i) => i.value === interval)?.label ?? (interval || '—')
+}
+
+/** Add months/years to an ISO date (YYYY-MM-DD), clamping day-of-month. */
+export function computeRecertDueDate(
+  completedDate: string | null | undefined,
+  interval: TrainingRecertInterval | string | null | undefined,
+): string | null {
+  const start = String(completedDate ?? '').trim()
+  const key = String(interval ?? '').trim() as TrainingRecertInterval
+  if (!start || !key) return null
+
+  const base = new Date(`${start}T12:00:00`)
+  if (Number.isNaN(base.getTime())) return null
+
+  if (key === '6_months') {
+    base.setMonth(base.getMonth() + 6)
+  } else {
+    const match = /^(\d+)_year$/.exec(key)
+    if (!match) return null
+    base.setFullYear(base.getFullYear() + Number(match[1]))
+  }
+
+  const y = base.getFullYear()
+  const m = String(base.getMonth() + 1).padStart(2, '0')
+  const d = String(base.getDate()).padStart(2, '0')
+  return `${y}-${m}-${d}`
 }
 
 export function trainingStatusLabel(status: TrainingStatus): string {
@@ -253,6 +320,10 @@ export async function createEmployeeTraining(input: EmployeeTrainingInput): Prom
     scheduled_date: emptyToNull(input.scheduled_date),
     completed_date: emptyToNull(input.completed_date),
     notes: input.notes.trim(),
+    recert_interval: input.recert_interval || '',
+    recert_due_date:
+      emptyToNull(input.recert_due_date) ||
+      computeRecertDueDate(input.completed_date, input.recert_interval),
   }
 
   const { data, error } = await supabase
@@ -281,6 +352,10 @@ export async function updateEmployeeTraining(
     scheduled_date: emptyToNull(input.scheduled_date),
     completed_date: emptyToNull(input.completed_date),
     notes: input.notes.trim(),
+    recert_interval: input.recert_interval || '',
+    recert_due_date:
+      emptyToNull(input.recert_due_date) ||
+      computeRecertDueDate(input.completed_date, input.recert_interval),
     updated_at: new Date().toISOString(),
   }
 
