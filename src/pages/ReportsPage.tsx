@@ -792,9 +792,10 @@ export function ReportsPage() {
                 byMonth: otdByMonth,
               })
               if (error) showToast(error)
+              else showToast(`Downloaded on-time delivery PDF for ${otdYear}`)
             }}
           >
-            Print / chart
+            Export PDF
           </button>
         </div>
 
