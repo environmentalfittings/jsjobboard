@@ -343,6 +343,93 @@ export function ReportsPage() {
     })
   }, [otdRows, otdYear])
 
+  const otdCompareStats = useMemo(() => {
+    const monthsWithData = otdByMonth.filter((row) => row.total > 0)
+    const monthlyAveragePct =
+      monthsWithData.length > 0
+        ? monthsWithData.reduce((sum, row) => sum + row.pct, 0) / monthsWithData.length
+        : null
+
+    const current = otdByMonth[otdMonth]
+    const previous = otdMonth > 0 ? otdByMonth[otdMonth - 1] : null
+    let vsLastMonth: {
+      label: string
+      detail: string
+      tone: 'up' | 'down' | 'flat' | 'na'
+    } = { label: '—', detail: 'No prior month in this year', tone: 'na' }
+
+    if (current && current.total > 0 && previous && previous.total > 0) {
+      const delta = current.pct - previous.pct
+      if (Math.abs(delta) < 0.05) {
+        vsLastMonth = {
+          label: 'Even with last month',
+          detail: `${previous.label} was ${previous.pct.toFixed(1)}%`,
+          tone: 'flat',
+        }
+      } else if (delta > 0) {
+        vsLastMonth = {
+          label: `Better than ${previous.label}`,
+          detail: `+${delta.toFixed(1)} pts vs ${previous.pct.toFixed(1)}%`,
+          tone: 'up',
+        }
+      } else {
+        vsLastMonth = {
+          label: `Worse than ${previous.label}`,
+          detail: `${delta.toFixed(1)} pts vs ${previous.pct.toFixed(1)}%`,
+          tone: 'down',
+        }
+      }
+    } else if (current && current.total > 0 && otdMonth === 0) {
+      vsLastMonth = {
+        label: '—',
+        detail: 'No prior month loaded for this year',
+        tone: 'na',
+      }
+    } else if (!current || current.total <= 0) {
+      vsLastMonth = {
+        label: '—',
+        detail: `No ${MONTH_NAMES[otdMonth]} jobs with due dates`,
+        tone: 'na',
+      }
+    }
+
+    let yearVsAverage: {
+      label: string
+      detail: string
+      tone: 'up' | 'down' | 'flat' | 'na'
+    } = { label: '—', detail: 'Need monthly data', tone: 'na' }
+
+    if (otdYearSummary.total > 0 && monthlyAveragePct != null) {
+      const delta = otdYearSummary.pct - monthlyAveragePct
+      if (Math.abs(delta) < 0.05) {
+        yearVsAverage = {
+          label: 'Even with monthly average',
+          detail: `Year ${otdYearSummary.pct.toFixed(1)}% ≈ avg ${monthlyAveragePct.toFixed(1)}%`,
+          tone: 'flat',
+        }
+      } else if (delta > 0) {
+        yearVsAverage = {
+          label: 'Better than monthly average',
+          detail: `Year ${otdYearSummary.pct.toFixed(1)}% is +${delta.toFixed(1)} pts vs avg`,
+          tone: 'up',
+        }
+      } else {
+        yearVsAverage = {
+          label: 'Worse than monthly average',
+          detail: `Year ${otdYearSummary.pct.toFixed(1)}% is ${delta.toFixed(1)} pts vs avg`,
+          tone: 'down',
+        }
+      }
+    }
+
+    return {
+      monthlyAveragePct,
+      monthsInAverage: monthsWithData.length,
+      vsLastMonth,
+      yearVsAverage,
+    }
+  }, [otdByMonth, otdMonth, otdYearSummary])
+
   const topCustomerRows = useMemo(() => aggregateTopCounts(topRows, customerKey, 10), [topRows])
   const topRepairRows = useMemo(() => {
     const repairs = topRows.filter(isValveRepairJob)
@@ -745,6 +832,36 @@ export function ReportsPage() {
           <div className="report-summary-item">
             <span>Month late</span>
             <strong>{otdMonthSummary.late}</strong>
+          </div>
+        </div>
+
+        <div className="report-summary-bar otd-compare-bar">
+          <div className="report-summary-item">
+            <span>Vs last month</span>
+            <strong className={`otd-compare-tone otd-compare-tone--${otdCompareStats.vsLastMonth.tone}`}>
+              {otdCompareStats.vsLastMonth.label}
+            </strong>
+            <em className="otd-compare-detail">{otdCompareStats.vsLastMonth.detail}</em>
+          </div>
+          <div className="report-summary-item">
+            <span>Monthly average on-time %</span>
+            <strong>
+              {otdCompareStats.monthlyAveragePct != null
+                ? `${otdCompareStats.monthlyAveragePct.toFixed(1)}%`
+                : '—'}
+            </strong>
+            <em className="otd-compare-detail">
+              {otdCompareStats.monthsInAverage > 0
+                ? `Average of ${otdCompareStats.monthsInAverage} month${otdCompareStats.monthsInAverage === 1 ? '' : 's'} with data`
+                : 'No months with due-date jobs yet'}
+            </em>
+          </div>
+          <div className="report-summary-item">
+            <span>Year vs monthly average</span>
+            <strong className={`otd-compare-tone otd-compare-tone--${otdCompareStats.yearVsAverage.tone}`}>
+              {otdCompareStats.yearVsAverage.label}
+            </strong>
+            <em className="otd-compare-detail">{otdCompareStats.yearVsAverage.detail}</em>
           </div>
         </div>
 
