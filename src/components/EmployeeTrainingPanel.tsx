@@ -54,9 +54,18 @@ function todayIso() {
 }
 
 function migrationHint(message: string) {
-  return /relation .* does not exist|Could not find the table|function .* does not exist|allocate_training_record_no/i.test(
+  return /relation .* does not exist|Could not find the table|function .* does not exist|allocate_training_record_no|row-level security|employee_training/i.test(
     message,
   )
+}
+
+function errorMessage(error: unknown, fallback: string) {
+  if (error instanceof Error && error.message) return error.message
+  if (error && typeof error === 'object' && 'message' in error) {
+    const message = (error as { message?: unknown }).message
+    if (typeof message === 'string' && message.trim()) return message
+  }
+  return fallback
 }
 
 export function EmployeeTrainingPanel({ canWrite, onCountsChange }: EmployeeTrainingPanelProps) {
@@ -260,7 +269,7 @@ export function EmployeeTrainingPanel({ canWrite, onCountsChange }: EmployeeTrai
         setDraft(inputFromTraining(updated))
       }
     } catch (error) {
-      const message = error instanceof Error ? error.message : 'Could not save training'
+      const message = errorMessage(error, 'Could not save training')
       if (migrationHint(message)) {
         showToast('Run migration-employee-training-module.sql in Supabase, then try again')
       } else {

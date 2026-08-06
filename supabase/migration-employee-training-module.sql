@@ -15,9 +15,12 @@ values (1, 8)
 on conflict (id) do nothing;
 -- Default next_num=8 so first new record is TR-000008 (after spreadsheet TR-000007).
 
+-- SECURITY DEFINER so TR allocation is not blocked by RLS on the sequence table.
 create or replace function public.allocate_training_record_no()
 returns text
 language plpgsql
+security definer
+set search_path = public
 as $$
 declare
   n int;
@@ -39,6 +42,9 @@ $$;
 
 revoke all on function public.allocate_training_record_no() from public;
 grant execute on function public.allocate_training_record_no() to authenticated, anon;
+
+-- Sequence is an internal counter; clients only call the RPC above.
+alter table public.employee_training_number_seq disable row level security;
 
 -- ── Trainings (schedule + log) ────────────────────────────────────────────
 create table if not exists public.employee_trainings (

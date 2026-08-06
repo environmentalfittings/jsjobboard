@@ -1,6 +1,10 @@
 import { RESOURCE_DOCS_BUCKET } from './resourceDocuments'
 import { supabase } from './supabase'
 
+function throwDbError(error: { message?: string } | null): asserts error is null {
+  if (error) throw new Error(error.message || 'Database request failed')
+}
+
 export type TrainingStatus = 'scheduled' | 'in_progress' | 'completed' | 'cancelled'
 
 export type TrainingReason =
@@ -209,7 +213,7 @@ export async function listEmployeeTrainings(opts?: {
     .order('completed_date', { ascending: false, nullsFirst: false })
     .order('id', { ascending: false })
     .limit(500)
-  if (error) throw error
+  throwDbError(error)
   return (data ?? []) as EmployeeTraining[]
 }
 
@@ -219,13 +223,13 @@ export async function getEmployeeTraining(id: number): Promise<EmployeeTraining 
     .select(TRAINING_SELECT)
     .eq('id', id)
     .maybeSingle()
-  if (error) throw error
+  throwDbError(error)
   return (data as EmployeeTraining | null) ?? null
 }
 
 async function allocateRecordNo(): Promise<string> {
   const { data, error } = await supabase.rpc('allocate_training_record_no')
-  if (error) throw error
+  throwDbError(error)
   const value = String(data ?? '').trim()
   if (!/^TR-\d{6}$/.test(value)) {
     throw new Error('Could not allocate training record number')
@@ -256,7 +260,7 @@ export async function createEmployeeTraining(input: EmployeeTrainingInput): Prom
     .insert(payload)
     .select(TRAINING_SELECT)
     .single()
-  if (error) throw error
+  throwDbError(error)
   return data as EmployeeTraining
 }
 
@@ -286,13 +290,13 @@ export async function updateEmployeeTraining(
     .eq('id', id)
     .select(TRAINING_SELECT)
     .single()
-  if (error) throw error
+  throwDbError(error)
   return data as EmployeeTraining
 }
 
 export async function deleteEmployeeTraining(id: number): Promise<void> {
   const { error } = await supabase.from('employee_trainings').delete().eq('id', id)
-  if (error) throw error
+  throwDbError(error)
 }
 
 export async function listTrainingAttendees(trainingId: number): Promise<EmployeeTrainingAttendee[]> {
@@ -301,7 +305,7 @@ export async function listTrainingAttendees(trainingId: number): Promise<Employe
     .select(ATTENDEE_SELECT)
     .eq('training_id', trainingId)
     .order('employee_name', { ascending: true })
-  if (error) throw error
+  throwDbError(error)
   return (data ?? []) as EmployeeTrainingAttendee[]
 }
 
@@ -314,7 +318,7 @@ export async function listAttendeeTrainingsForEmployee(employeeId: string): Prom
     .eq('employee_id', employeeId)
     .order('id', { ascending: false })
     .limit(200)
-  if (error) throw error
+  throwDbError(error)
   return ((data ?? []) as unknown as Array<
     EmployeeTrainingAttendee & { employee_trainings?: EmployeeTraining | EmployeeTraining[] | null }
   >).map((row) => {
@@ -350,7 +354,7 @@ export async function upsertTrainingAttendee(args: {
       .upsert(payload, { onConflict: 'training_id,employee_id' })
       .select(ATTENDEE_SELECT)
       .single()
-    if (error) throw error
+    throwDbError(error)
     return data as EmployeeTrainingAttendee
   }
 
@@ -359,7 +363,7 @@ export async function upsertTrainingAttendee(args: {
     .insert(payload)
     .select(ATTENDEE_SELECT)
     .single()
-  if (error) throw error
+  throwDbError(error)
   return data as EmployeeTrainingAttendee
 }
 
@@ -381,13 +385,13 @@ export async function updateTrainingAttendee(
     .eq('id', id)
     .select(ATTENDEE_SELECT)
     .single()
-  if (error) throw error
+  throwDbError(error)
   return data as EmployeeTrainingAttendee
 }
 
 export async function deleteTrainingAttendee(id: number): Promise<void> {
   const { error } = await supabase.from('employee_training_attendees').delete().eq('id', id)
-  if (error) throw error
+  throwDbError(error)
 }
 
 export async function listTrainingFiles(opts?: {
@@ -400,7 +404,7 @@ export async function listTrainingFiles(opts?: {
   if (opts?.libraryOnly) query = query.is('training_id', null)
   if (opts?.kind && opts.kind !== 'all') query = query.eq('kind', opts.kind)
   const { data, error } = await query.order('created_at', { ascending: false }).limit(400)
-  if (error) throw error
+  throwDbError(error)
   return (data ?? []) as EmployeeTrainingFile[]
 }
 
@@ -442,7 +446,7 @@ export async function uploadTrainingFile(args: {
 
   if (error) {
     await supabase.storage.from(RESOURCE_DOCS_BUCKET).remove([storagePath])
-    throw error
+    throwDbError(error)
   }
   return data as EmployeeTrainingFile
 }
@@ -451,14 +455,14 @@ export async function deleteTrainingFile(row: EmployeeTrainingFile): Promise<voi
   const { error: storageErr } = await supabase.storage.from(RESOURCE_DOCS_BUCKET).remove([row.storage_path])
   if (storageErr) throw new Error(storageErr.message || 'Could not remove file.')
   const { error } = await supabase.from('employee_training_files').delete().eq('id', row.id)
-  if (error) throw error
+  throwDbError(error)
 }
 
 export async function listEmployeeSkills(employeeId?: string): Promise<EmployeeTrainingSkill[]> {
   let query = supabase.from('employee_training_skills').select(SKILL_SELECT)
   if (employeeId) query = query.eq('employee_id', employeeId)
   const { data, error } = await query.order('skill_key', { ascending: true }).limit(2000)
-  if (error) throw error
+  throwDbError(error)
   return (data ?? []) as EmployeeTrainingSkill[]
 }
 
@@ -482,7 +486,7 @@ export async function upsertEmployeeSkill(args: {
     .upsert(payload, { onConflict: 'employee_id,skill_key' })
     .select(SKILL_SELECT)
     .single()
-  if (error) throw error
+  throwDbError(error)
   return data as EmployeeTrainingSkill
 }
 
