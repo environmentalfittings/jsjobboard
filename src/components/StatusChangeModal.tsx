@@ -27,7 +27,7 @@ export type JobCardTab = 'summary' | 'details' | 'itp' | 'test-log' | 'photos' |
 const JOB_CARD_TABS: { id: JobCardTab; label: string }[] = [
   { id: 'summary', label: 'Summary' },
   { id: 'details', label: 'Details' },
-  { id: 'outsourced', label: 'Outsourced parts' },
+  { id: 'outsourced', label: 'Parts' },
   { id: 'itp', label: 'ITP' },
   { id: 'test-log', label: 'Test Log' },
   { id: 'photos', label: 'Photos' },
@@ -823,7 +823,7 @@ export function StatusChangeModal({
 
               <div className="job-card-panel">
                 <div className="job-card-panel-head">
-                  <span className="job-card-panel-title">Outsourced parts</span>
+                  <span className="job-card-panel-title">Parts</span>
                 </div>
                 <div className="job-card-panel-body">
                   {outsourcedSummary ? (
@@ -832,7 +832,7 @@ export function StatusChangeModal({
                       className={`job-card-outsourced job-card-outsourced--${outsourcedSummary.tone} job-card-outsourced--in-modal`}
                       onClick={() => setActiveTab('outsourced')}
                     >
-                      <span className="job-card-outsourced-label">Outsourced parts</span>
+                      <span className="job-card-outsourced-label">Parts</span>
                       {outsourcedSummary.tone === 'received' ? (
                         <span className="job-card-outsourced-meta">All received</span>
                       ) : formatOutsourcedExpectedLabel(outsourcedSummary.latestExpectedBack) ? (
@@ -848,14 +848,14 @@ export function StatusChangeModal({
                     </button>
                   ) : (
                     <div className="job-card-priority-inline">
-                      <span className="job-card-muted">No outsourced parts logged for this job yet.</span>
+                      <span className="job-card-muted">No parts logged for this job yet.</span>
                       <button
                         type="button"
                         className="button-secondary"
                         onClick={() => setActiveTab('outsourced')}
                         disabled={isSaving}
                       >
-                        Add outsourced parts
+                        Add parts
                       </button>
                     </div>
                   )}

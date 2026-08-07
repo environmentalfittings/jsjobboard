@@ -405,7 +405,7 @@ export function ValveOutsourcedItemsPanel({ valveRowId, disabled, onListChange }
     <div className="outsourced-items-panel">
       <div className="outsourced-items-panel-hdr">
         <div>
-          <h3 className="outsourced-items-title">Outsourced items</h3>
+          <h3 className="outsourced-items-title">Parts</h3>
           <p className="outsourced-items-hint">
             Compact entry grid — fields wrap to fit. Use <strong>+ Add vendor</strong> next to Vendor, or manage the
             full list under <Link to="/admin/lists">Manage lists → Vendor</Link>.

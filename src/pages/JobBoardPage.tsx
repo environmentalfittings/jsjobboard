@@ -386,17 +386,17 @@ function KanbanJobCard({
             className={`job-card-outsourced job-card-outsourced--${outsourced.tone}`}
             title={
               outsourced.tone === 'received'
-                ? 'All outsourced parts received — open Outsourced items'
+                ? 'All parts received — open Parts'
                 : outsourced.tone === 'overdue'
-                  ? 'Outsourced parts past expected back date — open Outsourced items'
-                  : 'Outsourced parts outstanding — open Outsourced items'
+                  ? 'Parts past expected back date — open Parts'
+                  : 'Parts outstanding — open Parts'
             }
             onClick={(e) => {
               e.stopPropagation()
               onOpen(valve, 'outsourced')
             }}
           >
-            <span className="job-card-outsourced-label">Outsourced parts</span>
+            <span className="job-card-outsourced-label">Parts</span>
             {outsourced.tone === 'received' ? (
               <span className="job-card-outsourced-meta">Received</span>
             ) : outsourcedExpectedLabel ? (
