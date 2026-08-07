@@ -30,12 +30,34 @@ export async function fetchStatusReworkLog(
 ): Promise<{ data: StatusReworkRecord[]; error: Error | null }> {
   const { data, error } = await supabase
     .from('status_rework_log')
-    .select('id,valve_row_id,valve_id,previous_status,new_status,reason,changed_by_name,changed_at')
+    .select(
+      'id,valve_row_id,valve_id,previous_status,new_status,reason,changed_by_name,changed_at,qa_disposition,incr_id',
+    )
     .gte('changed_at', `${startDate}T00:00:00`)
     .lte('changed_at', `${endDate}T23:59:59.999`)
     .order('changed_at', { ascending: false })
 
-  if (error) return { data: [], error: new Error(error.message) }
+  if (error) {
+    // Older DBs before migration-quality-incrs.sql — fall back without disposition columns.
+    if (/qa_disposition|incr_id|schema cache|column/i.test(error.message)) {
+      const legacy = await supabase
+        .from('status_rework_log')
+        .select('id,valve_row_id,valve_id,previous_status,new_status,reason,changed_by_name,changed_at')
+        .gte('changed_at', `${startDate}T00:00:00`)
+        .lte('changed_at', `${endDate}T23:59:59.999`)
+        .order('changed_at', { ascending: false })
+      if (legacy.error) return { data: [], error: new Error(legacy.error.message) }
+      return {
+        data: ((legacy.data ?? []) as StatusReworkRecord[]).map((row) => ({
+          ...row,
+          qa_disposition: null,
+          incr_id: null,
+        })),
+        error: null,
+      }
+    }
+    return { data: [], error: new Error(error.message) }
+  }
   return { data: (data ?? []) as StatusReworkRecord[], error: null }
 }
 

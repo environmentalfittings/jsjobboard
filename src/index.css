@@ -17774,3 +17774,73 @@ body.shop-tv-fullscreen-active .page-content {
     border-bottom: 2px solid var(--itp-lib-border);
   }
 }
+
+/* Rework report QA follow-up */
+.rework-qa-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+  align-items: center;
+  min-width: 9.5rem;
+}
+
+.rework-qa-btn {
+  padding: 0.25rem 0.55rem;
+  font-size: 0.8rem;
+  min-height: 0;
+}
+
+.rework-qa-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.15rem 0.5rem;
+  border-radius: 999px;
+  font-size: 0.75rem;
+  font-weight: 700;
+}
+
+.rework-qa-badge--na {
+  background: #e2e8f0;
+  color: #334155;
+}
+
+/* INCR form */
+.incr-form-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 0.85rem 1rem;
+}
+
+.incr-form-field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+  font-size: 0.85rem;
+  color: #334155;
+}
+
+.incr-form-field input,
+.incr-form-field select,
+.incr-form-field textarea {
+  width: 100%;
+  border: 1px solid #cbd5e1;
+  border-radius: 8px;
+  padding: 0.45rem 0.55rem;
+  font: inherit;
+  background: #fff;
+}
+
+.incr-form-field--wide {
+  grid-column: 1 / -1;
+}
+
+.incr-form-check {
+  flex-direction: row;
+  align-items: center;
+  gap: 0.5rem;
+  padding-top: 1.4rem;
+}
+
+.incr-form-check input {
+  width: auto;
+}

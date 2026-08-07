@@ -133,4 +133,7 @@ export interface StatusReworkRecord {
   reason: string
   changed_by_name: string | null
   changed_at: string
+  /** QA follow-up on Reports: N/A or INCR created. */
+  qa_disposition?: 'na' | 'incr' | null
+  incr_id?: number | null
 }

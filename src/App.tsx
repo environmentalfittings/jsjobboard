@@ -30,6 +30,7 @@ import { FeedbackInboxPage } from './pages/FeedbackInboxPage'
 import { MessagesPage } from './pages/MessagesPage'
 import { ManagerDashboardPage } from './pages/ManagerDashboardPage'
 import { MteCalibrationsPage } from './pages/MteCalibrationsPage'
+import { QualityIncrFormPage } from './pages/QualityIncrFormPage'
 import { QualityTeamPage } from './pages/QualityTeamPage'
 import { can, canAccessEmployeesPage, canAccessTestLog, defaultHomePath, isShopRole } from './lib/roles'
 import { loadStatusWorkflowConfig } from './lib/statusWorkflow'
@@ -319,6 +320,22 @@ function AppRoutes() {
               element={
                 <ShopRoute>
                   <QualityTeamPage />
+                </ShopRoute>
+              }
+            />
+            <Route
+              path="/quality-team/incrs/new"
+              element={
+                <ShopRoute>
+                  <QualityIncrFormPage />
+                </ShopRoute>
+              }
+            />
+            <Route
+              path="/quality-team/incrs/:id"
+              element={
+                <ShopRoute>
+                  <QualityIncrFormPage />
                 </ShopRoute>
               }
             />

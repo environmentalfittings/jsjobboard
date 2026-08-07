@@ -5,6 +5,7 @@ import { useAuth } from '../contexts/AuthContext'
 import { useEmployees } from '../hooks/useEmployees'
 import { saveItpLibraryPlan } from '../lib/itpLibraryStorage'
 import { notifyFlaggerItpResolution } from '../lib/messages'
+import { listQualityIncrs } from '../lib/qualityIncrs'
 import {
   collectFlaggedItemsFromItps,
   isQualityTeamMember,
@@ -23,6 +24,7 @@ import {
   type QualityTeamLevel,
 } from '../types/employees'
 import { getExec, type ItpLibraryPlanPayload, type ItpQcReviewStatus } from '../types/itpLibraryPlan'
+import type { QualityIncr } from '../types/qualityIncr'
 
 type StatusFilter = 'all' | ItpQcReviewStatus
 type FlagFilter = 'open' | 'resolved' | 'all'
@@ -66,6 +68,9 @@ export function QualityTeamPage() {
   const [flagFilter, setFlagFilter] = useState<FlagFilter>('open')
   const [draftOwners, setDraftOwners] = useState<Record<string, string>>({})
   const [draftResolutions, setDraftResolutions] = useState<Record<string, string>>({})
+  const [incrRows, setIncrRows] = useState<QualityIncr[]>([])
+  const [incrLoading, setIncrLoading] = useState(true)
+  const [incrError, setIncrError] = useState<string | null>(null)
 
   // Same roster source as Admin → Employees (Coy / Colten levels show up there).
   const members = useMemo(() => qualityTeamMembersFromEmployees(employees), [employees])
@@ -73,21 +78,30 @@ export function QualityTeamPage() {
 
   const reload = useCallback(async () => {
     setLoading(true)
-    const [itpResult] = await Promise.all([loadActiveQualityTeamItps(), reloadEmployees()])
+    setIncrLoading(true)
+    const [itpResult, incrResult] = await Promise.all([loadActiveQualityTeamItps(), listQualityIncrs()])
+    await reloadEmployees()
     if (itpResult.error) showToast(itpResult.error)
     setRows(itpResult.rows)
+    setIncrRows(incrResult.data)
+    setIncrError(incrResult.error)
     setLoading(false)
+    setIncrLoading(false)
   }, [reloadEmployees, showToast])
 
   useEffect(() => {
     let cancelled = false
     void (async () => {
       setLoading(true)
-      const itpResult = await loadActiveQualityTeamItps()
+      setIncrLoading(true)
+      const [itpResult, incrResult] = await Promise.all([loadActiveQualityTeamItps(), listQualityIncrs()])
       if (cancelled) return
       if (itpResult.error) showToast(itpResult.error)
       setRows(itpResult.rows)
+      setIncrRows(incrResult.data)
+      setIncrError(incrResult.error)
       setLoading(false)
+      setIncrLoading(false)
     })()
     return () => {
       cancelled = true
@@ -370,8 +384,63 @@ export function QualityTeamPage() {
         </button>
       </div>
       <p className="placeholder-copy">
-        Review ITPs, work flagged checklist tickets, browse active ITPs, and see who is on the Quality Team.
+        Review ITPs, work flagged checklist tickets, manage INCRs (non-conformance reports), browse active ITPs, and see
+        who is on the Quality Team.
       </p>
+
+      <section className="dashboard-panel">
+        <div className="dashboard-title-row">
+          <h3>INCRs (non-conformance)</h3>
+          <Link to="/quality-team/incrs/new" className="button-primary">
+            New INCR
+          </Link>
+        </div>
+        <p className="placeholder-copy resources-hint">
+          Internal Non-Conformance Reports created from rework moves (Reports → Rework) or started here. Fields follow
+          the shop NCMR / NCR form.
+        </p>
+        {incrError ? <p className="placeholder-copy text-red">{incrError}</p> : null}
+        {incrLoading ? (
+          <p className="placeholder-copy">Loading…</p>
+        ) : incrRows.length === 0 ? (
+          <p className="placeholder-copy">No INCRs yet.</p>
+        ) : (
+          <div className="dashboard-table-wrap">
+            <table className="dashboard-table">
+              <thead>
+                <tr>
+                  <th>INCR #</th>
+                  <th>Status</th>
+                  <th>WO</th>
+                  <th>Customer</th>
+                  <th>Date rejected</th>
+                  <th>Created</th>
+                  <th>By</th>
+                  <th />
+                </tr>
+              </thead>
+              <tbody>
+                {incrRows.map((row) => (
+                  <tr key={row.id}>
+                    <td>{row.incr_number}</td>
+                    <td>{row.status}</td>
+                    <td>{row.valve_id ?? row.wo_so ?? '—'}</td>
+                    <td>{row.customer_name ?? '—'}</td>
+                    <td>{row.date_rejected ?? '—'}</td>
+                    <td>{formatWhen(row.created_at)}</td>
+                    <td>{row.created_by_name ?? '—'}</td>
+                    <td className="report-table-action">
+                      <Link className="button-secondary report-table-open-link" to={`/quality-team/incrs/${row.id}`}>
+                        Open
+                      </Link>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </section>
 
       <section className="dashboard-panel">
         <div className="dashboard-title-row">
