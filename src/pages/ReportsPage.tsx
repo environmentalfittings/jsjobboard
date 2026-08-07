@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 import { DailyPriorityWorksheet } from '../components/DailyPriorityWorksheet'
 import { FinishCellBadge } from '../components/FinishCellBadge'
@@ -247,6 +247,7 @@ export function ReportsPage() {
   const [topLoading, setTopLoading] = useState(false)
   const [selectedTopCustomer, setSelectedTopCustomer] = useState<string | null>(null)
   const [selectedTopValveType, setSelectedTopValveType] = useState<string | null>(null)
+  const topJobsDetailRef = useRef<HTMLDivElement | null>(null)
 
   const [dueDateStart, setDueDateStart] = useState(defaultRange.start)
   const [dueDateEnd, setDueDateEnd] = useState(defaultRange.end)
@@ -497,6 +498,11 @@ export function ReportsPage() {
     if (!selectedTopValveType) return []
     return filterJobsByValveType(topRows.filter(isValveRepairJob), selectedTopValveType)
   }, [selectedTopValveType, topRows])
+
+  useEffect(() => {
+    if (!selectedTopCustomer && !selectedTopValveType) return
+    topJobsDetailRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+  }, [selectedTopCustomer, selectedTopValveType])
 
   const applyTopDatePreset = (preset: CompletedDatePreset) => {
     setTopPreset(preset)
@@ -1005,8 +1011,9 @@ export function ReportsPage() {
       <section className="dashboard-panel" id="top-customers-valve-types">
         <h3>Top customers &amp; repairs by valve type</h3>
         <p className="placeholder-copy">
-          Rank completed jobs in the date range. Click a customer bar to list and print that customer&apos;s jobs.
-          Valve-type chart counts <strong>Valve Repair</strong> jobs only.
+          Rank completed jobs in the date range. <strong>Click any bar</strong> (customer or valve type, including
+          Unknown type) to list those jobs below — then open a card or Print / PDF. Valve-type chart counts{' '}
+          <strong>Valve Repair</strong> jobs only.
         </p>
         <div className="report-filters">
           <label>
@@ -1171,7 +1178,7 @@ export function ReportsPage() {
         </div>
 
         {selectedTopCustomer ? (
-          <div className="top-jobs-detail">
+          <div className="top-jobs-detail" ref={topJobsDetailRef}>
             <div className="training-list-toolbar">
               <h4 style={{ margin: 0 }}>
                 Jobs for {selectedTopCustomer}{' '}
@@ -1236,7 +1243,7 @@ export function ReportsPage() {
         ) : null}
 
         {selectedTopValveType ? (
-          <div className="top-jobs-detail">
+          <div className="top-jobs-detail" ref={topJobsDetailRef}>
             <div className="training-list-toolbar">
               <h4 style={{ margin: 0 }}>
                 Valve Repair — {selectedTopValveType}{' '}
@@ -1265,12 +1272,18 @@ export function ReportsPage() {
                 </button>
               </div>
             </div>
+            {selectedTopValveType === 'Unknown type' ? (
+              <p className="placeholder-copy">
+                These Valve Repair jobs have a blank or missing valve type on the job card.
+              </p>
+            ) : null}
             <div className="dashboard-table-wrap">
               <table className="dashboard-table">
                 <thead>
                   <tr>
                     <th>Job ID</th>
                     <th>Customer</th>
+                    <th>Valve type</th>
                     <th>Cell</th>
                     <th>Date closed</th>
                     <th>Description</th>
@@ -1278,20 +1291,29 @@ export function ReportsPage() {
                   </tr>
                 </thead>
                 <tbody>
-                  {selectedValveTypeJobs.map((row) => (
-                    <tr key={row.id}>
-                      <td>{row.valve_id}</td>
-                      <td>{row.customer ?? '—'}</td>
-                      <td>{row.cell ?? '—'}</td>
-                      <td>{row.date_closed ?? '—'}</td>
-                      <td className="table-cell-clamp">{row.description ?? '—'}</td>
-                      <td className="report-table-action">
-                        <Link className="button-secondary report-table-open-link" to={`/job-board?open=${row.id}`}>
-                          Open card
-                        </Link>
+                  {selectedValveTypeJobs.length === 0 ? (
+                    <tr>
+                      <td colSpan={7} className="job-muted">
+                        No matching jobs in this date range.
                       </td>
                     </tr>
-                  ))}
+                  ) : (
+                    selectedValveTypeJobs.map((row) => (
+                      <tr key={row.id}>
+                        <td>{row.valve_id}</td>
+                        <td>{row.customer ?? '—'}</td>
+                        <td>{row.valve_type?.trim() || '—'}</td>
+                        <td>{row.cell ?? '—'}</td>
+                        <td>{row.date_closed ?? '—'}</td>
+                        <td className="table-cell-clamp">{row.description ?? '—'}</td>
+                        <td className="report-table-action">
+                          <Link className="button-secondary report-table-open-link" to={`/job-board?open=${row.id}`}>
+                            Open card
+                          </Link>
+                        </td>
+                      </tr>
+                    ))
+                  )}
                 </tbody>
               </table>
             </div>

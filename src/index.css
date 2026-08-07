@@ -6281,6 +6281,7 @@ a.test-log-reports-item-name:hover {
   margin-top: 1rem;
   border-top: 1px solid #e2e8f0;
   padding-top: 0.85rem;
+  scroll-margin-top: 1rem;
 }
 
 
