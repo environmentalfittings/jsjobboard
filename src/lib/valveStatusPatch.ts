@@ -1,4 +1,5 @@
 import { DONE_STATUSES } from '../constants/statuses'
+import { isOtdPauseStatus } from './onTimeDelivery'
 import type { Valve } from '../types'
 
 type ValveStatusContext = Pick<Valve, 'status' | 'order_type' | 'date_closed'>
@@ -43,6 +44,17 @@ export function valveStatusPatch(
     if (previousValve?.order_type === 'Completed') {
       patch.order_type = 'In-Process Order'
     }
+  }
+
+  // Leaving an OTD-pause status for active shop work — clear hold / waiting-arrival order types
+  // so the job can count toward on-time delivery again after the due date is updated.
+  if (
+    previousStatus &&
+    isOtdPauseStatus(previousStatus) &&
+    !isOtdPauseStatus(nextStatus) &&
+    (previousValve?.order_type === 'On-Hold' || previousValve?.order_type === 'Waiting on Arrival')
+  ) {
+    patch.order_type = 'In-Process Order'
   }
 
   return patch

@@ -7938,6 +7938,12 @@ a.test-log-reports-item-name:hover {
   color: #475569;
 }
 
+.due-date-change-intro-extra {
+  margin-top: -4px;
+  font-size: 0.9rem;
+  line-height: 1.4;
+}
+
 .due-date-change-form {
   display: flex;
   flex-direction: column;

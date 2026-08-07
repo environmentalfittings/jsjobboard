@@ -16,7 +16,6 @@ import {
   type MoverLeaderboardRow,
   type StatusMoveRow,
 } from '../lib/managerDashboardMetrics'
-import { calcDashboardKpis } from '../lib/dashboardMetrics'
 import { supabase } from '../lib/supabase'
 import type { Valve } from '../types'
 
@@ -105,7 +104,6 @@ export function ManagerDashboardPage() {
     void load()
   }, [load])
 
-  const kpis = useMemo(() => calcDashboardKpis(valves), [valves])
   const inShopCount = useMemo(() => valves.filter((v) => isActiveShopWork(v)).length, [valves])
   const lateJobs: LateJobRow[] = useMemo(() => lateJobsInShop(valves), [valves])
   const onHoldJobs: LateJobRow[] = useMemo(() => onHoldJobsInShop(valves), [valves])
@@ -154,11 +152,11 @@ export function ManagerDashboardPage() {
         <div className="kpi-card">
           <span className="kpi-label">Late jobs</span>
           <div className="kpi-number amber">{loading ? '—' : lateJobs.length}</div>
-          <span className="kpi-sublabel">Past due (excl. hold / not arrived)</span>
+          <span className="kpi-sublabel">Past due (excl. waiting / hold)</span>
         </div>
         <div className="kpi-card">
-          <span className="kpi-label">On hold</span>
-          <div className="kpi-number slate">{loading ? '—' : kpis.onHold}</div>
+          <span className="kpi-label">Waiting / hold</span>
+          <div className="kpi-number slate">{loading ? '—' : onHoldJobs.length}</div>
           <span className="kpi-sublabel">
             {loading
               ? 'Does not count against OTD'
@@ -173,7 +171,8 @@ export function ManagerDashboardPage() {
         <section className="dashboard-panel">
           <h3>Late jobs</h3>
           <p className="placeholder-copy resources-hint">
-            Past due and still open. On Hold jobs are listed separately and do not count here.
+            Past due and still open. Waiting / hold statuses (On Hold, Waiting on Customer / Salesman, Not Arrived,
+            etc.) are listed separately and do not count here.
           </p>
           {loading ? (
             <p className="placeholder-copy">Loading…</p>
@@ -210,15 +209,16 @@ export function ManagerDashboardPage() {
         </section>
 
         <section className="dashboard-panel">
-          <h3>Jobs on hold</h3>
+          <h3>Waiting / hold (excluded from OTD)</h3>
           <p className="placeholder-copy resources-hint">
-            Does not count against late jobs or on-time delivery
+            On Hold, Waiting on Customer, Waiting on Salesman, Not Arrived, and related pause statuses — does not count
+            against late jobs or on-time delivery
             {overdueOnHold.length > 0 ? ` · ${overdueOnHold.length} past due` : ''}.
           </p>
           {loading ? (
             <p className="placeholder-copy">Loading…</p>
           ) : onHoldJobs.length === 0 ? (
-            <p className="placeholder-copy">No jobs on hold.</p>
+            <p className="placeholder-copy">No waiting / hold jobs.</p>
           ) : (
             <div className="dashboard-table-wrap manager-dashboard-scroll">
               <table className="dashboard-table">
