@@ -11,7 +11,17 @@ import { supabase } from './supabase'
 import { parseAssignedTechnicianIds } from './valveTechnicianIds'
 
 const INCR_SELECT =
+  'id,incr_number,status,rework_log_id,valve_row_id,valve_id,customer_name,date_rejected,wo_so,sequence_no,po_number,customer_code,serial_no,ovation_ncmr_no,part_number,part_description,employee_name,dept_responsible,location,quantity,work_cell,item,reason_code,discrepancy_code,nonconformance_details,discrepancy_description,disposition,final_disposition,labor_cost,material_cost,code_violation_article,root_cause_corrective_action,qc_approval_name,qc_approval_date,initiator_name,initiator_date,final_approval_name,final_approval_date,customer_signature_required,customer_signature_date,requires_corporate_ncr,notes,created_by_user_id,created_by_name,created_at,updated_at'
+
+const INCR_SELECT_LEGACY =
   'id,incr_number,status,rework_log_id,valve_row_id,valve_id,customer_name,date_rejected,wo_so,sequence_no,po_number,customer_code,serial_no,ovation_ncmr_no,part_number,part_description,employee_name,dept_responsible,location,quantity,work_cell,item,reason_code,discrepancy_code,nonconformance_details,discrepancy_description,disposition,final_disposition,labor_cost,material_cost,code_violation_article,root_cause_corrective_action,qc_approval_name,qc_approval_date,initiator_name,initiator_date,final_approval_name,final_approval_date,customer_signature_required,customer_signature_date,notes,created_by_user_id,created_by_name,created_at,updated_at'
+
+function withCorporateNcrDefault(row: QualityIncr): QualityIncr {
+  return {
+    ...row,
+    requires_corporate_ncr: Boolean(row.requires_corporate_ncr),
+  }
+}
 
 type ValveIncrSource = {
   id: number
@@ -62,6 +72,7 @@ function formToPayload(form: QualityIncrFormState) {
     final_approval_date: emptyToNull(form.final_approval_date),
     customer_signature_required: Boolean(form.customer_signature_required),
     customer_signature_date: emptyToNull(form.customer_signature_date),
+    requires_corporate_ncr: Boolean(form.requires_corporate_ncr),
     notes: emptyToNull(form.notes),
     updated_at: new Date().toISOString(),
   }
@@ -192,6 +203,26 @@ export async function listQualityIncrs(limit = 200): Promise<{ data: QualityIncr
     .order('created_at', { ascending: false })
     .limit(limit)
   if (error) {
+    if (/requires_corporate_ncr/i.test(error.message)) {
+      const legacy = await supabase
+        .from('quality_incrs')
+        .select(INCR_SELECT_LEGACY)
+        .order('created_at', { ascending: false })
+        .limit(limit)
+      if (legacy.error) {
+        if (/quality_incrs|schema cache|does not exist/i.test(legacy.error.message)) {
+          return {
+            data: [],
+            error: 'Run supabase/migration-quality-incrs.sql in Supabase SQL Editor first.',
+          }
+        }
+        return { data: [], error: legacy.error.message }
+      }
+      return {
+        data: ((legacy.data ?? []) as QualityIncr[]).map(withCorporateNcrDefault),
+        error: null,
+      }
+    }
     if (/quality_incrs|schema cache|does not exist/i.test(error.message)) {
       return {
         data: [],
@@ -200,13 +231,27 @@ export async function listQualityIncrs(limit = 200): Promise<{ data: QualityIncr
     }
     return { data: [], error: error.message }
   }
-  return { data: (data ?? []) as QualityIncr[], error: null }
+  return { data: ((data ?? []) as QualityIncr[]).map(withCorporateNcrDefault), error: null }
 }
 
 export async function getQualityIncr(id: number): Promise<{ data: QualityIncr | null; error: string | null }> {
   const { data, error } = await supabase.from('quality_incrs').select(INCR_SELECT).eq('id', id).maybeSingle()
-  if (error) return { data: null, error: error.message }
-  return { data: (data as QualityIncr | null) ?? null, error: null }
+  if (error) {
+    if (/requires_corporate_ncr/i.test(error.message)) {
+      const legacy = await supabase
+        .from('quality_incrs')
+        .select(INCR_SELECT_LEGACY)
+        .eq('id', id)
+        .maybeSingle()
+      if (legacy.error) return { data: null, error: legacy.error.message }
+      return {
+        data: legacy.data ? withCorporateNcrDefault(legacy.data as QualityIncr) : null,
+        error: null,
+      }
+    }
+    return { data: null, error: error.message }
+  }
+  return { data: data ? withCorporateNcrDefault(data as QualityIncr) : null, error: null }
 }
 
 export async function getStatusReworkById(
@@ -286,14 +331,31 @@ export async function createQualityIncr(options: {
     created_by_user_id: options.createdByUserId ?? null,
     created_by_name: options.createdByName?.trim() || null,
   }
-  const { data, error } = await supabase.from('quality_incrs').insert(payload).select(INCR_SELECT).single()
+  let { data, error } = await supabase.from('quality_incrs').insert(payload).select(INCR_SELECT).single()
+  if (error && /requires_corporate_ncr/i.test(error.message)) {
+    const { requires_corporate_ncr: _ignored, ...legacyPayload } = payload
+    const legacy = await supabase
+      .from('quality_incrs')
+      .insert(legacyPayload)
+      .select(INCR_SELECT_LEGACY)
+      .single()
+    data = legacy.data as typeof data
+    error = legacy.error
+    if (!error) {
+      return {
+        data: withCorporateNcrDefault(data as QualityIncr),
+        error:
+          'INCR saved, but Requires Corporate NCR needs supabase/migration-quality-incrs-corporate-ncr.sql in Supabase.',
+      }
+    }
+  }
   if (error) {
     if (/quality_incrs|schema cache|does not exist/i.test(error.message)) {
       return { data: null, error: 'Run supabase/migration-quality-incrs.sql in Supabase SQL Editor first.' }
     }
     return { data: null, error: error.message }
   }
-  const created = data as QualityIncr
+  const created = withCorporateNcrDefault(data as QualityIncr)
   if (options.reworkLogId) {
     const { error: linkError } = await supabase
       .from('status_rework_log')
@@ -313,12 +375,31 @@ export async function updateQualityIncr(
   id: number,
   form: QualityIncrFormState,
 ): Promise<{ data: QualityIncr | null; error: string | null }> {
-  const { data, error } = await supabase
+  const payload = formToPayload(form)
+  let { data, error } = await supabase
     .from('quality_incrs')
-    .update(formToPayload(form))
+    .update(payload)
     .eq('id', id)
     .select(INCR_SELECT)
     .single()
+  if (error && /requires_corporate_ncr/i.test(error.message)) {
+    const { requires_corporate_ncr: _ignored, ...legacyPayload } = payload
+    const legacy = await supabase
+      .from('quality_incrs')
+      .update(legacyPayload)
+      .eq('id', id)
+      .select(INCR_SELECT_LEGACY)
+      .single()
+    data = legacy.data as typeof data
+    error = legacy.error
+    if (!error) {
+      return {
+        data: withCorporateNcrDefault(data as QualityIncr),
+        error:
+          'Saved, but Requires Corporate NCR needs supabase/migration-quality-incrs-corporate-ncr.sql in Supabase.',
+      }
+    }
+  }
   if (error) return { data: null, error: error.message }
-  return { data: data as QualityIncr, error: null }
+  return { data: withCorporateNcrDefault(data as QualityIncr), error: null }
 }

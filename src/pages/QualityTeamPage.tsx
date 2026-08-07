@@ -413,6 +413,7 @@ export function QualityTeamPage() {
                   <th>Status</th>
                   <th>WO</th>
                   <th>Customer</th>
+                  <th>Corporate NCR</th>
                   <th>Date rejected</th>
                   <th>Created</th>
                   <th>By</th>
@@ -426,6 +427,7 @@ export function QualityTeamPage() {
                     <td>{row.status}</td>
                     <td>{row.valve_id ?? row.wo_so ?? '—'}</td>
                     <td>{row.customer_name ?? '—'}</td>
+                    <td>{row.requires_corporate_ncr ? 'Yes' : '—'}</td>
                     <td>{row.date_rejected ?? '—'}</td>
                     <td>{formatWhen(row.created_at)}</td>
                     <td>{row.created_by_name ?? '—'}</td>

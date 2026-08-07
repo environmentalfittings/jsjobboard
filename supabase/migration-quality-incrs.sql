@@ -54,6 +54,7 @@ create table if not exists public.quality_incrs (
   final_approval_date date,
   customer_signature_required boolean not null default false,
   customer_signature_date date,
+  requires_corporate_ncr boolean not null default false,
   notes text,
   created_by_user_id uuid,
   created_by_name text,

@@ -54,6 +54,7 @@ export type QualityIncr = {
   final_approval_date: string | null
   customer_signature_required: boolean
   customer_signature_date: string | null
+  requires_corporate_ncr: boolean
   notes: string | null
   created_by_user_id: string | null
   created_by_name: string | null
@@ -85,6 +86,7 @@ export type QualityIncrFormState = {
   final_approval_date: string
   customer_signature_required: boolean
   customer_signature_date: string
+  requires_corporate_ncr: boolean
   notes: string
   status: QualityIncrStatus
 }
@@ -115,6 +117,7 @@ export function emptyQualityIncrForm(): QualityIncrFormState {
     final_approval_date: '',
     customer_signature_required: false,
     customer_signature_date: '',
+    requires_corporate_ncr: false,
     notes: '',
     status: 'open',
   }
@@ -145,6 +148,7 @@ export function qualityIncrToForm(row: QualityIncr): QualityIncrFormState {
     final_approval_date: row.final_approval_date ?? '',
     customer_signature_required: Boolean(row.customer_signature_required),
     customer_signature_date: row.customer_signature_date ?? '',
+    requires_corporate_ncr: Boolean(row.requires_corporate_ncr),
     notes: row.notes ?? '',
     status: row.status,
   }

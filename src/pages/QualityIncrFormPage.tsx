@@ -214,6 +214,15 @@ export function QualityIncrFormPage() {
           <Field label="Work cell / WC">
             <input value={form.work_cell} onChange={(e) => patch('work_cell', e.target.value)} disabled={saving} />
           </Field>
+          <label className="incr-form-field incr-form-check">
+            <input
+              type="checkbox"
+              checked={form.requires_corporate_ncr}
+              onChange={(e) => patch('requires_corporate_ncr', e.target.checked)}
+              disabled={saving}
+            />
+            <span>Requires Corporate NCR</span>
+          </label>
         </div>
       </section>
 
