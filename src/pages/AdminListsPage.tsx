@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { useToast } from '../components/ToastNotification'
+import { ItpTemplateBuilderPanel } from '../components/ItpTemplateBuilderPanel'
+import { ShopWorkflowAdminPanel } from '../components/ShopWorkflowAdminPanel'
 import { ValveTypeProceduresPanel } from '../components/ValveTypeProceduresPanel'
 import { JOB_TYPES, normalizeJobType } from '../constants/jobTypes'
 import { LOOKUP_CATEGORY_DEFS, type LookupCategory } from '../constants/lookupCategories'
@@ -30,12 +32,12 @@ import {
 } from '../lib/b1634WallThickness'
 import type { LookupValueRow } from '../lib/lookupValues'
 import { supabase } from '../lib/supabase'
-import { ShopWorkflowAdminPanel } from '../components/ShopWorkflowAdminPanel'
 
 type Tab =
   | 'lookups'
   | 'customers'
   | 'itpTemplates'
+  | 'itpTemplateBuilder'
   | 'valveTypes'
   | 'flangeThickness'
   | 'b1610'
@@ -906,7 +908,8 @@ export function AdminListsPage() {
 
       <p className="placeholder-copy admin-lists-intro">
         Admin only. Changes apply for everyone. Edit each list tab below to add, rename, or remove options. Use{' '}
-        <strong>Shop workflow</strong> to change the forward path used for rework detection.
+        <strong>ITP template builder</strong> for the live ITP Build Scope masters, and <strong>Shop workflow</strong>{' '}
+        for rework path order.
       </p>
 
       <div className="admin-lists-tabs" role="tablist">
@@ -918,6 +921,15 @@ export function AdminListsPage() {
           onClick={() => setTab('lookups')}
         >
           Job field lists
+        </button>
+        <button
+          type="button"
+          role="tab"
+          aria-selected={tab === 'itpTemplateBuilder'}
+          className={`admin-lists-tab ${tab === 'itpTemplateBuilder' ? 'active' : ''}`}
+          onClick={() => setTab('itpTemplateBuilder')}
+        >
+          ITP template builder
         </button>
         <button
           type="button"
@@ -935,7 +947,7 @@ export function AdminListsPage() {
           className={`admin-lists-tab ${tab === 'itpTemplates' ? 'active' : ''}`}
           onClick={() => setTab('itpTemplates')}
         >
-          ITP Templates
+          Ticket checklist
         </button>
         <button
           type="button"
@@ -1101,6 +1113,8 @@ export function AdminListsPage() {
         </section>
       )}
 
+      {tab === 'itpTemplateBuilder' && <ItpTemplateBuilderPanel />}
+
       {tab === 'shopWorkflow' && (
         <section className="dashboard-panel admin-lists-panel">
           <h3>Shop workflow</h3>
@@ -1110,7 +1124,7 @@ export function AdminListsPage() {
 
       {tab === 'itpTemplates' && (
         <section className="dashboard-panel admin-lists-panel">
-          <h3>ITP Templates</h3>
+          <h3>Ticket checklist (simple)</h3>
           <div className="itp-admin-filters">
             <label>
               Job type

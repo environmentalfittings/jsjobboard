@@ -7,6 +7,7 @@ import {
 } from './valveItpStorage'
 import { notifyQualityTeamItpReviewRequested } from './messages'
 import { supabase } from './supabase'
+import { applyLibraryTemplateAsync } from './itpLibraryTemplates'
 import {
   createEmptyItpLibraryPlan,
   emptyQcReview,
@@ -64,8 +65,11 @@ export async function loadItpLibraryPlan(valve: Valve): Promise<{
     }
   }
 
+  const empty = createEmptyItpLibraryPlan(valve)
+  // Prefer Manage lists → ITP template builder scopes when present.
+  const plan = await applyLibraryTemplateAsync(empty, { replaceIncludes: true })
   return {
-    plan: createEmptyItpLibraryPlan(valve),
+    plan,
     isNew: true,
     hasLegacyInspection: hasItpInspectionData(fromJsonb, rawContent),
     hasLegacyProcessPlan: Boolean(extractProcessPlanFromItpData(fromJsonb) || extractProcessPlanFromItpData(fromContent)),

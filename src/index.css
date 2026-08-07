@@ -17371,3 +17371,89 @@ body.shop-tv-fullscreen-active .page-content {
   font-size: 0.72rem;
   min-width: 1.6rem;
 }
+
+/* Manage lists → ITP template builder (two-panel master + template) */
+.itp-template-builder {
+  --itp-lib-brand: #1a3a5c;
+  --itp-lib-accent: #e8740a;
+  --itp-lib-bg: #eef1f4;
+  --itp-lib-card: #fff;
+  --itp-lib-border: #d0d7de;
+  --itp-lib-muted: #6b7c8d;
+  --itp-lib-pass: #1a7f37;
+  --itp-lib-fail: #cf222e;
+  --itp-lib-warn: #9a6700;
+  --itp-lib-hp: #7c3aed;
+  --itp-lib-r: 7px;
+}
+
+.itp-template-builder-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 12px 16px;
+  margin: 0 0 12px;
+  padding: 12px 14px;
+  border: 1px solid var(--itp-lib-border);
+  border-radius: 10px;
+  background: var(--itp-lib-bg);
+}
+
+.itp-template-builder-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 160px;
+  font-size: 0.78rem;
+  font-weight: 700;
+  color: var(--itp-lib-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.itp-template-builder-field select {
+  min-width: 200px;
+  padding: 7px 10px;
+  border: 1px solid var(--itp-lib-border);
+  border-radius: 6px;
+  background: #fff;
+  color: #0f172a;
+  font: inherit;
+  font-size: 0.9rem;
+  font-weight: 600;
+  text-transform: none;
+  letter-spacing: normal;
+}
+
+.itp-template-builder-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-left: auto;
+}
+
+.itp-template-builder-saved-meta {
+  margin: 0 0 12px;
+  font-size: 0.85rem;
+  color: var(--itp-lib-muted);
+}
+
+.itp-template-builder-layout {
+  height: min(75vh, 900px);
+  min-height: 480px;
+}
+
+.itp-template-builder-layout .itp-library-panel {
+  min-height: 0;
+}
+
+.itp-template-builder-layout .itp-library-panel-body {
+  overflow: auto;
+}
+
+@media (max-width: 960px) {
+  .itp-template-builder-layout {
+    height: auto;
+    min-height: 0;
+  }
+}
