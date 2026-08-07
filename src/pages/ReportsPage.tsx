@@ -3,9 +3,11 @@ import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import { DailyPriorityWorksheet } from '../components/DailyPriorityWorksheet'
 import { FinishCellBadge } from '../components/FinishCellBadge'
 import { useToast } from '../components/ToastNotification'
+import { VALVE_TYPES } from '../constants/jobLookups'
 import { JOB_TYPES, normalizeJobType } from '../constants/jobTypes'
 import { TERMINAL_STATUSES } from '../constants/statuses'
 import { downloadCompletedJobsReportPdf } from '../lib/completedJobsReportPdf'
+import { loadLookupOptionsMap } from '../lib/lookupValues'
 import { supabase } from '../lib/supabase'
 import { countDueDateChanges, fetchDueDateChanges } from '../lib/dueDateChanges'
 import { clearReworkQaDisposition, markReworkDispositionNa } from '../lib/statusReworkLog'
@@ -329,6 +331,8 @@ export function ReportsPage() {
   const [topLoading, setTopLoading] = useState(false)
   const [selectedTopCustomer, setSelectedTopCustomer] = useState<string | null>(null)
   const [selectedTopValveType, setSelectedTopValveType] = useState<string | null>(null)
+  const [valveTypeOptions, setValveTypeOptions] = useState<string[]>([...VALVE_TYPES])
+  const [savingValveTypeId, setSavingValveTypeId] = useState<number | null>(null)
   const topJobsDetailRef = useRef<HTMLDivElement | null>(null)
 
   const [dueDateStart, setDueDateStart] = useState(defaultRange.start)
@@ -794,6 +798,43 @@ export function ReportsPage() {
     if (!selectedTopCustomer && !selectedTopValveType) return
     topJobsDetailRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })
   }, [selectedTopCustomer, selectedTopValveType])
+
+  useEffect(() => {
+    if (!selectedTopValveType) return
+    let cancelled = false
+    void (async () => {
+      try {
+        const map = await loadLookupOptionsMap()
+        if (cancelled) return
+        const fromDb = (map.valve_type ?? []).map((v) => v.trim()).filter(Boolean)
+        setValveTypeOptions(fromDb.length ? fromDb : [...VALVE_TYPES])
+      } catch {
+        if (!cancelled) setValveTypeOptions([...VALVE_TYPES])
+      }
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [selectedTopValveType])
+
+  const saveTopJobValveType = async (row: Valve, nextType: string) => {
+    const trimmed = nextType.trim()
+    const value = trimmed || null
+    if ((row.valve_type ?? '').trim() === (value ?? '')) return
+    setSavingValveTypeId(row.id)
+    const { error } = await supabase.from('valves').update({ valve_type: value }).eq('id', row.id)
+    setSavingValveTypeId(null)
+    if (error) {
+      showToast(`Could not update valve type: ${error.message}`)
+      return
+    }
+    setTopRows((prev) => prev.map((r) => (r.id === row.id ? { ...r, valve_type: value } : r)))
+    showToast(
+      value
+        ? `Set ${row.valve_id} valve type to ${value}`
+        : `Cleared valve type on ${row.valve_id}`,
+    )
+  }
 
   const applyTopDatePreset = (preset: CompletedDatePreset) => {
     setTopPreset(preset)
@@ -1830,9 +1871,14 @@ export function ReportsPage() {
             </div>
             {selectedTopValveType === 'Unknown type' ? (
               <p className="placeholder-copy">
-                These Valve Repair jobs have a blank or missing valve type on the job card.
+                These Valve Repair jobs have a blank or missing valve type on the job card. Choose a type in the
+                dropdown to update the job — it will leave this Unknown list after save.
               </p>
-            ) : null}
+            ) : (
+              <p className="placeholder-copy">
+                Change valve type with the dropdown to correct the job card without opening it.
+              </p>
+            )}
             <div className="dashboard-table-wrap">
               <table className="dashboard-table">
                 <thead>
@@ -1854,21 +1900,43 @@ export function ReportsPage() {
                       </td>
                     </tr>
                   ) : (
-                    selectedValveTypeJobs.map((row) => (
-                      <tr key={row.id}>
-                        <td>{row.valve_id}</td>
-                        <td>{row.customer ?? '—'}</td>
-                        <td>{row.valve_type?.trim() || '—'}</td>
-                        <td>{row.cell ?? '—'}</td>
-                        <td>{row.date_closed ?? '—'}</td>
-                        <td className="table-cell-clamp">{row.description ?? '—'}</td>
-                        <td className="report-table-action">
-                          <Link className="button-secondary report-table-open-link" to={`/job-board?open=${row.id}`}>
-                            Open card
-                          </Link>
-                        </td>
-                      </tr>
-                    ))
+                    selectedValveTypeJobs.map((row) => {
+                      const currentType = (row.valve_type ?? '').trim()
+                      const options =
+                        currentType && !valveTypeOptions.includes(currentType)
+                          ? [currentType, ...valveTypeOptions]
+                          : valveTypeOptions
+                      return (
+                        <tr key={row.id}>
+                          <td>{row.valve_id}</td>
+                          <td>{row.customer ?? '—'}</td>
+                          <td>
+                            <select
+                              className="report-inline-select"
+                              value={currentType}
+                              disabled={savingValveTypeId === row.id}
+                              aria-label={`Valve type for ${row.valve_id}`}
+                              onChange={(e) => void saveTopJobValveType(row, e.target.value)}
+                            >
+                              <option value="">— Unknown —</option>
+                              {options.map((type) => (
+                                <option key={type} value={type}>
+                                  {type}
+                                </option>
+                              ))}
+                            </select>
+                          </td>
+                          <td>{row.cell ?? '—'}</td>
+                          <td>{row.date_closed ?? '—'}</td>
+                          <td className="table-cell-clamp">{row.description ?? '—'}</td>
+                          <td className="report-table-action">
+                            <Link className="button-secondary report-table-open-link" to={`/job-board?open=${row.id}`}>
+                              Open card
+                            </Link>
+                          </td>
+                        </tr>
+                      )
+                    })
                   )}
                 </tbody>
               </table>
