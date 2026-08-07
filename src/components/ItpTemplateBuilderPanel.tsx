@@ -6,22 +6,28 @@ import {
   type ItpLibraryJobType,
   type ItpLibrarySectionId,
 } from '../constants/itpLibrary'
+import { ITP_SHOP_AREAS, itpShopAreaLabel, type ItpShopArea } from '../constants/itpShopAreas'
 import { VALVE_TYPES } from '../constants/jobLookups'
 import { loadLookupOptionsMap } from '../lib/lookupValues'
+import {
+  loadItpMasterCatalog,
+  moveCatalogItemInArea,
+  reindexCatalog,
+  saveItpMasterCatalog,
+  type ItpMasterCatalogItem,
+} from '../lib/itpMasterCatalog'
 import {
   countIncludedInScope,
   deleteItpLibraryTemplate,
   emptyTemplateScope,
   listItpLibraryTemplates,
-  loadItpLibraryMasterItems,
   loadItpLibraryTemplate,
-  saveItpLibraryMasterItems,
   saveItpLibraryTemplate,
   scopeFromCodeTemplate,
   type ItpLibraryTemplateRow,
   type ItpLibraryTemplateScope,
 } from '../lib/itpLibraryTemplates'
-import { emptyItemSel, type ItpLibraryCustomItem, type ItpLibraryItemSel } from '../types/itpLibraryPlan'
+import { emptyItemSel, type ItpLibraryItemSel } from '../types/itpLibraryPlan'
 
 const JOB_TYPE_OPTIONS: { value: ItpLibraryJobType; label: string }[] = [
   { value: 'repair', label: 'Valve Repair' },
@@ -38,46 +44,66 @@ function getSel(scope: ItpLibraryTemplateScope, itemId: string): ItpLibraryItemS
   return scope.sel[itemId] ?? emptyItemSel()
 }
 
+type AddDraft = { name: string; secId: ItpLibrarySectionId; ref: string }
+
+const emptyAddDraft = (): AddDraft => ({
+  name: '',
+  secId: 'receipt',
+  ref: '',
+})
+
 export function ItpTemplateBuilderPanel() {
   const { showToast } = useToast()
   const [jobType, setJobType] = useState<ItpLibraryJobType>('repair')
   const [valveType, setValveType] = useState('')
   const [valveTypes, setValveTypes] = useState<string[]>([...VALVE_TYPES])
   const [scope, setScope] = useState<ItpLibraryTemplateScope>(() => emptyTemplateScope())
-  const [masterItems, setMasterItems] = useState<ItpLibraryCustomItem[]>([])
+  const [catalog, setCatalog] = useState<ItpMasterCatalogItem[]>([])
   const [savedRows, setSavedRows] = useState<ItpLibraryTemplateRow[]>([])
   const [loading, setLoading] = useState(false)
+  const [catalogLoading, setCatalogLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [dirty, setDirty] = useState(false)
   const [masterDirty, setMasterDirty] = useState(false)
   const [subReqDrafts, setSubReqDrafts] = useState<Record<string, string>>({})
-  const [masterDrafts, setMasterDrafts] = useState<Record<string, string>>({})
+  const [addDrafts, setAddDrafts] = useState<Partial<Record<ItpShopArea, AddDraft>>>({})
 
   const selectedCount = useMemo(() => countIncludedInScope(scope), [scope])
-
   const holdPointCount = useMemo(
     () => Object.values(scope.sel).filter((s) => s.included && s.holdPoint).length,
     [scope.sel],
   )
 
+  const catalogByArea = useMemo(() => {
+    const sorted = catalog.slice().sort((a, b) => a.sortOrder - b.sortOrder || a.name.localeCompare(b.name))
+    return ITP_SHOP_AREAS.map((area) => ({
+      area: area.value,
+      label: area.label,
+      items: sorted.filter((item) => item.area === area.value),
+    }))
+  }, [catalog])
+
+  const catalogById = useMemo(() => new Map(catalog.map((item) => [item.id, item])), [catalog])
+
   const refreshSavedList = useCallback(async () => {
     try {
-      const rows = await listItpLibraryTemplates()
-      setSavedRows(rows)
+      setSavedRows(await listItpLibraryTemplates())
     } catch {
       setSavedRows([])
     }
   }, [])
 
-  const refreshMaster = useCallback(async () => {
+  const refreshCatalog = useCallback(async () => {
+    setCatalogLoading(true)
     try {
-      const items = await loadItpLibraryMasterItems()
-      setMasterItems(items)
+      setCatalog(await loadItpMasterCatalog())
       setMasterDirty(false)
     } catch {
-      setMasterItems([])
+      showToast('Could not load master list')
+    } finally {
+      setCatalogLoading(false)
     }
-  }, [])
+  }, [showToast])
 
   useEffect(() => {
     void (async () => {
@@ -90,8 +116,8 @@ export function ItpTemplateBuilderPanel() {
       }
     })()
     void refreshSavedList()
-    void refreshMaster()
-  }, [refreshSavedList, refreshMaster])
+    void refreshCatalog()
+  }, [refreshSavedList, refreshCatalog])
 
   const loadTemplate = useCallback(
     async (jt: ItpLibraryJobType, vt: string) => {
@@ -103,11 +129,7 @@ export function ItpTemplateBuilderPanel() {
       setLoading(true)
       try {
         const stored = await loadItpLibraryTemplate(jt, vt)
-        if (stored) {
-          setScope(stored.scope)
-        } else {
-          setScope(scopeFromCodeTemplate(jt, vt))
-        }
+        setScope(stored ? stored.scope : scopeFromCodeTemplate(jt, vt))
         setDirty(false)
         setSubReqDrafts({})
       } catch (error) {
@@ -125,19 +147,6 @@ export function ItpTemplateBuilderPanel() {
     void loadTemplate(jobType, valveType)
   }, [jobType, valveType, loadTemplate])
 
-  /** Master catalog items for a section (global customs + any template-only customs). */
-  const customsForSection = useCallback(
-    (secId: ItpLibrarySectionId) => {
-      const byId = new Map<string, ItpLibraryCustomItem>()
-      for (const row of masterItems.filter((c) => c.secId === secId)) byId.set(row.id, row)
-      for (const row of scope.custom.filter((c) => c.secId === secId)) {
-        if (!byId.has(row.id)) byId.set(row.id, row)
-      }
-      return [...byId.values()]
-    },
-    [masterItems, scope.custom],
-  )
-
   const updateSel = (itemId: string, patch: Partial<ItpLibraryItemSel>) => {
     setScope((prev) => ({
       ...prev,
@@ -149,35 +158,41 @@ export function ItpTemplateBuilderPanel() {
     setDirty(true)
   }
 
+  const ensureCustomOnScope = (item: ItpMasterCatalogItem, prev: ItpLibraryTemplateScope) => {
+    if (item.builtIn) return prev.custom
+    if (prev.custom.some((c) => c.id === item.id)) return prev.custom
+    return [...prev.custom, { id: item.id, secId: item.secId, name: item.name }]
+  }
+
   const toggleInclude = (itemId: string) => {
     if (!valveType.trim()) {
       showToast('Select a valve type first, then check items to build its template')
       return
     }
+    const catalogItem = catalogById.get(itemId)
     const current = getSel(scope, itemId)
     const included = !current.included
     let subReqs = current.subReqs
     if (included && subReqs.length === 0) {
-      const found = findLibraryItem(itemId)
-      if (found?.item.defaultSubReqs?.length) subReqs = [...found.item.defaultSubReqs]
+      if (catalogItem?.defaultSubReqs?.length) subReqs = [...catalogItem.defaultSubReqs]
+      else {
+        const found = findLibraryItem(itemId)
+        if (found?.item.defaultSubReqs?.length) subReqs = [...found.item.defaultSubReqs]
+      }
     }
-    // Ensure custom items from master are on the template scope when included
-    const master = masterItems.find((c) => c.id === itemId)
-    if (included && master) {
-      setScope((prev) => {
-        const hasCustom = prev.custom.some((c) => c.id === itemId)
-        return {
-          custom: hasCustom ? prev.custom : [...prev.custom, master],
-          sel: {
-            ...prev.sel,
-            [itemId]: { ...(prev.sel[itemId] ?? emptyItemSel()), included: true, subReqs },
-          },
-        }
-      })
-      setDirty(true)
-      return
-    }
-    updateSel(itemId, { included, subReqs })
+    setScope((prev) => {
+      const custom =
+        included && catalogItem ? ensureCustomOnScope(catalogItem, prev) : prev.custom
+      return {
+        ...prev,
+        custom,
+        sel: {
+          ...prev.sel,
+          [itemId]: { ...(prev.sel[itemId] ?? emptyItemSel()), included, subReqs },
+        },
+      }
+    })
+    setDirty(true)
   }
 
   const toggleHoldPoint = (itemId: string) => {
@@ -191,29 +206,25 @@ export function ItpTemplateBuilderPanel() {
     updateSel(itemId, { beforeMeas: next, afterMeas: next, measVerify: next })
   }
 
-  const selectAllInSection = (secId: ItpLibrarySectionId, select: boolean) => {
+  const selectAllInArea = (area: ItpShopArea, select: boolean) => {
     if (!valveType.trim()) {
       showToast('Select a valve type first, then check items to build its template')
       return
     }
-    const section = ITP_LIBRARY.find((s) => s.id === secId)
-    if (!section) return
-    const customs = customsForSection(secId)
+    const areaItems = catalog.filter((item) => item.area === area)
     setScope((prev) => {
-      const sel = { ...prev.sel }
       let custom = [...prev.custom]
-      for (const item of section.items) {
+      const sel = { ...prev.sel }
+      for (const item of areaItems) {
         const current = sel[item.id] ?? emptyItemSel()
         let subReqs = current.subReqs
         if (select && subReqs.length === 0 && item.defaultSubReqs?.length) {
           subReqs = [...item.defaultSubReqs]
         }
         sel[item.id] = { ...current, included: select, subReqs }
-      }
-      for (const row of customs) {
-        const current = sel[row.id] ?? emptyItemSel()
-        sel[row.id] = { ...current, included: select }
-        if (select && !custom.some((c) => c.id === row.id)) custom = [...custom, row]
+        if (select && !item.builtIn && !custom.some((c) => c.id === item.id)) {
+          custom = [...custom, { id: item.id, secId: item.secId, name: item.name }]
+        }
       }
       return { ...prev, sel, custom }
     })
@@ -244,21 +255,52 @@ export function ItpTemplateBuilderPanel() {
     updateSel(itemId, { subReqs: current.subReqs.filter((_, i) => i !== index) })
   }
 
-  const addMasterItem = (secId: ItpLibrarySectionId) => {
-    const name = (masterDrafts[secId] ?? '').trim()
-    if (!name) return
-    const id = `master-${secId}-${Date.now().toString(36)}`
-    const row: ItpLibraryCustomItem = { id, secId, name }
-    setMasterItems((prev) => [...prev, row])
-    setMasterDrafts((prev) => ({ ...prev, [secId]: '' }))
+  const setAreaDraft = (area: ItpShopArea, patch: Partial<AddDraft>) => {
+    setAddDrafts((prev) => ({
+      ...prev,
+      [area]: { ...(prev[area] ?? emptyAddDraft()), ...patch },
+    }))
+  }
+
+  const addMasterItem = (area: ItpShopArea) => {
+    const draft = addDrafts[area] ?? emptyAddDraft()
+    const name = draft.name.trim()
+    if (!name) {
+      showToast('Enter an item name')
+      return
+    }
+    const id = `master-${area}-${Date.now().toString(36)}`
+    const nextOrder = catalog.reduce((max, item) => Math.max(max, item.sortOrder), -1) + 1
+    setCatalog((prev) =>
+      reindexCatalog([
+        ...prev,
+        {
+          id,
+          name,
+          ref: draft.ref.trim() || 'Custom',
+          secId: draft.secId,
+          area,
+          sortOrder: nextOrder,
+          builtIn: false,
+        },
+      ]),
+    )
+    setAddDrafts((prev) => ({ ...prev, [area]: emptyAddDraft() }))
     setMasterDirty(true)
-    showToast('Added to master list — Save master to keep it for everyone')
+    showToast('Added to master list — click Save master list')
   }
 
   const removeMasterItem = (itemId: string) => {
-    if (!window.confirm('Remove this item from the master list?')) return
-    setMasterItems((prev) => prev.filter((c) => c.id !== itemId))
+    const item = catalogById.get(itemId)
+    if (!item) return
+    if (item.builtIn) {
+      showToast('Built-in items stay on the master list — change their area or order instead')
+      return
+    }
+    if (!window.confirm(`Remove “${item.name}” from the master list?`)) return
+    setCatalog((prev) => reindexCatalog(prev.filter((row) => row.id !== itemId)))
     setScope((prev) => ({
+      ...prev,
       custom: prev.custom.filter((c) => c.id !== itemId),
       sel: Object.fromEntries(Object.entries(prev.sel).filter(([id]) => id !== itemId)),
     }))
@@ -266,10 +308,25 @@ export function ItpTemplateBuilderPanel() {
     setDirty(true)
   }
 
+  const changeItemArea = (itemId: string, area: ItpShopArea) => {
+    setCatalog((prev) => prev.map((item) => (item.id === itemId ? { ...item, area } : item)))
+    setMasterDirty(true)
+  }
+
+  const changeItemSection = (itemId: string, secId: ItpLibrarySectionId) => {
+    setCatalog((prev) => prev.map((item) => (item.id === itemId ? { ...item, secId } : item)))
+    setMasterDirty(true)
+  }
+
+  const moveItem = (itemId: string, direction: -1 | 1) => {
+    setCatalog((prev) => moveCatalogItemInArea(prev, itemId, direction))
+    setMasterDirty(true)
+  }
+
   const handleSaveMaster = async () => {
     setSaving(true)
     try {
-      await saveItpLibraryMasterItems(masterItems)
+      await saveItpMasterCatalog(catalog)
       setMasterDirty(false)
       showToast('Master list saved')
     } catch (error) {
@@ -292,13 +349,14 @@ export function ItpTemplateBuilderPanel() {
     setSaving(true)
     try {
       if (masterDirty) {
-        await saveItpLibraryMasterItems(masterItems)
+        await saveItpMasterCatalog(catalog)
         setMasterDirty(false)
       }
-      // Keep included master customs on the template scope
-      const includedMaster = masterItems.filter((m) => getSel(scope, m.id).included)
+      const includedCustom = catalog
+        .filter((item) => !item.builtIn && getSel(scope, item.id).included)
+        .map((item) => ({ id: item.id, secId: item.secId, name: item.name }))
       const mergedCustom = [...scope.custom]
-      for (const row of includedMaster) {
+      for (const row of includedCustom) {
         if (!mergedCustom.some((c) => c.id === row.id)) mergedCustom.push(row)
       }
       const toSave = { ...scope, custom: mergedCustom }
@@ -346,29 +404,26 @@ export function ItpTemplateBuilderPanel() {
 
   const checklistSections = useMemo(() => {
     return ITP_LIBRARY.map((section) => {
-      const customs = customsForSection(section.id)
-      const items: Array<{ id: string; name: string; ref: string; isCustom: boolean }> = []
-      for (const item of section.items) {
-        if (getSel(scope, item.id).included) {
-          items.push({ id: item.id, name: item.name, ref: item.ref, isCustom: false })
-        }
-      }
-      for (const custom of customs) {
-        if (getSel(scope, custom.id).included) {
-          items.push({ id: custom.id, name: custom.name, ref: 'Custom', isCustom: true })
-        }
-      }
+      const items = catalog
+        .filter((item) => item.secId === section.id && getSel(scope, item.id).included)
+        .sort((a, b) => a.sortOrder - b.sortOrder)
+        .map((item) => ({
+          id: item.id,
+          name: item.name,
+          ref: item.ref,
+          area: item.area,
+        }))
       return { section, items }
     }).filter((row) => row.items.length > 0)
-  }, [scope, customsForSection])
+  }, [catalog, scope])
 
   return (
     <section className="dashboard-panel admin-lists-panel itp-template-builder">
       <h3>ITP template builder</h3>
       <p className="placeholder-copy">
-        Master list is on the left. Pick a <strong>valve type</strong> and the screen splits like a live ITP — check
-        items on the left to build that type&apos;s template on the right. Add missing steps to the master list. New
-        ITPs for that valve type start from the saved template.
+        Master list is grouped by shop <strong>area</strong> (Teardown, Machine Shop, Welding, Assembly, Testing,
+        Painting, QA/QC). Add items, reorder with ↑↓, and assign areas. Pick a <strong>valve type</strong> to split the
+        screen and check items into that template on the right.
       </p>
 
       <div className="itp-template-builder-toolbar">
@@ -455,72 +510,150 @@ export function ItpTemplateBuilderPanel() {
       <div
         className={`itp-library-split itp-template-builder-layout${valveType ? ' is-valve-selected' : ' is-master-only'}`}
       >
-          {/* LEFT — Master list (always populated) */}
-          <div className="itp-library-panel itp-library-panel-left">
-            <div className="itp-library-panel-hdr">
-              <h3>Build Scope · Master</h3>
-              <div className="itp-library-ph-actions">
-                <span className="itp-library-ph-count">
-                  {ITP_LIBRARY.reduce((n, s) => n + s.items.length, 0) + masterItems.length} items
-                  {valveType ? ` · ${selectedCount} selected` : ''}
-                </span>
-                {valveType && selectedCount > 0 ? (
-                  <button type="button" className="itp-library-deselect-all" onClick={deselectAll}>
-                    Deselect all
-                  </button>
-                ) : null}
-              </div>
+        <div className="itp-library-panel itp-library-panel-left">
+          <div className="itp-library-panel-hdr">
+            <h3>Build Scope · Master</h3>
+            <div className="itp-library-ph-actions">
+              <span className="itp-library-ph-count">
+                {catalog.length} items
+                {valveType ? ` · ${selectedCount} selected` : ''}
+              </span>
+              {valveType && selectedCount > 0 ? (
+                <button type="button" className="itp-library-deselect-all" onClick={deselectAll}>
+                  Deselect all
+                </button>
+              ) : null}
             </div>
-            <div className="itp-library-panel-body">
-              {ITP_LIBRARY.map((section) => {
-                const customs = customsForSection(section.id)
-                const total = section.items.length + customs.length
-                const selCount =
-                  section.items.filter((it) => getSel(scope, it.id).included).length +
-                  customs.filter((c) => getSel(scope, c.id).included).length
-                const allSel = total > 0 && selCount === total
-
+          </div>
+          <div className="itp-library-panel-body">
+            {catalogLoading ? (
+              <p className="placeholder-copy">Loading master list…</p>
+            ) : (
+              catalogByArea.map(({ area, label, items }) => {
+                const selCount = items.filter((item) => getSel(scope, item.id).included).length
+                const allSel = items.length > 0 && selCount === items.length
+                const draft = addDrafts[area] ?? emptyAddDraft()
                 return (
-                  <div key={section.id} className="itp-library-lib-sec">
+                  <div key={area} className="itp-library-lib-sec">
                     <div className="itp-library-lib-sec-hdr">
-                      <h4>{section.title}</h4>
+                      <h4>{label}</h4>
                       <div className="itp-library-lshr">
                         <span>
-                          {selCount}/{total}
+                          {selCount}/{items.length}
                         </span>
                         <button
                           type="button"
                           className="itp-library-sel-all"
-                          onClick={() => selectAllInSection(section.id, !allSel)}
+                          onClick={() => selectAllInArea(area, !allSel)}
                         >
                           {allSel ? 'Deselect All' : 'Select All'}
                         </button>
                       </div>
                     </div>
 
-                    <div className="itp-library-add-row itp-library-add-row--top">
+                    <div className="itp-master-add-block">
                       <input
                         className="itp-library-add-inp"
                         type="text"
-                        placeholder="+ Add item to master list…"
-                        value={masterDrafts[section.id] ?? ''}
-                        onChange={(e) => setMasterDrafts((prev) => ({ ...prev, [section.id]: e.target.value }))}
+                        placeholder="+ Add item to this area…"
+                        value={draft.name}
+                        onChange={(e) => setAreaDraft(area, { name: e.target.value })}
                         onKeyDown={(e) => {
                           if (e.key === 'Enter') {
                             e.preventDefault()
-                            addMasterItem(section.id)
+                            addMasterItem(area)
                           }
                         }}
                       />
-                      <button type="button" className="itp-library-add-btn" onClick={() => addMasterItem(section.id)}>
+                      <select
+                        className="itp-master-add-select"
+                        value={draft.secId}
+                        onChange={(e) => setAreaDraft(area, { secId: e.target.value as ItpLibrarySectionId })}
+                        title="ITP section this item belongs to"
+                      >
+                        {ITP_LIBRARY.map((section) => (
+                          <option key={section.id} value={section.id}>
+                            {section.title}
+                          </option>
+                        ))}
+                      </select>
+                      <input
+                        className="itp-master-add-ref"
+                        type="text"
+                        placeholder="Short label"
+                        value={draft.ref}
+                        onChange={(e) => setAreaDraft(area, { ref: e.target.value })}
+                      />
+                      <button type="button" className="itp-library-add-btn" onClick={() => addMasterItem(area)}>
                         Add
                       </button>
                     </div>
 
-                    {section.items.map((item) => {
+                    {items.length === 0 ? (
+                      <p className="itp-master-empty-area">No items in {label} yet.</p>
+                    ) : null}
+
+                    {items.map((item, indexInArea) => {
                       const sel = getSel(scope, item.id)
                       return (
                         <div key={item.id} className={`itp-library-lib-item${sel.included ? ' sel' : ''}`}>
+                          <div className="itp-master-item-toolbar">
+                            <button
+                              type="button"
+                              className="itp-master-order-btn"
+                              disabled={indexInArea === 0}
+                              onClick={() => moveItem(item.id, -1)}
+                              title="Move up"
+                            >
+                              ↑
+                            </button>
+                            <button
+                              type="button"
+                              className="itp-master-order-btn"
+                              disabled={indexInArea >= items.length - 1}
+                              onClick={() => moveItem(item.id, 1)}
+                              title="Move down"
+                            >
+                              ↓
+                            </button>
+                            <select
+                              className="itp-master-area-select"
+                              value={item.area}
+                              onChange={(e) => changeItemArea(item.id, e.target.value as ItpShopArea)}
+                              title="Shop area"
+                              onClick={(e) => e.stopPropagation()}
+                            >
+                              {ITP_SHOP_AREAS.map((opt) => (
+                                <option key={opt.value} value={opt.value}>
+                                  {opt.label}
+                                </option>
+                              ))}
+                            </select>
+                            <select
+                              className="itp-master-section-select"
+                              value={item.secId}
+                              onChange={(e) =>
+                                changeItemSection(item.id, e.target.value as ItpLibrarySectionId)
+                              }
+                              title="ITP section"
+                              onClick={(e) => e.stopPropagation()}
+                            >
+                              {ITP_LIBRARY.map((section) => (
+                                <option key={section.id} value={section.id}>
+                                  {section.title}
+                                </option>
+                              ))}
+                            </select>
+                            {!item.builtIn ? (
+                              <button
+                                type="button"
+                                className="link-button-danger itp-master-remove"
+                                onClick={() => removeMasterItem(item.id)}
+                              >
+                                Remove
+                              </button>
+                            ) : null}
+                          </div>
                           <div
                             className="itp-library-lib-item-top"
                             onClick={() => toggleInclude(item.id)}
@@ -539,7 +672,10 @@ export function ItpTemplateBuilderPanel() {
                             </div>
                             <div className="itp-library-lib-item-name">
                               <div className="itp-library-lin">{item.name}</div>
-                              <div className="itp-library-lref">{item.ref}</div>
+                              <div className="itp-library-lref">
+                                {item.ref}
+                                {!item.builtIn ? ' · custom' : ''}
+                              </div>
                             </div>
                           </div>
                           {sel.included ? (
@@ -619,174 +755,99 @@ export function ItpTemplateBuilderPanel() {
                         </div>
                       )
                     })}
+                  </div>
+                )
+              })
+            )}
+          </div>
+        </div>
 
-                    {customs.map((custom) => {
-                      const sel = getSel(scope, custom.id)
-                      const isMaster = masterItems.some((m) => m.id === custom.id)
+        <div className="itp-library-panel itp-library-panel-right">
+          <div className="itp-library-panel-hdr">
+            <h3>ITP Checklist{valveType ? ` · ${valveType}` : ''}</h3>
+            <span className="itp-library-ph-count">
+              {valveType ? `${selectedCount} items · ${holdPointCount} hold pts` : 'Pick a valve type'}
+            </span>
+          </div>
+
+          {!valveType ? (
+            <div className="itp-library-empty">
+              <p>Select a valve type above, then check items on the left to build that template here.</p>
+            </div>
+          ) : loading ? (
+            <div className="itp-library-empty">
+              <p>Loading template…</p>
+            </div>
+          ) : selectedCount === 0 ? (
+            <div className="itp-library-empty">
+              <p>Check items on the left to add them to this valve type&apos;s template.</p>
+            </div>
+          ) : (
+            <>
+              <div className="itp-library-summary">
+                <div className="itp-library-ss">
+                  <div className="itp-library-sv">{selectedCount}</div>
+                  <div className="itp-library-sl">Items</div>
+                </div>
+                <div className="itp-library-ss">
+                  <div className="itp-library-sv c-hp">{holdPointCount}</div>
+                  <div className="itp-library-sl">Hold Pts</div>
+                </div>
+                <div className="itp-library-ss">
+                  <div className="itp-library-sv c-warn">{selectedCount}</div>
+                  <div className="itp-library-sl">In template</div>
+                </div>
+              </div>
+              <div className="itp-library-panel-body">
+                {checklistSections.map(({ section, items }) => (
+                  <div key={section.id} className="itp-library-chk-sec">
+                    <div className="itp-library-chk-sec-hdr">
+                      <h4>{section.title}</h4>
+                      <span>0/{items.length}</span>
+                    </div>
+                    {items.map((item) => {
+                      const sel = getSel(scope, item.id)
                       return (
-                        <div key={custom.id} className={`itp-library-lib-item${sel.included ? ' sel' : ''}`}>
-                          <div
-                            className="itp-library-lib-item-top"
-                            onClick={() => toggleInclude(custom.id)}
-                            role="checkbox"
-                            aria-checked={sel.included}
-                            tabIndex={0}
-                            onKeyDown={(e) => {
-                              if (e.key === 'Enter' || e.key === ' ') {
-                                e.preventDefault()
-                                toggleInclude(custom.id)
-                              }
-                            }}
-                          >
-                            <div className="itp-library-cb-cell">
-                              <span className="itp-library-cb" />
-                            </div>
-                            <div className="itp-library-lib-item-name">
-                              <div className="itp-library-lin">
-                                {custom.name}{' '}
-                                <span className="itp-library-custom-tag">
-                                  {isMaster ? '(master)' : '(custom)'}
-                                </span>
+                        <div key={item.id} className="itp-library-chk-item">
+                          <div className="itp-library-chk-item-main">
+                            <span className="itp-library-chk-box" aria-hidden />
+                            <div className="itp-library-chk-text">
+                              <div className="itp-library-chk-name">
+                                {item.name}{' '}
+                                <span className="itp-library-chk-ref">[{item.ref}]</span>
+                                <span className="itp-library-chip">{itpShopAreaLabel(item.area)}</span>
+                                {sel.holdPoint ? <span className="itp-library-chip hp">Hold Point</span> : null}
+                                {itemRequiresMeasurements(sel) ? (
+                                  <span className="itp-library-chip meas">Requires Measurements</span>
+                                ) : null}
                               </div>
-                              <div className="itp-library-lref">
-                                {isMaster ? (
-                                  <button
-                                    type="button"
-                                    className="link-button-danger"
-                                    onClick={(e) => {
-                                      e.stopPropagation()
-                                      removeMasterItem(custom.id)
-                                    }}
-                                  >
-                                    remove from master
-                                  </button>
-                                ) : (
-                                  'Custom'
-                                )}
-                              </div>
+                              <input
+                                className="itp-library-chk-notes"
+                                type="text"
+                                value={sel.notes}
+                                placeholder="Notes, observations…"
+                                onChange={(e) => updateSel(item.id, { notes: e.target.value })}
+                              />
                             </div>
+                            <button
+                              type="button"
+                              className="itp-library-chk-remove"
+                              title="Remove from template"
+                              onClick={() => toggleInclude(item.id)}
+                            >
+                              ✕
+                            </button>
                           </div>
-                          {sel.included ? (
-                            <div className="itp-library-attr-bar">
-                              <button
-                                type="button"
-                                className={`itp-library-attr-toggle hp${sel.holdPoint ? ' on' : ''}`}
-                                onClick={(e) => {
-                                  e.stopPropagation()
-                                  toggleHoldPoint(custom.id)
-                                }}
-                              >
-                                Hold Point
-                              </button>
-                              <button
-                                type="button"
-                                className={`itp-library-attr-toggle meas${itemRequiresMeasurements(sel) ? ' on' : ''}`}
-                                onClick={(e) => {
-                                  e.stopPropagation()
-                                  toggleRequiresMeasurements(custom.id)
-                                }}
-                              >
-                                Requires Measurements
-                              </button>
-                            </div>
-                          ) : null}
                         </div>
                       )
                     })}
                   </div>
-                )
-              })}
-            </div>
-          </div>
-
-          {/* RIGHT — Template preview */}
-          <div className="itp-library-panel itp-library-panel-right">
-            <div className="itp-library-panel-hdr">
-              <h3>ITP Checklist{valveType ? ` · ${valveType}` : ''}</h3>
-              <span className="itp-library-ph-count">
-                {valveType ? `${selectedCount} items · ${holdPointCount} hold pts` : 'Pick a valve type'}
-              </span>
-            </div>
-
-            {!valveType ? (
-              <div className="itp-library-empty">
-                <p>Select a valve type above, then check items on the left to build that template here.</p>
+                ))}
               </div>
-            ) : loading ? (
-              <div className="itp-library-empty">
-                <p>Loading template…</p>
-              </div>
-            ) : selectedCount === 0 ? (
-              <div className="itp-library-empty">
-                <p>Check items on the left to add them to this valve type&apos;s template.</p>
-              </div>
-            ) : (
-              <>
-                <div className="itp-library-summary">
-                  <div className="itp-library-ss">
-                    <div className="itp-library-sv">{selectedCount}</div>
-                    <div className="itp-library-sl">Items</div>
-                  </div>
-                  <div className="itp-library-ss">
-                    <div className="itp-library-sv c-hp">{holdPointCount}</div>
-                    <div className="itp-library-sl">Hold Pts</div>
-                  </div>
-                  <div className="itp-library-ss">
-                    <div className="itp-library-sv c-warn">{selectedCount}</div>
-                    <div className="itp-library-sl">In template</div>
-                  </div>
-                </div>
-                <div className="itp-library-panel-body">
-                  {checklistSections.map(({ section, items }) => (
-                    <div key={section.id} className="itp-library-chk-sec">
-                      <div className="itp-library-chk-sec-hdr">
-                        <h4>{section.title}</h4>
-                        <span>0/{items.length}</span>
-                      </div>
-                      {items.map((item) => {
-                        const sel = getSel(scope, item.id)
-                        return (
-                          <div key={item.id} className="itp-library-chk-item">
-                            <div className="itp-library-chk-item-main">
-                              <span className="itp-library-chk-box" aria-hidden />
-                              <div className="itp-library-chk-text">
-                                <div className="itp-library-chk-name">
-                                  {item.name}{' '}
-                                  <span className="itp-library-chk-ref">[{item.ref}]</span>
-                                  {sel.holdPoint ? (
-                                    <span className="itp-library-chip hp">Hold Point</span>
-                                  ) : null}
-                                  {itemRequiresMeasurements(sel) ? (
-                                    <span className="itp-library-chip meas">Requires Measurements</span>
-                                  ) : null}
-                                </div>
-                                <input
-                                  className="itp-library-chk-notes"
-                                  type="text"
-                                  value={sel.notes}
-                                  placeholder="Notes, observations…"
-                                  onChange={(e) => updateSel(item.id, { notes: e.target.value })}
-                                />
-                              </div>
-                              <button
-                                type="button"
-                                className="itp-library-chk-remove"
-                                title="Remove from template"
-                                onClick={() => toggleInclude(item.id)}
-                              >
-                                ✕
-                              </button>
-                            </div>
-                          </div>
-                        )
-                      })}
-                    </div>
-                  ))}
-                </div>
-              </>
-            )}
-          </div>
+            </>
+          )}
         </div>
+      </div>
     </section>
   )
 }

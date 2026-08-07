@@ -19,6 +19,8 @@ export const ITP_LIBRARY_MASTER_VALVE = '__master__'
 export type ItpLibraryTemplateScope = {
   sel: Record<string, ItpLibraryItemSel>
   custom: ItpLibraryCustomItem[]
+  /** Full editable master catalog (only used on the __master__ row). */
+  catalog?: unknown
 }
 
 export type ItpLibraryTemplateRow = {
@@ -50,6 +52,7 @@ export function normalizeTemplateScope(raw: unknown): ItpLibraryTemplateScope {
   const o = (raw && typeof raw === 'object' ? raw : {}) as {
     sel?: Record<string, unknown>
     custom?: unknown[]
+    catalog?: unknown
   }
   const sel: Record<string, ItpLibraryItemSel> = {}
   if (o.sel && typeof o.sel === 'object') {
@@ -73,7 +76,11 @@ export function normalizeTemplateScope(raw: unknown): ItpLibraryTemplateScope {
       })
     }
   }
-  return { sel, custom }
+  return {
+    sel,
+    custom,
+    ...(o.catalog !== undefined ? { catalog: o.catalog } : {}),
+  }
 }
 
 /** Compact scope for storage — only included (or configured) items. */
@@ -95,6 +102,7 @@ export function compactTemplateScope(scope: ItpLibraryTemplateScope): ItpLibrary
   return {
     sel,
     custom: scope.custom.filter((c) => c.name.trim()),
+    ...(scope.catalog !== undefined ? { catalog: scope.catalog } : {}),
   }
 }
 
@@ -194,6 +202,7 @@ export async function deleteItpLibraryTemplate(jobType: string, valveType: strin
   if (error) throw error
 }
 
+/** @deprecated Prefer loadItpMasterCatalog from itpMasterCatalog.ts */
 export async function loadItpLibraryMasterItems(): Promise<ItpLibraryCustomItem[]> {
   try {
     const row = await loadItpLibraryTemplate(ITP_LIBRARY_MASTER_JOB, ITP_LIBRARY_MASTER_VALVE)
@@ -203,6 +212,7 @@ export async function loadItpLibraryMasterItems(): Promise<ItpLibraryCustomItem[
   }
 }
 
+/** @deprecated Prefer saveItpMasterCatalog from itpMasterCatalog.ts */
 export async function saveItpLibraryMasterItems(items: ItpLibraryCustomItem[]): Promise<void> {
   const custom = items
     .map((row) => ({

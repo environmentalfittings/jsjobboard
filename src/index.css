@@ -17438,6 +17438,80 @@ body.shop-tv-fullscreen-active .page-content {
   color: var(--itp-lib-muted);
 }
 
+.itp-master-add-block {
+  display: grid;
+  grid-template-columns: minmax(0, 1.4fr) minmax(0, 1.2fr) minmax(90px, 0.6fr) auto;
+  gap: 6px;
+  margin: 8px 10px 10px;
+  align-items: center;
+}
+
+.itp-master-add-select,
+.itp-master-add-ref,
+.itp-master-area-select,
+.itp-master-section-select {
+  min-width: 0;
+  width: 100%;
+  padding: 6px 8px;
+  border: 1px solid var(--itp-lib-border);
+  border-radius: 6px;
+  background: #fff;
+  color: #0f172a;
+  font: inherit;
+  font-size: 0.78rem;
+}
+
+.itp-master-item-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+  padding: 8px 10px 0;
+}
+
+.itp-master-order-btn {
+  min-width: 28px;
+  height: 28px;
+  border: 1px solid var(--itp-lib-border);
+  border-radius: 6px;
+  background: #f8fafc;
+  color: #0f172a;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.itp-master-order-btn:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+
+.itp-master-area-select,
+.itp-master-section-select {
+  max-width: 180px;
+}
+
+.itp-master-remove {
+  margin-left: auto;
+  font-size: 0.78rem;
+}
+
+.itp-master-empty-area {
+  margin: 0 12px 10px;
+  font-size: 0.82rem;
+  color: var(--itp-lib-muted);
+}
+
+@media (max-width: 1100px) {
+  .itp-master-add-block {
+    grid-template-columns: 1fr;
+  }
+
+  .itp-master-area-select,
+  .itp-master-section-select {
+    max-width: none;
+  }
+}
+
 /* Manage Lists ITP builder: force side-by-side like a live ITP once a valve type is chosen. */
 .itp-template-builder-layout {
   width: 100%;
