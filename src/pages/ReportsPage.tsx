@@ -43,6 +43,8 @@ interface LateValveRow {
   job_type: string | null
   due_date: string
   date_closed: string
+  /** First time the job entered Warehouse RTS (from change log), YYYY-MM-DD. */
+  warehouseRtsDate: string | null
   daysLate: number
 }
 
@@ -72,6 +74,56 @@ function daysLateBetween(dueDate: string, dateClosed: string): number {
   const closed = new Date(`${dateClosed.slice(0, 10)}T12:00:00`)
   if (Number.isNaN(due.getTime()) || Number.isNaN(closed.getTime())) return 0
   return Math.max(0, Math.round((closed.getTime() - due.getTime()) / 86_400_000))
+}
+
+function toLocalDateFromIso(iso: string | null | undefined): string | null {
+  if (!iso) return null
+  const trimmed = String(iso).trim()
+  if (/^\d{4}-\d{2}-\d{2}/.test(trimmed)) return trimmed.slice(0, 10)
+  const parsed = new Date(trimmed)
+  if (Number.isNaN(parsed.getTime())) return null
+  return toLocalInputDate(parsed)
+}
+
+/**
+ * Earliest date each valve row entered Warehouse RTS (from valve_change_log).
+ * Falls back empty when no history exists (e.g. imported closes).
+ */
+async function fetchWarehouseRtsDatesByValveId(
+  valveRowIds: number[],
+): Promise<Map<number, string>> {
+  const map = new Map<number, string>()
+  if (valveRowIds.length === 0) return map
+
+  const chunkSize = 200
+  for (let i = 0; i < valveRowIds.length; i += chunkSize) {
+    const chunk = valveRowIds.slice(i, i + chunkSize)
+    const { data, error } = await supabase
+      .from('valve_change_log')
+      .select('valve_id,changed_at,old_row,new_row')
+      .in('valve_id', chunk)
+      .eq('action', 'update')
+      .filter('new_row->>status', 'eq', 'Warehouse RTS')
+      .order('changed_at', { ascending: true })
+      .limit(8000)
+    if (error) {
+      // Non-fatal — report still works without RTS dates.
+      console.warn('Could not load Warehouse RTS dates from change log', error.message)
+      continue
+    }
+    for (const raw of data ?? []) {
+      const rowId = Number((raw as { valve_id?: unknown }).valve_id)
+      if (!Number.isFinite(rowId) || map.has(rowId)) continue
+      const oldStatus =
+        typeof (raw as { old_row?: { status?: unknown } }).old_row?.status === 'string'
+          ? String((raw as { old_row: { status: string } }).old_row.status).trim()
+          : ''
+      if (oldStatus === 'Warehouse RTS') continue
+      const date = toLocalDateFromIso((raw as { changed_at?: string }).changed_at)
+      if (date) map.set(rowId, date)
+    }
+  }
+  return map
 }
 
 function getYearRange(year: number) {
@@ -431,13 +483,13 @@ export function ReportsPage() {
       .order('date_closed', { ascending: false })
       .order('valve_id', { ascending: true })
       .limit(8000)
-    setLateLoading(false)
     if (error) {
+      setLateLoading(false)
       showToast(`Could not load late valves: ${error.message}`)
       setLateRows([])
       return
     }
-    const parsed: LateValveRow[] = (
+    const candidates = (
       (data ?? []) as {
         id: number
         valve_id: string
@@ -457,9 +509,17 @@ export function ReportsPage() {
         const closed = (r.date_closed ?? '').trim().slice(0, 10)
         return Boolean(due && closed && closed > due)
       })
+
+    const rtsDates = await fetchWarehouseRtsDatesByValveId(candidates.map((r) => r.id))
+
+    const parsed: LateValveRow[] = candidates
       .map((r) => {
         const due = (r.due_date ?? '').trim().slice(0, 10)
         const closed = (r.date_closed ?? '').trim().slice(0, 10)
+        const fromLog = rtsDates.get(r.id) ?? null
+        // Still sitting in Warehouse RTS — date_closed was set when they entered RTS.
+        const warehouseRtsDate =
+          fromLog ?? (r.status === 'Warehouse RTS' ? closed : null)
         return {
           id: r.id,
           valve_id: r.valve_id,
@@ -470,15 +530,28 @@ export function ReportsPage() {
           job_type: r.job_type,
           due_date: due,
           date_closed: closed,
+          warehouseRtsDate,
           daysLate: daysLateBetween(due, closed),
         }
       })
       .sort((a, b) => b.daysLate - a.daysLate || b.date_closed.localeCompare(a.date_closed) || a.valve_id.localeCompare(b.valve_id))
     setLateRows(parsed)
+    setLateLoading(false)
   }
 
   const exportLateValvesCsv = () => {
-    const header = ['WO #', 'Customer', 'Status', 'Cell', 'Valve type', 'Job type', 'Due date', 'Date closed', 'Days late']
+    const header = [
+      'WO #',
+      'Customer',
+      'Status',
+      'Cell',
+      'Valve type',
+      'Job type',
+      'Due date',
+      'Warehouse RTS date',
+      'Date closed',
+      'Days late',
+    ]
     const lines = lateRows.map((row) =>
       [
         row.valve_id,
@@ -488,6 +561,7 @@ export function ReportsPage() {
         row.valve_type ?? '',
         row.job_type ?? '',
         row.due_date,
+        row.warehouseRtsDate ?? '',
         row.date_closed,
         String(row.daysLate),
       ]
@@ -1145,7 +1219,8 @@ export function ReportsPage() {
         <h3>Late valves</h3>
         <p className="placeholder-copy">
           Completed / Warehouse RTS jobs closed after their due date in the selected period. Same rules as on-time
-          delivery ({OTD_PAUSE_STATUS_LABEL} excluded). Open a card to review the job.
+          delivery ({OTD_PAUSE_STATUS_LABEL} excluded). Warehouse RTS date comes from the status change log when
+          available. Open a card to review the job.
         </p>
         <div className="report-filters">
           <label>
@@ -1229,6 +1304,7 @@ export function ReportsPage() {
                   <th>Cell</th>
                   <th>Valve type</th>
                   <th>Due date</th>
+                  <th>Warehouse RTS</th>
                   <th>Date closed</th>
                   <th>Days late</th>
                   <th />
@@ -1243,6 +1319,7 @@ export function ReportsPage() {
                     <td>{row.cell ?? '—'}</td>
                     <td>{row.valve_type ?? '—'}</td>
                     <td>{row.due_date}</td>
+                    <td>{row.warehouseRtsDate ?? '—'}</td>
                     <td>{row.date_closed}</td>
                     <td>
                       <span className="text-red">{row.daysLate}</span>
