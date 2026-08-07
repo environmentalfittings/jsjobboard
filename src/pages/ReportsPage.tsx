@@ -337,8 +337,17 @@ export function ReportsPage() {
   const [dueDateChangeLoading, setDueDateChangeLoading] = useState(false)
   const [dueDateChangeTotalLogged, setDueDateChangeTotalLogged] = useState<number | null>(null)
 
-  const [reworkStart, setReworkStart] = useState(defaultRange.start)
-  const [reworkEnd, setReworkEnd] = useState(defaultRange.end)
+  const [reworkStart, setReworkStart] = useState(() => {
+    const start = searchParams.get('reworkStart')
+    return start && /^\d{4}-\d{2}-\d{2}$/.test(start) ? start : defaultRange.start
+  })
+  const [reworkEnd, setReworkEnd] = useState(() => {
+    const end = searchParams.get('reworkEnd')
+    const start = searchParams.get('reworkStart')
+    if (end && /^\d{4}-\d{2}-\d{2}$/.test(end)) return end
+    if (start && /^\d{4}-\d{2}-\d{2}$/.test(start)) return start
+    return defaultRange.end
+  })
   const [reworkRows, setReworkRows] = useState<StatusReworkRecord[]>([])
   const [reworkLoading, setReworkLoading] = useState(false)
   const [reworkTotalLogged, setReworkTotalLogged] = useState<number | null>(null)
@@ -421,11 +430,13 @@ export function ReportsPage() {
     URL.revokeObjectURL(url)
   }
 
-  const loadReworkLog = async () => {
-    if (!reworkStart || !reworkEnd) return
+  const loadReworkLog = async (range?: { start: string; end: string }) => {
+    const start = range?.start ?? reworkStart
+    const end = range?.end ?? reworkEnd
+    if (!start || !end) return
     setReworkLoading(true)
     const [{ data, error }, totalLogged] = await Promise.all([
-      fetchStatusReworkLog(reworkStart, reworkEnd),
+      fetchStatusReworkLog(start, end),
       countStatusReworkLog(),
     ])
     setReworkLoading(false)
@@ -497,6 +508,22 @@ export function ReportsPage() {
   useEffect(() => {
     void loadOtdData(otdYear)
   }, [otdYear])
+
+  useEffect(() => {
+    const start = searchParams.get('reworkStart')
+    const endParam = searchParams.get('reworkEnd')
+    if (!start || !/^\d{4}-\d{2}-\d{2}$/.test(start)) return
+    const end = endParam && /^\d{4}-\d{2}-\d{2}$/.test(endParam) ? endParam : start
+    setReworkStart(start)
+    setReworkEnd(end)
+    void loadReworkLog({ start, end })
+    const scrollTimer = window.setTimeout(() => {
+      document.getElementById('rework')?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+    }, 80)
+    return () => window.clearTimeout(scrollTimer)
+    // Deep-link from dashboard KPI: apply URL dates and open this section.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [searchParams.get('reworkStart'), searchParams.get('reworkEnd')])
 
   const applyLateDatePreset = (preset: CompletedDatePreset) => {
     setLatePreset(preset)
@@ -2082,7 +2109,7 @@ export function ReportsPage() {
         </div>
       </section>
 
-      <section className="dashboard-panel">
+      <section className="dashboard-panel" id="rework">
         <h3>Rework / backward status moves</h3>
         <p className="placeholder-copy">
           Forward shop flow (editable in Manage Lists → Shop workflow): Pull → Teardown → Machine 1 → Welding →

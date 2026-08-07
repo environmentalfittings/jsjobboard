@@ -68,3 +68,17 @@ export async function countStatusReworkLog(): Promise<number> {
   if (error) return 0
   return count ?? 0
 }
+
+/** Count rework / backward moves for a local calendar day range (inclusive YYYY-MM-DD). */
+export async function countStatusReworkLogInRange(
+  startDate: string,
+  endDate: string,
+): Promise<number> {
+  const { count, error } = await supabase
+    .from('status_rework_log')
+    .select('id', { count: 'exact', head: true })
+    .gte('changed_at', `${startDate}T00:00:00`)
+    .lte('changed_at', `${endDate}T23:59:59.999`)
+  if (error) return 0
+  return count ?? 0
+}

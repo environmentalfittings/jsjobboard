@@ -13,6 +13,8 @@ import {
 } from '../lib/dashboardMetrics'
 import { fetchAllValves } from '../lib/fetchAllValves'
 import { displayJobStatus } from '../lib/jobDisplayStatus'
+import { localTodayDateString } from '../lib/managerDashboardMetrics'
+import { countStatusReworkLogInRange } from '../lib/statusReworkLog'
 import {
   daysUntilGaugeCalibrationDue,
   filterAllowedTestGauges,
@@ -54,12 +56,14 @@ export function DashboardPage() {
   const [priorityQueueIds, setPriorityQueueIds] = useState<string[]>([])
   const [gaugeAlertItems, setGaugeAlertItems] = useState<TestGauge[]>([])
   const [showInventoryMonthlyAlert, setShowInventoryMonthlyAlert] = useState(false)
+  const [reworkTodayCount, setReworkTodayCount] = useState(0)
   const [loading, setLoading] = useState(true)
   const [lastRefreshed, setLastRefreshed] = useState<Date | null>(null)
   const [refreshTick, setRefreshTick] = useState(0)
   const [dragPriorityId, setDragPriorityId] = useState<string | null>(null)
   const [savingPriority, setSavingPriority] = useState(false)
   const { showToast } = useToast()
+  const todayIso = useMemo(() => localTodayDateString(), [refreshTick])
 
   useEffect(() => {
     if (!canManageInventory) {
@@ -130,6 +134,9 @@ export function DashboardPage() {
     } catch {
       setGaugeAlertItems([])
     }
+
+    const today = localTodayDateString()
+    setReworkTodayCount(await countStatusReworkLogInRange(today, today))
 
     setLastRefreshed(new Date())
     setLoading(false)
@@ -361,6 +368,14 @@ export function DashboardPage() {
             <Link className="kpi-card kpi-link" to="/job-board?view=list&scope=on-order">
               <div className="kpi-number red">{metrics.onOrder}</div>
               <div className="kpi-label">On order</div>
+            </Link>
+            <Link
+              className="kpi-card kpi-link"
+              to={`/reports?reworkStart=${encodeURIComponent(todayIso)}&reworkEnd=${encodeURIComponent(todayIso)}#rework`}
+              title="Open rework / backward moves report for today"
+            >
+              <div className="kpi-number slate">{reworkTodayCount}</div>
+              <div className="kpi-label">Rework today</div>
             </Link>
           </div>
 
