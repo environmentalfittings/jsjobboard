@@ -305,7 +305,7 @@ export function ValveOutsourcedItemsPanel({ valveRowId, disabled, onListChange }
     try {
       await createValveOutsourcedItem(valveRowId, draft)
       setDraft(emptyOutsourcedItemInput())
-      showToast('Outsourced item added')
+      showToast('Part added')
       await load()
       notifyChange()
     } catch (error) {
@@ -339,7 +339,7 @@ export function ValveOutsourcedItemsPanel({ valveRowId, disabled, onListChange }
     try {
       await updateValveOutsourcedItem(editingId, editDraft)
       setEditingId(null)
-      showToast('Outsourced item updated')
+      showToast('Part updated')
       await load()
       notifyChange()
     } catch (error) {
@@ -382,12 +382,12 @@ export function ValveOutsourcedItemsPanel({ valveRowId, disabled, onListChange }
   const handleDelete = async (row: ValveOutsourcedItem) => {
     if (disabled || busy) return
     const label = row.item_shipped?.trim() || row.vendor?.trim() || 'this item'
-    if (!window.confirm(`Remove outsourced item “${label}”?`)) return
+    if (!window.confirm(`Remove part “${label}”?`)) return
     setBusy(true)
     try {
       await deleteValveOutsourcedItem(row.id)
       if (editingId === row.id) setEditingId(null)
-      showToast('Outsourced item removed')
+      showToast('Part removed')
       await load()
       notifyChange()
     } catch (error) {
@@ -398,7 +398,7 @@ export function ValveOutsourcedItemsPanel({ valveRowId, disabled, onListChange }
   }
 
   if (loading) {
-    return <p className="placeholder-copy">Loading outsourced items…</p>
+    return <p className="placeholder-copy">Loading parts…</p>
   }
 
   return (
@@ -415,8 +415,7 @@ export function ValveOutsourcedItemsPanel({ valveRowId, disabled, onListChange }
 
       {loadError ? (
         <p className="status-breakdown-note">
-          Could not load outsourced items. Run <code>migration-valve-outsourced-items.sql</code> in Supabase, then
-          refresh.
+          Could not load parts. Run <code>migration-valve-outsourced-items.sql</code> in Supabase, then refresh.
         </p>
       ) : null}
 
@@ -534,7 +533,7 @@ export function ValveOutsourcedItemsPanel({ valveRowId, disabled, onListChange }
         ) : null}
       </ul>
 
-      {rows.length === 0 && disabled ? <p className="outsourced-items-hint">No outsourced items yet.</p> : null}
+      {rows.length === 0 && disabled ? <p className="outsourced-items-hint">No parts yet.</p> : null}
     </div>
   )
 }
