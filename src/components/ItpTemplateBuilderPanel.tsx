@@ -452,7 +452,7 @@ export function ItpTemplateBuilderPanel() {
         </p>
       ) : null}
 
-      <div className="itp-library-layout itp-template-builder-layout">
+      <div className="itp-library-split itp-template-builder-layout">
           {/* LEFT — Master list (always populated) */}
           <div className="itp-library-panel itp-library-panel-left">
             <div className="itp-library-panel-hdr">
