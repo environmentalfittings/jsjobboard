@@ -376,7 +376,7 @@ export function QualityIncrFormPage() {
           Cancel
         </Link>
         <button type="button" className="button-primary" disabled={saving} onClick={() => void save()}>
-          {saving ? 'Saving…' : incrNumber ? 'Save INCR' : 'Create INCR'}
+          {saving ? 'Saving…' : incrNumber ? 'Save' : 'Save INCR'}
         </button>
       </div>
     </section>
