@@ -9,7 +9,7 @@ import { downloadCompletedJobsReportPdf } from '../lib/completedJobsReportPdf'
 import { supabase } from '../lib/supabase'
 import { countDueDateChanges, fetchDueDateChanges } from '../lib/dueDateChanges'
 import { countStatusReworkLog, fetchStatusReworkLog } from '../lib/statusReworkLog'
-import { isExcludedFromOnTimeDelivery, OTD_PAUSE_STATUS_LABEL } from '../lib/onTimeDelivery'
+import { isExcludedFromOnTimeDelivery, OTD_EXCLUDED_CUSTOMER_LABEL, OTD_PAUSE_STATUS_LABEL } from '../lib/onTimeDelivery'
 import { printOnTimeDeliveryReport } from '../lib/onTimeDeliveryPrint'
 import {
   aggregateTopCounts,
@@ -346,7 +346,7 @@ export function ReportsPage() {
     const { start, end } = getYearRange(year)
     const { data, error } = await supabase
       .from('valves')
-      .select('valve_id,date_closed,due_date,status,order_type')
+      .select('valve_id,date_closed,due_date,status,order_type,customer')
       .in('status', ['Completed', 'Warehouse RTS'])
       .gte('date_closed', start)
       .lte('date_closed', end)
@@ -364,6 +364,7 @@ export function ReportsPage() {
         due_date: string | null
         status: string | null
         order_type: string | null
+        customer: string | null
       }[]
     )
       .filter((r) => !isExcludedFromOnTimeDelivery(r))
@@ -1016,7 +1017,8 @@ export function ReportsPage() {
             <p className="placeholder-copy" style={{ marginTop: '0.35rem' }}>
               Percentage of completed jobs closed on or before their due date. Jobs with no due date are excluded from
               percentage calculations. {OTD_PAUSE_STATUS_LABEL} do not count against on-time delivery. Moving a job out
-              of those statuses requires a new due date before it counts again.
+              of those statuses requires a new due date before it counts again. {OTD_EXCLUDED_CUSTOMER_LABEL} jobs are
+              also excluded (internal / house work).
             </p>
           </div>
         </div>
@@ -1219,8 +1221,8 @@ export function ReportsPage() {
         <h3>Late valves</h3>
         <p className="placeholder-copy">
           Completed / Warehouse RTS jobs closed after their due date in the selected period. Same rules as on-time
-          delivery ({OTD_PAUSE_STATUS_LABEL} excluded). Warehouse RTS date comes from the status change log when
-          available. Open a card to review the job.
+          delivery ({OTD_PAUSE_STATUS_LABEL}; {OTD_EXCLUDED_CUSTOMER_LABEL} excluded). Warehouse RTS date comes from the
+          status change log when available. Open a card to review the job.
         </p>
         <div className="report-filters">
           <label>

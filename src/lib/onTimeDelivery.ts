@@ -1,6 +1,7 @@
 type OtdEligibility = {
   status?: string | null
   order_type?: string | null
+  customer?: string | null
 }
 
 /**
@@ -21,6 +22,15 @@ export type OtdPauseStatus = (typeof OTD_PAUSE_STATUSES)[number]
 
 const OTD_PAUSE_STATUS_SET = new Set<string>(OTD_PAUSE_STATUSES)
 
+/** Internal / house jobs that should not affect on-time delivery %. */
+export const OTD_EXCLUDED_CUSTOMER_PREFIXES = ['JS Machine & Valve'] as const
+
+export function isOtdExcludedCustomer(customer: string | null | undefined): boolean {
+  const name = String(customer ?? '').trim().toLowerCase()
+  if (!name) return false
+  return OTD_EXCLUDED_CUSTOMER_PREFIXES.some((prefix) => name.startsWith(prefix.toLowerCase()))
+}
+
 export function isOtdPauseStatus(status: string | null | undefined): boolean {
   const trimmed = String(status ?? '').trim()
   if (!trimmed) return false
@@ -37,11 +47,13 @@ export function isOtdPauseStatus(status: string | null | undefined): boolean {
  * - Not Arrived / Waiting on Arrival — shop never received the valve
  * - On Hold / Waiting on Customer / Waiting on Salesman — paused work
  * - Replaced / Junked — terminal non-delivery outcomes
+ * - JS Machine & Valve (and suffixes) — internal house jobs
  */
 export function isExcludedFromOnTimeDelivery(valve: OtdEligibility | null | undefined): boolean {
   if (!valve) return false
   const status = String(valve.status ?? '').trim()
   const orderType = String(valve.order_type ?? '').trim()
+  if (isOtdExcludedCustomer(valve.customer)) return true
   if (isOtdPauseStatus(status)) return true
   if (orderType === 'Waiting on Arrival') return true
   if (isOnHoldForMetrics(valve)) return true
@@ -82,3 +94,5 @@ export function requiresDueDateUpdateWhenLeavingOtdPause(
 
 export const OTD_PAUSE_STATUS_LABEL =
   'On Hold, Waiting on Customer, Waiting on Salesman, Replaced, Junked, and Not Arrived / Waiting on Arrival'
+
+export const OTD_EXCLUDED_CUSTOMER_LABEL = 'JS Machine & Valve'
