@@ -848,43 +848,69 @@ export function ItpTemplateBuilderPanel() {
               </div>
               <div className="itp-library-panel-body">
                 {checklistSections.map(({ section, items }) => (
-                  <div key={section.id} className="itp-library-chk-sec">
-                    <div className="itp-library-chk-sec-hdr">
+                  <div key={section.id} className="itp-library-itp-sec">
+                    <div className="itp-library-itp-sec-hdr">
                       <h4>{section.title}</h4>
-                      <span>0/{items.length}</span>
+                      <span className="itp-library-isp">
+                        0/{items.length}
+                      </span>
                     </div>
                     {items.map((item) => {
                       const sel = getSel(scope, item.id)
                       return (
-                        <div key={item.id} className="itp-library-chk-item">
-                          <div className="itp-library-chk-item-main">
-                            <span className="itp-library-chk-box" aria-hidden />
-                            <div className="itp-library-chk-text">
-                              <div className="itp-library-chk-name">
-                                {item.name}{' '}
-                                <span className="itp-library-chk-ref">[{item.ref}]</span>
-                                <span className="itp-library-chip">{itpShopAreaLabel(item.area)}</span>
-                                {sel.holdPoint ? <span className="itp-library-chip hp">Hold Point</span> : null}
-                                {itemRequiresMeasurements(sel) ? (
-                                  <span className="itp-library-chip meas">Requires Measurements</span>
-                                ) : null}
+                        <div key={item.id} className="itp-library-exec-item itp-template-preview-item">
+                          <div className={`itp-library-exec-row${sel.holdPoint ? ' hold-point' : ''}`}>
+                            <div className="itp-library-exec-top">
+                              <span className="itp-library-cb" aria-hidden />
+                              <div className="itp-library-exec-body">
+                                <div className="itp-library-en">{item.name}</div>
+                                <div className="itp-template-preview-meta">
+                                  <span className="itp-library-er">[{item.ref}]</span>
+                                  <span className="itp-template-station-badge">
+                                    Station: {itpShopAreaLabel(item.area)}
+                                  </span>
+                                  {sel.holdPoint ? (
+                                    <span className="itp-library-hp-badge">HOLD POINT</span>
+                                  ) : null}
+                                  {itemRequiresMeasurements(sel) ? (
+                                    <span className="itp-library-attr-badge meas">Measurements</span>
+                                  ) : null}
+                                </div>
+                                <label className="itp-template-station-field">
+                                  <span>Assigned station</span>
+                                  <select
+                                    value={item.area}
+                                    onChange={(e) =>
+                                      changeItemArea(item.id, e.target.value as ItpShopArea)
+                                    }
+                                    title="Change station assignment"
+                                  >
+                                    {ITP_SHOP_AREAS.map((opt) => (
+                                      <option key={opt.value} value={opt.value}>
+                                        {opt.label}
+                                      </option>
+                                    ))}
+                                  </select>
+                                </label>
+                                <input
+                                  className="itp-library-enote"
+                                  type="text"
+                                  value={sel.notes}
+                                  placeholder="Notes, observations…"
+                                  onChange={(e) => updateSel(item.id, { notes: e.target.value })}
+                                />
                               </div>
-                              <input
-                                className="itp-library-chk-notes"
-                                type="text"
-                                value={sel.notes}
-                                placeholder="Notes, observations…"
-                                onChange={(e) => updateSel(item.id, { notes: e.target.value })}
-                              />
+                              <div className="itp-library-exec-acts">
+                                <button
+                                  type="button"
+                                  className="itp-library-rm-btn"
+                                  title="Remove from template"
+                                  onClick={() => toggleInclude(item.id)}
+                                >
+                                  ✕
+                                </button>
+                              </div>
                             </div>
-                            <button
-                              type="button"
-                              className="itp-library-chk-remove"
-                              title="Remove from template"
-                              onClick={() => toggleInclude(item.id)}
-                            >
-                              ✕
-                            </button>
                           </div>
                         </div>
                       )

@@ -17439,6 +17439,57 @@ body.shop-tv-fullscreen-active .page-content {
   color: var(--itp-lib-muted);
 }
 
+.itp-template-preview-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+  margin-top: 2px;
+}
+
+.itp-template-station-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: #e0f2fe;
+  border: 1px solid #7dd3fc;
+  color: #075985;
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+}
+
+.itp-template-station-field {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  margin-top: 8px;
+  max-width: 220px;
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--itp-lib-muted);
+}
+
+.itp-template-station-field select {
+  padding: 6px 8px;
+  border: 1px solid var(--itp-lib-border);
+  border-radius: 6px;
+  background: #fff;
+  color: #0f172a;
+  font: inherit;
+  font-size: 0.84rem;
+  font-weight: 600;
+  text-transform: none;
+  letter-spacing: normal;
+}
+
+.itp-template-preview-item .itp-library-enote {
+  width: 100%;
+}
+
 .itp-master-global-add {
   position: sticky;
   top: 0;
