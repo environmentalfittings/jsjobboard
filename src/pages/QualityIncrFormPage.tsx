@@ -193,29 +193,8 @@ export function QualityIncrFormPage() {
           <Field label="W.O. / S.O.">
             <input value={form.wo_so} onChange={(e) => patch('wo_so', e.target.value)} disabled={saving} />
           </Field>
-          <Field label="Sequence no.">
-            <input value={form.sequence_no} onChange={(e) => patch('sequence_no', e.target.value)} disabled={saving} />
-          </Field>
-          <Field label="PO">
-            <input value={form.po_number} onChange={(e) => patch('po_number', e.target.value)} disabled={saving} />
-          </Field>
-          <Field label="Customer code">
-            <input value={form.customer_code} onChange={(e) => patch('customer_code', e.target.value)} disabled={saving} />
-          </Field>
-          <Field label="Serial no.">
-            <input value={form.serial_no} onChange={(e) => patch('serial_no', e.target.value)} disabled={saving} />
-          </Field>
-          <Field label="Ovation NCMR no.">
-            <input value={form.ovation_ncmr_no} onChange={(e) => patch('ovation_ncmr_no', e.target.value)} disabled={saving} />
-          </Field>
           <Field label="Work cell / WC">
             <input value={form.work_cell} onChange={(e) => patch('work_cell', e.target.value)} disabled={saving} />
-          </Field>
-          <Field label="Location">
-            <input value={form.location} onChange={(e) => patch('location', e.target.value)} disabled={saving} />
-          </Field>
-          <Field label="Quantity">
-            <input value={form.quantity} onChange={(e) => patch('quantity', e.target.value)} disabled={saving} />
           </Field>
         </div>
       </section>

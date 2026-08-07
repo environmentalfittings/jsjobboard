@@ -65,17 +65,10 @@ export type QualityIncrFormState = {
   customer_name: string
   date_rejected: string
   wo_so: string
-  sequence_no: string
-  po_number: string
-  customer_code: string
-  serial_no: string
-  ovation_ncmr_no: string
   part_number: string
   part_description: string
   employee_name: string
   dept_responsible: string
-  location: string
-  quantity: string
   work_cell: string
   item: string
   reason_code: string
@@ -106,17 +99,10 @@ export function emptyQualityIncrForm(): QualityIncrFormState {
     customer_name: '',
     date_rejected: today,
     wo_so: '',
-    sequence_no: '',
-    po_number: '',
-    customer_code: '',
-    serial_no: '',
-    ovation_ncmr_no: '',
     part_number: '',
     part_description: '',
     employee_name: '',
     dept_responsible: '',
-    location: '',
-    quantity: '',
     work_cell: '',
     item: '',
     reason_code: '',
@@ -147,17 +133,10 @@ export function qualityIncrToForm(row: QualityIncr): QualityIncrFormState {
     customer_name: row.customer_name ?? '',
     date_rejected: row.date_rejected ?? '',
     wo_so: row.wo_so ?? '',
-    sequence_no: row.sequence_no ?? '',
-    po_number: row.po_number ?? '',
-    customer_code: row.customer_code ?? '',
-    serial_no: row.serial_no ?? '',
-    ovation_ncmr_no: row.ovation_ncmr_no ?? '',
     part_number: row.part_number ?? '',
     part_description: row.part_description ?? '',
     employee_name: row.employee_name ?? '',
     dept_responsible: row.dept_responsible ?? '',
-    location: row.location ?? '',
-    quantity: row.quantity ?? '',
     work_cell: row.work_cell ?? '',
     item: row.item ?? '',
     reason_code: row.reason_code ?? '',

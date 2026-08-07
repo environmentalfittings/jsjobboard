@@ -20,17 +20,10 @@ function formToPayload(form: QualityIncrFormState) {
     customer_name: emptyToNull(form.customer_name),
     date_rejected: emptyToNull(form.date_rejected),
     wo_so: emptyToNull(form.wo_so),
-    sequence_no: emptyToNull(form.sequence_no),
-    po_number: emptyToNull(form.po_number),
-    customer_code: emptyToNull(form.customer_code),
-    serial_no: emptyToNull(form.serial_no),
-    ovation_ncmr_no: emptyToNull(form.ovation_ncmr_no),
     part_number: emptyToNull(form.part_number),
     part_description: emptyToNull(form.part_description),
     employee_name: emptyToNull(form.employee_name),
     dept_responsible: emptyToNull(form.dept_responsible),
-    location: emptyToNull(form.location),
-    quantity: emptyToNull(form.quantity),
     work_cell: emptyToNull(form.work_cell),
     item: emptyToNull(form.item),
     reason_code: emptyToNull(form.reason_code),
@@ -139,7 +132,7 @@ export async function buildIncrFormFromRework(
   if (rework.valve_row_id) {
     const { data } = await supabase
       .from('valves')
-      .select('customer,cell,description,valve_type,drawing_po_number')
+      .select('customer,cell,description,valve_type')
       .eq('id', rework.valve_row_id)
       .maybeSingle()
     if (data) {
@@ -147,7 +140,6 @@ export async function buildIncrFormFromRework(
       form.work_cell = String((data as { cell?: string | null }).cell ?? '')
       form.part_description = String((data as { description?: string | null }).description ?? '')
       form.item = String((data as { valve_type?: string | null }).valve_type ?? '')
-      form.po_number = String((data as { drawing_po_number?: string | null }).drawing_po_number ?? '')
     }
   }
   return form
