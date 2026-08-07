@@ -298,13 +298,6 @@ export function QualityIncrFormPage() {
           <Field label="Material cost">
             <input value={form.material_cost} onChange={(e) => patch('material_cost', e.target.value)} disabled={saving} />
           </Field>
-          <Field label="Code / violation article">
-            <input
-              value={form.code_violation_article}
-              onChange={(e) => patch('code_violation_article', e.target.value)}
-              disabled={saving}
-            />
-          </Field>
           <Field label="Root cause and corrective / preventive action" className="incr-form-field--wide">
             <textarea
               rows={4}

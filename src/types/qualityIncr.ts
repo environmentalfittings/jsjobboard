@@ -76,7 +76,6 @@ export type QualityIncrFormState = {
   final_disposition: string
   labor_cost: string
   material_cost: string
-  code_violation_article: string
   root_cause_corrective_action: string
   qc_approval_name: string
   qc_approval_date: string
@@ -107,7 +106,6 @@ export function emptyQualityIncrForm(): QualityIncrFormState {
     final_disposition: '',
     labor_cost: '',
     material_cost: '',
-    code_violation_article: '',
     root_cause_corrective_action: '',
     qc_approval_name: '',
     qc_approval_date: '',
@@ -138,7 +136,6 @@ export function qualityIncrToForm(row: QualityIncr): QualityIncrFormState {
     final_disposition: row.final_disposition ?? '',
     labor_cost: row.labor_cost ?? '',
     material_cost: row.material_cost ?? '',
-    code_violation_article: row.code_violation_article ?? '',
     root_cause_corrective_action: row.root_cause_corrective_action ?? '',
     qc_approval_name: row.qc_approval_name ?? '',
     qc_approval_date: row.qc_approval_date ?? '',

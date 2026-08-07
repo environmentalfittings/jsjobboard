@@ -53,7 +53,6 @@ function formToPayload(form: QualityIncrFormState) {
     final_disposition: emptyToNull(form.final_disposition),
     labor_cost: emptyToNull(form.labor_cost),
     material_cost: emptyToNull(form.material_cost),
-    code_violation_article: emptyToNull(form.code_violation_article),
     root_cause_corrective_action: emptyToNull(form.root_cause_corrective_action),
     qc_approval_name: emptyToNull(form.qc_approval_name),
     qc_approval_date: emptyToNull(form.qc_approval_date),
