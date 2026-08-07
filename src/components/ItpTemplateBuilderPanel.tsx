@@ -150,6 +150,10 @@ export function ItpTemplateBuilderPanel() {
   }
 
   const toggleInclude = (itemId: string) => {
+    if (!valveType.trim()) {
+      showToast('Select a valve type first, then check items to build its template')
+      return
+    }
     const current = getSel(scope, itemId)
     const included = !current.included
     let subReqs = current.subReqs
@@ -188,6 +192,10 @@ export function ItpTemplateBuilderPanel() {
   }
 
   const selectAllInSection = (secId: ItpLibrarySectionId, select: boolean) => {
+    if (!valveType.trim()) {
+      showToast('Select a valve type first, then check items to build its template')
+      return
+    }
     const section = ITP_LIBRARY.find((s) => s.id === secId)
     if (!section) return
     const customs = customsForSection(secId)
@@ -444,21 +452,17 @@ export function ItpTemplateBuilderPanel() {
         </p>
       ) : null}
 
-      {!valveType ? (
-        <p className="placeholder-copy">Select a valve type above to start building its template. You can still add items to the master list after selecting a type.</p>
-      ) : null}
-
-      {valveType && loading ? (
-        <p className="placeholder-copy">Loading template…</p>
-      ) : valveType ? (
-        <div className="itp-library-layout itp-template-builder-layout">
-          {/* LEFT — Master list */}
+      <div className="itp-library-layout itp-template-builder-layout">
+          {/* LEFT — Master list (always populated) */}
           <div className="itp-library-panel itp-library-panel-left">
             <div className="itp-library-panel-hdr">
               <h3>Build Scope · Master</h3>
               <div className="itp-library-ph-actions">
-                <span className="itp-library-ph-count">{selectedCount} selected</span>
-                {selectedCount > 0 ? (
+                <span className="itp-library-ph-count">
+                  {ITP_LIBRARY.reduce((n, s) => n + s.items.length, 0) + masterItems.length} items
+                  {valveType ? ` · ${selectedCount} selected` : ''}
+                </span>
+                {valveType && selectedCount > 0 ? (
                   <button type="button" className="itp-library-deselect-all" onClick={deselectAll}>
                     Deselect all
                   </button>
@@ -696,13 +700,21 @@ export function ItpTemplateBuilderPanel() {
           {/* RIGHT — Template preview */}
           <div className="itp-library-panel itp-library-panel-right">
             <div className="itp-library-panel-hdr">
-              <h3>ITP Checklist · {valveType}</h3>
+              <h3>ITP Checklist{valveType ? ` · ${valveType}` : ''}</h3>
               <span className="itp-library-ph-count">
-                {selectedCount} items · {holdPointCount} hold pts
+                {valveType ? `${selectedCount} items · ${holdPointCount} hold pts` : 'Pick a valve type'}
               </span>
             </div>
 
-            {selectedCount === 0 ? (
+            {!valveType ? (
+              <div className="itp-library-empty">
+                <p>Select a valve type above, then check items on the left to build that template here.</p>
+              </div>
+            ) : loading ? (
+              <div className="itp-library-empty">
+                <p>Loading template…</p>
+              </div>
+            ) : selectedCount === 0 ? (
               <div className="itp-library-empty">
                 <p>Check items on the left to add them to this valve type&apos;s template.</p>
               </div>
@@ -727,9 +739,7 @@ export function ItpTemplateBuilderPanel() {
                     <div key={section.id} className="itp-library-chk-sec">
                       <div className="itp-library-chk-sec-hdr">
                         <h4>{section.title}</h4>
-                        <span>
-                          0/{items.length}
-                        </span>
+                        <span>0/{items.length}</span>
                       </div>
                       {items.map((item) => {
                         const sel = getSel(scope, item.id)
@@ -775,7 +785,6 @@ export function ItpTemplateBuilderPanel() {
             )}
           </div>
         </div>
-      ) : null}
     </section>
   )
 }
