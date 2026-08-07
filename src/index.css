@@ -17928,6 +17928,10 @@ body.shop-tv-fullscreen-active .page-content {
   color: #334155;
 }
 
+.rework-qa-actions .rework-qa-badge--na {
+  margin-right: 0.15rem;
+}
+
 /* INCR form */
 .incr-form-grid {
   display: grid;

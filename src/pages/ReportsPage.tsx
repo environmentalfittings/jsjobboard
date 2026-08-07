@@ -8,7 +8,7 @@ import { TERMINAL_STATUSES } from '../constants/statuses'
 import { downloadCompletedJobsReportPdf } from '../lib/completedJobsReportPdf'
 import { supabase } from '../lib/supabase'
 import { countDueDateChanges, fetchDueDateChanges } from '../lib/dueDateChanges'
-import { markReworkDispositionNa } from '../lib/qualityIncrs'
+import { clearReworkQaDisposition, markReworkDispositionNa } from '../lib/statusReworkLog'
 import { countStatusReworkLog, fetchStatusReworkLog } from '../lib/statusReworkLog'
 import { isExcludedFromOnTimeDelivery, OTD_EXCLUDED_CUSTOMER_LABEL, OTD_PAUSE_STATUS_LABEL } from '../lib/onTimeDelivery'
 import { printOnTimeDeliveryReport } from '../lib/onTimeDeliveryPrint'
@@ -480,7 +480,7 @@ export function ReportsPage() {
 
   const markReworkNa = async (row: StatusReworkRecord) => {
     if (row.qa_disposition === 'na') {
-      showToast('Already marked N/A')
+      showToast('Already selected NA')
       return
     }
     if (row.qa_disposition === 'incr') {
@@ -497,7 +497,21 @@ export function ReportsPage() {
     setReworkRows((prev) =>
       prev.map((r) => (r.id === row.id ? { ...r, qa_disposition: 'na', incr_id: null } : r)),
     )
-    showToast(`Marked ${row.valve_id} as N/A — acknowledged`)
+    showToast(`Selected NA for ${row.valve_id}`)
+  }
+
+  const reopenReworkQa = async (row: StatusReworkRecord) => {
+    setReworkActionId(row.id)
+    const { error } = await clearReworkQaDisposition(row.id)
+    setReworkActionId(null)
+    if (error) {
+      showToast(error)
+      return
+    }
+    setReworkRows((prev) =>
+      prev.map((r) => (r.id === row.id ? { ...r, qa_disposition: null, incr_id: null } : r)),
+    )
+    showToast(`Reopened QA follow-up for ${row.valve_id}`)
   }
 
   const openReworkIncr = (row: StatusReworkRecord) => {
@@ -1157,11 +1171,21 @@ export function ReportsPage() {
                     <td>{row.changed_by_name ?? '—'}</td>
                     <td className="rework-qa-actions">
                       {row.qa_disposition === 'na' ? (
-                        <span className="rework-qa-badge rework-qa-badge--na">N/A</span>
-                      ) : row.qa_disposition === 'incr' ? (
+                        <>
+                          <span className="rework-qa-badge rework-qa-badge--na">Selected NA</span>
+                          <button
+                            type="button"
+                            className="button-secondary rework-qa-btn"
+                            disabled={reworkActionId === row.id}
+                            onClick={() => void reopenReworkQa(row)}
+                          >
+                            {reworkActionId === row.id ? '…' : 'Reopen'}
+                          </button>
+                        </>
+                      ) : row.qa_disposition === 'incr' && row.incr_id ? (
                         <button
                           type="button"
-                          className="button-secondary rework-qa-btn"
+                          className="button-primary rework-qa-btn"
                           onClick={() => openReworkIncr(row)}
                         >
                           Open INCR

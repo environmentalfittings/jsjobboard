@@ -39,4 +39,12 @@ for insert
 to anon, authenticated
 with check (true);
 
+drop policy if exists "public update status rework log" on public.status_rework_log;
+create policy "public update status rework log"
+on public.status_rework_log
+for update
+to anon, authenticated
+using (true)
+with check (true);
+
 commit;

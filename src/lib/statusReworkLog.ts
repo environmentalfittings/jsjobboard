@@ -24,6 +24,37 @@ export async function recordStatusRework(input: {
   return { error: null }
 }
 
+async function enrichReworkRowsWithIncrs(rows: StatusReworkRecord[]): Promise<StatusReworkRecord[]> {
+  const missingLinkIds = rows
+    .filter((row) => row.qa_disposition !== 'na' && (row.qa_disposition !== 'incr' || row.incr_id == null))
+    .map((row) => row.id)
+  if (missingLinkIds.length === 0) return rows
+
+  const { data, error } = await supabase
+    .from('quality_incrs')
+    .select('id,rework_log_id')
+    .in('rework_log_id', missingLinkIds)
+  if (error || !data?.length) return rows
+
+  const incrByReworkId = new Map<number, number>()
+  for (const raw of data) {
+    const reworkId = Number((raw as { rework_log_id?: unknown }).rework_log_id)
+    const incrId = Number((raw as { id?: unknown }).id)
+    if (!Number.isFinite(reworkId) || !Number.isFinite(incrId)) continue
+    if (!incrByReworkId.has(reworkId)) incrByReworkId.set(reworkId, incrId)
+  }
+
+  return rows.map((row) => {
+    const incrId = incrByReworkId.get(row.id)
+    if (!incrId) return row
+    return {
+      ...row,
+      qa_disposition: 'incr',
+      incr_id: incrId,
+    }
+  })
+}
+
 export async function fetchStatusReworkLog(
   startDate: string,
   endDate: string,
@@ -47,18 +78,19 @@ export async function fetchStatusReworkLog(
         .lte('changed_at', `${endDate}T23:59:59.999`)
         .order('changed_at', { ascending: false })
       if (legacy.error) return { data: [], error: new Error(legacy.error.message) }
-      return {
-        data: ((legacy.data ?? []) as StatusReworkRecord[]).map((row) => ({
-          ...row,
-          qa_disposition: null,
-          incr_id: null,
-        })),
-        error: null,
-      }
+      const mapped = ((legacy.data ?? []) as StatusReworkRecord[]).map((row) => ({
+        ...row,
+        qa_disposition: null as StatusReworkRecord['qa_disposition'],
+        incr_id: null as number | null,
+      }))
+      return { data: await enrichReworkRowsWithIncrs(mapped), error: null }
     }
     return { data: [], error: new Error(error.message) }
   }
-  return { data: (data ?? []) as StatusReworkRecord[], error: null }
+  return {
+    data: await enrichReworkRowsWithIncrs((data ?? []) as StatusReworkRecord[]),
+    error: null,
+  }
 }
 
 export async function countStatusReworkLog(): Promise<number> {
@@ -81,4 +113,54 @@ export async function countStatusReworkLogInRange(
     .lte('changed_at', `${endDate}T23:59:59.999`)
   if (error) return 0
   return count ?? 0
+}
+
+async function updateReworkQaDisposition(
+  reworkLogId: number,
+  patch: { qa_disposition: 'na' | 'incr' | null; incr_id: number | null },
+): Promise<{ error: string | null }> {
+  const { data, error } = await supabase
+    .from('status_rework_log')
+    .update(patch)
+    .eq('id', reworkLogId)
+    .select('id,qa_disposition,incr_id')
+    .maybeSingle()
+
+  if (error) {
+    if (/qa_disposition|incr_id|schema cache|column/i.test(error.message)) {
+      return {
+        error:
+          'Run supabase/migration-status-rework-log-qa-update.sql in Supabase SQL Editor (adds QA columns + update permission).',
+      }
+    }
+    if (/policy|permission|rls|row-level/i.test(error.message)) {
+      return {
+        error:
+          'Cannot update rework QA follow-up. Run supabase/migration-status-rework-log-qa-update.sql in Supabase SQL Editor.',
+      }
+    }
+    return { error: error.message }
+  }
+
+  if (!data) {
+    return {
+      error:
+        'Rework QA follow-up did not save. Run supabase/migration-status-rework-log-qa-update.sql in Supabase SQL Editor (update permission).',
+    }
+  }
+
+  return { error: null }
+}
+
+export async function markReworkDispositionNa(
+  reworkLogId: number,
+): Promise<{ error: string | null }> {
+  return updateReworkQaDisposition(reworkLogId, { qa_disposition: 'na', incr_id: null })
+}
+
+/** Clear NA/INCR disposition so the row can be actioned again. */
+export async function clearReworkQaDisposition(
+  reworkLogId: number,
+): Promise<{ error: string | null }> {
+  return updateReworkQaDisposition(reworkLogId, { qa_disposition: null, incr_id: null })
 }

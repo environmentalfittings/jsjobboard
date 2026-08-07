@@ -266,21 +266,7 @@ export async function getStatusReworkById(
   return { data: (data as StatusReworkRecord | null) ?? null, error: null }
 }
 
-export async function markReworkDispositionNa(
-  reworkLogId: number,
-): Promise<{ error: string | null }> {
-  const { error } = await supabase
-    .from('status_rework_log')
-    .update({ qa_disposition: 'na', incr_id: null })
-    .eq('id', reworkLogId)
-  if (error) {
-    if (/qa_disposition|schema cache|does not exist/i.test(error.message)) {
-      return { error: 'Run supabase/migration-quality-incrs.sql in Supabase SQL Editor first.' }
-    }
-    return { error: error.message }
-  }
-  return { error: null }
-}
+export { clearReworkQaDisposition, markReworkDispositionNa } from './statusReworkLog'
 
 export async function buildIncrFormFromRework(
   rework: StatusReworkRecord,
