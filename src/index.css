@@ -17438,22 +17438,86 @@ body.shop-tv-fullscreen-active .page-content {
   color: var(--itp-lib-muted);
 }
 
+/* Manage Lists ITP builder: force side-by-side like a live ITP once a valve type is chosen. */
 .itp-template-builder-layout {
+  width: 100%;
   height: min(75vh, 900px);
-  min-height: 480px;
+  min-height: 520px;
+  max-height: none;
+  border: 1px solid var(--itp-lib-border);
+  border-radius: 10px;
+  overflow: hidden;
+  background: var(--itp-lib-card);
+}
+
+.itp-template-builder-layout.is-master-only {
+  display: block;
+  grid-template-columns: none;
+}
+
+.itp-template-builder-layout.is-master-only .itp-library-panel-right {
+  display: none;
+}
+
+.itp-template-builder-layout.is-master-only .itp-library-panel-left {
+  border-right: none;
+  height: 100%;
+}
+
+.itp-template-builder-layout.is-valve-selected {
+  display: grid !important;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) !important;
+  gap: 0;
+}
+
+.itp-template-builder-layout.is-valve-selected .itp-library-panel-left {
+  border-right: 2px solid var(--itp-lib-border);
+  border-bottom: none;
 }
 
 .itp-template-builder-layout .itp-library-panel {
   min-height: 0;
+  height: 100%;
 }
 
 .itp-template-builder-layout .itp-library-panel-body {
   overflow: auto;
+  flex: 1;
+  min-height: 0;
 }
 
-@media (max-width: 960px) {
-  .itp-template-builder-layout {
+@media (max-width: 980px) {
+  /* Override the global ITP stack-to-one-column rule for this admin builder. */
+  .itp-template-builder-layout.is-valve-selected {
+    display: grid !important;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) !important;
+    height: min(70vh, 820px);
+    min-height: 480px;
+    max-height: none;
+  }
+
+  .itp-template-builder-layout.is-valve-selected .itp-library-panel-left,
+  .itp-template-builder-layout.is-valve-selected .itp-library-panel-right {
+    height: 100%;
+    max-height: none;
+  }
+}
+
+@media (max-width: 720px) {
+  .itp-template-builder-layout.is-valve-selected {
+    grid-template-columns: 1fr !important;
     height: auto;
     min-height: 0;
+  }
+
+  .itp-template-builder-layout.is-valve-selected .itp-library-panel-left,
+  .itp-template-builder-layout.is-valve-selected .itp-library-panel-right {
+    height: min(55dvh, 520px);
+    max-height: 55dvh;
+  }
+
+  .itp-template-builder-layout.is-valve-selected .itp-library-panel-left {
+    border-right: none;
+    border-bottom: 2px solid var(--itp-lib-border);
   }
 }

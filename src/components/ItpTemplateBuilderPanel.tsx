@@ -366,9 +366,9 @@ export function ItpTemplateBuilderPanel() {
     <section className="dashboard-panel admin-lists-panel itp-template-builder">
       <h3>ITP template builder</h3>
       <p className="placeholder-copy">
-        Left = master list (everything available). Pick a <strong>valve type</strong>, then check items on the left to
-        build that type&apos;s template on the right. Add missing steps to the master list. New ITPs for that valve type
-        start from the saved template.
+        Master list is on the left. Pick a <strong>valve type</strong> and the screen splits like a live ITP — check
+        items on the left to build that type&apos;s template on the right. Add missing steps to the master list. New
+        ITPs for that valve type start from the saved template.
       </p>
 
       <div className="itp-template-builder-toolbar">
@@ -452,7 +452,9 @@ export function ItpTemplateBuilderPanel() {
         </p>
       ) : null}
 
-      <div className="itp-library-split itp-template-builder-layout">
+      <div
+        className={`itp-library-split itp-template-builder-layout${valveType ? ' is-valve-selected' : ' is-master-only'}`}
+      >
           {/* LEFT — Master list (always populated) */}
           <div className="itp-library-panel itp-library-panel-left">
             <div className="itp-library-panel-hdr">
