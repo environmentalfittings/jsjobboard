@@ -1158,8 +1158,7 @@ export function ReportsPage() {
                     <td className="rework-qa-actions">
                       {row.qa_disposition === 'na' ? (
                         <span className="rework-qa-badge rework-qa-badge--na">N/A</span>
-                      ) : null}
-                      {row.qa_disposition === 'incr' ? (
+                      ) : row.qa_disposition === 'incr' ? (
                         <button
                           type="button"
                           className="button-secondary rework-qa-btn"
@@ -1172,7 +1171,7 @@ export function ReportsPage() {
                           <button
                             type="button"
                             className="button-secondary rework-qa-btn"
-                            disabled={reworkActionId === row.id || row.qa_disposition === 'na'}
+                            disabled={reworkActionId === row.id}
                             onClick={() => void markReworkNa(row)}
                           >
                             {reworkActionId === row.id ? '…' : 'NA'}
@@ -1180,7 +1179,7 @@ export function ReportsPage() {
                           <button
                             type="button"
                             className="button-primary rework-qa-btn"
-                            disabled={reworkActionId === row.id || row.qa_disposition === 'na'}
+                            disabled={reworkActionId === row.id}
                             onClick={() => openReworkIncr(row)}
                           >
                             INCR
