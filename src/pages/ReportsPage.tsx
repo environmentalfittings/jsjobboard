@@ -9,7 +9,7 @@ import { downloadCompletedJobsReportPdf } from '../lib/completedJobsReportPdf'
 import { supabase } from '../lib/supabase'
 import { countDueDateChanges, fetchDueDateChanges } from '../lib/dueDateChanges'
 import { countStatusReworkLog, fetchStatusReworkLog } from '../lib/statusReworkLog'
-import { isExcludedFromOnTimeDelivery } from '../lib/onTimeDelivery'
+import { isExcludedFromOnTimeDelivery, OTD_PAUSE_STATUS_LABEL } from '../lib/onTimeDelivery'
 import { printOnTimeDeliveryReport } from '../lib/onTimeDeliveryPrint'
 import {
   aggregateTopCounts,
@@ -808,8 +808,8 @@ export function ReportsPage() {
             <h3 style={{ margin: 0 }}>On-time delivery</h3>
             <p className="placeholder-copy" style={{ marginTop: '0.35rem' }}>
               Percentage of completed jobs closed on or before their due date. Jobs with no due date are excluded from
-              percentage calculations. On Hold and Not Arrived / Waiting on Arrival jobs do not count against on-time
-              delivery.
+              percentage calculations. {OTD_PAUSE_STATUS_LABEL} do not count against on-time delivery. Moving a job out
+              of those statuses requires a new due date before it counts again.
             </p>
           </div>
         </div>

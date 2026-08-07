@@ -20,7 +20,12 @@ import {
 import { parseAssignedTechnicianIds } from '../lib/valveTechnicianIds'
 import { fetchAllValves } from '../lib/fetchAllValves'
 import { displayJobStatus, isActiveOrderType, isActiveShopWork, isClosedWorkOrder } from '../lib/jobDisplayStatus'
-import { countsAgainstOnTimeDelivery, isOnHoldForMetrics } from '../lib/onTimeDelivery'
+import {
+  countsAgainstOnTimeDelivery,
+  isOnHoldForMetrics,
+  OTD_PAUSE_STATUS_LABEL,
+  requiresDueDateUpdateWhenLeavingOtdPause,
+} from '../lib/onTimeDelivery'
 import {
   formatOutsourcedExpectedLabel,
   loadOutsourcedCardSummaries,
@@ -97,7 +102,7 @@ function isDueDateOverdue(raw: string | null): boolean {
   return label < todayIso
 }
 
-/** Overdue for OTD / urgency — Not Arrived and On Hold do not count. */
+/** Overdue for OTD / urgency — waiting/hold pause statuses do not count. */
 function isDeliveryOverdue(valve: Valve): boolean {
   return countsAgainstOnTimeDelivery(valve) && isDueDateOverdue(valve.due_date)
 }
@@ -517,6 +522,13 @@ export function JobBoardPage({ role, username }: { role?: UserRole; username?: s
     modalFields?: JobCardSaveFields
   } | null>(null)
   const [savingRework, setSavingRework] = useState(false)
+  const [pendingResumeDueDate, setPendingResumeDueDate] = useState<{
+    valve: Valve
+    nextStatus: string
+    mode: 'status-only' | 'modal-save'
+    modalFields?: JobCardSaveFields
+  } | null>(null)
+  const [savingResumeDueDate, setSavingResumeDueDate] = useState(false)
   const [phaseOrder, setPhaseOrder] = useState<PhaseOrder>(() => {
     try {
       const stored = window.localStorage.getItem(ORDER_STORAGE_KEY)
@@ -1018,6 +1030,7 @@ export function JobBoardPage({ role, username }: { role?: UserRole; username?: s
     fields: JobCardSaveFields,
     nextStatus: string,
     reworkReason?: string,
+    dueDateReason?: string,
   ) => {
     const patch: Partial<Valve> = {
       description: fields.description.trim() || null,
@@ -1078,7 +1091,11 @@ export function JobBoardPage({ role, username }: { role?: UserRole; username?: s
         valveId: valve.valve_id,
         previousDueDate,
         newDueDate: nextDueDate,
-        reason: 'Updated from job card',
+        reason:
+          dueDateReason?.trim() ||
+          (requiresDueDateUpdateWhenLeavingOtdPause(valve.status, nextStatus)
+            ? `Resumed from ${valve.status}`
+            : 'Updated from job card'),
         changedByName,
       })
       if (logError) {
@@ -1095,6 +1112,19 @@ export function JobBoardPage({ role, username }: { role?: UserRole; username?: s
 
   const saveModalChanges = async (fields: JobCardSaveFields) => {
     if (!activeValve || !selectedStatus) return
+    if (requiresDueDateUpdateWhenLeavingOtdPause(activeValve.status, selectedStatus)) {
+      const previousDueDate = dueDateLabel(activeValve.due_date)
+      const nextDueDate = fields.dueDate?.trim() || null
+      if ((previousDueDate ?? null) === nextDueDate) {
+        setPendingResumeDueDate({
+          valve: activeValve,
+          nextStatus: selectedStatus,
+          mode: 'modal-save',
+          modalFields: fields,
+        })
+        return
+      }
+    }
     if (isBackwardStatusMove(activeValve.status, selectedStatus)) {
       setPendingRework({
         valve: activeValve,
@@ -1107,10 +1137,25 @@ export function JobBoardPage({ role, username }: { role?: UserRole; username?: s
     await applyModalSave(activeValve, fields, selectedStatus)
   }
 
-  const applyStatusMove = async (valve: Valve, nextStatus: string, reworkReason?: string) => {
+  const applyStatusMove = async (
+    valve: Valve,
+    nextStatus: string,
+    options?: {
+      reworkReason?: string
+      nextDueDate?: string | null
+      dueDateReason?: string
+    },
+  ) => {
     if (!nextStatus || valve.status === nextStatus) return false
     const previous = { ...valve }
-    const patch = valveStatusPatch(nextStatus, valve)
+    const patch: Partial<Valve> = valveStatusPatch(nextStatus, valve)
+    const dueDateProvided = options != null && 'nextDueDate' in options
+    const previousDueDate = dueDateLabel(valve.due_date)
+    const nextDueDate = dueDateProvided ? options.nextDueDate?.trim() || null : previousDueDate
+    if (dueDateProvided) {
+      patch.due_date = nextDueDate
+    }
+    const dueDateChanged = dueDateProvided && (previousDueDate ?? null) !== (nextDueDate ?? null)
 
     setValves((prev) => prev.map((v) => (v.id === valve.id ? { ...v, ...patch } : v)))
     if (activeValve?.id === valve.id) {
@@ -1129,14 +1174,15 @@ export function JobBoardPage({ role, username }: { role?: UserRole; username?: s
       return false
     }
 
-    if (reworkReason) {
-      const changedByName = await resolveChangedByName(username ?? 'Unknown')
+    const changedByName = await resolveChangedByName(username ?? 'Unknown')
+
+    if (options?.reworkReason) {
       const { error: reworkError } = await recordStatusRework({
         valveRowId: valve.id,
         valveId: valve.valve_id,
         previousStatus: previous.status,
         newStatus: nextStatus,
-        reason: reworkReason,
+        reason: options.reworkReason,
         changedByName,
       })
       if (reworkError) {
@@ -1144,10 +1190,26 @@ export function JobBoardPage({ role, username }: { role?: UserRole; username?: s
       }
     }
 
+    if (dueDateChanged) {
+      const { error: logError } = await recordDueDateChange({
+        valveRowId: valve.id,
+        valveId: valve.valve_id,
+        previousDueDate,
+        newDueDate: nextDueDate,
+        reason: options?.dueDateReason?.trim() || `Resumed from ${previous.status}`,
+        changedByName,
+      })
+      if (logError) {
+        showToast(`Moved, but due date change log failed: ${logError.message}`)
+      }
+    }
+
     showToast(
-      reworkReason
+      options?.reworkReason
         ? `${valve.valve_id} moved back to ${nextStatus} (rework logged)`
-        : `${valve.valve_id} moved to ${nextStatus}`,
+        : dueDateChanged
+          ? `${valve.valve_id} moved to ${nextStatus} with updated due date`
+          : `${valve.valve_id} moved to ${nextStatus}`,
     )
     return true
   }
@@ -1165,11 +1227,52 @@ export function JobBoardPage({ role, username }: { role?: UserRole; username?: s
         )
         if (ok) setPendingRework(null)
       } else {
-        const ok = await applyStatusMove(pendingRework.valve, pendingRework.nextStatus, reason)
+        const ok = await applyStatusMove(pendingRework.valve, pendingRework.nextStatus, {
+          reworkReason: reason,
+        })
         if (ok) setPendingRework(null)
       }
     } finally {
       setSavingRework(false)
+    }
+  }
+
+  const confirmResumeDueDate = async (nextDueDate: string | null, reason: string) => {
+    if (!pendingResumeDueDate) return
+    setSavingResumeDueDate(true)
+    try {
+      if (pendingResumeDueDate.mode === 'modal-save' && pendingResumeDueDate.modalFields) {
+        const fields: JobCardSaveFields = {
+          ...pendingResumeDueDate.modalFields,
+          dueDate: nextDueDate,
+        }
+        if (isBackwardStatusMove(pendingResumeDueDate.valve.status, pendingResumeDueDate.nextStatus)) {
+          setPendingResumeDueDate(null)
+          setPendingRework({
+            valve: pendingResumeDueDate.valve,
+            nextStatus: pendingResumeDueDate.nextStatus,
+            mode: 'modal-save',
+            modalFields: fields,
+          })
+          return
+        }
+        const ok = await applyModalSave(
+          pendingResumeDueDate.valve,
+          fields,
+          pendingResumeDueDate.nextStatus,
+          undefined,
+          reason,
+        )
+        if (ok) setPendingResumeDueDate(null)
+      } else {
+        const ok = await applyStatusMove(pendingResumeDueDate.valve, pendingResumeDueDate.nextStatus, {
+          nextDueDate,
+          dueDateReason: reason,
+        })
+        if (ok) setPendingResumeDueDate(null)
+      }
+    } finally {
+      setSavingResumeDueDate(false)
     }
   }
 
@@ -1414,6 +1517,10 @@ export function JobBoardPage({ role, username }: { role?: UserRole; username?: s
       return
     }
     if (!nextStatus || valve.status === nextStatus) return
+    if (requiresDueDateUpdateWhenLeavingOtdPause(valve.status, nextStatus)) {
+      setPendingResumeDueDate({ valve, nextStatus, mode: 'status-only' })
+      return
+    }
     if (isBackwardStatusMove(valve.status, nextStatus)) {
       setPendingRework({ valve, nextStatus, mode: 'status-only' })
       return
@@ -1856,7 +1963,23 @@ export function JobBoardPage({ role, username }: { role?: UserRole; username?: s
         </div>
       ) : null}
 
-      {dueDateEditValve ? (
+      {pendingResumeDueDate ? (
+        <DueDateChangeModal
+          valve={pendingResumeDueDate.valve}
+          isSaving={savingResumeDueDate}
+          title="Update delivery date to resume"
+          newDateLabel="New delivery / due date"
+          defaultReason={`Resumed from ${pendingResumeDueDate.valve.status}`}
+          reasonPlaceholder="Why is this job returning to the shop, and why this new date?"
+          introExtra={`Moving from ${pendingResumeDueDate.valve.status} to ${pendingResumeDueDate.nextStatus}. ${OTD_PAUSE_STATUS_LABEL} do not count against on-time delivery until you set a new due date and move the job back into active work.`}
+          onCancel={() => {
+            if (!savingResumeDueDate) setPendingResumeDueDate(null)
+          }}
+          onSave={confirmResumeDueDate}
+        />
+      ) : null}
+
+      {dueDateEditValve && !pendingResumeDueDate ? (
         <DueDateChangeModal
           valve={dueDateEditValve}
           isSaving={savingDueDate}

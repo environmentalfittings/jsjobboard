@@ -1,5 +1,5 @@
 import { displayJobStatus, isActiveShopWork } from './jobDisplayStatus'
-import { countsAgainstOnTimeDelivery, isOnHoldForMetrics } from './onTimeDelivery'
+import { countsAgainstOnTimeDelivery, isExcludedFromOnTimeDelivery } from './onTimeDelivery'
 import type { Valve } from '../types'
 
 function dueDateIso(raw: string | null | undefined): string | null {
@@ -61,10 +61,15 @@ export function lateJobsInShop(valves: Valve[], todayIso = localTodayDateString(
     .sort((a, b) => a.due_date.localeCompare(b.due_date) || a.valve_id.localeCompare(b.valve_id))
 }
 
-/** Past-due open jobs that are on hold (excluded from lateJobsInShop / OTD). */
+/**
+ * Past-due open jobs in OTD-pause statuses
+ * (On Hold, Waiting on Customer/Salesman, Not Arrived, etc. — excluded from lateJobsInShop / OTD).
+ */
 export function overdueOnHoldInShop(valves: Valve[], todayIso = localTodayDateString()): LateJobRow[] {
   return valves
-    .filter((v) => isActiveShopWork(v) && isOnHoldForMetrics(v) && isValveOverdue(v, todayIso))
+    .filter(
+      (v) => isActiveShopWork(v) && isExcludedFromOnTimeDelivery(v) && isValveOverdue(v, todayIso),
+    )
     .map((v) => ({
       valve_id: v.valve_id,
       valveRowId: v.id,
@@ -76,10 +81,10 @@ export function overdueOnHoldInShop(valves: Valve[], todayIso = localTodayDateSt
     .sort((a, b) => a.due_date.localeCompare(b.due_date) || a.valve_id.localeCompare(b.valve_id))
 }
 
-/** All open on-hold jobs (for Manager dashboard list; not counted as late). */
+/** Open OTD-pause jobs (Manager dashboard list; not counted as late). */
 export function onHoldJobsInShop(valves: Valve[], todayIso = localTodayDateString()): LateJobRow[] {
   return valves
-    .filter((v) => isActiveShopWork(v) && isOnHoldForMetrics(v))
+    .filter((v) => isActiveShopWork(v) && isExcludedFromOnTimeDelivery(v))
     .map((v) => ({
       valve_id: v.valve_id,
       valveRowId: v.id,
