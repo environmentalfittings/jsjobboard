@@ -318,20 +318,24 @@ export function AdminListsPage() {
   }, [showToast])
 
   useEffect(() => {
+    if (!unlocked) return
     loadItpTemplates()
-  }, [loadItpTemplates])
+  }, [unlocked, loadItpTemplates])
 
   useEffect(() => {
+    if (!unlocked || tab !== 'flangeThickness') return
     void loadFlangeRefs()
-  }, [loadFlangeRefs])
+  }, [unlocked, tab, loadFlangeRefs])
 
   useEffect(() => {
+    if (!unlocked || tab !== 'b1610') return
     void loadB1610Refs()
-  }, [loadB1610Refs])
+  }, [unlocked, tab, loadB1610Refs])
 
   useEffect(() => {
+    if (!unlocked || tab !== 'b1634') return
     void loadB1634Refs()
-  }, [loadB1634Refs])
+  }, [unlocked, tab, loadB1634Refs])
 
   const categoryItems = useMemo(() => {
     const items = lookupRows.filter((r) => r.category === activeCategory)
