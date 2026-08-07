@@ -15615,6 +15615,35 @@ tbody tr:hover {
   gap: 3px;
 }
 
+.itp-library-accepted-by {
+  grid-column: 1 / -1;
+  padding: 8px 10px;
+  border: 1px solid var(--itp-lib-border);
+  border-radius: 6px;
+  background: #fff;
+}
+
+.itp-library-accepted-by-label {
+  font-size: 0.68rem;
+  font-weight: 600;
+  color: var(--itp-lib-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.itp-library-accepted-by-value {
+  margin-top: 2px;
+  font-size: 0.95rem;
+  font-weight: 600;
+  color: #0f172a;
+  min-height: 1.35em;
+}
+
+.itp-library-accepted-by-date {
+  font-weight: 500;
+  color: var(--itp-lib-muted);
+}
+
 .itp-library-sig-rows {
   margin-top: 10px;
   display: grid;
@@ -16015,6 +16044,25 @@ tbody tr:hover {
     padding: 4px 0;
     min-height: 22px;
     background: transparent;
+  }
+
+  .itp-library-accepted-by {
+    border: none;
+    border-bottom: 1px solid #64748b;
+    border-radius: 0;
+    background: transparent;
+    padding: 4px 0 6px;
+  }
+
+  .itp-library-accepted-by-label {
+    font-size: 8pt;
+    text-transform: none;
+    letter-spacing: 0;
+    color: #334155;
+  }
+
+  .itp-library-accepted-by-value {
+    font-size: 11pt;
   }
 
   .itp-library-sig-line {
