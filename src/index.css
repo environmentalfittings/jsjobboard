@@ -14536,6 +14536,109 @@ tbody tr:hover {
   margin: 0 0 10px;
 }
 
+.quality-incr-stats {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 10px;
+  margin: 0 0 14px;
+}
+
+.quality-incr-stat {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  margin: 0;
+  padding: 12px 14px;
+  border: 1px solid #e5e7eb;
+  border-radius: 10px;
+  background: #fff;
+  text-align: left;
+  cursor: pointer;
+  font: inherit;
+  color: inherit;
+  transition: border-color 120ms ease, box-shadow 120ms ease, background 120ms ease;
+}
+
+.quality-incr-stat strong {
+  font-size: 1.55rem;
+  line-height: 1;
+  font-weight: 700;
+  color: #0f172a;
+}
+
+.quality-incr-stat span {
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: #64748b;
+}
+
+.quality-incr-stat:hover {
+  border-color: #93c5fd;
+  box-shadow: 0 6px 14px rgba(37, 99, 235, 0.08);
+}
+
+.quality-incr-stat.is-active {
+  border-color: #2563eb;
+  background: #eff6ff;
+  box-shadow: 0 0 0 1px #2563eb inset;
+}
+
+.quality-incr-stat--open strong {
+  color: #b91c1c;
+}
+
+.quality-incr-stat--open.is-active {
+  border-color: #dc2626;
+  background: #fef2f2;
+  box-shadow: 0 0 0 1px #dc2626 inset;
+}
+
+.quality-incr-table tbody tr.quality-incr-row--open {
+  background: #fef2f2;
+}
+
+.quality-incr-table tbody tr.quality-incr-row--open:hover {
+  background: #fee2e2;
+}
+
+.quality-incr-table tbody tr.quality-incr-row--resolved {
+  background: #fff;
+}
+
+.quality-incr-status {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.12rem 0.5rem;
+  border-radius: 999px;
+  font-size: 0.75rem;
+  font-weight: 700;
+  text-transform: capitalize;
+  background: #e2e8f0;
+  color: #334155;
+}
+
+.quality-incr-status--open {
+  background: #fecaca;
+  color: #991b1b;
+}
+
+.quality-incr-link {
+  font-weight: 700;
+  color: #1d4ed8;
+  text-decoration: none;
+}
+
+.quality-incr-link:hover {
+  text-decoration: underline;
+}
+
+@media (max-width: 900px) {
+  .quality-incr-stats {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
 .quality-team-filters {
   display: flex;
   flex-wrap: wrap;

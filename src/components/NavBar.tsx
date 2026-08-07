@@ -254,7 +254,8 @@ export function NavBar({ role, username, userId, onLogout }: NavBarProps) {
             label="Quality Team"
             items={[
               { to: '/quality-team', label: 'ITP review & flags', end: true },
-              { to: '/quality-team/incrs/new', label: 'New INCR' },
+              { to: '/quality-team', label: 'INCRs' },
+              { to: '/quality-team/incrs/new', label: 'Add INCR' },
               {
                 to: '/quality-team/mte-calibrations',
                 label: 'MTE Calibrations',

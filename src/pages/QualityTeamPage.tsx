@@ -71,6 +71,7 @@ export function QualityTeamPage() {
   const [incrRows, setIncrRows] = useState<QualityIncr[]>([])
   const [incrLoading, setIncrLoading] = useState(true)
   const [incrError, setIncrError] = useState<string | null>(null)
+  const [incrStatusFilter, setIncrStatusFilter] = useState<'all' | 'open' | 'closed' | 'void' | 'corporate'>('open')
 
   // Same roster source as Admin → Employees (Coy / Colten levels show up there).
   const members = useMemo(() => qualityTeamMembersFromEmployees(employees), [employees])
@@ -164,6 +165,30 @@ export function QualityTeamPage() {
   }, [user?.id, username])
 
   const canManageFlags = isQualityTeamMember(qualityTeamLevel) || hasAdminAccess(role)
+
+  const incrStats = useMemo(() => {
+    let open = 0
+    let closed = 0
+    let voided = 0
+    let corporate = 0
+    for (const row of incrRows) {
+      if (row.status === 'open') open += 1
+      else if (row.status === 'closed') closed += 1
+      else if (row.status === 'void') voided += 1
+      if (row.requires_corporate_ncr) corporate += 1
+    }
+    return { open, closed, voided, corporate, total: incrRows.length }
+  }, [incrRows])
+
+  const filteredIncrRows = useMemo(() => {
+    return incrRows.filter((row) => {
+      if (incrStatusFilter === 'open') return row.status === 'open'
+      if (incrStatusFilter === 'closed') return row.status === 'closed'
+      if (incrStatusFilter === 'void') return row.status === 'void'
+      if (incrStatusFilter === 'corporate') return row.requires_corporate_ncr
+      return true
+    })
+  }, [incrRows, incrStatusFilter])
 
   const cellOptions = useMemo(() => {
     const set = new Set<string>()
@@ -390,29 +415,75 @@ export function QualityTeamPage() {
 
       <section className="dashboard-panel">
         <div className="dashboard-title-row">
-          <h3>INCRs (non-conformance)</h3>
-          <Link to="/quality-team/incrs/new" className="button-primary">
-            New INCR
+          <h3>INCRs</h3>
+          <Link to="/quality-team/incrs/new" className="button-secondary">
+            Add
           </Link>
         </div>
         <p className="placeholder-copy resources-hint">
-          Internal Non-Conformance Reports created from rework moves (Reports → Rework) or started here. Fields follow
-          the shop NCMR / NCR form.
+          Internal non-conformance reports. Open INCRs stay highlighted in red until status is Closed or Void.
         </p>
+
+        <div className="quality-incr-stats" role="group" aria-label="INCR statistics">
+          <button
+            type="button"
+            className={`quality-incr-stat${incrStatusFilter === 'open' ? ' is-active' : ''} quality-incr-stat--open`}
+            onClick={() => setIncrStatusFilter('open')}
+          >
+            <strong>{incrStats.open}</strong>
+            <span>Open</span>
+          </button>
+          <button
+            type="button"
+            className={`quality-incr-stat${incrStatusFilter === 'closed' ? ' is-active' : ''}`}
+            onClick={() => setIncrStatusFilter('closed')}
+          >
+            <strong>{incrStats.closed}</strong>
+            <span>Closed</span>
+          </button>
+          <button
+            type="button"
+            className={`quality-incr-stat${incrStatusFilter === 'void' ? ' is-active' : ''}`}
+            onClick={() => setIncrStatusFilter('void')}
+          >
+            <strong>{incrStats.voided}</strong>
+            <span>Void</span>
+          </button>
+          <button
+            type="button"
+            className={`quality-incr-stat${incrStatusFilter === 'corporate' ? ' is-active' : ''}`}
+            onClick={() => setIncrStatusFilter('corporate')}
+          >
+            <strong>{incrStats.corporate}</strong>
+            <span>Corporate NCR</span>
+          </button>
+          <button
+            type="button"
+            className={`quality-incr-stat${incrStatusFilter === 'all' ? ' is-active' : ''}`}
+            onClick={() => setIncrStatusFilter('all')}
+          >
+            <strong>{incrStats.total}</strong>
+            <span>Total</span>
+          </button>
+        </div>
+
         {incrError ? <p className="placeholder-copy text-red">{incrError}</p> : null}
         {incrLoading ? (
           <p className="placeholder-copy">Loading…</p>
-        ) : incrRows.length === 0 ? (
-          <p className="placeholder-copy">No INCRs yet.</p>
+        ) : filteredIncrRows.length === 0 ? (
+          <p className="placeholder-copy">
+            {incrRows.length === 0 ? 'No INCRs yet.' : 'No INCRs match this filter.'}
+          </p>
         ) : (
           <div className="dashboard-table-wrap">
-            <table className="dashboard-table">
+            <table className="dashboard-table quality-incr-table">
               <thead>
                 <tr>
                   <th>INCR #</th>
                   <th>Status</th>
                   <th>WO</th>
                   <th>Customer</th>
+                  <th>Dept</th>
                   <th>Corporate NCR</th>
                   <th>Date rejected</th>
                   <th>Created</th>
@@ -421,23 +492,44 @@ export function QualityTeamPage() {
                 </tr>
               </thead>
               <tbody>
-                {incrRows.map((row) => (
-                  <tr key={row.id}>
-                    <td>{row.incr_number}</td>
-                    <td>{row.status}</td>
-                    <td>{row.valve_id ?? row.wo_so ?? '—'}</td>
-                    <td>{row.customer_name ?? '—'}</td>
-                    <td>{row.requires_corporate_ncr ? 'Yes' : '—'}</td>
-                    <td>{row.date_rejected ?? '—'}</td>
-                    <td>{formatWhen(row.created_at)}</td>
-                    <td>{row.created_by_name ?? '—'}</td>
-                    <td className="report-table-action">
-                      <Link className="button-secondary report-table-open-link" to={`/quality-team/incrs/${row.id}`}>
-                        Open
-                      </Link>
-                    </td>
-                  </tr>
-                ))}
+                {filteredIncrRows.map((row) => {
+                  const unresolved = row.status === 'open'
+                  return (
+                    <tr
+                      key={row.id}
+                      className={unresolved ? 'quality-incr-row--open' : 'quality-incr-row--resolved'}
+                    >
+                      <td>
+                        <Link className="quality-incr-link" to={`/quality-team/incrs/${row.id}`}>
+                          {row.incr_number}
+                        </Link>
+                      </td>
+                      <td>
+                        <span
+                          className={
+                            unresolved
+                              ? 'quality-incr-status quality-incr-status--open'
+                              : 'quality-incr-status'
+                          }
+                        >
+                          {row.status}
+                        </span>
+                      </td>
+                      <td>{row.valve_id ?? row.wo_so ?? '—'}</td>
+                      <td>{row.customer_name ?? '—'}</td>
+                      <td>{row.dept_responsible ?? '—'}</td>
+                      <td>{row.requires_corporate_ncr ? 'Yes' : '—'}</td>
+                      <td>{row.date_rejected ?? '—'}</td>
+                      <td>{formatWhen(row.created_at)}</td>
+                      <td>{row.created_by_name ?? '—'}</td>
+                      <td className="report-table-action">
+                        <Link className="button-secondary report-table-open-link" to={`/quality-team/incrs/${row.id}`}>
+                          Open
+                        </Link>
+                      </td>
+                    </tr>
+                  )
+                })}
               </tbody>
             </table>
           </div>

@@ -155,7 +155,7 @@ export function QualityIncrFormPage() {
       <div className="dashboard-title-row">
         <div>
           <h2 className="dashboard-title">
-            {incrNumber ? `INCR ${incrNumber}` : 'New INCR'}
+            {incrNumber ? `INCR ${incrNumber}` : 'INCR'}
           </h2>
           <p className="placeholder-copy" style={{ marginTop: '0.35rem' }}>
             Internal Non-Conformance Report (fields match the shop NCMR / NCR form). Saved under Quality Team.
@@ -183,7 +183,7 @@ export function QualityIncrFormPage() {
             Back to Quality Team
           </Link>
           <button type="button" className="button-primary" disabled={saving} onClick={() => void save()}>
-            {saving ? 'Saving…' : incrNumber ? 'Save INCR' : 'Create INCR'}
+            {saving ? 'Saving…' : incrNumber ? 'Save' : 'Save INCR'}
           </button>
         </div>
       </div>
