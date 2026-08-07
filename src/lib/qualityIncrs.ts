@@ -42,14 +42,11 @@ function formToPayload(form: QualityIncrFormState) {
     customer_name: emptyToNull(form.customer_name),
     date_rejected: emptyToNull(form.date_rejected),
     wo_so: emptyToNull(form.wo_so),
-    part_number: emptyToNull(form.part_number),
     part_description: emptyToNull(form.part_description),
     employee_name: emptyToNull(form.employee_name),
     dept_responsible: emptyToNull(form.dept_responsible),
     work_cell: emptyToNull(form.work_cell),
     item: emptyToNull(form.item),
-    reason_code: emptyToNull(form.reason_code),
-    discrepancy_code: emptyToNull(form.discrepancy_code),
     nonconformance_details: emptyToNull(form.nonconformance_details),
     discrepancy_description: emptyToNull(form.discrepancy_description),
     disposition: form.disposition || null,
@@ -138,19 +135,12 @@ export async function applyValveToIncrForm(
 
   const valveType = (valve.valve_type ?? '').trim()
   const sizeClass = sizeClassLabel(valve.size, valve.pressure_class)
-  const bodyMaterial = (valve.body_material ?? '').trim()
-  const materialSpec = (valve.material_spec ?? '').trim()
   const jobType = (valve.job_type ?? '').trim()
 
   next.item =
     [sizeClass, valveType].filter(Boolean).join(' · ') ||
     valveType ||
     next.item
-
-  next.part_number =
-    materialSpec ||
-    [sizeClass, bodyMaterial].filter(Boolean).join(' · ') ||
-    next.part_number
 
   // Prefer job-card technicians; fall back to valve summary ids.
   const fromJoin = await loadJobTechnicianIdsByValveRowId([valve.id])

@@ -65,14 +65,11 @@ export type QualityIncrFormState = {
   customer_name: string
   date_rejected: string
   wo_so: string
-  part_number: string
   part_description: string
   employee_name: string
   dept_responsible: string
   work_cell: string
   item: string
-  reason_code: string
-  discrepancy_code: string
   nonconformance_details: string
   discrepancy_description: string
   disposition: QualityIncrDisposition | ''
@@ -99,14 +96,11 @@ export function emptyQualityIncrForm(): QualityIncrFormState {
     customer_name: '',
     date_rejected: today,
     wo_so: '',
-    part_number: '',
     part_description: '',
     employee_name: '',
     dept_responsible: '',
     work_cell: '',
     item: '',
-    reason_code: '',
-    discrepancy_code: '',
     nonconformance_details: '',
     discrepancy_description: '',
     disposition: '',
@@ -133,14 +127,11 @@ export function qualityIncrToForm(row: QualityIncr): QualityIncrFormState {
     customer_name: row.customer_name ?? '',
     date_rejected: row.date_rejected ?? '',
     wo_so: row.wo_so ?? '',
-    part_number: row.part_number ?? '',
     part_description: row.part_description ?? '',
     employee_name: row.employee_name ?? '',
     dept_responsible: row.dept_responsible ?? '',
     work_cell: row.work_cell ?? '',
     item: row.item ?? '',
-    reason_code: row.reason_code ?? '',
-    discrepancy_code: row.discrepancy_code ?? '',
     nonconformance_details: row.nonconformance_details ?? '',
     discrepancy_description: row.discrepancy_description ?? '',
     disposition: row.disposition ?? '',

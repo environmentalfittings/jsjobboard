@@ -16,6 +16,7 @@ import {
   type QualityIncrFormState,
   type QualityIncrStatus,
 } from '../types/qualityIncr'
+import { PRIORITY_DEPARTMENTS } from '../constants/priorityDepartments'
 
 function Field({
   label,
@@ -219,9 +220,6 @@ export function QualityIncrFormPage() {
       <section className="dashboard-panel">
         <h3>Part / item</h3>
         <div className="incr-form-grid">
-          <Field label="Part number">
-            <input value={form.part_number} onChange={(e) => patch('part_number', e.target.value)} disabled={saving} />
-          </Field>
           <Field label="Part description" className="incr-form-field--wide">
             <input value={form.part_description} onChange={(e) => patch('part_description', e.target.value)} disabled={saving} />
           </Field>
@@ -232,13 +230,22 @@ export function QualityIncrFormPage() {
             <input value={form.employee_name} onChange={(e) => patch('employee_name', e.target.value)} disabled={saving} />
           </Field>
           <Field label="Dept responsible">
-            <input value={form.dept_responsible} onChange={(e) => patch('dept_responsible', e.target.value)} disabled={saving} />
-          </Field>
-          <Field label="Reason code">
-            <input value={form.reason_code} onChange={(e) => patch('reason_code', e.target.value)} disabled={saving} />
-          </Field>
-          <Field label="Discrepancy code">
-            <input value={form.discrepancy_code} onChange={(e) => patch('discrepancy_code', e.target.value)} disabled={saving} />
+            <select
+              value={form.dept_responsible}
+              onChange={(e) => patch('dept_responsible', e.target.value)}
+              disabled={saving}
+            >
+              <option value="">— Select —</option>
+              {PRIORITY_DEPARTMENTS.map((dept) => (
+                <option key={dept.id} value={dept.label}>
+                  {dept.label}
+                </option>
+              ))}
+              {form.dept_responsible &&
+              !PRIORITY_DEPARTMENTS.some((dept) => dept.label === form.dept_responsible) ? (
+                <option value={form.dept_responsible}>{form.dept_responsible}</option>
+              ) : null}
+            </select>
           </Field>
         </div>
       </section>
