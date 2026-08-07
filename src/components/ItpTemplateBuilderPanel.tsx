@@ -44,11 +44,37 @@ function getSel(scope: ItpLibraryTemplateScope, itemId: string): ItpLibraryItemS
   return scope.sel[itemId] ?? emptyItemSel()
 }
 
-type AddDraft = { name: string; secId: ItpLibrarySectionId; ref: string }
+type NewMasterDraft = {
+  name: string
+  area: ItpShopArea
+  secId: ItpLibrarySectionId
+  ref: string
+}
 
-const emptyAddDraft = (): AddDraft => ({
+function defaultSectionForArea(area: ItpShopArea): ItpLibrarySectionId {
+  switch (area) {
+    case 'teardown':
+      return 'disassembly'
+    case 'machine_shop':
+    case 'welding':
+      return 'repair'
+    case 'assembly':
+      return 'assembly'
+    case 'testing':
+      return 'testing'
+    case 'painting':
+      return 'final'
+    case 'qa_qc':
+      return 'inspection'
+    default:
+      return 'receipt'
+  }
+}
+
+const emptyNewMasterDraft = (): NewMasterDraft => ({
   name: '',
-  secId: 'receipt',
+  area: 'teardown',
+  secId: 'disassembly',
   ref: '',
 })
 
@@ -66,7 +92,7 @@ export function ItpTemplateBuilderPanel() {
   const [dirty, setDirty] = useState(false)
   const [masterDirty, setMasterDirty] = useState(false)
   const [subReqDrafts, setSubReqDrafts] = useState<Record<string, string>>({})
-  const [addDrafts, setAddDrafts] = useState<Partial<Record<ItpShopArea, AddDraft>>>({})
+  const [newItem, setNewItem] = useState<NewMasterDraft>(() => emptyNewMasterDraft())
 
   const selectedCount = useMemo(() => countIncludedInScope(scope), [scope])
   const holdPointCount = useMemo(
@@ -255,20 +281,13 @@ export function ItpTemplateBuilderPanel() {
     updateSel(itemId, { subReqs: current.subReqs.filter((_, i) => i !== index) })
   }
 
-  const setAreaDraft = (area: ItpShopArea, patch: Partial<AddDraft>) => {
-    setAddDrafts((prev) => ({
-      ...prev,
-      [area]: { ...(prev[area] ?? emptyAddDraft()), ...patch },
-    }))
-  }
-
-  const addMasterItem = (area: ItpShopArea) => {
-    const draft = addDrafts[area] ?? emptyAddDraft()
-    const name = draft.name.trim()
+  const addMasterItem = () => {
+    const name = newItem.name.trim()
     if (!name) {
-      showToast('Enter an item name')
+      showToast('Enter the requirement text')
       return
     }
+    const area = newItem.area
     const id = `master-${area}-${Date.now().toString(36)}`
     const nextOrder = catalog.reduce((max, item) => Math.max(max, item.sortOrder), -1) + 1
     setCatalog((prev) =>
@@ -277,17 +296,17 @@ export function ItpTemplateBuilderPanel() {
         {
           id,
           name,
-          ref: draft.ref.trim() || 'Custom',
-          secId: draft.secId,
+          ref: newItem.ref.trim() || 'Custom',
+          secId: newItem.secId,
           area,
           sortOrder: nextOrder,
           builtIn: false,
         },
       ]),
     )
-    setAddDrafts((prev) => ({ ...prev, [area]: emptyAddDraft() }))
+    setNewItem(emptyNewMasterDraft())
     setMasterDirty(true)
-    showToast('Added to master list — click Save master list')
+    showToast(`Added to ${ITP_SHOP_AREAS.find((a) => a.value === area)?.label ?? area} — click Save master list`)
   }
 
   const removeMasterItem = (itemId: string) => {
@@ -526,13 +545,80 @@ export function ItpTemplateBuilderPanel() {
             </div>
           </div>
           <div className="itp-library-panel-body">
+            <div className="itp-master-global-add">
+              <div className="itp-master-global-add-title">Add item to master list</div>
+              <div className="itp-master-global-add-row">
+                <label className="itp-master-global-field itp-master-global-field--wide">
+                  <span>Requirement</span>
+                  <input
+                    type="text"
+                    value={newItem.name}
+                    placeholder="Type the requirement…"
+                    onChange={(e) => setNewItem((prev) => ({ ...prev, name: e.target.value }))}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') {
+                        e.preventDefault()
+                        addMasterItem()
+                      }
+                    }}
+                  />
+                </label>
+                <label className="itp-master-global-field">
+                  <span>Category</span>
+                  <select
+                    value={newItem.area}
+                    onChange={(e) => {
+                      const area = e.target.value as ItpShopArea
+                      setNewItem((prev) => ({
+                        ...prev,
+                        area,
+                        secId: defaultSectionForArea(area),
+                      }))
+                    }}
+                  >
+                    {ITP_SHOP_AREAS.map((opt) => (
+                      <option key={opt.value} value={opt.value}>
+                        {opt.label}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <label className="itp-master-global-field">
+                  <span>ITP section</span>
+                  <select
+                    value={newItem.secId}
+                    onChange={(e) =>
+                      setNewItem((prev) => ({ ...prev, secId: e.target.value as ItpLibrarySectionId }))
+                    }
+                  >
+                    {ITP_LIBRARY.map((section) => (
+                      <option key={section.id} value={section.id}>
+                        {section.title}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <label className="itp-master-global-field">
+                  <span>Short label</span>
+                  <input
+                    type="text"
+                    value={newItem.ref}
+                    placeholder="Optional"
+                    onChange={(e) => setNewItem((prev) => ({ ...prev, ref: e.target.value }))}
+                  />
+                </label>
+                <button type="button" className="button-primary itp-master-global-add-btn" onClick={addMasterItem}>
+                  Add to master
+                </button>
+              </div>
+            </div>
+
             {catalogLoading ? (
               <p className="placeholder-copy">Loading master list…</p>
             ) : (
               catalogByArea.map(({ area, label, items }) => {
                 const selCount = items.filter((item) => getSel(scope, item.id).included).length
                 const allSel = items.length > 0 && selCount === items.length
-                const draft = addDrafts[area] ?? emptyAddDraft()
                 return (
                   <div key={area} className="itp-library-lib-sec">
                     <div className="itp-library-lib-sec-hdr">
@@ -549,44 +635,6 @@ export function ItpTemplateBuilderPanel() {
                           {allSel ? 'Deselect All' : 'Select All'}
                         </button>
                       </div>
-                    </div>
-
-                    <div className="itp-master-add-block">
-                      <input
-                        className="itp-library-add-inp"
-                        type="text"
-                        placeholder="+ Add item to this area…"
-                        value={draft.name}
-                        onChange={(e) => setAreaDraft(area, { name: e.target.value })}
-                        onKeyDown={(e) => {
-                          if (e.key === 'Enter') {
-                            e.preventDefault()
-                            addMasterItem(area)
-                          }
-                        }}
-                      />
-                      <select
-                        className="itp-master-add-select"
-                        value={draft.secId}
-                        onChange={(e) => setAreaDraft(area, { secId: e.target.value as ItpLibrarySectionId })}
-                        title="ITP section this item belongs to"
-                      >
-                        {ITP_LIBRARY.map((section) => (
-                          <option key={section.id} value={section.id}>
-                            {section.title}
-                          </option>
-                        ))}
-                      </select>
-                      <input
-                        className="itp-master-add-ref"
-                        type="text"
-                        placeholder="Short label"
-                        value={draft.ref}
-                        onChange={(e) => setAreaDraft(area, { ref: e.target.value })}
-                      />
-                      <button type="button" className="itp-library-add-btn" onClick={() => addMasterItem(area)}>
-                        Add
-                      </button>
                     </div>
 
                     {items.length === 0 ? (
