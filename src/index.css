@@ -1397,6 +1397,10 @@ body {
   line-height: 1.25;
 }
 
+#rework {
+  scroll-margin-top: 72px;
+}
+
 .kpi-card {
   background: #fff;
   border: 1px solid #e5e7eb;

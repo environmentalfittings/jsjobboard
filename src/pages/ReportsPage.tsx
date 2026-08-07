@@ -352,6 +352,9 @@ export function ReportsPage() {
   const [reworkLoading, setReworkLoading] = useState(false)
   const [reworkTotalLogged, setReworkTotalLogged] = useState<number | null>(null)
   const [reworkActionId, setReworkActionId] = useState<number | null>(null)
+  const reworkStartParam = searchParams.get('reworkStart')
+  const reworkEndParam = searchParams.get('reworkEnd')
+  const focusReworkReport = Boolean(reworkStartParam && /^\d{4}-\d{2}-\d{2}$/.test(reworkStartParam))
 
   const loadOtdData = async (year: number) => {
     setOtdLoading(true)
@@ -510,20 +513,24 @@ export function ReportsPage() {
   }, [otdYear])
 
   useEffect(() => {
-    const start = searchParams.get('reworkStart')
-    const endParam = searchParams.get('reworkEnd')
-    if (!start || !/^\d{4}-\d{2}-\d{2}$/.test(start)) return
-    const end = endParam && /^\d{4}-\d{2}-\d{2}$/.test(endParam) ? endParam : start
-    setReworkStart(start)
+    if (!focusReworkReport || !reworkStartParam) return
+    const end =
+      reworkEndParam && /^\d{4}-\d{2}-\d{2}$/.test(reworkEndParam) ? reworkEndParam : reworkStartParam
+    setReworkStart(reworkStartParam)
     setReworkEnd(end)
-    void loadReworkLog({ start, end })
-    const scrollTimer = window.setTimeout(() => {
+    void loadReworkLog({ start: reworkStartParam, end })
+    const scrollToRework = () => {
       document.getElementById('rework')?.scrollIntoView({ behavior: 'smooth', block: 'start' })
-    }, 80)
-    return () => window.clearTimeout(scrollTimer)
-    // Deep-link from dashboard KPI: apply URL dates and open this section.
+    }
+    const t1 = window.setTimeout(scrollToRework, 50)
+    const t2 = window.setTimeout(scrollToRework, 300)
+    return () => {
+      window.clearTimeout(t1)
+      window.clearTimeout(t2)
+    }
+    // Deep-link from dashboard KPI: apply URL dates and surface this section first.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [searchParams.get('reworkStart'), searchParams.get('reworkEnd')])
+  }, [focusReworkReport, reworkStartParam, reworkEndParam])
 
   const applyLateDatePreset = (preset: CompletedDatePreset) => {
     setLatePreset(preset)
@@ -1066,11 +1073,144 @@ export function ReportsPage() {
     return { total, passCount, failCount, passRate }
   }, [testLogRows])
 
+  const reworkReportSection = (
+      <section className="dashboard-panel" id="rework">
+        <h3>Rework / backward status moves</h3>
+        <p className="placeholder-copy">
+          Forward shop flow (editable in Manage Lists → Shop workflow): Pull → Teardown → Machine 1 → Welding →
+          Machine 2 → Fitting → Assembly → Adaption → Actuation → Testing → Painting → Warehouse RTS → Completed.
+          Cards may skip steps. When a card moves to an earlier stage, the technician must enter a rework reason. Only
+          moves logged <strong>after</strong> the rework table is set up in Supabase appear here. Use <strong>NA</strong>{' '}
+          to acknowledge no report is needed, or <strong>INCR</strong> to open an Internal Non-Conformance Report (stored
+          under Quality Team).
+        </p>
+        <div className="report-filters">
+          <label>
+            From
+            <input type="date" value={reworkStart} onChange={(e) => setReworkStart(e.target.value)} />
+          </label>
+          <label>
+            To
+            <input type="date" value={reworkEnd} onChange={(e) => setReworkEnd(e.target.value)} />
+          </label>
+          <button
+            type="button"
+            className="button-primary"
+            onClick={() => void loadReworkLog()}
+            disabled={reworkLoading}
+          >
+            {reworkLoading ? 'Loading…' : 'Run report'}
+          </button>
+          <button
+            type="button"
+            className="button-secondary"
+            onClick={exportReworkCsv}
+            disabled={reworkRows.length === 0}
+          >
+            Export CSV
+          </button>
+        </div>
+
+        <div className="report-summary-bar">
+          <div className="report-summary-item">
+            <span>Rework moves in range</span>
+            <strong>{reworkRows.length}</strong>
+          </div>
+          <div className="report-summary-item">
+            <span>Total logged (all time)</span>
+            <strong>{reworkTotalLogged == null ? '—' : reworkTotalLogged}</strong>
+          </div>
+        </div>
+
+        <div className="dashboard-table-wrap">
+          <table className="dashboard-table">
+            <thead>
+              <tr>
+                <th>Changed</th>
+                <th>Valve ID</th>
+                <th>From</th>
+                <th>To</th>
+                <th>Reason</th>
+                <th>By</th>
+                <th>QA follow-up</th>
+              </tr>
+            </thead>
+            <tbody>
+              {reworkRows.length === 0 ? (
+                <tr>
+                  <td colSpan={7} className="job-muted">
+                    {reworkLoading
+                      ? 'Loading…'
+                      : reworkTotalLogged === 0
+                        ? 'No rework moves have been logged yet. Move a card backward on the job board (with a reason) after the Supabase table is set up, then run this report again.'
+                        : 'No rework moves in this date range. Try widening From/To, or check Total logged (all time).'}
+                  </td>
+                </tr>
+              ) : (
+                reworkRows.map((row) => (
+                  <tr key={row.id}>
+                    <td>{new Date(row.changed_at).toLocaleString()}</td>
+                    <td>{row.valve_id}</td>
+                    <td>{row.previous_status}</td>
+                    <td>{row.new_status}</td>
+                    <td className="table-cell-clamp">{row.reason}</td>
+                    <td>{row.changed_by_name ?? '—'}</td>
+                    <td className="rework-qa-actions">
+                      {row.qa_disposition === 'na' ? (
+                        <span className="rework-qa-badge rework-qa-badge--na">N/A</span>
+                      ) : null}
+                      {row.qa_disposition === 'incr' ? (
+                        <button
+                          type="button"
+                          className="button-secondary rework-qa-btn"
+                          onClick={() => openReworkIncr(row)}
+                        >
+                          Open INCR
+                        </button>
+                      ) : (
+                        <>
+                          <button
+                            type="button"
+                            className="button-secondary rework-qa-btn"
+                            disabled={reworkActionId === row.id || row.qa_disposition === 'na'}
+                            onClick={() => void markReworkNa(row)}
+                          >
+                            {reworkActionId === row.id ? '…' : 'NA'}
+                          </button>
+                          <button
+                            type="button"
+                            className="button-primary rework-qa-btn"
+                            disabled={reworkActionId === row.id || row.qa_disposition === 'na'}
+                            onClick={() => openReworkIncr(row)}
+                          >
+                            INCR
+                          </button>
+                        </>
+                      )}
+                    </td>
+                  </tr>
+                ))
+              )}
+            </tbody>
+          </table>
+        </div>
+      </section>
+  )
+
   return (
     <section className="dashboard-page">
       <div className="dashboard-title-row">
         <h2 className="dashboard-title">Reports</h2>
       </div>
+
+      {focusReworkReport ? (
+        <p className="placeholder-copy" style={{ marginTop: 0 }}>
+          Showing rework / backward moves for <strong>{reworkStart}</strong>
+          {reworkEnd !== reworkStart ? <> through <strong>{reworkEnd}</strong></> : null}.
+        </p>
+      ) : null}
+
+      {focusReworkReport ? reworkReportSection : null}
 
       <section className="dashboard-panel" id="on-time-delivery">
         <div className="training-list-toolbar" style={{ alignItems: 'flex-start' }}>
@@ -2109,127 +2249,7 @@ export function ReportsPage() {
         </div>
       </section>
 
-      <section className="dashboard-panel" id="rework">
-        <h3>Rework / backward status moves</h3>
-        <p className="placeholder-copy">
-          Forward shop flow (editable in Manage Lists → Shop workflow): Pull → Teardown → Machine 1 → Welding →
-          Machine 2 → Fitting → Assembly → Adaption → Actuation → Testing → Painting → Warehouse RTS → Completed.
-          Cards may skip steps. When a card moves to an earlier stage, the technician must enter a rework reason. Only
-          moves logged <strong>after</strong> the rework table is set up in Supabase appear here. Use <strong>NA</strong>{' '}
-          to acknowledge no report is needed, or <strong>INCR</strong> to open an Internal Non-Conformance Report (stored
-          under Quality Team).
-        </p>
-        <div className="report-filters">
-          <label>
-            From
-            <input type="date" value={reworkStart} onChange={(e) => setReworkStart(e.target.value)} />
-          </label>
-          <label>
-            To
-            <input type="date" value={reworkEnd} onChange={(e) => setReworkEnd(e.target.value)} />
-          </label>
-          <button
-            type="button"
-            className="button-primary"
-            onClick={() => void loadReworkLog()}
-            disabled={reworkLoading}
-          >
-            {reworkLoading ? 'Loading…' : 'Run report'}
-          </button>
-          <button
-            type="button"
-            className="button-secondary"
-            onClick={exportReworkCsv}
-            disabled={reworkRows.length === 0}
-          >
-            Export CSV
-          </button>
-        </div>
-
-        <div className="report-summary-bar">
-          <div className="report-summary-item">
-            <span>Rework moves in range</span>
-            <strong>{reworkRows.length}</strong>
-          </div>
-          <div className="report-summary-item">
-            <span>Total logged (all time)</span>
-            <strong>{reworkTotalLogged == null ? '—' : reworkTotalLogged}</strong>
-          </div>
-        </div>
-
-        <div className="dashboard-table-wrap">
-          <table className="dashboard-table">
-            <thead>
-              <tr>
-                <th>Changed</th>
-                <th>Valve ID</th>
-                <th>From</th>
-                <th>To</th>
-                <th>Reason</th>
-                <th>By</th>
-                <th>QA follow-up</th>
-              </tr>
-            </thead>
-            <tbody>
-              {reworkRows.length === 0 ? (
-                <tr>
-                  <td colSpan={7} className="job-muted">
-                    {reworkLoading
-                      ? 'Loading…'
-                      : reworkTotalLogged === 0
-                        ? 'No rework moves have been logged yet. Move a card backward on the job board (with a reason) after the Supabase table is set up, then run this report again.'
-                        : 'No rework moves in this date range. Try widening From/To, or check Total logged (all time).'}
-                  </td>
-                </tr>
-              ) : (
-                reworkRows.map((row) => (
-                  <tr key={row.id}>
-                    <td>{new Date(row.changed_at).toLocaleString()}</td>
-                    <td>{row.valve_id}</td>
-                    <td>{row.previous_status}</td>
-                    <td>{row.new_status}</td>
-                    <td className="table-cell-clamp">{row.reason}</td>
-                    <td>{row.changed_by_name ?? '—'}</td>
-                    <td className="rework-qa-actions">
-                      {row.qa_disposition === 'na' ? (
-                        <span className="rework-qa-badge rework-qa-badge--na">N/A</span>
-                      ) : null}
-                      {row.qa_disposition === 'incr' ? (
-                        <button
-                          type="button"
-                          className="button-secondary rework-qa-btn"
-                          onClick={() => openReworkIncr(row)}
-                        >
-                          Open INCR
-                        </button>
-                      ) : (
-                        <>
-                          <button
-                            type="button"
-                            className="button-secondary rework-qa-btn"
-                            disabled={reworkActionId === row.id || row.qa_disposition === 'na'}
-                            onClick={() => void markReworkNa(row)}
-                          >
-                            {reworkActionId === row.id ? '…' : 'NA'}
-                          </button>
-                          <button
-                            type="button"
-                            className="button-primary rework-qa-btn"
-                            disabled={reworkActionId === row.id || row.qa_disposition === 'na'}
-                            onClick={() => openReworkIncr(row)}
-                          >
-                            INCR
-                          </button>
-                        </>
-                      )}
-                    </td>
-                  </tr>
-                ))
-              )}
-            </tbody>
-          </table>
-        </div>
-      </section>
+      {!focusReworkReport ? reworkReportSection : null}
     </section>
   )
 }

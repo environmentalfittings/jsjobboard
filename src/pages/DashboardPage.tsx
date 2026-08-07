@@ -371,7 +371,11 @@ export function DashboardPage() {
             </Link>
             <Link
               className="kpi-card kpi-link"
-              to={`/reports?reworkStart=${encodeURIComponent(todayIso)}&reworkEnd=${encodeURIComponent(todayIso)}#rework`}
+              to={{
+                pathname: '/reports',
+                search: `reworkStart=${encodeURIComponent(todayIso)}&reworkEnd=${encodeURIComponent(todayIso)}`,
+                hash: 'rework',
+              }}
               title="Open rework / backward moves report for today"
             >
               <div className="kpi-number slate">{reworkTodayCount}</div>
