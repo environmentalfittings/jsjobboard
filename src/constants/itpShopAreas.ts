@@ -3,6 +3,8 @@ export const ITP_SHOP_AREAS = [
   { value: 'machine_shop', label: 'Machine Shop' },
   { value: 'welding', label: 'Welding' },
   { value: 'assembly', label: 'Assembly' },
+  { value: 'actuation', label: 'Actuation' },
+  { value: 'prv', label: 'PRV' },
   { value: 'testing', label: 'Testing' },
   { value: 'painting', label: 'Painting' },
   { value: 'qa_qc', label: 'QA/QC' },

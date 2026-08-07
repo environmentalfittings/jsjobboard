@@ -60,6 +60,10 @@ function defaultSectionForArea(area: ItpShopArea): ItpLibrarySectionId {
       return 'repair'
     case 'assembly':
       return 'assembly'
+    case 'actuation':
+      return 'actuatorsec'
+    case 'prv':
+      return 'reliefsafety'
     case 'testing':
       return 'testing'
     case 'painting':
@@ -440,9 +444,9 @@ export function ItpTemplateBuilderPanel() {
     <section className="dashboard-panel admin-lists-panel itp-template-builder">
       <h3>ITP template builder</h3>
       <p className="placeholder-copy">
-        Master list is grouped by shop <strong>area</strong> (Teardown, Machine Shop, Welding, Assembly, Testing,
-        Painting, QA/QC). Add items, reorder with ↑↓, and assign areas. Pick a <strong>valve type</strong> to split the
-        screen and check items into that template on the right.
+        Master list is grouped by shop <strong>station</strong> (Teardown, Machine Shop, Welding, Assembly, Actuation,
+        PRV, Testing, Painting, QA/QC). Add items, reorder with ↑↓, and assign stations. Pick a{' '}
+        <strong>valve type</strong> to split the screen and check items into that template on the right.
       </p>
 
       <div className="itp-template-builder-toolbar">

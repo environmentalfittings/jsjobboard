@@ -36,11 +36,13 @@ export function defaultAreaForSection(secId: ItpLibrarySectionId): ItpShopArea {
       return 'machine_shop'
     case 'assembly':
     case 'hfservice':
-    case 'actuatorsec':
     case 'controlvlv':
       return 'assembly'
-    case 'testing':
+    case 'actuatorsec':
+      return 'actuation'
     case 'reliefsafety':
+      return 'prv'
+    case 'testing':
       return 'testing'
     case 'slabgate':
     case 'wedgeplug':
