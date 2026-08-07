@@ -33,6 +33,19 @@ interface OtdRow {
   on_time: boolean
 }
 
+interface LateValveRow {
+  id: number
+  valve_id: string
+  customer: string | null
+  status: string | null
+  cell: string | null
+  valve_type: string | null
+  job_type: string | null
+  due_date: string
+  date_closed: string
+  daysLate: number
+}
+
 interface OtdSummary {
   total: number
   onTime: number
@@ -51,6 +64,14 @@ function calcOtdSummary(rows: OtdRow[]): OtdSummary {
     noDueDate: rows.length - withDue.length,
     pct: withDue.length > 0 ? (onTime / withDue.length) * 100 : 0,
   }
+}
+
+/** Whole calendar days late (closed after due). */
+function daysLateBetween(dueDate: string, dateClosed: string): number {
+  const due = new Date(`${dueDate.slice(0, 10)}T12:00:00`)
+  const closed = new Date(`${dateClosed.slice(0, 10)}T12:00:00`)
+  if (Number.isNaN(due.getTime()) || Number.isNaN(closed.getTime())) return 0
+  return Math.max(0, Math.round((closed.getTime() - due.getTime()) / 86_400_000))
 }
 
 function getYearRange(year: number) {
@@ -239,6 +260,13 @@ export function ReportsPage() {
   const [otdYear, setOtdYear] = useState(currentYear)
   const [otdMonth, setOtdMonth] = useState(currentMonth)
 
+  const defaultLateRange = useMemo(() => getCompletedDatePresetRange('this_month'), [])
+  const [latePreset, setLatePreset] = useState<CompletedDatePreset>('this_month')
+  const [lateStartDate, setLateStartDate] = useState(defaultLateRange.start)
+  const [lateEndDate, setLateEndDate] = useState(defaultLateRange.end)
+  const [lateRows, setLateRows] = useState<LateValveRow[]>([])
+  const [lateLoading, setLateLoading] = useState(false)
+
   const defaultTopRange = useMemo(() => getCompletedDatePresetRange('this_year_to_date'), [])
   const [topPreset, setTopPreset] = useState<CompletedDatePreset>('this_year_to_date')
   const [topStartDate, setTopStartDate] = useState(defaultTopRange.start)
@@ -381,6 +409,111 @@ export function ReportsPage() {
   useEffect(() => {
     void loadOtdData(otdYear)
   }, [otdYear])
+
+  const applyLateDatePreset = (preset: CompletedDatePreset) => {
+    setLatePreset(preset)
+    if (preset === 'custom') return
+    const range = getCompletedDatePresetRange(preset)
+    setLateStartDate(range.start)
+    setLateEndDate(range.end)
+  }
+
+  const loadLateValvesReport = async () => {
+    if (!lateStartDate || !lateEndDate) return
+    setLateLoading(true)
+    const { data, error } = await supabase
+      .from('valves')
+      .select('id,valve_id,customer,status,order_type,cell,valve_type,job_type,due_date,date_closed')
+      .in('status', ['Completed', 'Warehouse RTS'])
+      .gte('date_closed', lateStartDate)
+      .lte('date_closed', lateEndDate)
+      .not('due_date', 'is', null)
+      .order('date_closed', { ascending: false })
+      .order('valve_id', { ascending: true })
+      .limit(8000)
+    setLateLoading(false)
+    if (error) {
+      showToast(`Could not load late valves: ${error.message}`)
+      setLateRows([])
+      return
+    }
+    const parsed: LateValveRow[] = (
+      (data ?? []) as {
+        id: number
+        valve_id: string
+        customer: string | null
+        status: string | null
+        order_type: string | null
+        cell: string | null
+        valve_type: string | null
+        job_type: string | null
+        due_date: string | null
+        date_closed: string | null
+      }[]
+    )
+      .filter((r) => !isExcludedFromOnTimeDelivery(r))
+      .filter((r) => {
+        const due = (r.due_date ?? '').trim().slice(0, 10)
+        const closed = (r.date_closed ?? '').trim().slice(0, 10)
+        return Boolean(due && closed && closed > due)
+      })
+      .map((r) => {
+        const due = (r.due_date ?? '').trim().slice(0, 10)
+        const closed = (r.date_closed ?? '').trim().slice(0, 10)
+        return {
+          id: r.id,
+          valve_id: r.valve_id,
+          customer: r.customer,
+          status: r.status,
+          cell: r.cell,
+          valve_type: r.valve_type,
+          job_type: r.job_type,
+          due_date: due,
+          date_closed: closed,
+          daysLate: daysLateBetween(due, closed),
+        }
+      })
+      .sort((a, b) => b.daysLate - a.daysLate || b.date_closed.localeCompare(a.date_closed) || a.valve_id.localeCompare(b.valve_id))
+    setLateRows(parsed)
+  }
+
+  const exportLateValvesCsv = () => {
+    const header = ['WO #', 'Customer', 'Status', 'Cell', 'Valve type', 'Job type', 'Due date', 'Date closed', 'Days late']
+    const lines = lateRows.map((row) =>
+      [
+        row.valve_id,
+        row.customer ?? '',
+        row.status ?? '',
+        row.cell ?? '',
+        row.valve_type ?? '',
+        row.job_type ?? '',
+        row.due_date,
+        row.date_closed,
+        String(row.daysLate),
+      ]
+        .map((cell) => `"${String(cell).replace(/"/g, '""')}"`)
+        .join(','),
+    )
+    const csv = [header.join(','), ...lines].join('\n')
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = `late-valves-${lateStartDate}-to-${lateEndDate}.csv`
+    a.click()
+    URL.revokeObjectURL(url)
+  }
+
+  useEffect(() => {
+    void loadLateValvesReport()
+    // Initial load for this month late valves.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  const lateAvgDays = useMemo(() => {
+    if (lateRows.length === 0) return null
+    return lateRows.reduce((sum, row) => sum + row.daysLate, 0) / lateRows.length
+  }, [lateRows])
 
   const otdYearSummary = useMemo(() => calcOtdSummary(otdRows), [otdRows])
 
@@ -1006,6 +1139,125 @@ export function ReportsPage() {
             </tbody>
           </table>
         </div>
+      </section>
+
+      <section className="dashboard-panel" id="late-valves">
+        <h3>Late valves</h3>
+        <p className="placeholder-copy">
+          Completed / Warehouse RTS jobs closed after their due date in the selected period. Same rules as on-time
+          delivery ({OTD_PAUSE_STATUS_LABEL} excluded). Open a card to review the job.
+        </p>
+        <div className="report-filters">
+          <label>
+            Date range
+            <select value={latePreset} onChange={(e) => applyLateDatePreset(e.target.value as CompletedDatePreset)}>
+              {COMPLETED_DATE_PRESETS.map((preset) => (
+                <option key={preset.value} value={preset.value}>
+                  {preset.label}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label>
+            Start date
+            <input
+              type="date"
+              value={lateStartDate}
+              onChange={(e) => {
+                setLatePreset('custom')
+                setLateStartDate(e.target.value)
+              }}
+            />
+          </label>
+          <label>
+            End date
+            <input
+              type="date"
+              value={lateEndDate}
+              onChange={(e) => {
+                setLatePreset('custom')
+                setLateEndDate(e.target.value)
+              }}
+            />
+          </label>
+          <button type="button" className="button-primary" disabled={lateLoading} onClick={() => void loadLateValvesReport()}>
+            {lateLoading ? 'Loading…' : 'Refresh'}
+          </button>
+          <button
+            type="button"
+            className="button-secondary"
+            disabled={lateLoading || lateRows.length === 0}
+            onClick={exportLateValvesCsv}
+          >
+            Export CSV
+          </button>
+        </div>
+
+        <div className="report-summary-bar">
+          <div className="report-summary-item">
+            <span>Late jobs in range</span>
+            <strong className={lateRows.length > 0 ? 'text-red' : undefined}>{lateRows.length}</strong>
+          </div>
+          <div className="report-summary-item">
+            <span>Avg days late</span>
+            <strong>{lateAvgDays != null ? lateAvgDays.toFixed(1) : '—'}</strong>
+          </div>
+          <div className="report-summary-item">
+            <span>Most days late</span>
+            <strong>{lateRows[0] ? lateRows[0].daysLate : '—'}</strong>
+          </div>
+          <div className="report-summary-item">
+            <span>Period</span>
+            <strong>
+              {lateStartDate} → {lateEndDate}
+            </strong>
+          </div>
+        </div>
+
+        {lateLoading ? (
+          <p className="placeholder-copy">Loading…</p>
+        ) : lateRows.length === 0 ? (
+          <p className="placeholder-copy">No late valves in this date range.</p>
+        ) : (
+          <div className="dashboard-table-wrap">
+            <table className="dashboard-table">
+              <thead>
+                <tr>
+                  <th>WO #</th>
+                  <th>Customer</th>
+                  <th>Status</th>
+                  <th>Cell</th>
+                  <th>Valve type</th>
+                  <th>Due date</th>
+                  <th>Date closed</th>
+                  <th>Days late</th>
+                  <th />
+                </tr>
+              </thead>
+              <tbody>
+                {lateRows.map((row) => (
+                  <tr key={row.id}>
+                    <td>{row.valve_id}</td>
+                    <td>{row.customer ?? '—'}</td>
+                    <td>{row.status ?? '—'}</td>
+                    <td>{row.cell ?? '—'}</td>
+                    <td>{row.valve_type ?? '—'}</td>
+                    <td>{row.due_date}</td>
+                    <td>{row.date_closed}</td>
+                    <td>
+                      <span className="text-red">{row.daysLate}</span>
+                    </td>
+                    <td className="report-table-action">
+                      <Link className="button-secondary report-table-open-link" to={`/job-board?open=${row.id}`}>
+                        Open card
+                      </Link>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
       </section>
 
       <section className="dashboard-panel" id="top-customers-valve-types">
