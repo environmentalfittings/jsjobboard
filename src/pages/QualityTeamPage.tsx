@@ -415,129 +415,6 @@ export function QualityTeamPage() {
 
       <section className="dashboard-panel">
         <div className="dashboard-title-row">
-          <h3>INCRs</h3>
-          <Link to="/quality-team/incrs/new" className="button-secondary">
-            Add
-          </Link>
-        </div>
-        <p className="placeholder-copy resources-hint">
-          Internal non-conformance reports. Open INCRs stay highlighted in red until status is Closed or Void.
-        </p>
-
-        <div className="quality-incr-stats" role="group" aria-label="INCR statistics">
-          <button
-            type="button"
-            className={`quality-incr-stat${incrStatusFilter === 'open' ? ' is-active' : ''} quality-incr-stat--open`}
-            onClick={() => setIncrStatusFilter('open')}
-          >
-            <strong>{incrStats.open}</strong>
-            <span>Open</span>
-          </button>
-          <button
-            type="button"
-            className={`quality-incr-stat${incrStatusFilter === 'closed' ? ' is-active' : ''}`}
-            onClick={() => setIncrStatusFilter('closed')}
-          >
-            <strong>{incrStats.closed}</strong>
-            <span>Closed</span>
-          </button>
-          <button
-            type="button"
-            className={`quality-incr-stat${incrStatusFilter === 'void' ? ' is-active' : ''}`}
-            onClick={() => setIncrStatusFilter('void')}
-          >
-            <strong>{incrStats.voided}</strong>
-            <span>Void</span>
-          </button>
-          <button
-            type="button"
-            className={`quality-incr-stat${incrStatusFilter === 'corporate' ? ' is-active' : ''}`}
-            onClick={() => setIncrStatusFilter('corporate')}
-          >
-            <strong>{incrStats.corporate}</strong>
-            <span>Corporate NCR</span>
-          </button>
-          <button
-            type="button"
-            className={`quality-incr-stat${incrStatusFilter === 'all' ? ' is-active' : ''}`}
-            onClick={() => setIncrStatusFilter('all')}
-          >
-            <strong>{incrStats.total}</strong>
-            <span>Total</span>
-          </button>
-        </div>
-
-        {incrError ? <p className="placeholder-copy text-red">{incrError}</p> : null}
-        {incrLoading ? (
-          <p className="placeholder-copy">Loading…</p>
-        ) : filteredIncrRows.length === 0 ? (
-          <p className="placeholder-copy">
-            {incrRows.length === 0 ? 'No INCRs yet.' : 'No INCRs match this filter.'}
-          </p>
-        ) : (
-          <div className="dashboard-table-wrap">
-            <table className="dashboard-table quality-incr-table">
-              <thead>
-                <tr>
-                  <th>INCR #</th>
-                  <th>Status</th>
-                  <th>WO</th>
-                  <th>Customer</th>
-                  <th>Dept</th>
-                  <th>Corporate NCR</th>
-                  <th>Date rejected</th>
-                  <th>Created</th>
-                  <th>By</th>
-                  <th />
-                </tr>
-              </thead>
-              <tbody>
-                {filteredIncrRows.map((row) => {
-                  const unresolved = row.status === 'open'
-                  return (
-                    <tr
-                      key={row.id}
-                      className={unresolved ? 'quality-incr-row--open' : 'quality-incr-row--resolved'}
-                    >
-                      <td>
-                        <Link className="quality-incr-link" to={`/quality-team/incrs/${row.id}`}>
-                          {row.incr_number}
-                        </Link>
-                      </td>
-                      <td>
-                        <span
-                          className={
-                            unresolved
-                              ? 'quality-incr-status quality-incr-status--open'
-                              : 'quality-incr-status'
-                          }
-                        >
-                          {row.status}
-                        </span>
-                      </td>
-                      <td>{row.valve_id ?? row.wo_so ?? '—'}</td>
-                      <td>{row.customer_name ?? '—'}</td>
-                      <td>{row.dept_responsible ?? '—'}</td>
-                      <td>{row.requires_corporate_ncr ? 'Yes' : '—'}</td>
-                      <td>{row.date_rejected ?? '—'}</td>
-                      <td>{formatWhen(row.created_at)}</td>
-                      <td>{row.created_by_name ?? '—'}</td>
-                      <td className="report-table-action">
-                        <Link className="button-secondary report-table-open-link" to={`/quality-team/incrs/${row.id}`}>
-                          Open
-                        </Link>
-                      </td>
-                    </tr>
-                  )
-                })}
-              </tbody>
-            </table>
-          </div>
-        )}
-      </section>
-
-      <section className="dashboard-panel">
-        <div className="dashboard-title-row">
           <h3>Flagged items (QA/QC)</h3>
           <label className="quality-team-level-filter">
             Show
@@ -725,6 +602,129 @@ export function QualityTeamPage() {
                 </article>
               )
             })}
+          </div>
+        )}
+      </section>
+
+      <section className="dashboard-panel">
+        <div className="dashboard-title-row">
+          <h3>INCRs</h3>
+          <Link to="/quality-team/incrs/new" className="button-secondary">
+            Add
+          </Link>
+        </div>
+        <p className="placeholder-copy resources-hint">
+          Internal non-conformance reports. Open INCRs stay highlighted in red until status is Closed or Void.
+        </p>
+
+        <div className="quality-incr-stats" role="group" aria-label="INCR statistics">
+          <button
+            type="button"
+            className={`quality-incr-stat${incrStatusFilter === 'open' ? ' is-active' : ''} quality-incr-stat--open`}
+            onClick={() => setIncrStatusFilter('open')}
+          >
+            <strong>{incrStats.open}</strong>
+            <span>Open</span>
+          </button>
+          <button
+            type="button"
+            className={`quality-incr-stat${incrStatusFilter === 'closed' ? ' is-active' : ''}`}
+            onClick={() => setIncrStatusFilter('closed')}
+          >
+            <strong>{incrStats.closed}</strong>
+            <span>Closed</span>
+          </button>
+          <button
+            type="button"
+            className={`quality-incr-stat${incrStatusFilter === 'void' ? ' is-active' : ''}`}
+            onClick={() => setIncrStatusFilter('void')}
+          >
+            <strong>{incrStats.voided}</strong>
+            <span>Void</span>
+          </button>
+          <button
+            type="button"
+            className={`quality-incr-stat${incrStatusFilter === 'corporate' ? ' is-active' : ''}`}
+            onClick={() => setIncrStatusFilter('corporate')}
+          >
+            <strong>{incrStats.corporate}</strong>
+            <span>Corporate NCR</span>
+          </button>
+          <button
+            type="button"
+            className={`quality-incr-stat${incrStatusFilter === 'all' ? ' is-active' : ''}`}
+            onClick={() => setIncrStatusFilter('all')}
+          >
+            <strong>{incrStats.total}</strong>
+            <span>Total</span>
+          </button>
+        </div>
+
+        {incrError ? <p className="placeholder-copy text-red">{incrError}</p> : null}
+        {incrLoading ? (
+          <p className="placeholder-copy">Loading…</p>
+        ) : filteredIncrRows.length === 0 ? (
+          <p className="placeholder-copy">
+            {incrRows.length === 0 ? 'No INCRs yet.' : 'No INCRs match this filter.'}
+          </p>
+        ) : (
+          <div className="dashboard-table-wrap">
+            <table className="dashboard-table quality-incr-table">
+              <thead>
+                <tr>
+                  <th>INCR #</th>
+                  <th>Status</th>
+                  <th>WO</th>
+                  <th>Customer</th>
+                  <th>Dept</th>
+                  <th>Corporate NCR</th>
+                  <th>Date rejected</th>
+                  <th>Created</th>
+                  <th>By</th>
+                  <th />
+                </tr>
+              </thead>
+              <tbody>
+                {filteredIncrRows.map((row) => {
+                  const unresolved = row.status === 'open'
+                  return (
+                    <tr
+                      key={row.id}
+                      className={unresolved ? 'quality-incr-row--open' : 'quality-incr-row--resolved'}
+                    >
+                      <td>
+                        <Link className="quality-incr-link" to={`/quality-team/incrs/${row.id}`}>
+                          {row.incr_number}
+                        </Link>
+                      </td>
+                      <td>
+                        <span
+                          className={
+                            unresolved
+                              ? 'quality-incr-status quality-incr-status--open'
+                              : 'quality-incr-status'
+                          }
+                        >
+                          {row.status}
+                        </span>
+                      </td>
+                      <td>{row.valve_id ?? row.wo_so ?? '—'}</td>
+                      <td>{row.customer_name ?? '—'}</td>
+                      <td>{row.dept_responsible ?? '—'}</td>
+                      <td>{row.requires_corporate_ncr ? 'Yes' : '—'}</td>
+                      <td>{row.date_rejected ?? '—'}</td>
+                      <td>{formatWhen(row.created_at)}</td>
+                      <td>{row.created_by_name ?? '—'}</td>
+                      <td className="report-table-action">
+                        <Link className="button-secondary report-table-open-link" to={`/quality-team/incrs/${row.id}`}>
+                          Open
+                        </Link>
+                      </td>
+                    </tr>
+                  )
+                })}
+              </tbody>
+            </table>
           </div>
         )}
       </section>
