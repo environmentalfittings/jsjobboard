@@ -71,7 +71,12 @@ export interface ValveOutsourcedItem {
   updated_at: string
 }
 
-export type ValveOutsourcedItemStatus = 'not_shipped' | 'shipped' | 'received'
+export type ValveOutsourcedItemStatus =
+  | 'stock'
+  | 'ordered'
+  | 'not_shipped'
+  | 'shipped'
+  | 'received'
 
 export interface Technician {
   id: number

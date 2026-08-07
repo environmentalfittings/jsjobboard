@@ -83,13 +83,13 @@ function OutsourcedFieldsGrid({
   return (
     <div className="outsourced-fields-grid">
       <label className="outsourced-field outsourced-field--wide">
-        <span>Item shipped</span>
+        <span>Item</span>
         <input
           type="text"
           className="outsourced-table-input"
           value={value.item_shipped}
           disabled={disabled || busy}
-          placeholder="What was sent out"
+          placeholder="Part / description"
           onChange={(e) => set('item_shipped', e.target.value)}
         />
       </label>

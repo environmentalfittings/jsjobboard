@@ -5,6 +5,8 @@ export const OUTSOURCED_ITEM_STATUSES: {
   value: ValveOutsourcedItemStatus
   label: string
 }[] = [
+  { value: 'stock', label: 'Stock' },
+  { value: 'ordered', label: 'Ordered' },
   { value: 'not_shipped', label: 'Not shipped' },
   { value: 'shipped', label: 'Shipped' },
   { value: 'received', label: 'Received' },
@@ -36,7 +38,9 @@ function todayDateInput(): string {
 
 export function normalizeOutsourcedStatus(raw: unknown): ValveOutsourcedItemStatus {
   const s = String(raw ?? '').trim()
-  if (s === 'shipped' || s === 'received' || s === 'not_shipped') return s
+  if (s === 'stock' || s === 'ordered' || s === 'shipped' || s === 'received' || s === 'not_shipped') {
+    return s
+  }
   return 'not_shipped'
 }
 
