@@ -1,13 +1,35 @@
 import type { StatusReworkRecord } from '../types'
+import { getPriorityDepartment } from '../constants/priorityDepartments'
 import {
   emptyQualityIncrForm,
   type QualityIncr,
   type QualityIncrFormState,
 } from '../types/qualityIncr'
+import { loadJobTechnicianIdsByValveRowId } from './jobTechnicianAssignments'
+import { departmentIdForShopStatus } from './statusPriorityQueue'
 import { supabase } from './supabase'
+import { parseAssignedTechnicianIds } from './valveTechnicianIds'
 
 const INCR_SELECT =
   'id,incr_number,status,rework_log_id,valve_row_id,valve_id,customer_name,date_rejected,wo_so,sequence_no,po_number,customer_code,serial_no,ovation_ncmr_no,part_number,part_description,employee_name,dept_responsible,location,quantity,work_cell,item,reason_code,discrepancy_code,nonconformance_details,discrepancy_description,disposition,final_disposition,labor_cost,material_cost,code_violation_article,root_cause_corrective_action,qc_approval_name,qc_approval_date,initiator_name,initiator_date,final_approval_name,final_approval_date,customer_signature_required,customer_signature_date,notes,created_by_user_id,created_by_name,created_at,updated_at'
+
+type ValveIncrSource = {
+  id: number
+  valve_id: string
+  customer: string | null
+  cell: string | null
+  size: string | null
+  status: string | null
+  job_type: string | null
+  valve_type: string | null
+  description: string | null
+  notes: string | null
+  material_spec: string | null
+  pressure_class: string | null
+  body_material: string | null
+  assigned_technician_id: number | null
+  assigned_technician_ids: unknown
+}
 
 function emptyToNull(value: string): string | null {
   const trimmed = value.trim()
@@ -47,6 +69,114 @@ function formToPayload(form: QualityIncrFormState) {
     notes: emptyToNull(form.notes),
     updated_at: new Date().toISOString(),
   }
+}
+
+function toLocalDateString(value: string | null | undefined): string {
+  if (!value) return ''
+  const trimmed = String(value).trim()
+  if (/^\d{4}-\d{2}-\d{2}/.test(trimmed)) return trimmed.slice(0, 10)
+  const parsed = new Date(trimmed)
+  if (Number.isNaN(parsed.getTime())) return ''
+  const y = parsed.getFullYear()
+  const m = String(parsed.getMonth() + 1).padStart(2, '0')
+  const d = String(parsed.getDate()).padStart(2, '0')
+  return `${y}-${m}-${d}`
+}
+
+function deptLabelForStatus(status: string): string {
+  const trimmed = status.trim()
+  if (!trimmed) return ''
+  const deptId = departmentIdForShopStatus(trimmed)
+  return getPriorityDepartment(deptId)?.label ?? trimmed
+}
+
+function sizeClassLabel(size: string | null | undefined, pressureClass: string | null | undefined): string {
+  const sizeToken = (size ?? '').trim().replace(/"/g, '')
+  const cls = (pressureClass ?? '').trim()
+  if (sizeToken && cls) return `${sizeToken} in ${cls}`
+  if (sizeToken) return `${sizeToken} in`
+  if (cls) return cls
+  return ''
+}
+
+async function technicianNamesForIds(ids: number[]): Promise<string> {
+  if (!ids.length) return ''
+  const { data, error } = await supabase.from('technicians').select('id,name').in('id', ids)
+  if (error || !data?.length) return ''
+  const byId = new Map(
+    (data as { id: number; name: string | null }[]).map((row) => [row.id, (row.name ?? '').trim()]),
+  )
+  return ids
+    .map((id) => byId.get(id) || '')
+    .filter(Boolean)
+    .join(', ')
+}
+
+async function fetchValveForIncr(valveRowId: number): Promise<ValveIncrSource | null> {
+  const { data, error } = await supabase
+    .from('valves')
+    .select(
+      'id,valve_id,customer,cell,size,status,job_type,valve_type,description,notes,material_spec,pressure_class,body_material,assigned_technician_id,assigned_technician_ids',
+    )
+    .eq('id', valveRowId)
+    .maybeSingle()
+  if (error || !data) return null
+  return data as ValveIncrSource
+}
+
+/** Prefill INCR fields from a job-card valve row. */
+export async function applyValveToIncrForm(
+  form: QualityIncrFormState,
+  valve: ValveIncrSource,
+): Promise<QualityIncrFormState> {
+  const next = { ...form }
+  next.wo_so = valve.valve_id || next.wo_so
+  next.customer_name = (valve.customer ?? '').trim() || next.customer_name
+  next.work_cell = (valve.cell ?? '').trim() || next.work_cell
+  next.part_description = (valve.description ?? '').trim() || next.part_description
+  next.notes = (valve.notes ?? '').trim() || next.notes
+
+  const valveType = (valve.valve_type ?? '').trim()
+  const sizeClass = sizeClassLabel(valve.size, valve.pressure_class)
+  const bodyMaterial = (valve.body_material ?? '').trim()
+  const materialSpec = (valve.material_spec ?? '').trim()
+  const jobType = (valve.job_type ?? '').trim()
+
+  next.item =
+    [sizeClass, valveType].filter(Boolean).join(' · ') ||
+    valveType ||
+    next.item
+
+  next.part_number =
+    materialSpec ||
+    [sizeClass, bodyMaterial].filter(Boolean).join(' · ') ||
+    next.part_number
+
+  // Prefer job-card technicians; fall back to valve summary ids.
+  const fromJoin = await loadJobTechnicianIdsByValveRowId([valve.id])
+  const fromValve = parseAssignedTechnicianIds(valve.assigned_technician_ids)
+  if (
+    valve.assigned_technician_id != null &&
+    Number.isInteger(valve.assigned_technician_id) &&
+    valve.assigned_technician_id > 0 &&
+    !fromValve.includes(valve.assigned_technician_id)
+  ) {
+    fromValve.push(valve.assigned_technician_id)
+  }
+  const techIds = fromJoin[valve.id]?.length ? fromJoin[valve.id]! : fromValve
+  const techNames = await technicianNamesForIds(techIds)
+  if (techNames) next.employee_name = techNames
+
+  if (!next.dept_responsible && valve.status) {
+    next.dept_responsible = deptLabelForStatus(valve.status)
+  }
+
+  // Keep job type visible in notes if present and not already included.
+  if (jobType && !next.notes.toLowerCase().includes(jobType.toLowerCase())) {
+    next.notes = next.notes ? `${next.notes}\nJob type: ${jobType}` : `Job type: ${jobType}`
+  }
+
+  return next
 }
 
 async function allocateIncrNumber(): Promise<string> {
@@ -122,24 +252,28 @@ export async function buildIncrFormFromRework(
   rework: StatusReworkRecord,
   options?: { initiatorName?: string | null },
 ): Promise<QualityIncrFormState> {
-  const form = emptyQualityIncrForm()
+  let form = emptyQualityIncrForm()
   form.wo_so = rework.valve_id
   form.nonconformance_details = rework.reason
   form.discrepancy_description = `Rework move: ${rework.previous_status} → ${rework.new_status}`
   form.initiator_name = options?.initiatorName?.trim() || rework.changed_by_name || ''
   form.employee_name = rework.changed_by_name || ''
+  form.date_rejected = toLocalDateString(rework.changed_at) || form.date_rejected
+  // Department where the issue was found (status before the backward move).
+  form.dept_responsible = deptLabelForStatus(rework.previous_status)
 
   if (rework.valve_row_id) {
-    const { data } = await supabase
-      .from('valves')
-      .select('customer,cell,description,valve_type')
-      .eq('id', rework.valve_row_id)
-      .maybeSingle()
-    if (data) {
-      form.customer_name = String((data as { customer?: string | null }).customer ?? '')
-      form.work_cell = String((data as { cell?: string | null }).cell ?? '')
-      form.part_description = String((data as { description?: string | null }).description ?? '')
-      form.item = String((data as { valve_type?: string | null }).valve_type ?? '')
+    const valve = await fetchValveForIncr(rework.valve_row_id)
+    if (valve) {
+      form = await applyValveToIncrForm(form, valve)
+      // Keep dept from the rework move when available (more specific than current status).
+      if (rework.previous_status?.trim()) {
+        form.dept_responsible = deptLabelForStatus(rework.previous_status)
+      }
+      // If no job-card techs, keep the person who logged the rework.
+      if (!form.employee_name.trim()) {
+        form.employee_name = rework.changed_by_name || options?.initiatorName?.trim() || ''
+      }
     }
   }
   return form
@@ -179,7 +313,7 @@ export async function createQualityIncr(options: {
     if (linkError) {
       return {
         data: created,
-        error: `INCR saved, but could not link rework row: ${linkError.message}`,
+        error: `INCR saved, but rework link failed: ${linkError.message}`,
       }
     }
   }

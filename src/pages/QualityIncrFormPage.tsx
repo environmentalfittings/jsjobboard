@@ -158,6 +158,23 @@ export function QualityIncrFormPage() {
           </h2>
           <p className="placeholder-copy" style={{ marginTop: '0.35rem' }}>
             Internal Non-Conformance Report (fields match the shop NCMR / NCR form). Saved under Quality Team.
+            {valveId || valveRowId ? (
+              <>
+                {' '}
+                Job card fields are prefilled from{' '}
+                <strong>{valveId || `row ${valveRowId}`}</strong>
+                {valveRowId ? (
+                  <>
+                    {' '}
+                    (
+                    <Link to={`/job-board?open=${valveRowId}`}>open card</Link>
+                    ).
+                  </>
+                ) : (
+                  '.'
+                )}
+              </>
+            ) : null}
           </p>
         </div>
         <div className="technicians-page-actions">
