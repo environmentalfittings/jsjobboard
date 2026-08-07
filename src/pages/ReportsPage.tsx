@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { Link, useSearchParams } from 'react-router-dom'
+import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import { DailyPriorityWorksheet } from '../components/DailyPriorityWorksheet'
 import { FinishCellBadge } from '../components/FinishCellBadge'
 import { useToast } from '../components/ToastNotification'
@@ -8,6 +8,7 @@ import { TERMINAL_STATUSES } from '../constants/statuses'
 import { downloadCompletedJobsReportPdf } from '../lib/completedJobsReportPdf'
 import { supabase } from '../lib/supabase'
 import { countDueDateChanges, fetchDueDateChanges } from '../lib/dueDateChanges'
+import { markReworkDispositionNa } from '../lib/qualityIncrs'
 import { countStatusReworkLog, fetchStatusReworkLog } from '../lib/statusReworkLog'
 import { isExcludedFromOnTimeDelivery, OTD_EXCLUDED_CUSTOMER_LABEL, OTD_PAUSE_STATUS_LABEL } from '../lib/onTimeDelivery'
 import { printOnTimeDeliveryReport } from '../lib/onTimeDeliveryPrint'
@@ -277,6 +278,7 @@ function getCompletedDatePresetRange(preset: Exclude<CompletedDatePreset, 'custo
 }
 
 export function ReportsPage() {
+  const navigate = useNavigate()
   const [searchParams] = useSearchParams()
   const { showToast } = useToast()
   const defaultRange = useMemo(() => getCurrentWeekRange(), [])
@@ -340,6 +342,7 @@ export function ReportsPage() {
   const [reworkRows, setReworkRows] = useState<StatusReworkRecord[]>([])
   const [reworkLoading, setReworkLoading] = useState(false)
   const [reworkTotalLogged, setReworkTotalLogged] = useState<number | null>(null)
+  const [reworkActionId, setReworkActionId] = useState<number | null>(null)
 
   const loadOtdData = async (year: number) => {
     setOtdLoading(true)
@@ -436,7 +439,7 @@ export function ReportsPage() {
   }
 
   const exportReworkCsv = () => {
-    const header = ['Changed at', 'Valve ID', 'From status', 'To status', 'Reason', 'Changed by']
+    const header = ['Changed at', 'Valve ID', 'From status', 'To status', 'Reason', 'Changed by', 'QA disposition', 'INCR id']
     const lines = reworkRows.map((row) =>
       [
         row.changed_at,
@@ -445,6 +448,8 @@ export function ReportsPage() {
         row.new_status,
         row.reason,
         row.changed_by_name ?? '',
+        row.qa_disposition ?? '',
+        row.incr_id == null ? '' : String(row.incr_id),
       ]
         .map((cell) => `"${String(cell).replace(/"/g, '""')}"`)
         .join(','),
@@ -457,6 +462,36 @@ export function ReportsPage() {
     a.download = `rework-moves-${reworkStart}-to-${reworkEnd}.csv`
     a.click()
     URL.revokeObjectURL(url)
+  }
+
+  const markReworkNa = async (row: StatusReworkRecord) => {
+    if (row.qa_disposition === 'na') {
+      showToast('Already marked N/A')
+      return
+    }
+    if (row.qa_disposition === 'incr') {
+      showToast('This rework already has an INCR')
+      return
+    }
+    setReworkActionId(row.id)
+    const { error } = await markReworkDispositionNa(row.id)
+    setReworkActionId(null)
+    if (error) {
+      showToast(error)
+      return
+    }
+    setReworkRows((prev) =>
+      prev.map((r) => (r.id === row.id ? { ...r, qa_disposition: 'na', incr_id: null } : r)),
+    )
+    showToast(`Marked ${row.valve_id} as N/A — acknowledged`)
+  }
+
+  const openReworkIncr = (row: StatusReworkRecord) => {
+    if (row.qa_disposition === 'incr' && row.incr_id) {
+      navigate(`/quality-team/incrs/${row.incr_id}`)
+      return
+    }
+    navigate(`/quality-team/incrs/new?reworkId=${row.id}`)
   }
 
   useEffect(() => {
@@ -2053,7 +2088,9 @@ export function ReportsPage() {
           Forward shop flow (editable in Manage Lists → Shop workflow): Pull → Teardown → Machine 1 → Welding →
           Machine 2 → Fitting → Assembly → Adaption → Actuation → Testing → Painting → Warehouse RTS → Completed.
           Cards may skip steps. When a card moves to an earlier stage, the technician must enter a rework reason. Only
-          moves logged <strong>after</strong> the rework table is set up in Supabase appear here.
+          moves logged <strong>after</strong> the rework table is set up in Supabase appear here. Use <strong>NA</strong>{' '}
+          to acknowledge no report is needed, or <strong>INCR</strong> to open an Internal Non-Conformance Report (stored
+          under Quality Team).
         </p>
         <div className="report-filters">
           <label>
@@ -2103,12 +2140,13 @@ export function ReportsPage() {
                 <th>To</th>
                 <th>Reason</th>
                 <th>By</th>
+                <th>QA follow-up</th>
               </tr>
             </thead>
             <tbody>
               {reworkRows.length === 0 ? (
                 <tr>
-                  <td colSpan={6} className="job-muted">
+                  <td colSpan={7} className="job-muted">
                     {reworkLoading
                       ? 'Loading…'
                       : reworkTotalLogged === 0
@@ -2125,6 +2163,39 @@ export function ReportsPage() {
                     <td>{row.new_status}</td>
                     <td className="table-cell-clamp">{row.reason}</td>
                     <td>{row.changed_by_name ?? '—'}</td>
+                    <td className="rework-qa-actions">
+                      {row.qa_disposition === 'na' ? (
+                        <span className="rework-qa-badge rework-qa-badge--na">N/A</span>
+                      ) : null}
+                      {row.qa_disposition === 'incr' ? (
+                        <button
+                          type="button"
+                          className="button-secondary rework-qa-btn"
+                          onClick={() => openReworkIncr(row)}
+                        >
+                          Open INCR
+                        </button>
+                      ) : (
+                        <>
+                          <button
+                            type="button"
+                            className="button-secondary rework-qa-btn"
+                            disabled={reworkActionId === row.id || row.qa_disposition === 'na'}
+                            onClick={() => void markReworkNa(row)}
+                          >
+                            {reworkActionId === row.id ? '…' : 'NA'}
+                          </button>
+                          <button
+                            type="button"
+                            className="button-primary rework-qa-btn"
+                            disabled={reworkActionId === row.id || row.qa_disposition === 'na'}
+                            onClick={() => openReworkIncr(row)}
+                          >
+                            INCR
+                          </button>
+                        </>
+                      )}
+                    </td>
                   </tr>
                 ))
               )}
