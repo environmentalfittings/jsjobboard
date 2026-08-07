@@ -338,7 +338,6 @@ export function ItpLibraryEditor({ valve, onClose, readOnly = false }: ItpLibrar
     options: { note: string; summary: string; extraChangeEntries?: ItpQcChangeLogEntry[] },
   ): ItpLibraryPlanPayload => {
     const now = new Date().toISOString()
-    const acceptedDate = now.slice(0, 10)
     const qc = source.qcReview ?? emptyQcReview()
     const acceptEntry: ItpQcChangeLogEntry = {
       id: crypto.randomUUID(),
@@ -351,8 +350,7 @@ export function ItpLibraryEditor({ valve, onClose, readOnly = false }: ItpLibrar
     }
     return {
       ...source,
-      qcMgr: username || source.qcMgr || 'Quality Team',
-      qcDate: source.qcDate || acceptedDate,
+      // Accepter is recorded on qcReview / "ITP Reviewed and Accepted by" — not as QC Manager.
       qcReview: {
         ...qc,
         status: 'accepted',
@@ -1820,6 +1818,25 @@ export function ItpLibraryEditor({ valve, onClose, readOnly = false }: ItpLibrar
                         onChange={(e) => updatePlan((prev) => ({ ...prev, inspDate: e.target.value }))}
                       />
                     </label>
+                    <div className="itp-library-sof itp-library-accepted-by">
+                      <span className="itp-library-accepted-by-label">ITP Reviewed and Accepted by:</span>
+                      <div className="itp-library-accepted-by-value">
+                        {plan.qcReview.acceptedByName?.trim()
+                          ? plan.qcReview.acceptedByName.trim()
+                          : '—'}
+                        {plan.qcReview.acceptedAt ? (
+                          <span className="itp-library-accepted-by-date">
+                            {' '}
+                            ·{' '}
+                            {new Date(plan.qcReview.acceptedAt).toLocaleDateString(undefined, {
+                              year: 'numeric',
+                              month: 'short',
+                              day: 'numeric',
+                            })}
+                          </span>
+                        ) : null}
+                      </div>
+                    </div>
                     <label className="itp-library-sof">
                       QC Manager
                       <input
