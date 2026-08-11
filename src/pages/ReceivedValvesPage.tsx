@@ -7,8 +7,7 @@ import {
   insertReceivedValve,
   isReceivedValveStatus,
   loadReceivedValveRowsShared,
-  readFileAsDataUrl,
-  RECEIVED_VALVE_MAX_IMAGE_BYTES,
+  prepareReceivedValveImage,
   RECEIVED_VALVE_STATUSES,
   RECEIVED_VALVE_STATUS_LABELS,
   receivedValveStatusLabel,
@@ -106,23 +105,17 @@ export function ReceivedValvesPage() {
   const onImageChange = async (event: ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0]
     if (!file) return
-    if (!file.type.startsWith('image/')) {
-      showToast('Please select an image file')
-      event.target.value = ''
-      return
-    }
-    if (file.size > RECEIVED_VALVE_MAX_IMAGE_BYTES) {
-      showToast('Image is too large (max 2 MB)')
-      event.target.value = ''
-      return
-    }
     try {
-      const dataUrl = await readFileAsDataUrl(file)
-      setImageFile(file)
+      const prepared = await prepareReceivedValveImage(file)
+      if (!prepared.ok) {
+        showToast(prepared.error)
+        return
+      }
+      setImageFile(prepared.file)
       setForm((prev) => ({
         ...prev,
-        imageDataUrl: dataUrl,
-        imageName: file.name,
+        imageDataUrl: prepared.dataUrl,
+        imageName: prepared.file.name,
       }))
     } catch (error) {
       const msg = error instanceof Error ? error.message : 'Unknown upload error'
@@ -394,7 +387,10 @@ export function ReceivedValvesPage() {
               Picture
               <input type="file" accept="image/*" capture="environment" onChange={onImageChange} />
             </label>
-            <p className="status-breakdown-note">On iPad, tapping Picture opens the camera so you can take a photo.</p>
+            <p className="status-breakdown-note">
+              On iPad, tapping Picture opens the camera so you can take a photo. Large photos are compressed
+              automatically (up to 20 MB original).
+            </p>
             {form.imageDataUrl ? (
               <div className="received-valves-image-preview">
                 <img src={form.imageDataUrl} alt={form.imageName ?? 'Valve upload preview'} />

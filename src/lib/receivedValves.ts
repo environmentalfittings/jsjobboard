@@ -71,7 +71,11 @@ export type ReceivedValveFormState = {
 
 export const RECEIVED_VALVES_STORAGE_KEY = 'js-job-board-received-valves-v1'
 export const RECEIVED_VALVES_MIGRATED_KEY = 'js-job-board-received-valves-migrated-v1'
-export const RECEIVED_VALVE_MAX_IMAGE_BYTES = 2 * 1024 * 1024
+/** Max size for the original camera/gallery file before compression. */
+export const RECEIVED_VALVE_MAX_IMAGE_BYTES = 20 * 1024 * 1024
+/** Target size after client-side JPEG compression. */
+export const RECEIVED_VALVE_TARGET_IMAGE_BYTES = 1.5 * 1024 * 1024
+const RECEIVED_VALVE_MAX_IMAGE_EDGE = 1600
 
 type ReceivedValveDbRow = {
   id: string
@@ -219,6 +223,104 @@ export function readFileAsDataUrl(file: File) {
   })
 }
 
+function isLikelyImageFile(file: File) {
+  if (file.type.startsWith('image/')) return true
+  return /\.(jpe?g|png|gif|webp|bmp|heic|heif)$/i.test(file.name)
+}
+
+function loadImageFromFile(file: File) {
+  return new Promise<HTMLImageElement>((resolve, reject) => {
+    const url = URL.createObjectURL(file)
+    const img = new Image()
+    img.onload = () => {
+      URL.revokeObjectURL(url)
+      resolve(img)
+    }
+    img.onerror = () => {
+      URL.revokeObjectURL(url)
+      reject(new Error('Could not read this image. Try taking the photo again as JPEG.'))
+    }
+    img.src = url
+  })
+}
+
+function canvasToJpegBlob(canvas: HTMLCanvasElement, quality: number) {
+  return new Promise<Blob | null>((resolve) => {
+    canvas.toBlob((blob) => resolve(blob), 'image/jpeg', quality)
+  })
+}
+
+function jpegFileName(originalName: string) {
+  const base = originalName.replace(/\.[^.]+$/, '').trim() || 'received-valve'
+  return `${base}.jpg`
+}
+
+/**
+ * Accepts large iPad/phone photos (up to 20 MB), then compresses to a JPEG
+ * suitable for storage and RFQ email sharing.
+ */
+export async function prepareReceivedValveImage(
+  file: File,
+): Promise<{ ok: true; file: File; dataUrl: string } | { ok: false; error: string }> {
+  if (!isLikelyImageFile(file)) {
+    return { ok: false, error: 'Please select an image file' }
+  }
+  if (file.size > RECEIVED_VALVE_MAX_IMAGE_BYTES) {
+    return { ok: false, error: 'Image is too large (max 20 MB)' }
+  }
+
+  // Already a small JPEG — keep as-is.
+  if (file.type === 'image/jpeg' && file.size <= RECEIVED_VALVE_TARGET_IMAGE_BYTES) {
+    try {
+      const dataUrl = await readFileAsDataUrl(file)
+      return { ok: true, file, dataUrl }
+    } catch (error) {
+      return { ok: false, error: error instanceof Error ? error.message : 'Could not read image file' }
+    }
+  }
+
+  try {
+    const img = await loadImageFromFile(file)
+    const scale = Math.min(1, RECEIVED_VALVE_MAX_IMAGE_EDGE / Math.max(img.naturalWidth || img.width, img.naturalHeight || img.height, 1))
+    const width = Math.max(1, Math.round((img.naturalWidth || img.width) * scale))
+    const height = Math.max(1, Math.round((img.naturalHeight || img.height) * scale))
+    const canvas = document.createElement('canvas')
+    canvas.width = width
+    canvas.height = height
+    const ctx = canvas.getContext('2d')
+    if (!ctx) return { ok: false, error: 'Could not process image' }
+    ctx.drawImage(img, 0, 0, width, height)
+
+    let quality = 0.85
+    let blob: Blob | null = null
+    for (let attempt = 0; attempt < 6; attempt += 1) {
+      blob = await canvasToJpegBlob(canvas, quality)
+      if (!blob) break
+      if (blob.size <= RECEIVED_VALVE_TARGET_IMAGE_BYTES || quality <= 0.45) break
+      quality -= 0.1
+    }
+    if (!blob) return { ok: false, error: 'Could not compress image' }
+
+    const outFile = new File([blob], jpegFileName(file.name), { type: 'image/jpeg' })
+    const dataUrl = await readFileAsDataUrl(outFile)
+    return { ok: true, file: outFile, dataUrl }
+  } catch (error) {
+    // If the browser cannot decode (e.g. some HEIC), fall back when the original is still under the hard cap.
+    if (file.size <= RECEIVED_VALVE_MAX_IMAGE_BYTES && file.type.startsWith('image/')) {
+      try {
+        const dataUrl = await readFileAsDataUrl(file)
+        return { ok: true, file, dataUrl }
+      } catch {
+        // continue to error below
+      }
+    }
+    return {
+      ok: false,
+      error: error instanceof Error ? error.message : 'Could not process image',
+    }
+  }
+}
+
 function extFromName(name: string) {
   if (!name.includes('.')) return '.jpg'
   const ext = name.slice(name.lastIndexOf('.'))
@@ -249,7 +351,7 @@ export async function uploadReceivedValveImage(
   file: File,
 ): Promise<{ ok: true; url: string; storagePath: string } | { ok: false; error: string }> {
   if (file.size > RECEIVED_VALVE_MAX_IMAGE_BYTES) {
-    return { ok: false, error: 'Image is too large (max 2 MB)' }
+    return { ok: false, error: 'Image is too large (max 20 MB)' }
   }
   const path = `received-valves/${entryId}/${crypto.randomUUID()}${extFromName(file.name)}`
   const { error } = await supabase.storage.from(VALVE_ATTACHMENTS_BUCKET).upload(path, file, {
