@@ -19,7 +19,9 @@ create table if not exists public.received_valves (
       status in (
         'waiting_on_salesman',
         'waiting_on_customer',
-        'converted'
+        'quoted',
+        'converted',
+        'lost'
       )
     ),
   image_url text,

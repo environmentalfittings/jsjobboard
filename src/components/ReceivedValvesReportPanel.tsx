@@ -43,7 +43,9 @@ export function ReceivedValvesReportPanel() {
     const next: Record<ReceivedValveStatus, number> = {
       waiting_on_salesman: 0,
       waiting_on_customer: 0,
+      quoted: 0,
       converted: 0,
+      lost: 0,
     }
     for (const row of rows) next[row.status] += 1
     return next
@@ -58,7 +60,7 @@ export function ReceivedValvesReportPanel() {
         </Link>
       </div>
       <p className="placeholder-copy">
-        Full receiving history, including Converted entries that no longer appear on the Dashboard log.
+        Full receiving history, including Converted and Lost entries that no longer appear on the Dashboard log.
       </p>
       <div className="report-filters">
         <label>

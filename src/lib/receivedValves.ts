@@ -4,7 +4,9 @@ import { supabase } from './supabase'
 export const RECEIVED_VALVE_STATUSES = [
   'waiting_on_salesman',
   'waiting_on_customer',
+  'quoted',
   'converted',
+  'lost',
 ] as const
 
 export type ReceivedValveStatus = (typeof RECEIVED_VALVE_STATUSES)[number]
@@ -12,7 +14,9 @@ export type ReceivedValveStatus = (typeof RECEIVED_VALVE_STATUSES)[number]
 export const RECEIVED_VALVE_STATUS_LABELS: Record<ReceivedValveStatus, string> = {
   waiting_on_salesman: 'Waiting on Salesman',
   waiting_on_customer: 'Waiting on Customer',
+  quoted: 'Quoted',
   converted: 'Converted',
+  lost: 'Lost',
 }
 
 export const DEFAULT_RECEIVED_VALVE_STATUS: ReceivedValveStatus = 'waiting_on_salesman'
@@ -49,9 +53,14 @@ export type ReceivedValveRecord = {
   createdAt: string
 }
 
-/** Active log entries shown on the Dashboard (Converted is excluded). */
+/** Active log entries shown on the Dashboard (Converted / Lost are excluded). */
 export function isActiveReceivedValve(row: Pick<ReceivedValveRecord, 'status'>) {
-  return row.status !== 'converted'
+  return row.status !== 'converted' && row.status !== 'lost'
+}
+
+/** Statuses that leave the Dashboard but remain in Reports. */
+export function isArchivedReceivedValveStatus(status: ReceivedValveStatus) {
+  return status === 'converted' || status === 'lost'
 }
 
 export type ReceivedValveFormState = {

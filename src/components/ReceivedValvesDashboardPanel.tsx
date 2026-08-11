@@ -47,8 +47,8 @@ export function ReceivedValvesDashboardPanel() {
         </Link>
       </div>
       <p className="status-breakdown-note">
-        Open received valves{rows.length ? ` · ${rows.length} active` : ''}. Converted entries leave this list and stay
-        in Reports.
+        Open received valves{rows.length ? ` · ${rows.length} active` : ''}. Converted and Lost entries leave this list
+        and stay in Reports.
       </p>
       <div className="dashboard-table-wrap manager-dashboard-scroll">
         <table className="dashboard-table">

@@ -1,6 +1,6 @@
 -- Add RFQ follow-up status on received valves.
 -- Run once in Supabase SQL Editor (after migration-received-valves.sql).
--- Converted entries stay in the table for Reports but leave the Dashboard log.
+-- Converted / Lost entries stay in the table for Reports but leave the Dashboard log.
 
 begin;
 
@@ -17,24 +17,20 @@ alter table public.received_valves
 alter table public.received_valves
   alter column status set not null;
 
-do $$
-begin
-  if not exists (
-    select 1
-    from pg_constraint
-    where conname = 'received_valves_status_check'
-  ) then
-    alter table public.received_valves
-      add constraint received_valves_status_check
-      check (
-        status in (
-          'waiting_on_salesman',
-          'waiting_on_customer',
-          'converted'
-        )
-      );
-  end if;
-end $$;
+alter table public.received_valves
+  drop constraint if exists received_valves_status_check;
+
+alter table public.received_valves
+  add constraint received_valves_status_check
+  check (
+    status in (
+      'waiting_on_salesman',
+      'waiting_on_customer',
+      'quoted',
+      'converted',
+      'lost'
+    )
+  );
 
 create index if not exists idx_received_valves_status
   on public.received_valves (status);

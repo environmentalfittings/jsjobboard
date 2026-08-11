@@ -5,6 +5,7 @@ import {
   deleteReceivedValve,
   emptyReceivedValveForm,
   insertReceivedValve,
+  isArchivedReceivedValveStatus,
   isReceivedValveStatus,
   loadReceivedValveRowsShared,
   prepareReceivedValveImage,
@@ -259,8 +260,8 @@ export function ReceivedValvesPage() {
     }
     setRows((prev) => prev.map((item) => (item.id === row.id ? { ...item, status } : item)))
     showToast(
-      status === 'converted'
-        ? 'Marked Converted — removed from Dashboard log (still in Reports)'
+      isArchivedReceivedValveStatus(status)
+        ? `Marked ${receivedValveStatusLabel(status)} — removed from Dashboard log (still in Reports)`
         : `Status updated to ${receivedValveStatusLabel(status)}`,
     )
   }
@@ -288,7 +289,7 @@ export function ReceivedValvesPage() {
         <h3>Log received valve</h3>
         <p className="placeholder-copy">
           Track incoming valves with key dates, order references, and an optional photo. Entries are shared for all
-          users. Waiting statuses appear on the Dashboard; Converted drops off the Dashboard but stays in Reports.
+          users. Open statuses stay on the Dashboard; Converted and Lost drop off the Dashboard but stay in Reports.
           Check Send to RFQ to open an email to {rfqEmail} with the details and picture.
         </p>
         {missingTable ? (
@@ -421,8 +422,8 @@ export function ReceivedValvesPage() {
               ))}
             </select>
             <span className="status-breakdown-note">
-              Waiting on Salesman / Waiting on Customer stay on the Dashboard. Converted drops off the Dashboard and
-              remains in Reports.
+              Waiting on Salesman / Waiting on Customer / Quoted stay on the Dashboard. Converted and Lost drop off the
+              Dashboard and remain in Reports.
             </span>
           </label>
 
