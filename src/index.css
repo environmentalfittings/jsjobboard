@@ -6083,6 +6083,17 @@ a.test-log-reports-item-name:hover {
   gap: 8px;
 }
 
+.received-valves-status-select {
+  min-width: 11.5rem;
+  max-width: 100%;
+  border: 1px solid #d1d5db;
+  border-radius: 8px;
+  padding: 6px 8px;
+  font-size: 13px;
+  font-family: inherit;
+  background: #fff;
+}
+
 .received-valves-image-link {
   display: inline-flex;
   border: 1px solid #dbe4ef;

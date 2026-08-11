@@ -1,18 +1,27 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
+import { useToast } from './ToastNotification'
 import {
   isActiveReceivedValve,
+  isArchivedReceivedValveStatus,
+  isReceivedValveStatus,
   loadReceivedValveRowsShared,
+  RECEIVED_VALVE_STATUSES,
+  RECEIVED_VALVE_STATUS_LABELS,
   receivedValveStatusLabel,
   sortReceivedValveRows,
+  updateReceivedValve,
   type ReceivedValveRecord,
+  type ReceivedValveStatus,
 } from '../lib/receivedValves'
 
 const DASHBOARD_LOG_LIMIT = 8
 
 export function ReceivedValvesDashboardPanel() {
+  const { showToast } = useToast()
   const [rows, setRows] = useState<ReceivedValveRecord[]>([])
   const [loading, setLoading] = useState(true)
+  const [updatingId, setUpdatingId] = useState<string | null>(null)
 
   const reload = useCallback(async () => {
     setLoading(true)
@@ -36,6 +45,24 @@ export function ReceivedValvesDashboardPanel() {
     }
   }, [reload])
 
+  const changeStatus = async (row: ReceivedValveRecord, status: ReceivedValveStatus) => {
+    if (row.status === status) return
+    setUpdatingId(row.id)
+    const result = await updateReceivedValve(row.id, { status })
+    setUpdatingId(null)
+    if (!result.ok) {
+      showToast(result.error)
+      return
+    }
+    if (isArchivedReceivedValveStatus(status)) {
+      setRows((prev) => prev.filter((item) => item.id !== row.id))
+      showToast(`Marked ${receivedValveStatusLabel(status)} — removed from Dashboard (still in Reports)`)
+      return
+    }
+    setRows((prev) => prev.map((item) => (item.id === row.id ? { ...item, status } : item)))
+    showToast(`Status updated to ${receivedValveStatusLabel(status)}`)
+  }
+
   const sortedRows = useMemo(() => sortReceivedValveRows(rows).slice(0, DASHBOARD_LOG_LIMIT), [rows])
 
   return (
@@ -47,8 +74,8 @@ export function ReceivedValvesDashboardPanel() {
         </Link>
       </div>
       <p className="status-breakdown-note">
-        Open received valves{rows.length ? ` · ${rows.length} active` : ''}. Converted and Lost entries leave this list
-        and stay in Reports.
+        Open received valves{rows.length ? ` · ${rows.length} active` : ''}. Change Status here anytime. Converted and
+        Lost leave this list and stay in Reports.
       </p>
       <div className="dashboard-table-wrap manager-dashboard-scroll">
         <table className="dashboard-table">
@@ -87,7 +114,25 @@ export function ReceivedValvesDashboardPanel() {
                   <td className="table-cell-clamp">{row.description}</td>
                   <td>{row.estimateNumber || '—'}</td>
                   <td>{row.salesOrderNumber || '—'}</td>
-                  <td>{receivedValveStatusLabel(row.status)}</td>
+                  <td>
+                    <select
+                      className="received-valves-status-select"
+                      value={row.status}
+                      disabled={updatingId === row.id}
+                      aria-label={`Status for ${row.customer}`}
+                      onChange={(e) => {
+                        const value = e.target.value
+                        if (!isReceivedValveStatus(value)) return
+                        void changeStatus(row, value)
+                      }}
+                    >
+                      {RECEIVED_VALVE_STATUSES.map((status) => (
+                        <option key={status} value={status}>
+                          {RECEIVED_VALVE_STATUS_LABELS[status]}
+                        </option>
+                      ))}
+                    </select>
+                  </td>
                   <td>{row.workOrderPrinted ? 'Yes' : 'No'}</td>
                 </tr>
               ))
