@@ -514,19 +514,49 @@ export async function insertReceivedValve(
   return { ok: true }
 }
 
+export type ReceivedValveUpdatePatch = Partial<
+  Pick<
+    ReceivedValveRecord,
+    | 'receivedDate'
+    | 'customer'
+    | 'description'
+    | 'teardownInspectionDate'
+    | 'warehouseCheckInDate'
+    | 'estimateNumber'
+    | 'salesOrderNumber'
+    | 'workOrderPrinted'
+    | 'status'
+    | 'notes'
+    | 'sentToRfqAt'
+    | 'imageDataUrl'
+    | 'imageStoragePath'
+    | 'imageName'
+  >
+>
+
 export async function updateReceivedValve(
   id: string,
-  patch: Partial<
-    Pick<ReceivedValveRecord, 'sentToRfqAt' | 'imageDataUrl' | 'imageStoragePath' | 'imageName' | 'status' | 'notes'>
-  >,
+  patch: ReceivedValveUpdatePatch,
 ): Promise<{ ok: true } | { ok: false; error: string }> {
   const payload: Record<string, unknown> = { updated_at: new Date().toISOString() }
+  if ('receivedDate' in patch) payload.received_date = emptyToNullDate(patch.receivedDate ?? '') ?? todayIsoDate()
+  if ('customer' in patch) payload.customer = (patch.customer ?? '').trim()
+  if ('description' in patch) payload.description = (patch.description ?? '').trim()
+  if ('teardownInspectionDate' in patch) {
+    payload.teardown_inspection_date = emptyToNullDate(patch.teardownInspectionDate ?? '')
+  }
+  if ('warehouseCheckInDate' in patch) {
+    payload.warehouse_check_in_date = emptyToNullDate(patch.warehouseCheckInDate ?? '')
+  }
+  if ('estimateNumber' in patch) payload.estimate_number = (patch.estimateNumber ?? '').trim()
+  if ('salesOrderNumber' in patch) payload.sales_order_number = (patch.salesOrderNumber ?? '').trim()
+  if ('workOrderPrinted' in patch) payload.work_order_printed = Boolean(patch.workOrderPrinted)
+  if ('status' in patch && patch.status) payload.status = patch.status
+  if ('notes' in patch) payload.notes = patch.notes ?? ''
   if ('sentToRfqAt' in patch) payload.sent_to_rfq_at = patch.sentToRfqAt
   if ('imageDataUrl' in patch) payload.image_url = patch.imageDataUrl
   if ('imageStoragePath' in patch) payload.image_storage_path = patch.imageStoragePath
   if ('imageName' in patch) payload.image_name = patch.imageName
-  if ('status' in patch && patch.status) payload.status = patch.status
-  if ('notes' in patch) payload.notes = patch.notes ?? ''
 
   const { error } = await supabase.from('received_valves').update(payload).eq('id', id)
   if (error) return { ok: false, error: error.message || 'Could not update received valve' }

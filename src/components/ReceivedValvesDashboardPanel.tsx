@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
+import { ReceivedValveEditModal } from './ReceivedValveEditModal'
 import { useToast } from './ToastNotification'
 import {
   isActiveReceivedValve,
@@ -22,6 +23,7 @@ export function ReceivedValvesDashboardPanel() {
   const [rows, setRows] = useState<ReceivedValveRecord[]>([])
   const [loading, setLoading] = useState(true)
   const [updatingId, setUpdatingId] = useState<string | null>(null)
+  const [editingRow, setEditingRow] = useState<ReceivedValveRecord | null>(null)
 
   const reload = useCallback(async () => {
     setLoading(true)
@@ -63,6 +65,17 @@ export function ReceivedValvesDashboardPanel() {
     showToast(`Status updated to ${receivedValveStatusLabel(status)}`)
   }
 
+  const onSavedEdit = (next: ReceivedValveRecord) => {
+    setEditingRow(null)
+    if (isArchivedReceivedValveStatus(next.status)) {
+      setRows((prev) => prev.filter((item) => item.id !== next.id))
+      showToast(`Saved — marked ${receivedValveStatusLabel(next.status)} and removed from Dashboard`)
+      return
+    }
+    setRows((prev) => prev.map((item) => (item.id === next.id ? next : item)))
+    showToast('Received valve updated')
+  }
+
   const sortedRows = useMemo(() => sortReceivedValveRows(rows).slice(0, DASHBOARD_LOG_LIMIT), [rows])
 
   return (
@@ -74,8 +87,8 @@ export function ReceivedValvesDashboardPanel() {
         </Link>
       </div>
       <p className="status-breakdown-note">
-        Open received valves{rows.length ? ` · ${rows.length} active` : ''}. Change Status here anytime. Converted and
-        Lost leave this list and stay in Reports.
+        Open received valves{rows.length ? ` · ${rows.length} active` : ''}. Use Edit to change details, or Status for a
+        quick update. Converted and Lost leave this list and stay in Reports.
       </p>
       <div className="dashboard-table-wrap manager-dashboard-scroll">
         <table className="dashboard-table">
@@ -89,6 +102,7 @@ export function ReceivedValvesDashboardPanel() {
               <th>SO #</th>
               <th>Status</th>
               <th>WO printed</th>
+              <th>Actions</th>
             </tr>
           </thead>
           <tbody>
@@ -134,11 +148,16 @@ export function ReceivedValvesDashboardPanel() {
                     </select>
                   </td>
                   <td>{row.workOrderPrinted ? 'Yes' : 'No'}</td>
+                  <td>
+                    <button type="button" className="button-secondary" onClick={() => setEditingRow(row)}>
+                      Edit
+                    </button>
+                  </td>
                 </tr>
               ))
             ) : (
               <tr>
-                <td colSpan={8} className="table-empty-cell">
+                <td colSpan={9} className="table-empty-cell">
                   {loading ? (
                     'Loading…'
                   ) : (
@@ -153,6 +172,15 @@ export function ReceivedValvesDashboardPanel() {
           </tbody>
         </table>
       </div>
+
+      {editingRow ? (
+        <ReceivedValveEditModal
+          row={editingRow}
+          onClose={() => setEditingRow(null)}
+          onSaved={onSavedEdit}
+          onError={(message) => showToast(message)}
+        />
+      ) : null}
     </section>
   )
 }

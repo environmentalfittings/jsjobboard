@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState, type ChangeEvent, type FormEvent } from 'react'
 import { Link } from 'react-router-dom'
+import { ReceivedValveEditModal } from '../components/ReceivedValveEditModal'
 import { TestLogColumnHeader } from '../components/testLog/TestLogColumnHeader'
 import { useToast } from '../components/ToastNotification'
 import {
@@ -117,6 +118,7 @@ export function ReceivedValvesPage() {
   const [sortKey, setSortKey] = useState<ReceivedValveSortKey>('receivedDate')
   const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('desc')
   const [notesDrafts, setNotesDrafts] = useState<Record<string, string>>({})
+  const [editingRow, setEditingRow] = useState<ReceivedValveRecord | null>(null)
   const rfqEmail = getRfqEmail()
 
   const loadCustomers = useCallback(async () => {
@@ -802,6 +804,9 @@ export function ReceivedValvesPage() {
                     <td>{row.sentToRfqAt ? 'Sent' : '—'}</td>
                     <td>
                       <div className="received-valves-row-actions">
+                        <button type="button" className="button-secondary" onClick={() => setEditingRow(row)}>
+                          Edit
+                        </button>
                         <button
                           type="button"
                           className={row.id === lastSavedId && !row.sentToRfqAt ? 'button-primary' : 'button-secondary'}
@@ -832,6 +837,19 @@ export function ReceivedValvesPage() {
           </table>
         </div>
       </section>
+
+      {editingRow ? (
+        <ReceivedValveEditModal
+          row={editingRow}
+          onClose={() => setEditingRow(null)}
+          onSaved={(next) => {
+            setEditingRow(null)
+            setRows((prev) => prev.map((item) => (item.id === next.id ? next : item)))
+            showToast('Received valve updated')
+          }}
+          onError={(message) => showToast(message)}
+        />
+      ) : null}
     </section>
   )
 }

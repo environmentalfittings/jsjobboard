@@ -6079,8 +6079,11 @@ a.test-log-reports-item-name:hover {
   resize: vertical;
 }
 
-.received-valves-log-table th {
-  vertical-align: top;
+.received-valve-edit-modal {
+  max-width: 760px;
+  width: min(760px, calc(100vw - 24px));
+  max-height: calc(100vh - 32px);
+  overflow: auto;
 }
 
 .received-valves-checkbox-row {
