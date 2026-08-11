@@ -60,6 +60,20 @@ export function dataUrlToFile(dataUrl: string, fileName: string): File | null {
   }
 }
 
+async function imageSourceToFile(source: string, fileName: string): Promise<File | null> {
+  if (source.startsWith('data:')) return dataUrlToFile(source, fileName)
+  try {
+    const response = await fetch(source)
+    if (!response.ok) return null
+    const blob = await response.blob()
+    const mime = blob.type || 'image/jpeg'
+    const safeName = fileName.trim() || `received-valve.${mime.includes('png') ? 'png' : 'jpg'}`
+    return new File([blob], safeName, { type: mime })
+  } catch {
+    return null
+  }
+}
+
 function openMailto(to: string, subject: string, body: string) {
   const href = `mailto:${encodeURIComponent(to)}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`
   window.location.href = href
@@ -90,7 +104,7 @@ export async function composeRfqEmail(options: {
 
   let file = options.imageFile ?? null
   if (!file && options.imageDataUrl) {
-    file = dataUrlToFile(options.imageDataUrl, options.details.imageName ?? 'received-valve.jpg')
+    file = await imageSourceToFile(options.imageDataUrl, options.details.imageName ?? 'received-valve.jpg')
   }
 
   // Prefer Web Share when a photo can be attached (iPad Mail). Otherwise use mailto.

@@ -1,7 +1,7 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import {
-  loadReceivedValveRows,
+  loadReceivedValveRowsShared,
   sortReceivedValveRows,
   type ReceivedValveRecord,
 } from '../lib/receivedValves'
@@ -10,17 +10,29 @@ const DASHBOARD_LOG_LIMIT = 8
 
 export function ReceivedValvesDashboardPanel() {
   const [rows, setRows] = useState<ReceivedValveRecord[]>([])
+  const [loading, setLoading] = useState(true)
+
+  const reload = useCallback(async () => {
+    setLoading(true)
+    const result = await loadReceivedValveRowsShared()
+    setLoading(false)
+    if (!result.ok) {
+      setRows([])
+      return
+    }
+    setRows(result.rows)
+  }, [])
 
   useEffect(() => {
-    const reload = () => setRows(loadReceivedValveRows())
-    reload()
-    window.addEventListener('storage', reload)
-    window.addEventListener('focus', reload)
-    return () => {
-      window.removeEventListener('storage', reload)
-      window.removeEventListener('focus', reload)
+    void reload()
+    const onFocus = () => {
+      void reload()
     }
-  }, [])
+    window.addEventListener('focus', onFocus)
+    return () => {
+      window.removeEventListener('focus', onFocus)
+    }
+  }, [reload])
 
   const sortedRows = useMemo(() => sortReceivedValveRows(rows).slice(0, DASHBOARD_LOG_LIMIT), [rows])
 
@@ -77,8 +89,14 @@ export function ReceivedValvesDashboardPanel() {
             ) : (
               <tr>
                 <td colSpan={7} className="table-empty-cell">
-                  No received valves logged yet.{' '}
-                  <Link to="/received-valves">Add the first entry</Link>
+                  {loading ? (
+                    'Loading…'
+                  ) : (
+                    <>
+                      No received valves logged yet.{' '}
+                      <Link to="/received-valves">Add the first entry</Link>
+                    </>
+                  )}
                 </td>
               </tr>
             )}

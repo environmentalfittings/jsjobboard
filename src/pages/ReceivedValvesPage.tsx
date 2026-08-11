@@ -2,13 +2,16 @@ import { useCallback, useEffect, useMemo, useState, type ChangeEvent, type FormE
 import { Link } from 'react-router-dom'
 import { useToast } from '../components/ToastNotification'
 import {
+  deleteReceivedValve,
   emptyReceivedValveForm,
-  loadReceivedValveRows,
+  insertReceivedValve,
+  loadReceivedValveRowsShared,
   readFileAsDataUrl,
   RECEIVED_VALVE_MAX_IMAGE_BYTES,
-  saveReceivedValveRows,
   sortReceivedValveRows,
   todayIsoDate,
+  updateReceivedValve,
+  uploadReceivedValveImage,
   type ReceivedValveFormState,
   type ReceivedValveRecord,
 } from '../lib/receivedValves'
@@ -48,9 +51,11 @@ export function ReceivedValvesPage() {
   const [imageFile, setImageFile] = useState<File | null>(null)
   const [rows, setRows] = useState<ReceivedValveRecord[]>([])
   const [customers, setCustomers] = useState<CustomerRow[]>([])
+  const [loading, setLoading] = useState(true)
   const [loadingCustomers, setLoadingCustomers] = useState(true)
   const [saving, setSaving] = useState(false)
   const [sendingRfqId, setSendingRfqId] = useState<string | null>(null)
+  const [missingTable, setMissingTable] = useState(false)
   const rfqEmail = getRfqEmail()
 
   const loadCustomers = useCallback(async () => {
@@ -64,22 +69,32 @@ export function ReceivedValvesPage() {
     setCustomers((data ?? []) as CustomerRow[])
   }, [showToast])
 
+  const reloadRows = useCallback(async () => {
+    setLoading(true)
+    const result = await loadReceivedValveRowsShared()
+    setLoading(false)
+    if (!result.ok) {
+      setMissingTable(Boolean(result.missingTable))
+      showToast(
+        result.missingTable
+          ? 'Received valves table is missing — run supabase/migration-received-valves.sql in Supabase'
+          : `Could not load received valves: ${result.error}`,
+      )
+      return
+    }
+    setMissingTable(false)
+    setRows(result.rows)
+    if (result.migrated > 0) {
+      showToast(`Moved ${result.migrated} local received-valve entr${result.migrated === 1 ? 'y' : 'ies'} to shared storage`)
+    }
+  }, [showToast])
+
   useEffect(() => {
-    setRows(loadReceivedValveRows())
+    void reloadRows()
     void loadCustomers()
-  }, [loadCustomers])
+  }, [loadCustomers, reloadRows])
 
   const sortedRows = useMemo(() => sortReceivedValveRows(rows), [rows])
-
-  const persistRows = (nextRows: ReceivedValveRecord[]) => {
-    const result = saveReceivedValveRows(nextRows)
-    if (!result.ok) {
-      showToast(`Could not save received valves: ${result.error}`)
-      return false
-    }
-    setRows(nextRows)
-    return true
-  }
 
   const onImageChange = async (event: ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0]
@@ -119,10 +134,14 @@ export function ReceivedValvesPage() {
     }))
   }
 
-  const markSentToRfq = (id: string) => {
+  const markSentToRfq = async (id: string) => {
     const sentToRfqAt = new Date().toISOString()
-    const nextRows = rows.map((row) => (row.id === id ? { ...row, sentToRfqAt } : row))
-    persistRows(nextRows)
+    const result = await updateReceivedValve(id, { sentToRfqAt })
+    if (!result.ok) {
+      showToast(result.error)
+      return
+    }
+    setRows((prev) => prev.map((row) => (row.id === id ? { ...row, sentToRfqAt } : row)))
   }
 
   const sendRowToRfq = async (row: ReceivedValveRecord, file?: File | null) => {
@@ -134,7 +153,7 @@ export function ReceivedValvesPage() {
         imageDataUrl: row.imageDataUrl,
       })
       if (result.ok) {
-        markSentToRfq(row.id)
+        await markSentToRfq(row.id)
         showToast(result.message)
       } else {
         showToast(result.message)
@@ -154,10 +173,32 @@ export function ReceivedValvesPage() {
       showToast('Description is required')
       return
     }
+    if (missingTable) {
+      showToast('Run supabase/migration-received-valves.sql in Supabase before saving')
+      return
+    }
+
     setSaving(true)
+    const id = crypto.randomUUID()
     const createdAt = new Date().toISOString()
+
+    let imageDataUrl: string | null = null
+    let imageStoragePath: string | null = null
+    let imageName: string | null = form.imageName
+
+    if (imageFile) {
+      const uploaded = await uploadReceivedValveImage(id, imageFile)
+      if (!uploaded.ok) {
+        setSaving(false)
+        showToast(uploaded.error)
+        return
+      }
+      imageDataUrl = uploaded.url
+      imageStoragePath = uploaded.storagePath
+    }
+
     const nextRow: ReceivedValveRecord = {
-      id: crypto.randomUUID(),
+      id,
       receivedDate: form.receivedDate || todayIsoDate(),
       customer: form.customer.trim(),
       description: form.description.trim(),
@@ -166,15 +207,17 @@ export function ReceivedValvesPage() {
       estimateNumber: form.estimateNumber.trim(),
       salesOrderNumber: form.salesOrderNumber.trim(),
       workOrderPrinted: form.workOrderPrinted === 'yes',
-      imageDataUrl: form.imageDataUrl,
-      imageName: form.imageName,
+      imageDataUrl,
+      imageStoragePath,
+      imageName,
       sentToRfqAt: null,
       createdAt,
     }
-    const nextRows = [nextRow, ...rows]
-    const ok = persistRows(nextRows)
-    if (!ok) {
+
+    const insertResult = await insertReceivedValve(nextRow)
+    if (!insertResult.ok) {
       setSaving(false)
+      showToast(insertResult.error)
       return
     }
 
@@ -182,6 +225,7 @@ export function ReceivedValvesPage() {
     const fileForRfq = imageFile
     setForm(emptyReceivedValveForm())
     setImageFile(null)
+    setRows((prev) => [nextRow, ...prev])
     setSaving(false)
     showToast('Received valve entry saved')
 
@@ -194,8 +238,7 @@ export function ReceivedValvesPage() {
           imageDataUrl: nextRow.imageDataUrl,
         })
         if (result.ok) {
-          const stamped = [{ ...nextRow, sentToRfqAt: new Date().toISOString() }, ...rows]
-          persistRows(stamped)
+          await markSentToRfq(nextRow.id)
           showToast(result.message)
         } else {
           showToast(result.message)
@@ -206,11 +249,14 @@ export function ReceivedValvesPage() {
     }
   }
 
-  const removeRow = (id: string) => {
-    const nextRows = rows.filter((row) => row.id !== id)
-    if (nextRows.length === rows.length) return
-    const ok = persistRows(nextRows)
-    if (ok) showToast('Entry removed')
+  const removeRow = async (row: ReceivedValveRecord) => {
+    const result = await deleteReceivedValve(row)
+    if (!result.ok) {
+      showToast(result.error)
+      return
+    }
+    setRows((prev) => prev.filter((item) => item.id !== row.id))
+    showToast('Entry removed')
   }
 
   return (
@@ -225,9 +271,16 @@ export function ReceivedValvesPage() {
       <section className="dashboard-panel">
         <h3>Log received valve</h3>
         <p className="placeholder-copy">
-          Track incoming valves with key dates, order references, and an optional photo. Entries also appear on the
-          Dashboard. Check Send to RFQ to open an email to {rfqEmail} with the details and picture.
+          Track incoming valves with key dates, order references, and an optional photo. Entries are shared for all
+          users and also appear on the Dashboard. Check Send to RFQ to open an email to {rfqEmail} with the details and
+          picture.
         </p>
+        {missingTable ? (
+          <p className="status-breakdown-note">
+            Shared storage is not set up yet. Run <code>supabase/migration-received-valves.sql</code> in the Supabase
+            SQL Editor, then refresh this page.
+          </p>
+        ) : null}
         <form className="received-valves-form" onSubmit={onSubmit}>
           <label>
             Date received
@@ -347,7 +400,7 @@ export function ReceivedValvesPage() {
           </label>
 
           <div className="received-valves-actions received-valves-span-full">
-            <button type="submit" className="button-primary" disabled={saving || sendingRfqId !== null}>
+            <button type="submit" className="button-primary" disabled={saving || sendingRfqId !== null || missingTable}>
               {saving ? 'Saving…' : form.sendToRfq ? 'Save & send to RFQ' : 'Save received valve'}
             </button>
           </div>
@@ -356,7 +409,9 @@ export function ReceivedValvesPage() {
 
       <section className="dashboard-panel">
         <h3>Received valve log</h3>
-        <p className="status-breakdown-note">Saved entries: {sortedRows.length}</p>
+        <p className="status-breakdown-note">
+          {loading ? 'Loading…' : `Saved entries: ${sortedRows.length}`}
+        </p>
         <div className="dashboard-table-wrap">
           <table className="dashboard-table">
             <thead>
@@ -411,7 +466,7 @@ export function ReceivedValvesPage() {
                         >
                           {sendingRfqId === row.id ? 'Opening…' : row.sentToRfqAt ? 'Resend RFQ' : 'Send to RFQ'}
                         </button>
-                        <button type="button" className="button-secondary" onClick={() => removeRow(row.id)}>
+                        <button type="button" className="button-secondary" onClick={() => void removeRow(row)}>
                           Delete
                         </button>
                       </div>
@@ -421,7 +476,7 @@ export function ReceivedValvesPage() {
               ) : (
                 <tr>
                   <td colSpan={11} className="table-empty-cell">
-                    No received valves logged yet.
+                    {loading ? 'Loading received valves…' : 'No received valves logged yet.'}
                   </td>
                 </tr>
               )}
