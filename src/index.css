@@ -6029,6 +6029,36 @@ a.test-log-reports-item-name:hover {
   justify-content: flex-start;
 }
 
+.received-valves-checkbox-row {
+  display: flex;
+  flex-direction: row;
+  align-items: flex-start;
+  gap: 10px;
+  cursor: pointer;
+  font-weight: 500;
+  font-size: 14px;
+  line-height: 1.4;
+}
+
+.received-valves-checkbox-row input {
+  margin-top: 3px;
+  width: 18px;
+  height: 18px;
+  flex-shrink: 0;
+}
+
+.received-valves-checkbox-row .status-breakdown-note {
+  display: block;
+  margin-top: 4px;
+  font-weight: 400;
+}
+
+.received-valves-row-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
 .received-valves-image-link {
   display: inline-flex;
   border: 1px solid #dbe4ef;

@@ -10,6 +10,8 @@ export type ReceivedValveRecord = {
   workOrderPrinted: boolean
   imageDataUrl: string | null
   imageName: string | null
+  /** ISO timestamp when an RFQ email was composed for this entry (optional / legacy-safe). */
+  sentToRfqAt: string | null
   createdAt: string
 }
 
@@ -22,6 +24,7 @@ export type ReceivedValveFormState = {
   estimateNumber: string
   salesOrderNumber: string
   workOrderPrinted: 'yes' | 'no'
+  sendToRfq: boolean
   imageDataUrl: string | null
   imageName: string | null
 }
@@ -43,8 +46,30 @@ export function emptyReceivedValveForm(): ReceivedValveFormState {
     estimateNumber: '',
     salesOrderNumber: '',
     workOrderPrinted: 'no',
+    sendToRfq: false,
     imageDataUrl: null,
     imageName: null,
+  }
+}
+
+function normalizeReceivedValveRow(row: unknown): ReceivedValveRecord | null {
+  if (!row || typeof row !== 'object') return null
+  const r = row as Partial<ReceivedValveRecord>
+  if (typeof r.id !== 'string' || !r.id) return null
+  return {
+    id: r.id,
+    receivedDate: typeof r.receivedDate === 'string' ? r.receivedDate : '',
+    customer: typeof r.customer === 'string' ? r.customer : '',
+    description: typeof r.description === 'string' ? r.description : '',
+    teardownInspectionDate: typeof r.teardownInspectionDate === 'string' ? r.teardownInspectionDate : '',
+    warehouseCheckInDate: typeof r.warehouseCheckInDate === 'string' ? r.warehouseCheckInDate : '',
+    estimateNumber: typeof r.estimateNumber === 'string' ? r.estimateNumber : '',
+    salesOrderNumber: typeof r.salesOrderNumber === 'string' ? r.salesOrderNumber : '',
+    workOrderPrinted: Boolean(r.workOrderPrinted),
+    imageDataUrl: typeof r.imageDataUrl === 'string' ? r.imageDataUrl : null,
+    imageName: typeof r.imageName === 'string' ? r.imageName : null,
+    sentToRfqAt: typeof r.sentToRfqAt === 'string' ? r.sentToRfqAt : null,
+    createdAt: typeof r.createdAt === 'string' ? r.createdAt : '',
   }
 }
 
@@ -55,7 +80,7 @@ export function loadReceivedValveRows(): ReceivedValveRecord[] {
   try {
     const parsed = JSON.parse(raw)
     if (!Array.isArray(parsed)) return []
-    return parsed.filter((row) => row && typeof row === 'object') as ReceivedValveRecord[]
+    return parsed.map(normalizeReceivedValveRow).filter((row): row is ReceivedValveRecord => Boolean(row))
   } catch {
     return []
   }

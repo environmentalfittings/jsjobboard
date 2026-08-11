@@ -12,17 +12,46 @@ import {
   type ReceivedValveFormState,
   type ReceivedValveRecord,
 } from '../lib/receivedValves'
+import { composeRfqEmail, getRfqEmail } from '../lib/rfqEmail'
 import { supabase } from '../lib/supabase'
 
 type CustomerRow = { id: number; name: string }
 
+function detailsFromRow(row: Pick<
+  ReceivedValveRecord,
+  | 'receivedDate'
+  | 'customer'
+  | 'description'
+  | 'teardownInspectionDate'
+  | 'warehouseCheckInDate'
+  | 'estimateNumber'
+  | 'salesOrderNumber'
+  | 'workOrderPrinted'
+  | 'imageName'
+>) {
+  return {
+    receivedDate: row.receivedDate,
+    customer: row.customer,
+    description: row.description,
+    teardownInspectionDate: row.teardownInspectionDate,
+    warehouseCheckInDate: row.warehouseCheckInDate,
+    estimateNumber: row.estimateNumber,
+    salesOrderNumber: row.salesOrderNumber,
+    workOrderPrinted: row.workOrderPrinted,
+    imageName: row.imageName,
+  }
+}
+
 export function ReceivedValvesPage() {
   const { showToast } = useToast()
   const [form, setForm] = useState<ReceivedValveFormState>(() => emptyReceivedValveForm())
+  const [imageFile, setImageFile] = useState<File | null>(null)
   const [rows, setRows] = useState<ReceivedValveRecord[]>([])
   const [customers, setCustomers] = useState<CustomerRow[]>([])
   const [loadingCustomers, setLoadingCustomers] = useState(true)
   const [saving, setSaving] = useState(false)
+  const [sendingRfqId, setSendingRfqId] = useState<string | null>(null)
+  const rfqEmail = getRfqEmail()
 
   const loadCustomers = useCallback(async () => {
     setLoadingCustomers(true)
@@ -67,6 +96,7 @@ export function ReceivedValvesPage() {
     }
     try {
       const dataUrl = await readFileAsDataUrl(file)
+      setImageFile(file)
       setForm((prev) => ({
         ...prev,
         imageDataUrl: dataUrl,
@@ -81,6 +111,7 @@ export function ReceivedValvesPage() {
   }
 
   const clearImage = () => {
+    setImageFile(null)
     setForm((prev) => ({
       ...prev,
       imageDataUrl: null,
@@ -88,7 +119,32 @@ export function ReceivedValvesPage() {
     }))
   }
 
-  const onSubmit = (event: FormEvent<HTMLFormElement>) => {
+  const markSentToRfq = (id: string) => {
+    const sentToRfqAt = new Date().toISOString()
+    const nextRows = rows.map((row) => (row.id === id ? { ...row, sentToRfqAt } : row))
+    persistRows(nextRows)
+  }
+
+  const sendRowToRfq = async (row: ReceivedValveRecord, file?: File | null) => {
+    setSendingRfqId(row.id)
+    try {
+      const result = await composeRfqEmail({
+        details: detailsFromRow(row),
+        imageFile: file ?? null,
+        imageDataUrl: row.imageDataUrl,
+      })
+      if (result.ok) {
+        markSentToRfq(row.id)
+        showToast(result.message)
+      } else {
+        showToast(result.message)
+      }
+    } finally {
+      setSendingRfqId(null)
+    }
+  }
+
+  const onSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault()
     if (!form.customer.trim()) {
       showToast('Customer is required')
@@ -99,6 +155,7 @@ export function ReceivedValvesPage() {
       return
     }
     setSaving(true)
+    const createdAt = new Date().toISOString()
     const nextRow: ReceivedValveRecord = {
       id: crypto.randomUUID(),
       receivedDate: form.receivedDate || todayIsoDate(),
@@ -111,14 +168,42 @@ export function ReceivedValvesPage() {
       workOrderPrinted: form.workOrderPrinted === 'yes',
       imageDataUrl: form.imageDataUrl,
       imageName: form.imageName,
-      createdAt: new Date().toISOString(),
+      sentToRfqAt: null,
+      createdAt,
     }
     const nextRows = [nextRow, ...rows]
     const ok = persistRows(nextRows)
-    setSaving(false)
-    if (!ok) return
+    if (!ok) {
+      setSaving(false)
+      return
+    }
+
+    const shouldSendRfq = form.sendToRfq
+    const fileForRfq = imageFile
     setForm(emptyReceivedValveForm())
+    setImageFile(null)
+    setSaving(false)
     showToast('Received valve entry saved')
+
+    if (shouldSendRfq) {
+      setSendingRfqId(nextRow.id)
+      try {
+        const result = await composeRfqEmail({
+          details: detailsFromRow(nextRow),
+          imageFile: fileForRfq,
+          imageDataUrl: nextRow.imageDataUrl,
+        })
+        if (result.ok) {
+          const stamped = [{ ...nextRow, sentToRfqAt: new Date().toISOString() }, ...rows]
+          persistRows(stamped)
+          showToast(result.message)
+        } else {
+          showToast(result.message)
+        }
+      } finally {
+        setSendingRfqId(null)
+      }
+    }
   }
 
   const removeRow = (id: string) => {
@@ -141,7 +226,7 @@ export function ReceivedValvesPage() {
         <h3>Log received valve</h3>
         <p className="placeholder-copy">
           Track incoming valves with key dates, order references, and an optional photo. Entries also appear on the
-          Dashboard.
+          Dashboard. Check Send to RFQ to open an email to {rfqEmail} with the details and picture.
         </p>
         <form className="received-valves-form" onSubmit={onSubmit}>
           <label>
@@ -247,9 +332,23 @@ export function ReceivedValvesPage() {
             ) : null}
           </div>
 
+          <label className="received-valves-checkbox-row received-valves-span-full">
+            <input
+              type="checkbox"
+              checked={form.sendToRfq}
+              onChange={(e) => setForm((prev) => ({ ...prev, sendToRfq: e.target.checked }))}
+            />
+            <span>
+              Send to RFQ
+              <span className="status-breakdown-note">
+                Opens an email to {rfqEmail} with this entry. On iPad, choose Mail so the picture attaches.
+              </span>
+            </span>
+          </label>
+
           <div className="received-valves-actions received-valves-span-full">
-            <button type="submit" className="button-primary" disabled={saving}>
-              {saving ? 'Saving…' : 'Save received valve'}
+            <button type="submit" className="button-primary" disabled={saving || sendingRfqId !== null}>
+              {saving ? 'Saving…' : form.sendToRfq ? 'Save & send to RFQ' : 'Save received valve'}
             </button>
           </div>
         </form>
@@ -271,6 +370,7 @@ export function ReceivedValvesPage() {
                 <th>Estimate #</th>
                 <th>Sales order #</th>
                 <th>Work order printed</th>
+                <th>RFQ</th>
                 <th>Actions</th>
               </tr>
             </thead>
@@ -300,16 +400,27 @@ export function ReceivedValvesPage() {
                     <td>{row.estimateNumber || '-'}</td>
                     <td>{row.salesOrderNumber || '-'}</td>
                     <td>{row.workOrderPrinted ? 'Yes' : 'No'}</td>
+                    <td>{row.sentToRfqAt ? 'Sent' : '—'}</td>
                     <td>
-                      <button type="button" className="button-secondary" onClick={() => removeRow(row.id)}>
-                        Delete
-                      </button>
+                      <div className="received-valves-row-actions">
+                        <button
+                          type="button"
+                          className="button-secondary"
+                          disabled={sendingRfqId === row.id}
+                          onClick={() => void sendRowToRfq(row)}
+                        >
+                          {sendingRfqId === row.id ? 'Opening…' : row.sentToRfqAt ? 'Resend RFQ' : 'Send to RFQ'}
+                        </button>
+                        <button type="button" className="button-secondary" onClick={() => removeRow(row.id)}>
+                          Delete
+                        </button>
+                      </div>
                     </td>
                   </tr>
                 ))
               ) : (
                 <tr>
-                  <td colSpan={10} className="table-empty-cell">
+                  <td colSpan={11} className="table-empty-cell">
                     No received valves logged yet.
                   </td>
                 </tr>
