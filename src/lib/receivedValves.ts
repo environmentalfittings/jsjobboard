@@ -1,6 +1,34 @@
 import { attachmentPublicUrl, VALVE_ATTACHMENTS_BUCKET } from './valveAttachments'
 import { supabase } from './supabase'
 
+export const RECEIVED_VALVE_STATUSES = [
+  'waiting_on_salesman',
+  'waiting_on_customer',
+  'converted',
+] as const
+
+export type ReceivedValveStatus = (typeof RECEIVED_VALVE_STATUSES)[number]
+
+export const RECEIVED_VALVE_STATUS_LABELS: Record<ReceivedValveStatus, string> = {
+  waiting_on_salesman: 'Waiting on Salesman',
+  waiting_on_customer: 'Waiting on Customer',
+  converted: 'Converted',
+}
+
+export const DEFAULT_RECEIVED_VALVE_STATUS: ReceivedValveStatus = 'waiting_on_salesman'
+
+export function isReceivedValveStatus(value: unknown): value is ReceivedValveStatus {
+  return typeof value === 'string' && (RECEIVED_VALVE_STATUSES as readonly string[]).includes(value)
+}
+
+export function normalizeReceivedValveStatus(value: unknown): ReceivedValveStatus {
+  return isReceivedValveStatus(value) ? value : DEFAULT_RECEIVED_VALVE_STATUS
+}
+
+export function receivedValveStatusLabel(status: ReceivedValveStatus) {
+  return RECEIVED_VALVE_STATUS_LABELS[status]
+}
+
 export type ReceivedValveRecord = {
   id: string
   receivedDate: string
@@ -11,6 +39,7 @@ export type ReceivedValveRecord = {
   estimateNumber: string
   salesOrderNumber: string
   workOrderPrinted: boolean
+  status: ReceivedValveStatus
   /** Public image URL (or legacy local data URL during migration). */
   imageDataUrl: string | null
   imageStoragePath: string | null
@@ -18,6 +47,11 @@ export type ReceivedValveRecord = {
   /** ISO timestamp when an RFQ email was composed for this entry (optional / legacy-safe). */
   sentToRfqAt: string | null
   createdAt: string
+}
+
+/** Active log entries shown on the Dashboard (Converted is excluded). */
+export function isActiveReceivedValve(row: Pick<ReceivedValveRecord, 'status'>) {
+  return row.status !== 'converted'
 }
 
 export type ReceivedValveFormState = {
@@ -29,6 +63,7 @@ export type ReceivedValveFormState = {
   estimateNumber: string
   salesOrderNumber: string
   workOrderPrinted: 'yes' | 'no'
+  status: ReceivedValveStatus
   sendToRfq: boolean
   imageDataUrl: string | null
   imageName: string | null
@@ -48,6 +83,7 @@ type ReceivedValveDbRow = {
   estimate_number: string | null
   sales_order_number: string | null
   work_order_printed: boolean | null
+  status: string | null
   image_url: string | null
   image_storage_path: string | null
   image_name: string | null
@@ -69,6 +105,7 @@ export function emptyReceivedValveForm(): ReceivedValveFormState {
     estimateNumber: '',
     salesOrderNumber: '',
     workOrderPrinted: 'no',
+    status: DEFAULT_RECEIVED_VALVE_STATUS,
     sendToRfq: false,
     imageDataUrl: null,
     imageName: null,
@@ -91,6 +128,7 @@ function dbRowToRecord(row: ReceivedValveDbRow): ReceivedValveRecord {
     estimateNumber: row.estimate_number ?? '',
     salesOrderNumber: row.sales_order_number ?? '',
     workOrderPrinted: Boolean(row.work_order_printed),
+    status: normalizeReceivedValveStatus(row.status),
     imageDataUrl: row.image_url,
     imageStoragePath: row.image_storage_path,
     imageName: row.image_name,
@@ -110,6 +148,7 @@ function recordToDbInsert(row: ReceivedValveRecord, userId: string | null) {
     estimate_number: row.estimateNumber,
     sales_order_number: row.salesOrderNumber,
     work_order_printed: row.workOrderPrinted,
+    status: row.status,
     image_url: row.imageDataUrl,
     image_storage_path: row.imageStoragePath,
     image_name: row.imageName,
@@ -134,6 +173,7 @@ function normalizeLocalRow(row: unknown): ReceivedValveRecord | null {
     estimateNumber: typeof r.estimateNumber === 'string' ? r.estimateNumber : '',
     salesOrderNumber: typeof r.salesOrderNumber === 'string' ? r.salesOrderNumber : '',
     workOrderPrinted: Boolean(r.workOrderPrinted),
+    status: normalizeReceivedValveStatus(r.status),
     imageDataUrl: typeof r.imageDataUrl === 'string' ? r.imageDataUrl : null,
     imageStoragePath: typeof r.imageStoragePath === 'string' ? r.imageStoragePath : null,
     imageName: typeof r.imageName === 'string' ? r.imageName : null,
@@ -237,18 +277,39 @@ async function removeStoragePath(path: string | null | undefined) {
   await supabase.storage.from(VALVE_ATTACHMENTS_BUCKET).remove([path])
 }
 
+const RECEIVED_VALVE_SELECT =
+  'id,received_date,customer,description,teardown_inspection_date,warehouse_check_in_date,estimate_number,sales_order_number,work_order_printed,status,image_url,image_storage_path,image_name,sent_to_rfq_at,created_at'
+
 export async function fetchReceivedValveRows(): Promise<
   { ok: true; rows: ReceivedValveRecord[] } | { ok: false; error: string; missingTable?: boolean }
 > {
   const { data, error } = await supabase
     .from('received_valves')
-    .select(
-      'id,received_date,customer,description,teardown_inspection_date,warehouse_check_in_date,estimate_number,sales_order_number,work_order_printed,image_url,image_storage_path,image_name,sent_to_rfq_at,created_at',
-    )
+    .select(RECEIVED_VALVE_SELECT)
     .order('received_date', { ascending: false })
     .order('created_at', { ascending: false })
 
   if (error) {
+    // Older DBs may not have status yet — retry without it and default the field.
+    if (/column .*status.* does not exist/i.test(error.message) || error.code === '42703') {
+      const legacy = await supabase
+        .from('received_valves')
+        .select(
+          'id,received_date,customer,description,teardown_inspection_date,warehouse_check_in_date,estimate_number,sales_order_number,work_order_printed,image_url,image_storage_path,image_name,sent_to_rfq_at,created_at',
+        )
+        .order('received_date', { ascending: false })
+        .order('created_at', { ascending: false })
+      if (legacy.error) {
+        return { ok: false, error: legacy.error.message || 'Could not load received valves' }
+      }
+      return {
+        ok: true,
+        rows: ((legacy.data ?? []) as ReceivedValveDbRow[]).map((row) =>
+          dbRowToRecord({ ...row, status: DEFAULT_RECEIVED_VALVE_STATUS }),
+        ),
+      }
+    }
+
     const missingTable =
       /relation .*received_valves.* does not exist/i.test(error.message) ||
       error.code === '42P01' ||
@@ -273,13 +334,16 @@ export async function insertReceivedValve(
 
 export async function updateReceivedValve(
   id: string,
-  patch: Partial<Pick<ReceivedValveRecord, 'sentToRfqAt' | 'imageDataUrl' | 'imageStoragePath' | 'imageName'>>,
+  patch: Partial<
+    Pick<ReceivedValveRecord, 'sentToRfqAt' | 'imageDataUrl' | 'imageStoragePath' | 'imageName' | 'status'>
+  >,
 ): Promise<{ ok: true } | { ok: false; error: string }> {
   const payload: Record<string, unknown> = { updated_at: new Date().toISOString() }
   if ('sentToRfqAt' in patch) payload.sent_to_rfq_at = patch.sentToRfqAt
   if ('imageDataUrl' in patch) payload.image_url = patch.imageDataUrl
   if ('imageStoragePath' in patch) payload.image_storage_path = patch.imageStoragePath
   if ('imageName' in patch) payload.image_name = patch.imageName
+  if ('status' in patch && patch.status) payload.status = patch.status
 
   const { error } = await supabase.from('received_valves').update(payload).eq('id', id)
   if (error) return { ok: false, error: error.message || 'Could not update received valve' }

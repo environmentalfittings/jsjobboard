@@ -14,6 +14,14 @@ create table if not exists public.received_valves (
   estimate_number text not null default '',
   sales_order_number text not null default '',
   work_order_printed boolean not null default false,
+  status text not null default 'waiting_on_salesman'
+    check (
+      status in (
+        'waiting_on_salesman',
+        'waiting_on_customer',
+        'converted'
+      )
+    ),
   image_url text,
   image_storage_path text,
   image_name text,
@@ -25,6 +33,9 @@ create table if not exists public.received_valves (
 
 create index if not exists idx_received_valves_received_date
   on public.received_valves (received_date desc, created_at desc);
+
+create index if not exists idx_received_valves_status
+  on public.received_valves (status);
 
 alter table public.received_valves enable row level security;
 

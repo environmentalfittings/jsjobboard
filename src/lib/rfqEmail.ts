@@ -12,6 +12,7 @@ export type RfqEmailDetails = {
   estimateNumber: string
   salesOrderNumber: string
   workOrderPrinted: boolean
+  status?: string
   imageName?: string | null
 }
 
@@ -35,6 +36,7 @@ export function buildRfqEmailBody(details: RfqEmailDetails) {
     `Estimate number: ${details.estimateNumber || '—'}`,
     `Sales order number: ${details.salesOrderNumber || '—'}`,
     `Work order printed: ${details.workOrderPrinted ? 'Yes' : 'No'}`,
+    `Status: ${details.status || '—'}`,
   ]
   if (details.imageName) {
     lines.push(`Picture: ${details.imageName} (attached when sharing via Mail)`)

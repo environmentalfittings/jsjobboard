@@ -5,15 +5,20 @@ import {
   deleteReceivedValve,
   emptyReceivedValveForm,
   insertReceivedValve,
+  isReceivedValveStatus,
   loadReceivedValveRowsShared,
   readFileAsDataUrl,
   RECEIVED_VALVE_MAX_IMAGE_BYTES,
+  RECEIVED_VALVE_STATUSES,
+  RECEIVED_VALVE_STATUS_LABELS,
+  receivedValveStatusLabel,
   sortReceivedValveRows,
   todayIsoDate,
   updateReceivedValve,
   uploadReceivedValveImage,
   type ReceivedValveFormState,
   type ReceivedValveRecord,
+  type ReceivedValveStatus,
 } from '../lib/receivedValves'
 import { composeRfqEmail, getRfqEmail } from '../lib/rfqEmail'
 import { supabase } from '../lib/supabase'
@@ -30,6 +35,7 @@ function detailsFromRow(row: Pick<
   | 'estimateNumber'
   | 'salesOrderNumber'
   | 'workOrderPrinted'
+  | 'status'
   | 'imageName'
 >) {
   return {
@@ -41,6 +47,7 @@ function detailsFromRow(row: Pick<
     estimateNumber: row.estimateNumber,
     salesOrderNumber: row.salesOrderNumber,
     workOrderPrinted: row.workOrderPrinted,
+    status: receivedValveStatusLabel(row.status),
     imageName: row.imageName,
   }
 }
@@ -207,6 +214,7 @@ export function ReceivedValvesPage() {
       estimateNumber: form.estimateNumber.trim(),
       salesOrderNumber: form.salesOrderNumber.trim(),
       workOrderPrinted: form.workOrderPrinted === 'yes',
+      status: form.status,
       imageDataUrl,
       imageStoragePath,
       imageName,
@@ -249,6 +257,21 @@ export function ReceivedValvesPage() {
     }
   }
 
+  const changeStatus = async (row: ReceivedValveRecord, status: ReceivedValveStatus) => {
+    if (row.status === status) return
+    const result = await updateReceivedValve(row.id, { status })
+    if (!result.ok) {
+      showToast(result.error)
+      return
+    }
+    setRows((prev) => prev.map((item) => (item.id === row.id ? { ...item, status } : item)))
+    showToast(
+      status === 'converted'
+        ? 'Marked Converted — removed from Dashboard log (still in Reports)'
+        : `Status updated to ${receivedValveStatusLabel(status)}`,
+    )
+  }
+
   const removeRow = async (row: ReceivedValveRecord) => {
     const result = await deleteReceivedValve(row)
     if (!result.ok) {
@@ -272,8 +295,8 @@ export function ReceivedValvesPage() {
         <h3>Log received valve</h3>
         <p className="placeholder-copy">
           Track incoming valves with key dates, order references, and an optional photo. Entries are shared for all
-          users and also appear on the Dashboard. Check Send to RFQ to open an email to {rfqEmail} with the details and
-          picture.
+          users. Waiting statuses appear on the Dashboard; Converted drops off the Dashboard but stays in Reports.
+          Check Send to RFQ to open an email to {rfqEmail} with the details and picture.
         </p>
         {missingTable ? (
           <p className="status-breakdown-note">
@@ -385,6 +408,27 @@ export function ReceivedValvesPage() {
             ) : null}
           </div>
 
+          <label>
+            Status
+            <select
+              value={form.status}
+              onChange={(e) => {
+                const value = e.target.value
+                if (!isReceivedValveStatus(value)) return
+                setForm((prev) => ({ ...prev, status: value }))
+              }}
+            >
+              {RECEIVED_VALVE_STATUSES.map((status) => (
+                <option key={status} value={status}>
+                  {RECEIVED_VALVE_STATUS_LABELS[status]}
+                </option>
+              ))}
+            </select>
+            <span className="status-breakdown-note">
+              Converted removes this entry from the Dashboard log; it remains in Reports.
+            </span>
+          </label>
+
           <label className="received-valves-checkbox-row received-valves-span-full">
             <input
               type="checkbox"
@@ -425,6 +469,7 @@ export function ReceivedValvesPage() {
                 <th>Estimate #</th>
                 <th>Sales order #</th>
                 <th>Work order printed</th>
+                <th>Status</th>
                 <th>RFQ</th>
                 <th>Actions</th>
               </tr>
@@ -455,6 +500,23 @@ export function ReceivedValvesPage() {
                     <td>{row.estimateNumber || '-'}</td>
                     <td>{row.salesOrderNumber || '-'}</td>
                     <td>{row.workOrderPrinted ? 'Yes' : 'No'}</td>
+                    <td>
+                      <select
+                        value={row.status}
+                        aria-label={`Status for ${row.customer}`}
+                        onChange={(e) => {
+                          const value = e.target.value
+                          if (!isReceivedValveStatus(value)) return
+                          void changeStatus(row, value)
+                        }}
+                      >
+                        {RECEIVED_VALVE_STATUSES.map((status) => (
+                          <option key={status} value={status}>
+                            {RECEIVED_VALVE_STATUS_LABELS[status]}
+                          </option>
+                        ))}
+                      </select>
+                    </td>
                     <td>{row.sentToRfqAt ? 'Sent' : '—'}</td>
                     <td>
                       <div className="received-valves-row-actions">
@@ -475,7 +537,7 @@ export function ReceivedValvesPage() {
                 ))
               ) : (
                 <tr>
-                  <td colSpan={11} className="table-empty-cell">
+                  <td colSpan={12} className="table-empty-cell">
                     {loading ? 'Loading received valves…' : 'No received valves logged yet.'}
                   </td>
                 </tr>

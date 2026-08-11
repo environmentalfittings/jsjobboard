@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import { DailyPriorityWorksheet } from '../components/DailyPriorityWorksheet'
 import { FinishCellBadge } from '../components/FinishCellBadge'
+import { ReceivedValvesReportPanel } from '../components/ReceivedValvesReportPanel'
 import { useToast } from '../components/ToastNotification'
 import { VALVE_TYPES } from '../constants/jobLookups'
 import { JOB_TYPES, normalizeJobType } from '../constants/jobTypes'
@@ -2341,6 +2342,8 @@ export function ReportsPage() {
       </section>
 
       {!focusReworkReport ? reworkReportSection : null}
+
+      <ReceivedValvesReportPanel />
     </section>
   )
 }

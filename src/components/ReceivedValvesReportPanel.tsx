@@ -1,18 +1,22 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import {
-  isActiveReceivedValve,
+  isReceivedValveStatus,
   loadReceivedValveRowsShared,
+  RECEIVED_VALVE_STATUSES,
+  RECEIVED_VALVE_STATUS_LABELS,
   receivedValveStatusLabel,
   sortReceivedValveRows,
   type ReceivedValveRecord,
+  type ReceivedValveStatus,
 } from '../lib/receivedValves'
 
-const DASHBOARD_LOG_LIMIT = 8
+type StatusFilter = 'all' | ReceivedValveStatus
 
-export function ReceivedValvesDashboardPanel() {
+export function ReceivedValvesReportPanel() {
   const [rows, setRows] = useState<ReceivedValveRecord[]>([])
   const [loading, setLoading] = useState(true)
+  const [statusFilter, setStatusFilter] = useState<StatusFilter>('all')
 
   const reload = useCallback(async () => {
     setLoading(true)
@@ -22,35 +26,60 @@ export function ReceivedValvesDashboardPanel() {
       setRows([])
       return
     }
-    setRows(result.rows.filter(isActiveReceivedValve))
+    setRows(result.rows)
   }, [])
 
   useEffect(() => {
     void reload()
-    const onFocus = () => {
-      void reload()
-    }
-    window.addEventListener('focus', onFocus)
-    return () => {
-      window.removeEventListener('focus', onFocus)
-    }
   }, [reload])
 
-  const sortedRows = useMemo(() => sortReceivedValveRows(rows).slice(0, DASHBOARD_LOG_LIMIT), [rows])
+  const filteredRows = useMemo(() => {
+    const sorted = sortReceivedValveRows(rows)
+    if (statusFilter === 'all') return sorted
+    return sorted.filter((row) => row.status === statusFilter)
+  }, [rows, statusFilter])
+
+  const counts = useMemo(() => {
+    const next: Record<ReceivedValveStatus, number> = {
+      waiting_on_salesman: 0,
+      waiting_on_customer: 0,
+      converted: 0,
+    }
+    for (const row of rows) next[row.status] += 1
+    return next
+  }, [rows])
 
   return (
-    <section className="dashboard-panel">
+    <section className="dashboard-panel" id="received-valves">
       <div className="dashboard-panel-title-row">
-        <h3>Received valve log</h3>
+        <h3>Received valves</h3>
         <Link className="button-secondary" to="/received-valves">
-          Log / view all
+          Open receiving log
         </Link>
       </div>
-      <p className="status-breakdown-note">
-        Open received valves{rows.length ? ` · ${rows.length} active` : ''}. Converted entries leave this list and stay
-        in Reports.
+      <p className="placeholder-copy">
+        Full receiving history, including Converted entries that no longer appear on the Dashboard log.
       </p>
-      <div className="dashboard-table-wrap manager-dashboard-scroll">
+      <div className="report-filters">
+        <label>
+          Status
+          <select
+            value={statusFilter}
+            onChange={(e) => {
+              const value = e.target.value
+              if (value === 'all' || isReceivedValveStatus(value)) setStatusFilter(value)
+            }}
+          >
+            <option value="all">All ({rows.length})</option>
+            {RECEIVED_VALVE_STATUSES.map((status) => (
+              <option key={status} value={status}>
+                {RECEIVED_VALVE_STATUS_LABELS[status]} ({counts[status]})
+              </option>
+            ))}
+          </select>
+        </label>
+      </div>
+      <div className="dashboard-table-wrap">
         <table className="dashboard-table">
           <thead>
             <tr>
@@ -60,13 +89,14 @@ export function ReceivedValvesDashboardPanel() {
               <th>Description</th>
               <th>Estimate #</th>
               <th>SO #</th>
-              <th>Status</th>
               <th>WO printed</th>
+              <th>Status</th>
+              <th>RFQ</th>
             </tr>
           </thead>
           <tbody>
-            {sortedRows.length ? (
-              sortedRows.map((row) => (
+            {filteredRows.length ? (
+              filteredRows.map((row) => (
                 <tr key={row.id}>
                   <td>
                     {row.imageDataUrl ? (
@@ -87,21 +117,15 @@ export function ReceivedValvesDashboardPanel() {
                   <td className="table-cell-clamp">{row.description}</td>
                   <td>{row.estimateNumber || '—'}</td>
                   <td>{row.salesOrderNumber || '—'}</td>
-                  <td>{receivedValveStatusLabel(row.status)}</td>
                   <td>{row.workOrderPrinted ? 'Yes' : 'No'}</td>
+                  <td>{receivedValveStatusLabel(row.status)}</td>
+                  <td>{row.sentToRfqAt ? 'Sent' : '—'}</td>
                 </tr>
               ))
             ) : (
               <tr>
-                <td colSpan={8} className="table-empty-cell">
-                  {loading ? (
-                    'Loading…'
-                  ) : (
-                    <>
-                      No open received valves.{' '}
-                      <Link to="/received-valves">Add an entry</Link>
-                    </>
-                  )}
+                <td colSpan={9} className="table-empty-cell">
+                  {loading ? 'Loading…' : 'No received valves match this filter.'}
                 </td>
               </tr>
             )}
