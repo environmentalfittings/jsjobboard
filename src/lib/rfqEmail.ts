@@ -109,15 +109,27 @@ function openMailto(to: string, subject: string, body: string) {
   window.location.href = href
 }
 
+/** Web Share with files is useful on iPad/phone Mail; on Windows it opens the Share dialog instead of Outlook. */
+function shouldUseNativeShareForPhoto() {
+  if (typeof navigator === 'undefined') return false
+  const ua = navigator.userAgent || ''
+  const isIOS =
+    /iPad|iPhone|iPod/i.test(ua) ||
+    // iPadOS 13+ can report as MacIntel with touch
+    (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1)
+  const isAndroid = /Android/i.test(ua)
+  return isIOS || isAndroid
+}
+
 export type ComposeRfqEmailResult =
   | { ok: true; method: 'share' | 'mailto'; message: string }
   | { ok: false; message: string }
 
 /**
  * Opens an email to RFQ with valve details and picture.
- * - iPad/Safari: Web Share can attach the photo into Mail
- * - Outlook/desktop: mailto cannot attach files, so the public picture link is
- *   put in the body and the image file is downloaded for manual attach
+ * - iPad/phone: Web Share can attach the photo into Mail
+ * - Windows/desktop: opens the mail client via mailto (Outlook), with picture link
+ *   in the body and a downloaded photo file to attach if needed
  */
 export async function composeRfqEmail(options: {
   to?: string
@@ -145,8 +157,8 @@ export async function composeRfqEmail(options: {
   }
 
   const canShareWithPhoto =
+    shouldUseNativeShareForPhoto() &&
     Boolean(file) &&
-    typeof navigator !== 'undefined' &&
     typeof navigator.share === 'function' &&
     typeof navigator.canShare === 'function' &&
     navigator.canShare({ files: [file as File] })
