@@ -6027,6 +6027,30 @@ a.test-log-reports-item-name:hover {
 .received-valves-actions {
   display: flex;
   justify-content: flex-start;
+  gap: 10px;
+  flex-wrap: wrap;
+  align-items: center;
+}
+
+.received-valves-rfq-next {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+  margin-top: 14px;
+  padding: 12px 14px;
+  border: 1px solid #dbe4ef;
+  border-radius: 10px;
+  background: #f8fafc;
+}
+
+.received-valves-rfq-next .status-breakdown-note {
+  margin: 0;
+  flex: 1 1 220px;
+}
+
+.received-valves-row-highlight {
+  background: #eff6ff;
 }
 
 .received-valves-checkbox-row {

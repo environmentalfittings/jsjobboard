@@ -65,6 +65,7 @@ export function ReceivedValvesPage() {
   const [saving, setSaving] = useState(false)
   const [sendingRfqId, setSendingRfqId] = useState<string | null>(null)
   const [missingTable, setMissingTable] = useState(false)
+  const [lastSavedId, setLastSavedId] = useState<string | null>(null)
   const rfqEmail = getRfqEmail()
 
   const loadCustomers = useCallback(async () => {
@@ -181,10 +182,6 @@ export function ReceivedValvesPage() {
       return
     }
 
-    if (form.sendToRfq && !imageFile && !form.imageDataUrl) {
-      showToast('Send to RFQ is checked but no Picture is selected — email will open without a photo.')
-    }
-
     setSaving(true)
     const id = crypto.randomUUID()
     const createdAt = new Date().toISOString()
@@ -229,32 +226,12 @@ export function ReceivedValvesPage() {
       return
     }
 
-    const shouldSendRfq = form.sendToRfq
-    const fileForRfq = imageFile
     setForm(emptyReceivedValveForm())
     setImageFile(null)
     setRows((prev) => [nextRow, ...prev])
+    setLastSavedId(nextRow.id)
     setSaving(false)
-    showToast('Received valve entry saved')
-
-    if (shouldSendRfq) {
-      setSendingRfqId(nextRow.id)
-      try {
-        const result = await composeRfqEmail({
-          details: detailsFromRow(nextRow),
-          imageFile: fileForRfq,
-          imageDataUrl: nextRow.imageDataUrl,
-        })
-        if (result.ok) {
-          await markSentToRfq(nextRow.id)
-          showToast(result.message)
-        } else {
-          showToast(result.message)
-        }
-      } finally {
-        setSendingRfqId(null)
-      }
-    }
+    showToast('Saved. Use Send to RFQ on that entry below when you are ready.')
   }
 
   const changeStatus = async (row: ReceivedValveRecord, status: ReceivedValveStatus) => {
@@ -296,7 +273,7 @@ export function ReceivedValvesPage() {
         <p className="placeholder-copy">
           Track incoming valves with key dates, order references, and an optional photo. Entries are shared for all
           users. Open statuses stay on the Dashboard; Converted and Lost drop off the Dashboard but stay in Reports.
-          Check Send to RFQ to open an email to {rfqEmail} with the details and picture.
+          Save first, then use <strong>Send to RFQ</strong> on the saved entry to email {rfqEmail}.
         </p>
         {missingTable ? (
           <p className="status-breakdown-note">
@@ -433,33 +410,47 @@ export function ReceivedValvesPage() {
             </span>
           </label>
 
-          <label className="received-valves-checkbox-row received-valves-span-full">
-            <input
-              type="checkbox"
-              checked={form.sendToRfq}
-              onChange={(e) => setForm((prev) => ({ ...prev, sendToRfq: e.target.checked }))}
-            />
-            <span>
-              Send to RFQ
-              <span className="status-breakdown-note">
-                Opens an email to {rfqEmail} with this entry and picture. On iPad, choose Mail to attach the photo. In
-                Outlook, the picture link is in the email and the photo file downloads so you can attach it.
-              </span>
-            </span>
-          </label>
-
           <div className="received-valves-actions received-valves-span-full">
             <button type="submit" className="button-primary" disabled={saving || sendingRfqId !== null || missingTable}>
-              {saving ? 'Saving…' : form.sendToRfq ? 'Save & send to RFQ' : 'Save received valve'}
+              {saving ? 'Saving…' : 'Save received valve'}
             </button>
           </div>
         </form>
+        {lastSavedId ? (
+          <div className="received-valves-rfq-next">
+            <p className="status-breakdown-note">
+              Entry saved. Send it to {rfqEmail} when ready (picture link is included; Outlook may download the file to
+              attach).
+            </p>
+            <button
+              type="button"
+              className="button-primary"
+              disabled={sendingRfqId === lastSavedId}
+              onClick={() => {
+                const row = rows.find((item) => item.id === lastSavedId)
+                if (!row) {
+                  showToast('Saved entry not found — use Send to RFQ in the log below.')
+                  return
+                }
+                void sendRowToRfq(row)
+              }}
+            >
+              {sendingRfqId === lastSavedId ? 'Opening…' : 'Send to RFQ'}
+            </button>
+          </div>
+        ) : (
+          <p className="status-breakdown-note" style={{ marginTop: 12 }}>
+            Save an entry first, then Send to RFQ becomes available.
+          </p>
+        )}
       </section>
 
       <section className="dashboard-panel">
         <h3>Received valve log</h3>
         <p className="status-breakdown-note">
-          {loading ? 'Loading…' : `Saved entries: ${sortedRows.length}`}
+          {loading
+            ? 'Loading…'
+            : `Saved entries: ${sortedRows.length}. Send to RFQ is available on each saved row.`}
         </p>
         <div className="dashboard-table-wrap">
           <table className="dashboard-table">
@@ -482,7 +473,7 @@ export function ReceivedValvesPage() {
             <tbody>
               {sortedRows.length ? (
                 sortedRows.map((row) => (
-                  <tr key={row.id}>
+                  <tr key={row.id} className={row.id === lastSavedId ? 'received-valves-row-highlight' : undefined}>
                     <td>
                       {row.imageDataUrl ? (
                         <a
@@ -527,7 +518,7 @@ export function ReceivedValvesPage() {
                       <div className="received-valves-row-actions">
                         <button
                           type="button"
-                          className="button-secondary"
+                          className={row.id === lastSavedId && !row.sentToRfqAt ? 'button-primary' : 'button-secondary'}
                           disabled={sendingRfqId === row.id}
                           onClick={() => void sendRowToRfq(row)}
                         >

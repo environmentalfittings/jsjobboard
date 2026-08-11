@@ -73,7 +73,6 @@ export type ReceivedValveFormState = {
   salesOrderNumber: string
   workOrderPrinted: 'yes' | 'no'
   status: ReceivedValveStatus
-  sendToRfq: boolean
   imageDataUrl: string | null
   imageName: string | null
 }
@@ -119,7 +118,6 @@ export function emptyReceivedValveForm(): ReceivedValveFormState {
     salesOrderNumber: '',
     workOrderPrinted: 'no',
     status: DEFAULT_RECEIVED_VALVE_STATUS,
-    sendToRfq: false,
     imageDataUrl: null,
     imageName: null,
   }
