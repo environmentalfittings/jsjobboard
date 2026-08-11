@@ -383,7 +383,7 @@ body {
 
 .nav-messages-panel-foot {
   padding: 10px 14px 12px;
-  border-top: 1px solid #e2e8f0;
+  border-bottom: 1px solid #e2e8f0;
 }
 
 .nav-messages-view-all {
