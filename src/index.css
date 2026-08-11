@@ -6079,6 +6079,47 @@ a.test-log-reports-item-name:hover {
   resize: vertical;
 }
 
+.received-valves-log-table th {
+  vertical-align: top;
+}
+
+.received-valves-log-table .list-col-header {
+  gap: 4px;
+  min-width: 7.5rem;
+}
+
+.received-valves-log-table .list-col-sort-btn {
+  padding: 4px 6px 4px 2px;
+}
+
+.received-valves-log-table .list-col-label {
+  font-size: 13px;
+  font-weight: 700;
+  color: #0f172a;
+  white-space: normal;
+}
+
+.received-valves-log-table .column-filter-trigger {
+  width: 28px;
+  height: 28px;
+  border: 1px solid #cbd5e1;
+  background: #f8fafc;
+  flex-shrink: 0;
+}
+
+.received-valves-log-table .column-filter-trigger:hover,
+.received-valves-log-table .column-filter-trigger.open,
+.received-valves-log-table .column-filter-trigger.active {
+  border-color: #2563eb;
+  background: #eff6ff;
+  color: #1d4ed8;
+}
+
+.received-valves-log-table .column-filter-icon {
+  width: 14px;
+  height: 14px;
+}
+
 .received-valve-edit-modal {
   max-width: 760px;
   width: min(760px, calc(100vw - 24px));
