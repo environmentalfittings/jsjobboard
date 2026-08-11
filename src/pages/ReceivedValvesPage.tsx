@@ -592,7 +592,7 @@ export function ReceivedValvesPage() {
         <p className="status-breakdown-note">
           {loading
             ? 'Loading…'
-            : `Showing ${sortedRows.length} of ${rows.length} entries. Click column headers to sort or filter (Excel-style). Converted and Lost stay at the bottom.`}
+            : `Showing ${sortedRows.length} of ${rows.length} entries. Click a column name to sort, or the filter icon (☰ lines) next to it to filter like Excel. Converted and Lost stay at the bottom.`}
         </p>
         {activeFilterCount > 0 ? (
           <div className="received-valves-filter-bar">
