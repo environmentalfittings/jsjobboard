@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState, type ChangeEvent, type FormEvent } from 'react'
 import { Link } from 'react-router-dom'
+import { TestLogColumnHeader } from '../components/testLog/TestLogColumnHeader'
 import { useToast } from '../components/ToastNotification'
 import {
   deleteReceivedValve,
@@ -12,18 +13,62 @@ import {
   RECEIVED_VALVE_STATUSES,
   RECEIVED_VALVE_STATUS_LABELS,
   receivedValveStatusLabel,
-  sortReceivedValveRows,
+  sortReceivedValveRowsBy,
   todayIsoDate,
   updateReceivedValve,
   uploadReceivedValveImage,
   type ReceivedValveFormState,
   type ReceivedValveRecord,
+  type ReceivedValveSortKey,
   type ReceivedValveStatus,
 } from '../lib/receivedValves'
 import { composeRfqEmail, getRfqEmail } from '../lib/rfqEmail'
 import { supabase } from '../lib/supabase'
 
 type CustomerRow = { id: number; name: string }
+
+const BLANK_FILTER = '(Blank)'
+
+type ReceivedValveColumnFilters = {
+  receivedDate: string[]
+  customer: string[]
+  description: string[]
+  teardownInspectionDate: string[]
+  warehouseCheckInDate: string[]
+  estimateNumber: string[]
+  salesOrderNumber: string[]
+  workOrderPrinted: string[]
+  status: string[]
+  rfq: string[]
+  notes: string[]
+}
+
+const EMPTY_COLUMN_FILTERS: ReceivedValveColumnFilters = {
+  receivedDate: [],
+  customer: [],
+  description: [],
+  teardownInspectionDate: [],
+  warehouseCheckInDate: [],
+  estimateNumber: [],
+  salesOrderNumber: [],
+  workOrderPrinted: [],
+  status: [],
+  rfq: [],
+  notes: [],
+}
+
+function displayOrBlank(value: string) {
+  return value.trim() ? value : BLANK_FILTER
+}
+
+function uniqueSortedValues(values: string[]) {
+  return [...new Set(values)].sort((a, b) => a.localeCompare(b, undefined, { sensitivity: 'base' }))
+}
+
+function matchesColumnFilter(selected: string[], value: string) {
+  if (!selected.length) return true
+  return selected.includes(value)
+}
 
 function detailsFromRow(row: Pick<
   ReceivedValveRecord,
@@ -36,6 +81,7 @@ function detailsFromRow(row: Pick<
   | 'salesOrderNumber'
   | 'workOrderPrinted'
   | 'status'
+  | 'notes'
   | 'imageName'
   | 'imageDataUrl'
 >) {
@@ -49,6 +95,7 @@ function detailsFromRow(row: Pick<
     salesOrderNumber: row.salesOrderNumber,
     workOrderPrinted: row.workOrderPrinted,
     status: receivedValveStatusLabel(row.status),
+    notes: row.notes,
     imageName: row.imageName,
     imageUrl: row.imageDataUrl,
   }
@@ -66,6 +113,10 @@ export function ReceivedValvesPage() {
   const [sendingRfqId, setSendingRfqId] = useState<string | null>(null)
   const [missingTable, setMissingTable] = useState(false)
   const [lastSavedId, setLastSavedId] = useState<string | null>(null)
+  const [columnFilters, setColumnFilters] = useState<ReceivedValveColumnFilters>(EMPTY_COLUMN_FILTERS)
+  const [sortKey, setSortKey] = useState<ReceivedValveSortKey>('receivedDate')
+  const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('desc')
+  const [notesDrafts, setNotesDrafts] = useState<Record<string, string>>({})
   const rfqEmail = getRfqEmail()
 
   const loadCustomers = useCallback(async () => {
@@ -104,7 +155,61 @@ export function ReceivedValvesPage() {
     void loadCustomers()
   }, [loadCustomers, reloadRows])
 
-  const sortedRows = useMemo(() => sortReceivedValveRows(rows), [rows])
+  const filterOptions = useMemo(() => {
+    return {
+      receivedDate: uniqueSortedValues(rows.map((row) => displayOrBlank(row.receivedDate))),
+      customer: uniqueSortedValues(rows.map((row) => displayOrBlank(row.customer))),
+      description: uniqueSortedValues(rows.map((row) => displayOrBlank(row.description))),
+      teardownInspectionDate: uniqueSortedValues(rows.map((row) => displayOrBlank(row.teardownInspectionDate))),
+      warehouseCheckInDate: uniqueSortedValues(rows.map((row) => displayOrBlank(row.warehouseCheckInDate))),
+      estimateNumber: uniqueSortedValues(rows.map((row) => displayOrBlank(row.estimateNumber))),
+      salesOrderNumber: uniqueSortedValues(rows.map((row) => displayOrBlank(row.salesOrderNumber))),
+      workOrderPrinted: uniqueSortedValues(rows.map((row) => (row.workOrderPrinted ? 'Yes' : 'No'))),
+      status: uniqueSortedValues(rows.map((row) => receivedValveStatusLabel(row.status))),
+      rfq: uniqueSortedValues(rows.map((row) => (row.sentToRfqAt ? 'Sent' : 'Not sent'))),
+      notes: uniqueSortedValues(rows.map((row) => displayOrBlank(row.notes))),
+    }
+  }, [rows])
+
+  const filteredRows = useMemo(() => {
+    return rows.filter((row) => {
+      if (!matchesColumnFilter(columnFilters.receivedDate, displayOrBlank(row.receivedDate))) return false
+      if (!matchesColumnFilter(columnFilters.customer, displayOrBlank(row.customer))) return false
+      if (!matchesColumnFilter(columnFilters.description, displayOrBlank(row.description))) return false
+      if (!matchesColumnFilter(columnFilters.teardownInspectionDate, displayOrBlank(row.teardownInspectionDate))) return false
+      if (!matchesColumnFilter(columnFilters.warehouseCheckInDate, displayOrBlank(row.warehouseCheckInDate))) return false
+      if (!matchesColumnFilter(columnFilters.estimateNumber, displayOrBlank(row.estimateNumber))) return false
+      if (!matchesColumnFilter(columnFilters.salesOrderNumber, displayOrBlank(row.salesOrderNumber))) return false
+      if (!matchesColumnFilter(columnFilters.workOrderPrinted, row.workOrderPrinted ? 'Yes' : 'No')) return false
+      if (!matchesColumnFilter(columnFilters.status, receivedValveStatusLabel(row.status))) return false
+      if (!matchesColumnFilter(columnFilters.rfq, row.sentToRfqAt ? 'Sent' : 'Not sent')) return false
+      if (!matchesColumnFilter(columnFilters.notes, displayOrBlank(row.notes))) return false
+      return true
+    })
+  }, [rows, columnFilters])
+
+  const sortedRows = useMemo(
+    () => sortReceivedValveRowsBy(filteredRows, sortKey, sortDirection),
+    [filteredRows, sortKey, sortDirection],
+  )
+
+  const activeFilterCount = useMemo(
+    () => Object.values(columnFilters).reduce((count, selected) => count + (selected.length ? 1 : 0), 0),
+    [columnFilters],
+  )
+
+  const setColumnFilter = (key: keyof ReceivedValveColumnFilters, selected: string[]) => {
+    setColumnFilters((prev) => ({ ...prev, [key]: selected }))
+  }
+
+  const toggleSort = (key: ReceivedValveSortKey) => {
+    if (sortKey === key) {
+      setSortDirection((prev) => (prev === 'asc' ? 'desc' : 'asc'))
+      return
+    }
+    setSortKey(key)
+    setSortDirection(key === 'receivedDate' ? 'desc' : 'asc')
+  }
 
   const onImageChange = async (event: ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0]
@@ -212,6 +317,7 @@ export function ReceivedValvesPage() {
       salesOrderNumber: form.salesOrderNumber.trim(),
       workOrderPrinted: form.workOrderPrinted === 'yes',
       status: form.status,
+      notes: form.notes.trim(),
       imageDataUrl,
       imageStoragePath,
       imageName,
@@ -244,9 +350,33 @@ export function ReceivedValvesPage() {
     setRows((prev) => prev.map((item) => (item.id === row.id ? { ...item, status } : item)))
     showToast(
       isArchivedReceivedValveStatus(status)
-        ? `Marked ${receivedValveStatusLabel(status)} — removed from Dashboard log (still in Reports)`
+        ? `Marked ${receivedValveStatusLabel(status)} — moved to bottom of list (still in Reports; leaves Dashboard)`
         : `Status updated to ${receivedValveStatusLabel(status)}`,
     )
+  }
+
+  const saveNotes = async (row: ReceivedValveRecord, notes: string) => {
+    const nextNotes = notes.trim()
+    if (nextNotes === row.notes.trim()) {
+      setNotesDrafts((prev) => {
+        const copy = { ...prev }
+        delete copy[row.id]
+        return copy
+      })
+      return
+    }
+    const result = await updateReceivedValve(row.id, { notes: nextNotes })
+    if (!result.ok) {
+      showToast(result.error)
+      return
+    }
+    setRows((prev) => prev.map((item) => (item.id === row.id ? { ...item, notes: nextNotes } : item)))
+    setNotesDrafts((prev) => {
+      const copy = { ...prev }
+      delete copy[row.id]
+      return copy
+    })
+    showToast('Notes saved')
   }
 
   const removeRow = async (row: ReceivedValveRecord) => {
@@ -406,8 +536,18 @@ export function ReceivedValvesPage() {
             </select>
             <span className="status-breakdown-note">
               Waiting on Salesman / Waiting on Customer / Quoted stay on the Dashboard. Converted and Lost drop off the
-              Dashboard and remain in Reports.
+              Dashboard, sort to the bottom of this log, and remain in Reports.
             </span>
+          </label>
+
+          <label className="received-valves-span-full">
+            Notes
+            <textarea
+              value={form.notes}
+              onChange={(e) => setForm((prev) => ({ ...prev, notes: e.target.value }))}
+              placeholder="Follow-up notes, quote details, customer feedback…"
+              rows={3}
+            />
           </label>
 
           <div className="received-valves-actions received-valves-span-full">
@@ -450,30 +590,159 @@ export function ReceivedValvesPage() {
         <p className="status-breakdown-note">
           {loading
             ? 'Loading…'
-            : `Saved entries: ${sortedRows.length}. Send to RFQ is available on each saved row.`}
+            : `Showing ${sortedRows.length} of ${rows.length} entries. Click column headers to sort or filter (Excel-style). Converted and Lost stay at the bottom.`}
         </p>
+        {activeFilterCount > 0 ? (
+          <div className="received-valves-filter-bar">
+            <span>
+              {activeFilterCount} column filter{activeFilterCount === 1 ? '' : 's'} active
+            </span>
+            <button type="button" className="button-secondary" onClick={() => setColumnFilters(EMPTY_COLUMN_FILTERS)}>
+              Clear filters
+            </button>
+          </div>
+        ) : null}
         <div className="dashboard-table-wrap">
-          <table className="dashboard-table">
+          <table className="dashboard-table received-valves-log-table">
             <thead>
               <tr>
                 <th>Picture</th>
-                <th>Date</th>
-                <th>Customer</th>
-                <th>Description</th>
-                <th>Teardown inspection</th>
-                <th>Warehouse check in</th>
-                <th>Estimate #</th>
-                <th>Sales order #</th>
-                <th>Work order printed</th>
-                <th>Status</th>
-                <th>RFQ</th>
+                <th>
+                  <TestLogColumnHeader
+                    label="Date"
+                    sortActive={sortKey === 'receivedDate'}
+                    sortDirection={sortDirection}
+                    onSort={() => toggleSort('receivedDate')}
+                    filterOptions={filterOptions.receivedDate}
+                    selectedFilters={columnFilters.receivedDate}
+                    onFilterChange={(selected) => setColumnFilter('receivedDate', selected)}
+                  />
+                </th>
+                <th>
+                  <TestLogColumnHeader
+                    label="Customer"
+                    sortActive={sortKey === 'customer'}
+                    sortDirection={sortDirection}
+                    onSort={() => toggleSort('customer')}
+                    filterOptions={filterOptions.customer}
+                    selectedFilters={columnFilters.customer}
+                    onFilterChange={(selected) => setColumnFilter('customer', selected)}
+                  />
+                </th>
+                <th>
+                  <TestLogColumnHeader
+                    label="Description"
+                    sortActive={sortKey === 'description'}
+                    sortDirection={sortDirection}
+                    onSort={() => toggleSort('description')}
+                    filterOptions={filterOptions.description}
+                    selectedFilters={columnFilters.description}
+                    onFilterChange={(selected) => setColumnFilter('description', selected)}
+                  />
+                </th>
+                <th>
+                  <TestLogColumnHeader
+                    label="Teardown inspection"
+                    sortActive={sortKey === 'teardownInspectionDate'}
+                    sortDirection={sortDirection}
+                    onSort={() => toggleSort('teardownInspectionDate')}
+                    filterOptions={filterOptions.teardownInspectionDate}
+                    selectedFilters={columnFilters.teardownInspectionDate}
+                    onFilterChange={(selected) => setColumnFilter('teardownInspectionDate', selected)}
+                  />
+                </th>
+                <th>
+                  <TestLogColumnHeader
+                    label="Warehouse check in"
+                    sortActive={sortKey === 'warehouseCheckInDate'}
+                    sortDirection={sortDirection}
+                    onSort={() => toggleSort('warehouseCheckInDate')}
+                    filterOptions={filterOptions.warehouseCheckInDate}
+                    selectedFilters={columnFilters.warehouseCheckInDate}
+                    onFilterChange={(selected) => setColumnFilter('warehouseCheckInDate', selected)}
+                  />
+                </th>
+                <th>
+                  <TestLogColumnHeader
+                    label="Estimate #"
+                    sortActive={sortKey === 'estimateNumber'}
+                    sortDirection={sortDirection}
+                    onSort={() => toggleSort('estimateNumber')}
+                    filterOptions={filterOptions.estimateNumber}
+                    selectedFilters={columnFilters.estimateNumber}
+                    onFilterChange={(selected) => setColumnFilter('estimateNumber', selected)}
+                  />
+                </th>
+                <th>
+                  <TestLogColumnHeader
+                    label="Sales order #"
+                    sortActive={sortKey === 'salesOrderNumber'}
+                    sortDirection={sortDirection}
+                    onSort={() => toggleSort('salesOrderNumber')}
+                    filterOptions={filterOptions.salesOrderNumber}
+                    selectedFilters={columnFilters.salesOrderNumber}
+                    onFilterChange={(selected) => setColumnFilter('salesOrderNumber', selected)}
+                  />
+                </th>
+                <th>
+                  <TestLogColumnHeader
+                    label="WO printed"
+                    sortActive={sortKey === 'workOrderPrinted'}
+                    sortDirection={sortDirection}
+                    onSort={() => toggleSort('workOrderPrinted')}
+                    filterOptions={filterOptions.workOrderPrinted}
+                    selectedFilters={columnFilters.workOrderPrinted}
+                    onFilterChange={(selected) => setColumnFilter('workOrderPrinted', selected)}
+                  />
+                </th>
+                <th>
+                  <TestLogColumnHeader
+                    label="Status"
+                    sortActive={sortKey === 'status'}
+                    sortDirection={sortDirection}
+                    onSort={() => toggleSort('status')}
+                    filterOptions={filterOptions.status}
+                    selectedFilters={columnFilters.status}
+                    onFilterChange={(selected) => setColumnFilter('status', selected)}
+                  />
+                </th>
+                <th>
+                  <TestLogColumnHeader
+                    label="Notes"
+                    sortActive={sortKey === 'notes'}
+                    sortDirection={sortDirection}
+                    onSort={() => toggleSort('notes')}
+                    filterOptions={filterOptions.notes}
+                    selectedFilters={columnFilters.notes}
+                    onFilterChange={(selected) => setColumnFilter('notes', selected)}
+                  />
+                </th>
+                <th>
+                  <TestLogColumnHeader
+                    label="RFQ"
+                    sortActive={sortKey === 'rfq'}
+                    sortDirection={sortDirection}
+                    onSort={() => toggleSort('rfq')}
+                    filterOptions={filterOptions.rfq}
+                    selectedFilters={columnFilters.rfq}
+                    onFilterChange={(selected) => setColumnFilter('rfq', selected)}
+                  />
+                </th>
                 <th>Actions</th>
               </tr>
             </thead>
             <tbody>
               {sortedRows.length ? (
                 sortedRows.map((row) => (
-                  <tr key={row.id} className={row.id === lastSavedId ? 'received-valves-row-highlight' : undefined}>
+                  <tr
+                    key={row.id}
+                    className={[
+                      row.id === lastSavedId ? 'received-valves-row-highlight' : '',
+                      isArchivedReceivedValveStatus(row.status) ? 'received-valves-row-archived' : '',
+                    ]
+                      .filter(Boolean)
+                      .join(' ') || undefined}
+                  >
                     <td>
                       {row.imageDataUrl ? (
                         <a
@@ -498,6 +767,7 @@ export function ReceivedValvesPage() {
                     <td>{row.workOrderPrinted ? 'Yes' : 'No'}</td>
                     <td>
                       <select
+                        className="received-valves-status-select"
                         value={row.status}
                         aria-label={`Status for ${row.customer}`}
                         onChange={(e) => {
@@ -512,6 +782,22 @@ export function ReceivedValvesPage() {
                           </option>
                         ))}
                       </select>
+                    </td>
+                    <td>
+                      <textarea
+                        className="received-valves-notes-input"
+                        rows={2}
+                        value={notesDrafts[row.id] ?? row.notes}
+                        placeholder="Add notes…"
+                        aria-label={`Notes for ${row.customer}`}
+                        onChange={(e) =>
+                          setNotesDrafts((prev) => ({
+                            ...prev,
+                            [row.id]: e.target.value,
+                          }))
+                        }
+                        onBlur={(e) => void saveNotes(row, e.target.value)}
+                      />
                     </td>
                     <td>{row.sentToRfqAt ? 'Sent' : '—'}</td>
                     <td>
@@ -533,8 +819,12 @@ export function ReceivedValvesPage() {
                 ))
               ) : (
                 <tr>
-                  <td colSpan={12} className="table-empty-cell">
-                    {loading ? 'Loading received valves…' : 'No received valves logged yet.'}
+                  <td colSpan={13} className="table-empty-cell">
+                    {loading
+                      ? 'Loading received valves…'
+                      : activeFilterCount > 0
+                        ? 'No entries match the current filters.'
+                        : 'No received valves logged yet.'}
                   </td>
                 </tr>
               )}

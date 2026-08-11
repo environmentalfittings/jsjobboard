@@ -6053,6 +6053,36 @@ a.test-log-reports-item-name:hover {
   background: #eff6ff;
 }
 
+.received-valves-row-archived {
+  opacity: 0.78;
+}
+
+.received-valves-filter-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  margin: 8px 0 12px;
+  font-size: 13px;
+  color: #475569;
+}
+
+.received-valves-notes-input {
+  width: 100%;
+  min-width: 10rem;
+  min-height: 2.6rem;
+  border: 1px solid #d1d5db;
+  border-radius: 8px;
+  padding: 6px 8px;
+  font-size: 13px;
+  font-family: inherit;
+  resize: vertical;
+}
+
+.received-valves-log-table th {
+  vertical-align: top;
+}
+
 .received-valves-checkbox-row {
   display: flex;
   flex-direction: row;

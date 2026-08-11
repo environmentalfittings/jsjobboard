@@ -44,6 +44,7 @@ export type ReceivedValveRecord = {
   salesOrderNumber: string
   workOrderPrinted: boolean
   status: ReceivedValveStatus
+  notes: string
   /** Public image URL (or legacy local data URL during migration). */
   imageDataUrl: string | null
   imageStoragePath: string | null
@@ -73,6 +74,7 @@ export type ReceivedValveFormState = {
   salesOrderNumber: string
   workOrderPrinted: 'yes' | 'no'
   status: ReceivedValveStatus
+  notes: string
   imageDataUrl: string | null
   imageName: string | null
 }
@@ -96,6 +98,7 @@ type ReceivedValveDbRow = {
   sales_order_number: string | null
   work_order_printed: boolean | null
   status: string | null
+  notes: string | null
   image_url: string | null
   image_storage_path: string | null
   image_name: string | null
@@ -118,6 +121,7 @@ export function emptyReceivedValveForm(): ReceivedValveFormState {
     salesOrderNumber: '',
     workOrderPrinted: 'no',
     status: DEFAULT_RECEIVED_VALVE_STATUS,
+    notes: '',
     imageDataUrl: null,
     imageName: null,
   }
@@ -140,6 +144,7 @@ function dbRowToRecord(row: ReceivedValveDbRow): ReceivedValveRecord {
     salesOrderNumber: row.sales_order_number ?? '',
     workOrderPrinted: Boolean(row.work_order_printed),
     status: normalizeReceivedValveStatus(row.status),
+    notes: row.notes ?? '',
     imageDataUrl: row.image_url,
     imageStoragePath: row.image_storage_path,
     imageName: row.image_name,
@@ -160,6 +165,7 @@ function recordToDbInsert(row: ReceivedValveRecord, userId: string | null) {
     sales_order_number: row.salesOrderNumber,
     work_order_printed: row.workOrderPrinted,
     status: row.status,
+    notes: row.notes,
     image_url: row.imageDataUrl,
     image_storage_path: row.imageStoragePath,
     image_name: row.imageName,
@@ -185,6 +191,7 @@ function normalizeLocalRow(row: unknown): ReceivedValveRecord | null {
     salesOrderNumber: typeof r.salesOrderNumber === 'string' ? r.salesOrderNumber : '',
     workOrderPrinted: Boolean(r.workOrderPrinted),
     status: normalizeReceivedValveStatus(r.status),
+    notes: typeof r.notes === 'string' ? r.notes : '',
     imageDataUrl: typeof r.imageDataUrl === 'string' ? r.imageDataUrl : null,
     imageStoragePath: typeof r.imageStoragePath === 'string' ? r.imageStoragePath : null,
     imageName: typeof r.imageName === 'string' ? r.imageName : null,
@@ -215,10 +222,76 @@ export function clearLocalReceivedValveRows() {
 
 export function sortReceivedValveRows(rows: ReceivedValveRecord[]): ReceivedValveRecord[] {
   return [...rows].sort((a, b) => {
+    // Keep Converted / Lost at the bottom of the list.
+    const aArchived = isArchivedReceivedValveStatus(a.status) ? 1 : 0
+    const bArchived = isArchivedReceivedValveStatus(b.status) ? 1 : 0
+    if (aArchived !== bArchived) return aArchived - bArchived
+
     const dateCompare = (b.receivedDate ?? '').localeCompare(a.receivedDate ?? '')
     if (dateCompare !== 0) return dateCompare
     return (b.createdAt ?? '').localeCompare(a.createdAt ?? '')
   })
+}
+
+export type ReceivedValveSortKey =
+  | 'receivedDate'
+  | 'customer'
+  | 'description'
+  | 'teardownInspectionDate'
+  | 'warehouseCheckInDate'
+  | 'estimateNumber'
+  | 'salesOrderNumber'
+  | 'workOrderPrinted'
+  | 'status'
+  | 'rfq'
+  | 'notes'
+
+export function sortReceivedValveRowsBy(
+  rows: ReceivedValveRecord[],
+  sortKey: ReceivedValveSortKey,
+  sortDirection: 'asc' | 'desc',
+): ReceivedValveRecord[] {
+  const dir = sortDirection === 'asc' ? 1 : -1
+  return [...rows].sort((a, b) => {
+    const aArchived = isArchivedReceivedValveStatus(a.status) ? 1 : 0
+    const bArchived = isArchivedReceivedValveStatus(b.status) ? 1 : 0
+    if (aArchived !== bArchived) return aArchived - bArchived
+
+    const av = receivedValveSortValue(a, sortKey)
+    const bv = receivedValveSortValue(b, sortKey)
+    if (av < bv) return -1 * dir
+    if (av > bv) return 1 * dir
+    return (b.createdAt ?? '').localeCompare(a.createdAt ?? '')
+  })
+}
+
+function receivedValveSortValue(row: ReceivedValveRecord, key: ReceivedValveSortKey): string {
+  switch (key) {
+    case 'receivedDate':
+      return row.receivedDate || ''
+    case 'customer':
+      return row.customer.toLowerCase()
+    case 'description':
+      return row.description.toLowerCase()
+    case 'teardownInspectionDate':
+      return row.teardownInspectionDate || ''
+    case 'warehouseCheckInDate':
+      return row.warehouseCheckInDate || ''
+    case 'estimateNumber':
+      return row.estimateNumber.toLowerCase()
+    case 'salesOrderNumber':
+      return row.salesOrderNumber.toLowerCase()
+    case 'workOrderPrinted':
+      return row.workOrderPrinted ? 'yes' : 'no'
+    case 'status':
+      return receivedValveStatusLabel(row.status).toLowerCase()
+    case 'rfq':
+      return row.sentToRfqAt ? 'sent' : 'not_sent'
+    case 'notes':
+      return row.notes.toLowerCase()
+    default:
+      return ''
+  }
 }
 
 export function readFileAsDataUrl(file: File) {
@@ -387,7 +460,7 @@ async function removeStoragePath(path: string | null | undefined) {
 }
 
 const RECEIVED_VALVE_SELECT =
-  'id,received_date,customer,description,teardown_inspection_date,warehouse_check_in_date,estimate_number,sales_order_number,work_order_printed,status,image_url,image_storage_path,image_name,sent_to_rfq_at,created_at'
+  'id,received_date,customer,description,teardown_inspection_date,warehouse_check_in_date,estimate_number,sales_order_number,work_order_printed,status,notes,image_url,image_storage_path,image_name,sent_to_rfq_at,created_at'
 
 export async function fetchReceivedValveRows(): Promise<
   { ok: true; rows: ReceivedValveRecord[] } | { ok: false; error: string; missingTable?: boolean }
@@ -399,8 +472,8 @@ export async function fetchReceivedValveRows(): Promise<
     .order('created_at', { ascending: false })
 
   if (error) {
-    // Older DBs may not have status yet — retry without it and default the field.
-    if (/column .*status.* does not exist/i.test(error.message) || error.code === '42703') {
+    // Older DBs may not have status/notes yet — retry without newer columns.
+    if (/column .*(status|notes).* does not exist/i.test(error.message) || error.code === '42703') {
       const legacy = await supabase
         .from('received_valves')
         .select(
@@ -414,7 +487,7 @@ export async function fetchReceivedValveRows(): Promise<
       return {
         ok: true,
         rows: ((legacy.data ?? []) as ReceivedValveDbRow[]).map((row) =>
-          dbRowToRecord({ ...row, status: DEFAULT_RECEIVED_VALVE_STATUS }),
+          dbRowToRecord({ ...row, status: DEFAULT_RECEIVED_VALVE_STATUS, notes: '' }),
         ),
       }
     }
@@ -444,7 +517,7 @@ export async function insertReceivedValve(
 export async function updateReceivedValve(
   id: string,
   patch: Partial<
-    Pick<ReceivedValveRecord, 'sentToRfqAt' | 'imageDataUrl' | 'imageStoragePath' | 'imageName' | 'status'>
+    Pick<ReceivedValveRecord, 'sentToRfqAt' | 'imageDataUrl' | 'imageStoragePath' | 'imageName' | 'status' | 'notes'>
   >,
 ): Promise<{ ok: true } | { ok: false; error: string }> {
   const payload: Record<string, unknown> = { updated_at: new Date().toISOString() }
@@ -453,6 +526,7 @@ export async function updateReceivedValve(
   if ('imageStoragePath' in patch) payload.image_storage_path = patch.imageStoragePath
   if ('imageName' in patch) payload.image_name = patch.imageName
   if ('status' in patch && patch.status) payload.status = patch.status
+  if ('notes' in patch) payload.notes = patch.notes ?? ''
 
   const { error } = await supabase.from('received_valves').update(payload).eq('id', id)
   if (error) return { ok: false, error: error.message || 'Could not update received valve' }

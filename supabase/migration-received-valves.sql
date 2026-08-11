@@ -27,6 +27,7 @@ create table if not exists public.received_valves (
   image_url text,
   image_storage_path text,
   image_name text,
+  notes text not null default '',
   sent_to_rfq_at timestamptz,
   created_by_user_id uuid,
   created_at timestamptz not null default now(),

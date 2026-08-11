@@ -93,6 +93,7 @@ export function ReceivedValvesReportPanel() {
               <th>SO #</th>
               <th>WO printed</th>
               <th>Status</th>
+              <th>Notes</th>
               <th>RFQ</th>
             </tr>
           </thead>
@@ -121,12 +122,13 @@ export function ReceivedValvesReportPanel() {
                   <td>{row.salesOrderNumber || '—'}</td>
                   <td>{row.workOrderPrinted ? 'Yes' : 'No'}</td>
                   <td>{receivedValveStatusLabel(row.status)}</td>
+                  <td className="table-cell-clamp">{row.notes.trim() || '—'}</td>
                   <td>{row.sentToRfqAt ? 'Sent' : '—'}</td>
                 </tr>
               ))
             ) : (
               <tr>
-                <td colSpan={9} className="table-empty-cell">
+                <td colSpan={10} className="table-empty-cell">
                   {loading ? 'Loading…' : 'No received valves match this filter.'}
                 </td>
               </tr>

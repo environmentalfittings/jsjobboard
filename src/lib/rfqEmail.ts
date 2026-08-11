@@ -13,6 +13,7 @@ export type RfqEmailDetails = {
   salesOrderNumber: string
   workOrderPrinted: boolean
   status?: string
+  notes?: string
   imageName?: string | null
   /** Public https URL preferred — included in the email so Outlook can open the photo. */
   imageUrl?: string | null
@@ -46,6 +47,7 @@ export function buildRfqEmailBody(details: RfqEmailDetails) {
     `Sales order number: ${details.salesOrderNumber || '—'}`,
     `Work order printed: ${details.workOrderPrinted ? 'Yes' : 'No'}`,
     `Status: ${details.status || '—'}`,
+    `Notes: ${details.notes?.trim() || '—'}`,
   ]
 
   const imageUrl = publicImageUrl(details.imageUrl)
