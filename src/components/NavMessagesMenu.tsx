@@ -85,6 +85,11 @@ export function NavMessagesMenu({ userId, username }: NavMessagesMenuProps) {
               New message
             </Link>
           </div>
+          <div className="nav-messages-panel-foot">
+            <Link to="/messages" className="nav-messages-view-all" onClick={() => setOpen(false)}>
+              View all messages
+            </Link>
+          </div>
           {loading ? (
             <p className="nav-messages-empty">Loading…</p>
           ) : inboxItems.length === 0 ? (
@@ -117,11 +122,6 @@ export function NavMessagesMenu({ userId, username }: NavMessagesMenuProps) {
               ))}
             </div>
           )}
-          <div className="nav-messages-panel-foot">
-            <Link to="/messages" className="nav-messages-view-all" onClick={() => setOpen(false)}>
-              View all messages
-            </Link>
-          </div>
         </div>
       ) : null}
     </div>
