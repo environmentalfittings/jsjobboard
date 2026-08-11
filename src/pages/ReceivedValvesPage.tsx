@@ -37,6 +37,7 @@ function detailsFromRow(row: Pick<
   | 'workOrderPrinted'
   | 'status'
   | 'imageName'
+  | 'imageDataUrl'
 >) {
   return {
     receivedDate: row.receivedDate,
@@ -49,6 +50,7 @@ function detailsFromRow(row: Pick<
     workOrderPrinted: row.workOrderPrinted,
     status: receivedValveStatusLabel(row.status),
     imageName: row.imageName,
+    imageUrl: row.imageDataUrl,
   }
 }
 
@@ -177,6 +179,10 @@ export function ReceivedValvesPage() {
     if (missingTable) {
       showToast('Run supabase/migration-received-valves.sql in Supabase before saving')
       return
+    }
+
+    if (form.sendToRfq && !imageFile && !form.imageDataUrl) {
+      showToast('Send to RFQ is checked but no Picture is selected — email will open without a photo.')
     }
 
     setSaving(true)
@@ -436,7 +442,8 @@ export function ReceivedValvesPage() {
             <span>
               Send to RFQ
               <span className="status-breakdown-note">
-                Opens an email to {rfqEmail} with this entry. On iPad, choose Mail so the picture attaches.
+                Opens an email to {rfqEmail} with this entry and picture. On iPad, choose Mail to attach the photo. In
+                Outlook, the picture link is in the email and the photo file downloads so you can attach it.
               </span>
             </span>
           </label>

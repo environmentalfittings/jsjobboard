@@ -14,6 +14,8 @@ export type RfqEmailDetails = {
   workOrderPrinted: boolean
   status?: string
   imageName?: string | null
+  /** Public https URL preferred — included in the email so Outlook can open the photo. */
+  imageUrl?: string | null
 }
 
 export function buildRfqEmailSubject(details: RfqEmailDetails) {
@@ -22,6 +24,13 @@ export function buildRfqEmailSubject(details: RfqEmailDetails) {
   const so = details.salesOrderNumber.trim()
   const refs = [estimate ? `Est ${estimate}` : '', so ? `SO ${so}` : ''].filter(Boolean).join(' · ')
   return refs ? `Received valve — ${customer} — ${refs}` : `Received valve — ${customer}`
+}
+
+function publicImageUrl(url?: string | null) {
+  const value = typeof url === 'string' ? url.trim() : ''
+  if (!value) return null
+  if (value.startsWith('https://') || value.startsWith('http://')) return value
+  return null
 }
 
 export function buildRfqEmailBody(details: RfqEmailDetails) {
@@ -38,11 +47,17 @@ export function buildRfqEmailBody(details: RfqEmailDetails) {
     `Work order printed: ${details.workOrderPrinted ? 'Yes' : 'No'}`,
     `Status: ${details.status || '—'}`,
   ]
-  if (details.imageName) {
-    lines.push(`Picture: ${details.imageName} (attached when sharing via Mail)`)
+
+  const imageUrl = publicImageUrl(details.imageUrl)
+  if (imageUrl) {
+    lines.push(`Picture: ${details.imageName?.trim() || 'attached / linked'}`)
+    lines.push(`Picture link: ${imageUrl}`)
+  } else if (details.imageName?.trim()) {
+    lines.push(`Picture: ${details.imageName.trim()} (attach the downloaded file before sending)`)
   } else {
     lines.push('Picture: none')
   }
+
   lines.push('', '— JS Job Board Receiving Log')
   return lines.join('\n')
 }
@@ -76,8 +91,21 @@ async function imageSourceToFile(source: string, fileName: string): Promise<File
   }
 }
 
+function downloadFile(file: File) {
+  const url = URL.createObjectURL(file)
+  const anchor = document.createElement('a')
+  anchor.href = url
+  anchor.download = file.name || 'received-valve.jpg'
+  anchor.rel = 'noopener'
+  document.body.appendChild(anchor)
+  anchor.click()
+  anchor.remove()
+  window.setTimeout(() => URL.revokeObjectURL(url), 1000)
+}
+
 function openMailto(to: string, subject: string, body: string) {
-  const href = `mailto:${encodeURIComponent(to)}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`
+  // Do not encode the address itself — Outlook expects mailto:user@domain
+  const href = `mailto:${to}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`
   window.location.href = href
 }
 
@@ -86,9 +114,10 @@ export type ComposeRfqEmailResult =
   | { ok: false; message: string }
 
 /**
- * Opens an email to RFQ with valve details.
- * Prefers the Web Share API (iPad/Safari can attach the photo and send via Mail).
- * Falls back to mailto: (body only — most desktop mail clients cannot attach via URL).
+ * Opens an email to RFQ with valve details and picture.
+ * - iPad/Safari: Web Share can attach the photo into Mail
+ * - Outlook/desktop: mailto cannot attach files, so the public picture link is
+ *   put in the body and the image file is downloaded for manual attach
  */
 export async function composeRfqEmail(options: {
   to?: string
@@ -101,15 +130,20 @@ export async function composeRfqEmail(options: {
     return { ok: false, message: 'RFQ email is not configured (set VITE_RFQ_EMAIL).' }
   }
 
-  const subject = buildRfqEmailSubject(options.details)
-  const body = buildRfqEmailBody(options.details)
+  const imageUrl = publicImageUrl(options.details.imageUrl ?? options.imageDataUrl)
+  const details: RfqEmailDetails = {
+    ...options.details,
+    imageUrl: imageUrl ?? options.details.imageUrl,
+  }
+
+  const subject = buildRfqEmailSubject(details)
+  const body = buildRfqEmailBody(details)
 
   let file = options.imageFile ?? null
   if (!file && options.imageDataUrl) {
-    file = await imageSourceToFile(options.imageDataUrl, options.details.imageName ?? 'received-valve.jpg')
+    file = await imageSourceToFile(options.imageDataUrl, details.imageName ?? 'received-valve.jpg')
   }
 
-  // Prefer Web Share when a photo can be attached (iPad Mail). Otherwise use mailto.
   const canShareWithPhoto =
     Boolean(file) &&
     typeof navigator !== 'undefined' &&
@@ -130,23 +164,42 @@ export async function composeRfqEmail(options: {
         message: `Share sheet opened — choose Mail to send to ${to} with the photo attached.`,
       }
     } catch (error) {
-      // User cancelled share — don't fall through to mailto spam.
       if (error instanceof DOMException && error.name === 'AbortError') {
         return { ok: false, message: 'RFQ email cancelled.' }
       }
-      // Share failed for another reason — try mailto.
+      // Share failed — fall through to mailto + download.
+    }
+  }
+
+  if (file) {
+    try {
+      downloadFile(file)
+    } catch {
+      // Download is best-effort; link in body still helps.
     }
   }
 
   const mailtoBody = file
-    ? `${body}\n\nNote: Attach the valve photo (${options.details.imageName ?? 'image'}) from your device before sending.`
+    ? `${body}\n\nNote: Outlook cannot auto-attach from the browser. The photo was downloaded — attach that file before sending${
+        imageUrl ? `, or open the picture link above.` : '.'
+      }`
     : body
+
   openMailto(to, subject, mailtoBody)
+
+  if (!file && !imageUrl) {
+    return {
+      ok: true,
+      method: 'mailto',
+      message: `Email draft opened for ${to}. No picture was on this entry — add a Picture and resend if needed.`,
+    }
+  }
+
   return {
     ok: true,
     method: 'mailto',
     message: file
-      ? `Email draft opened for ${to}. Attach the photo before sending if it is not included.`
-      : `Email draft opened for ${to}.`,
+      ? `Email opened for ${to}. Photo downloaded — attach it in Outlook (picture link is also in the email).`
+      : `Email opened for ${to}. Picture link is included in the email.`,
   }
 }
