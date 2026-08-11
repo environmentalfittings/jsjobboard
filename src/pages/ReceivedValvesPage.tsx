@@ -389,7 +389,7 @@ export function ReceivedValvesPage() {
               <option value="yes">Yes</option>
             </select>
           </label>
-          <div className="received-valves-image-wrap">
+          <div className="received-valves-image-wrap received-valves-span-full">
             <label>
               Picture
               <input type="file" accept="image/*" capture="environment" onChange={onImageChange} />
@@ -408,7 +408,7 @@ export function ReceivedValvesPage() {
             ) : null}
           </div>
 
-          <label>
+          <label className="received-valves-span-full">
             Status
             <select
               value={form.status}
@@ -425,7 +425,8 @@ export function ReceivedValvesPage() {
               ))}
             </select>
             <span className="status-breakdown-note">
-              Converted removes this entry from the Dashboard log; it remains in Reports.
+              Waiting on Salesman / Waiting on Customer stay on the Dashboard. Converted drops off the Dashboard and
+              remains in Reports.
             </span>
           </label>
 
