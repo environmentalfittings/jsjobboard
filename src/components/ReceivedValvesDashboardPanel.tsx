@@ -24,6 +24,7 @@ export function ReceivedValvesDashboardPanel() {
   const [loading, setLoading] = useState(true)
   const [updatingId, setUpdatingId] = useState<string | null>(null)
   const [editingRow, setEditingRow] = useState<ReceivedValveRecord | null>(null)
+  const [notesDrafts, setNotesDrafts] = useState<Record<string, string>>({})
 
   const reload = useCallback(async () => {
     setLoading(true)
@@ -65,6 +66,30 @@ export function ReceivedValvesDashboardPanel() {
     showToast(`Status updated to ${receivedValveStatusLabel(status)}`)
   }
 
+  const saveNotes = async (row: ReceivedValveRecord, notes: string) => {
+    const nextNotes = notes.trim()
+    if (nextNotes === row.notes.trim()) {
+      setNotesDrafts((prev) => {
+        const copy = { ...prev }
+        delete copy[row.id]
+        return copy
+      })
+      return
+    }
+    const result = await updateReceivedValve(row.id, { notes: nextNotes })
+    if (!result.ok) {
+      showToast(result.error)
+      return
+    }
+    setRows((prev) => prev.map((item) => (item.id === row.id ? { ...item, notes: nextNotes } : item)))
+    setNotesDrafts((prev) => {
+      const copy = { ...prev }
+      delete copy[row.id]
+      return copy
+    })
+    showToast('Notes saved')
+  }
+
   const onSavedEdit = (next: ReceivedValveRecord) => {
     setEditingRow(null)
     if (isArchivedReceivedValveStatus(next.status)) {
@@ -87,8 +112,8 @@ export function ReceivedValvesDashboardPanel() {
         </Link>
       </div>
       <p className="status-breakdown-note">
-        Open received valves{rows.length ? ` · ${rows.length} active` : ''}. Use Edit to change details, or Status for a
-        quick update. Converted and Lost leave this list and stay in Reports.
+        Open received valves{rows.length ? ` · ${rows.length} active` : ''}. Edit notes here, use Status for a quick
+        update, or Edit for full details. Converted and Lost leave this list and stay in Reports.
       </p>
       <div className="dashboard-table-wrap manager-dashboard-scroll">
         <table className="dashboard-table">
@@ -101,6 +126,7 @@ export function ReceivedValvesDashboardPanel() {
               <th>Estimate #</th>
               <th>SO #</th>
               <th>Status</th>
+              <th>Notes</th>
               <th>WO printed</th>
               <th>Actions</th>
             </tr>
@@ -147,6 +173,22 @@ export function ReceivedValvesDashboardPanel() {
                       ))}
                     </select>
                   </td>
+                  <td>
+                    <textarea
+                      className="received-valves-notes-input"
+                      rows={2}
+                      value={notesDrafts[row.id] ?? row.notes}
+                      placeholder="Add notes…"
+                      aria-label={`Notes for ${row.customer}`}
+                      onChange={(e) =>
+                        setNotesDrafts((prev) => ({
+                          ...prev,
+                          [row.id]: e.target.value,
+                        }))
+                      }
+                      onBlur={(e) => void saveNotes(row, e.target.value)}
+                    />
+                  </td>
                   <td>{row.workOrderPrinted ? 'Yes' : 'No'}</td>
                   <td>
                     <button type="button" className="button-secondary" onClick={() => setEditingRow(row)}>
@@ -157,7 +199,7 @@ export function ReceivedValvesDashboardPanel() {
               ))
             ) : (
               <tr>
-                <td colSpan={9} className="table-empty-cell">
+                <td colSpan={10} className="table-empty-cell">
                   {loading ? (
                     'Loading…'
                   ) : (
