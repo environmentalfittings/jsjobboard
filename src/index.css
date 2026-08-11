@@ -4296,6 +4296,33 @@ a.test-log-reports-item-name:hover {
   margin-bottom: 12px;
 }
 
+/* Keep table horizontal scrollbar in view (not only at page bottom). */
+.tool-cal-scroll {
+  max-height: min(70vh, calc(100vh - 260px));
+  min-height: 220px;
+  overflow: auto;
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
+}
+
+.tool-cal-scroll thead th {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  background: #f8fafc;
+  box-shadow: 0 1px 0 #e2e8f0;
+}
+
+.tool-cal-scroll .test-gauge-admin-table,
+.tool-cal-scroll .tool-cal-sortable-table {
+  min-width: 1100px;
+}
+
+.tool-cal-scroll .tool-cal-inline-edit-form .test-gauge-admin-grid,
+.tool-cal-scroll .tool-cal-inline-edit-form .tool-cal-admin-grid {
+  min-width: 0;
+}
+
 .manager-dashboard-page .manager-dashboard-scroll thead th {
   position: sticky;
   top: 0;
