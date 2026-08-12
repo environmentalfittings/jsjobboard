@@ -346,7 +346,11 @@ export function ReceivedValvesPage() {
     if (row.status === status) return
     const result = await updateReceivedValve(row.id, { status })
     if (!result.ok) {
-      showToast(result.error)
+      showToast(
+        result.error.includes('received_valves_status_check') || /check constraint/i.test(result.error)
+          ? `Could not save status — run the status SQL migration in Supabase (${result.error})`
+          : `Could not save status: ${result.error}`,
+      )
       return
     }
     setRows((prev) => prev.map((item) => (item.id === row.id ? { ...item, status } : item)))
