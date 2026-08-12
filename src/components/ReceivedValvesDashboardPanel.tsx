@@ -54,7 +54,11 @@ export function ReceivedValvesDashboardPanel() {
     const result = await updateReceivedValve(row.id, { status })
     setUpdatingId(null)
     if (!result.ok) {
-      showToast(result.error)
+      showToast(
+        result.error.includes('received_valves_status_check') || /check constraint/i.test(result.error)
+          ? `Could not save status — run supabase/migration-received-valves-quoted-lost.sql in Supabase (${result.error})`
+          : `Could not save status: ${result.error}`,
+      )
       return
     }
     if (isArchivedReceivedValveStatus(status)) {

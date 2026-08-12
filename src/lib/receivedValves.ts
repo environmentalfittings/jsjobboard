@@ -462,47 +462,105 @@ async function removeStoragePath(path: string | null | undefined) {
 const RECEIVED_VALVE_SELECT =
   'id,received_date,customer,description,teardown_inspection_date,warehouse_check_in_date,estimate_number,sales_order_number,work_order_printed,status,notes,image_url,image_storage_path,image_name,sent_to_rfq_at,created_at'
 
+const RECEIVED_VALVE_SELECT_NO_NOTES =
+  'id,received_date,customer,description,teardown_inspection_date,warehouse_check_in_date,estimate_number,sales_order_number,work_order_printed,status,image_url,image_storage_path,image_name,sent_to_rfq_at,created_at'
+
+const RECEIVED_VALVE_SELECT_LEGACY =
+  'id,received_date,customer,description,teardown_inspection_date,warehouse_check_in_date,estimate_number,sales_order_number,work_order_printed,image_url,image_storage_path,image_name,sent_to_rfq_at,created_at'
+
+function isMissingColumnError(error: { message?: string; code?: string } | null) {
+  if (!error) return false
+  return /column .*(status|notes).* does not exist/i.test(error.message ?? '') || error.code === '42703'
+}
+
+function isMissingTableError(error: { message?: string; code?: string } | null) {
+  if (!error) return false
+  return (
+    /relation .*received_valves.* does not exist/i.test(error.message ?? '') ||
+    error.code === '42P01' ||
+    error.code === 'PGRST205'
+  )
+}
+
 export async function fetchReceivedValveRows(): Promise<
   { ok: true; rows: ReceivedValveRecord[] } | { ok: false; error: string; missingTable?: boolean }
 > {
-  const { data, error } = await supabase
+  const primary = await supabase
     .from('received_valves')
     .select(RECEIVED_VALVE_SELECT)
     .order('received_date', { ascending: false })
     .order('created_at', { ascending: false })
 
-  if (error) {
-    // Older DBs may not have status/notes yet — retry without newer columns.
-    if (/column .*(status|notes).* does not exist/i.test(error.message) || error.code === '42703') {
-      const legacy = await supabase
-        .from('received_valves')
-        .select(
-          'id,received_date,customer,description,teardown_inspection_date,warehouse_check_in_date,estimate_number,sales_order_number,work_order_printed,image_url,image_storage_path,image_name,sent_to_rfq_at,created_at',
-        )
-        .order('received_date', { ascending: false })
-        .order('created_at', { ascending: false })
-      if (legacy.error) {
-        return { ok: false, error: legacy.error.message || 'Could not load received valves' }
-      }
+  if (!primary.error) {
+    return {
+      ok: true,
+      rows: ((primary.data ?? []) as ReceivedValveDbRow[]).map(dbRowToRecord),
+    }
+  }
+
+  // Notes column missing — keep status so Converted/Lost still persist in the UI.
+  if (isMissingColumnError(primary.error)) {
+    const withStatus = await supabase
+      .from('received_valves')
+      .select(RECEIVED_VALVE_SELECT_NO_NOTES)
+      .order('received_date', { ascending: false })
+      .order('created_at', { ascending: false })
+
+    if (!withStatus.error) {
       return {
         ok: true,
-        rows: ((legacy.data ?? []) as ReceivedValveDbRow[]).map((row) =>
-          dbRowToRecord({ ...row, status: DEFAULT_RECEIVED_VALVE_STATUS, notes: '' }),
+        rows: ((withStatus.data ?? []) as ReceivedValveDbRow[]).map((row) =>
+          dbRowToRecord({ ...row, notes: row.notes ?? '' }),
         ),
       }
     }
 
-    const missingTable =
-      /relation .*received_valves.* does not exist/i.test(error.message) ||
-      error.code === '42P01' ||
-      error.code === 'PGRST205'
-    return { ok: false, error: error.message || 'Could not load received valves', missingTable }
+    // Status column also missing — last-resort legacy shape.
+    if (isMissingColumnError(withStatus.error)) {
+      const legacy = await supabase
+        .from('received_valves')
+        .select(RECEIVED_VALVE_SELECT_LEGACY)
+        .order('received_date', { ascending: false })
+        .order('created_at', { ascending: false })
+
+      if (!legacy.error) {
+        return {
+          ok: true,
+          rows: ((legacy.data ?? []) as ReceivedValveDbRow[]).map((row) =>
+            dbRowToRecord({ ...row, status: DEFAULT_RECEIVED_VALVE_STATUS, notes: '' }),
+          ),
+        }
+      }
+
+      if (isMissingTableError(legacy.error)) {
+        return {
+          ok: false,
+          error: legacy.error.message || 'Could not load received valves',
+          missingTable: true,
+        }
+      }
+      return { ok: false, error: legacy.error?.message || withStatus.error.message || primary.error.message }
+    }
+
+    if (isMissingTableError(withStatus.error)) {
+      return {
+        ok: false,
+        error: withStatus.error.message || 'Could not load received valves',
+        missingTable: true,
+      }
+    }
+    return { ok: false, error: withStatus.error.message || primary.error.message }
   }
 
-  return {
-    ok: true,
-    rows: ((data ?? []) as ReceivedValveDbRow[]).map(dbRowToRecord),
+  if (isMissingTableError(primary.error)) {
+    return {
+      ok: false,
+      error: primary.error.message || 'Could not load received valves',
+      missingTable: true,
+    }
   }
+
+  return { ok: false, error: primary.error.message || 'Could not load received valves' }
 }
 
 export async function insertReceivedValve(
