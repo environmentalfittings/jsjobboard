@@ -1,13 +1,16 @@
-import { useEffect, useState, type FormEvent } from 'react'
+import { useEffect, useState, type ChangeEvent, type FormEvent } from 'react'
 import {
   isReceivedValveStatus,
+  prepareReceivedValveImage,
   RECEIVED_VALVE_STATUSES,
   RECEIVED_VALVE_STATUS_LABELS,
   updateReceivedValve,
+  uploadReceivedValveImage,
   type ReceivedValveRecord,
   type ReceivedValveStatus,
 } from '../lib/receivedValves'
 import { supabase } from '../lib/supabase'
+import { VALVE_ATTACHMENTS_BUCKET } from '../lib/valveAttachments'
 
 type CustomerRow = { id: number; name: string }
 
@@ -22,6 +25,9 @@ type EditForm = {
   workOrderPrinted: 'yes' | 'no'
   status: ReceivedValveStatus
   notes: string
+  imageDataUrl: string | null
+  imageName: string | null
+  imageStoragePath: string | null
 }
 
 function formFromRow(row: ReceivedValveRecord): EditForm {
@@ -36,6 +42,9 @@ function formFromRow(row: ReceivedValveRecord): EditForm {
     workOrderPrinted: row.workOrderPrinted ? 'yes' : 'no',
     status: row.status,
     notes: row.notes,
+    imageDataUrl: row.imageDataUrl,
+    imageName: row.imageName,
+    imageStoragePath: row.imageStoragePath,
   }
 }
 
@@ -51,9 +60,14 @@ export function ReceivedValveEditModal({ row, onClose, onSaved, onError }: Recei
   const [customers, setCustomers] = useState<CustomerRow[]>([])
   const [loadingCustomers, setLoadingCustomers] = useState(true)
   const [saving, setSaving] = useState(false)
+  const [imageFile, setImageFile] = useState<File | null>(null)
+  const [removeExistingImage, setRemoveExistingImage] = useState(false)
+  const [preparingImage, setPreparingImage] = useState(false)
 
   useEffect(() => {
     setForm(formFromRow(row))
+    setImageFile(null)
+    setRemoveExistingImage(false)
   }, [row])
 
   useEffect(() => {
@@ -75,6 +89,41 @@ export function ReceivedValveEditModal({ row, onClose, onSaved, onError }: Recei
     }
   }, [onError])
 
+  const onImageChange = async (event: ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0]
+    if (!file) return
+    setPreparingImage(true)
+    try {
+      const prepared = await prepareReceivedValveImage(file)
+      if (!prepared.ok) {
+        onError(prepared.error)
+        return
+      }
+      setImageFile(prepared.file)
+      setRemoveExistingImage(false)
+      setForm((prev) => ({
+        ...prev,
+        imageDataUrl: prepared.dataUrl,
+        imageName: prepared.file.name,
+      }))
+    } catch (error) {
+      onError(error instanceof Error ? error.message : 'Could not read image')
+    } finally {
+      setPreparingImage(false)
+      event.target.value = ''
+    }
+  }
+
+  const clearImage = () => {
+    setImageFile(null)
+    setRemoveExistingImage(true)
+    setForm((prev) => ({
+      ...prev,
+      imageDataUrl: null,
+      imageName: null,
+    }))
+  }
+
   const onSubmit = async (event: FormEvent) => {
     event.preventDefault()
     if (!form.customer.trim()) {
@@ -87,6 +136,28 @@ export function ReceivedValveEditModal({ row, onClose, onSaved, onError }: Recei
     }
 
     setSaving(true)
+
+    let imageDataUrl = form.imageDataUrl
+    let imageStoragePath = form.imageStoragePath
+    let imageName = form.imageName
+    const previousStoragePath = row.imageStoragePath
+
+    if (imageFile) {
+      const uploaded = await uploadReceivedValveImage(row.id, imageFile)
+      if (!uploaded.ok) {
+        setSaving(false)
+        onError(uploaded.error)
+        return
+      }
+      imageDataUrl = uploaded.url
+      imageStoragePath = uploaded.storagePath
+      imageName = imageFile.name
+    } else if (removeExistingImage) {
+      imageDataUrl = null
+      imageStoragePath = null
+      imageName = null
+    }
+
     const patch = {
       receivedDate: form.receivedDate,
       customer: form.customer.trim(),
@@ -98,13 +169,27 @@ export function ReceivedValveEditModal({ row, onClose, onSaved, onError }: Recei
       workOrderPrinted: form.workOrderPrinted === 'yes',
       status: form.status,
       notes: form.notes.trim(),
+      imageDataUrl,
+      imageStoragePath,
+      imageName,
     }
     const result = await updateReceivedValve(row.id, patch)
-    setSaving(false)
     if (!result.ok) {
+      setSaving(false)
       onError(result.error)
       return
     }
+
+    // Best-effort cleanup of replaced/removed storage object.
+    if (
+      previousStoragePath &&
+      (imageFile || removeExistingImage) &&
+      previousStoragePath !== imageStoragePath
+    ) {
+      await supabase.storage.from(VALVE_ATTACHMENTS_BUCKET).remove([previousStoragePath])
+    }
+
+    setSaving(false)
     onSaved({ ...row, ...patch })
   }
 
@@ -220,6 +305,38 @@ export function ReceivedValveEditModal({ row, onClose, onSaved, onError }: Recei
               ))}
             </select>
           </label>
+
+          <div className="received-valves-image-wrap received-valves-span-full">
+            <label>
+              Picture
+              <input
+                type="file"
+                accept="image/*"
+                capture="environment"
+                onChange={onImageChange}
+                disabled={saving || preparingImage}
+              />
+            </label>
+            <p className="status-breakdown-note">
+              {preparingImage
+                ? 'Preparing photo…'
+                : 'Add or replace a photo if one was missed. Large photos are compressed automatically.'}
+            </p>
+            {form.imageDataUrl ? (
+              <div className="received-valves-image-preview">
+                <img src={form.imageDataUrl} alt={form.imageName ?? 'Valve photo'} />
+                <div className="received-valves-image-meta">
+                  <span>{form.imageName ?? 'Image attached'}</span>
+                  <button type="button" className="button-secondary" onClick={clearImage} disabled={saving}>
+                    Remove image
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <p className="status-breakdown-note">No picture on this entry yet.</p>
+            )}
+          </div>
+
           <label className="received-valves-span-full">
             Notes
             <textarea
@@ -230,7 +347,7 @@ export function ReceivedValveEditModal({ row, onClose, onSaved, onError }: Recei
             />
           </label>
           <div className="received-valves-actions received-valves-span-full">
-            <button type="submit" className="button-primary" disabled={saving}>
+            <button type="submit" className="button-primary" disabled={saving || preparingImage}>
               {saving ? 'Saving…' : 'Save changes'}
             </button>
             <button type="button" className="button-secondary" onClick={onClose} disabled={saving}>

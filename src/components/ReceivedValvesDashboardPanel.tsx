@@ -112,8 +112,8 @@ export function ReceivedValvesDashboardPanel() {
         </Link>
       </div>
       <p className="status-breakdown-note">
-        Open received valves{rows.length ? ` · ${rows.length} active` : ''}. Edit notes here, use Status for a quick
-        update, or Edit for full details. Converted and Lost leave this list and stay in Reports.
+        Open received valves{rows.length ? ` · ${rows.length} active` : ''}. Use Edit to add a missed picture or change
+        details. Notes and Status can be updated here too. Converted and Lost leave this list and stay in Reports.
       </p>
       <div className="dashboard-table-wrap manager-dashboard-scroll">
         <table className="dashboard-table">
