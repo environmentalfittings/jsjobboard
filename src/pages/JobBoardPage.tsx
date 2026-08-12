@@ -1276,6 +1276,57 @@ export function JobBoardPage({ role, username }: { role?: UserRole; username?: s
     }
   }
 
+  const exportListCsv = () => {
+    if (!tableRows.length) return
+    const dueOrClosedHeader = viewingCompletedValves ? 'Date closed' : 'Due date'
+    const header = [
+      'Valve ID',
+      'Customer',
+      'Cell',
+      'Size',
+      'Turnaround',
+      'Status',
+      'Techs',
+      dueOrClosedHeader,
+      'Description',
+      'Notes',
+      'Job type',
+      'Priority',
+    ]
+    const lines = tableRows.map((valve) => {
+      const dueOrClosed = viewingCompletedValves
+        ? valve.date_closed ?? ''
+        : dueDateLabel(valve.due_date) ?? ''
+      const overdueSuffix =
+        !viewingCompletedValves && isDeliveryOverdue(valve) && dueOrClosed ? ' (Overdue)' : ''
+      return [
+        valve.valve_id,
+        valve.customer ?? '',
+        valve.cell ?? '',
+        valve.size ?? '',
+        isTurnaroundValve(valve) ? 'Yes' : '',
+        displayJobStatus(valve) || valve.status || '',
+        technicianLabelForValve(valve),
+        `${dueOrClosed}${overdueSuffix}`,
+        valve.description ?? '',
+        valve.notes ?? '',
+        normalizeJobType(valve.job_type),
+        priorityIds.has(valve.valve_id) ? 'Yes' : '',
+      ]
+        .map((value) => `"${String(value).replaceAll('"', '""')}"`)
+        .join(',')
+    })
+    const csv = [header.join(','), ...lines].join('\n')
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    const scopeSlug = viewingCompletedValves ? 'closed' : scopeFilter
+    a.download = `job-board-list-${scopeSlug}-${new Date().toISOString().slice(0, 10)}.csv`
+    a.click()
+    URL.revokeObjectURL(url)
+  }
+
   const togglePriority = async (valve: Valve) => {
     if (!canWrite) {
       showToast(permissionDeniedReason('shopWrite'))
@@ -1724,6 +1775,14 @@ export function JobBoardPage({ role, username }: { role?: UserRole; username?: s
             <span className="list-view-count">
               {tableRows.length} row{tableRows.length === 1 ? '' : 's'}
             </span>
+            <button
+              type="button"
+              className="button-secondary"
+              onClick={exportListCsv}
+              disabled={tableRows.length === 0}
+            >
+              Export CSV
+            </button>
             <button
               type="button"
               className={`button-secondary list-view-completed-toggle ${viewingCompletedValves ? 'active' : ''}`}
