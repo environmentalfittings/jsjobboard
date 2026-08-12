@@ -223,9 +223,9 @@ export function ReceivedValvesDashboardPanel() {
                   <td>
                     <textarea
                       className="received-valves-notes-input"
-                      rows={2}
+                      rows={1}
                       value={notesDrafts[row.id] ?? row.notes}
-                      placeholder="Add notes…"
+                      placeholder="Notes…"
                       aria-label={`Notes for ${row.customer}`}
                       onChange={(e) =>
                         setNotesDrafts((prev) => ({
@@ -246,13 +246,16 @@ export function ReceivedValvesDashboardPanel() {
                         type="button"
                         className={row.sentToRfqAt ? 'button-secondary' : 'button-primary'}
                         disabled={sendingRfqId === row.id}
+                        title={
+                          sendingRfqId === row.id
+                            ? 'Opening email…'
+                            : row.sentToRfqAt
+                              ? 'Resend RFQ email'
+                              : 'Send to RFQ'
+                        }
                         onClick={() => void sendRowToRfq(row)}
                       >
-                        {sendingRfqId === row.id
-                          ? 'Opening…'
-                          : row.sentToRfqAt
-                            ? 'Resend RFQ'
-                            : 'Send to RFQ'}
+                        {sendingRfqId === row.id ? '…' : row.sentToRfqAt ? 'Resend' : 'RFQ'}
                       </button>
                       <button type="button" className="button-secondary" onClick={() => setEditingRow(row)}>
                         Edit

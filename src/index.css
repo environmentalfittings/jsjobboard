@@ -6069,14 +6069,36 @@ a.test-log-reports-item-name:hover {
 
 .received-valves-notes-input {
   width: 100%;
-  min-width: 10rem;
-  min-height: 2.6rem;
+  min-width: 8rem;
+  min-height: 2.2rem;
   border: 1px solid #d1d5db;
-  border-radius: 8px;
-  padding: 6px 8px;
-  font-size: 13px;
+  border-radius: 6px;
+  padding: 4px 6px;
+  font-size: 12px;
   font-family: inherit;
   resize: vertical;
+}
+
+.dashboard-panel .received-valves-notes-input {
+  min-width: 7rem;
+  max-width: 11rem;
+  min-height: 2rem;
+  max-height: 4.5rem;
+}
+
+.dashboard-panel .received-valves-status-select {
+  min-width: 9.5rem;
+  font-size: 12px;
+  padding: 4px 6px;
+}
+
+.dashboard-panel .received-valves-rfq-badge {
+  padding: 3px 6px;
+  font-size: 11px;
+}
+
+.dashboard-panel .received-valves-rfq-badge-date {
+  font-size: 10px;
 }
 
 .received-valves-log-table th {
@@ -6152,9 +6174,20 @@ a.test-log-reports-item-name:hover {
 }
 
 .received-valves-row-actions {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
+  display: inline-flex;
+  flex-wrap: nowrap;
+  align-items: center;
+  gap: 6px;
+}
+
+.received-valves-row-actions .button-primary,
+.received-valves-row-actions .button-secondary {
+  padding: 4px 8px;
+  border-radius: 6px;
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1.2;
+  white-space: nowrap;
 }
 
 .received-valves-rfq-badge {
