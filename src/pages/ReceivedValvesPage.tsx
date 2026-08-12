@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState, type ChangeEvent, type FormEvent } from 'react'
 import { Link } from 'react-router-dom'
 import { ReceivedValveEditModal } from '../components/ReceivedValveEditModal'
+import { ReceivedValveRfqBadge } from '../components/ReceivedValveRfqBadge'
 import { TestLogColumnHeader } from '../components/testLog/TestLogColumnHeader'
 import { useToast } from '../components/ToastNotification'
 import {
@@ -805,7 +806,9 @@ export function ReceivedValvesPage() {
                         onBlur={(e) => void saveNotes(row, e.target.value)}
                       />
                     </td>
-                    <td>{row.sentToRfqAt ? 'Sent' : '—'}</td>
+                    <td>
+                      <ReceivedValveRfqBadge sentToRfqAt={row.sentToRfqAt} />
+                    </td>
                     <td>
                       <div className="received-valves-row-actions">
                         <button type="button" className="button-secondary" onClick={() => setEditingRow(row)}>

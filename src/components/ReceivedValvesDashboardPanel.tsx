@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { ReceivedValveEditModal } from './ReceivedValveEditModal'
+import { ReceivedValveRfqBadge } from './ReceivedValveRfqBadge'
 import { useToast } from './ToastNotification'
 import {
   isActiveReceivedValve,
@@ -172,6 +173,7 @@ export function ReceivedValvesDashboardPanel() {
               <th>SO #</th>
               <th>Status</th>
               <th>Notes</th>
+              <th>RFQ</th>
               <th>WO printed</th>
               <th>Actions</th>
             </tr>
@@ -234,12 +236,15 @@ export function ReceivedValvesDashboardPanel() {
                       onBlur={(e) => void saveNotes(row, e.target.value)}
                     />
                   </td>
+                  <td>
+                    <ReceivedValveRfqBadge sentToRfqAt={row.sentToRfqAt} />
+                  </td>
                   <td>{row.workOrderPrinted ? 'Yes' : 'No'}</td>
                   <td>
                     <div className="received-valves-row-actions">
                       <button
                         type="button"
-                        className="button-primary"
+                        className={row.sentToRfqAt ? 'button-secondary' : 'button-primary'}
                         disabled={sendingRfqId === row.id}
                         onClick={() => void sendRowToRfq(row)}
                       >
@@ -258,7 +263,7 @@ export function ReceivedValvesDashboardPanel() {
               ))
             ) : (
               <tr>
-                <td colSpan={10} className="table-empty-cell">
+                <td colSpan={11} className="table-empty-cell">
                   {loading ? (
                     'Loading…'
                   ) : (
