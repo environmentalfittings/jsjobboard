@@ -818,9 +818,16 @@ export function ReceivedValvesPage() {
                           type="button"
                           className={row.id === lastSavedId && !row.sentToRfqAt ? 'button-primary' : 'button-secondary'}
                           disabled={sendingRfqId === row.id}
+                          title={
+                            sendingRfqId === row.id
+                              ? 'Opening email…'
+                              : row.sentToRfqAt
+                                ? 'Resend RFQ email'
+                                : 'Send to RFQ'
+                          }
                           onClick={() => void sendRowToRfq(row)}
                         >
-                          {sendingRfqId === row.id ? 'Opening…' : row.sentToRfqAt ? 'Resend RFQ' : 'Send to RFQ'}
+                          {sendingRfqId === row.id ? '…' : row.sentToRfqAt ? 'Resend' : 'RFQ'}
                         </button>
                         <button type="button" className="button-secondary" onClick={() => void removeRow(row)}>
                           Delete
