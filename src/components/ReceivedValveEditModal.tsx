@@ -4,11 +4,13 @@ import {
   prepareReceivedValveImage,
   RECEIVED_VALVE_STATUSES,
   RECEIVED_VALVE_STATUS_LABELS,
+  receivedValveStatusLabel,
   updateReceivedValve,
   uploadReceivedValveImage,
   type ReceivedValveRecord,
   type ReceivedValveStatus,
 } from '../lib/receivedValves'
+import { composeRfqEmail, getRfqEmail } from '../lib/rfqEmail'
 import { supabase } from '../lib/supabase'
 import { VALVE_ATTACHMENTS_BUCKET } from '../lib/valveAttachments'
 
@@ -48,21 +50,48 @@ function formFromRow(row: ReceivedValveRecord): EditForm {
   }
 }
 
+function rfqDetailsFromRecord(record: ReceivedValveRecord) {
+  return {
+    receivedDate: record.receivedDate,
+    customer: record.customer,
+    description: record.description,
+    teardownInspectionDate: record.teardownInspectionDate,
+    warehouseCheckInDate: record.warehouseCheckInDate,
+    estimateNumber: record.estimateNumber,
+    salesOrderNumber: record.salesOrderNumber,
+    workOrderPrinted: record.workOrderPrinted,
+    status: receivedValveStatusLabel(record.status),
+    notes: record.notes,
+    imageName: record.imageName,
+    imageUrl: record.imageDataUrl,
+  }
+}
+
 type ReceivedValveEditModalProps = {
   row: ReceivedValveRecord
   onClose: () => void
   onSaved: (next: ReceivedValveRecord) => void
   onError: (message: string) => void
+  onMessage?: (message: string) => void
 }
 
-export function ReceivedValveEditModal({ row, onClose, onSaved, onError }: ReceivedValveEditModalProps) {
+export function ReceivedValveEditModal({
+  row,
+  onClose,
+  onSaved,
+  onError,
+  onMessage,
+}: ReceivedValveEditModalProps) {
   const [form, setForm] = useState<EditForm>(() => formFromRow(row))
   const [customers, setCustomers] = useState<CustomerRow[]>([])
   const [loadingCustomers, setLoadingCustomers] = useState(true)
   const [saving, setSaving] = useState(false)
+  const [sendingRfq, setSendingRfq] = useState(false)
   const [imageFile, setImageFile] = useState<File | null>(null)
   const [removeExistingImage, setRemoveExistingImage] = useState(false)
   const [preparingImage, setPreparingImage] = useState(false)
+  const rfqEmail = getRfqEmail()
+  const busy = saving || sendingRfq || preparingImage
 
   useEffect(() => {
     setForm(formFromRow(row))
@@ -124,30 +153,27 @@ export function ReceivedValveEditModal({ row, onClose, onSaved, onError }: Recei
     }))
   }
 
-  const onSubmit = async (event: FormEvent) => {
-    event.preventDefault()
+  const saveRecord = async (): Promise<{ record: ReceivedValveRecord; fileForRfq: File | null } | null> => {
     if (!form.customer.trim()) {
       onError('Customer is required')
-      return
+      return null
     }
     if (!form.description.trim()) {
       onError('Description is required')
-      return
+      return null
     }
-
-    setSaving(true)
 
     let imageDataUrl = form.imageDataUrl
     let imageStoragePath = form.imageStoragePath
     let imageName = form.imageName
     const previousStoragePath = row.imageStoragePath
+    const fileForRfq = imageFile
 
     if (imageFile) {
       const uploaded = await uploadReceivedValveImage(row.id, imageFile)
       if (!uploaded.ok) {
-        setSaving(false)
         onError(uploaded.error)
-        return
+        return null
       }
       imageDataUrl = uploaded.url
       imageStoragePath = uploaded.storagePath
@@ -175,12 +201,10 @@ export function ReceivedValveEditModal({ row, onClose, onSaved, onError }: Recei
     }
     const result = await updateReceivedValve(row.id, patch)
     if (!result.ok) {
-      setSaving(false)
       onError(result.error)
-      return
+      return null
     }
 
-    // Best-effort cleanup of replaced/removed storage object.
     if (
       previousStoragePath &&
       (imageFile || removeExistingImage) &&
@@ -189,8 +213,49 @@ export function ReceivedValveEditModal({ row, onClose, onSaved, onError }: Recei
       await supabase.storage.from(VALVE_ATTACHMENTS_BUCKET).remove([previousStoragePath])
     }
 
+    return {
+      record: { ...row, ...patch },
+      fileForRfq,
+    }
+  }
+
+  const onSubmit = async (event: FormEvent) => {
+    event.preventDefault()
+    setSaving(true)
+    const saved = await saveRecord()
     setSaving(false)
-    onSaved({ ...row, ...patch })
+    if (!saved) return
+    onMessage?.('Received valve updated')
+    onSaved(saved.record)
+  }
+
+  const onSaveAndSendRfq = async () => {
+    setSendingRfq(true)
+    const saved = await saveRecord()
+    if (!saved) {
+      setSendingRfq(false)
+      return
+    }
+
+    const rfqResult = await composeRfqEmail({
+      details: rfqDetailsFromRecord(saved.record),
+      imageFile: saved.fileForRfq,
+      imageDataUrl: saved.record.imageDataUrl,
+    })
+
+    if (!rfqResult.ok) {
+      setSendingRfq(false)
+      onSaved(saved.record)
+      onError(rfqResult.message)
+      return
+    }
+
+    const sentToRfqAt = new Date().toISOString()
+    const stamp = await updateReceivedValve(saved.record.id, { sentToRfqAt })
+    const nextRecord = stamp.ok ? { ...saved.record, sentToRfqAt } : saved.record
+    setSendingRfq(false)
+    onMessage?.(rfqResult.message)
+    onSaved(nextRecord)
   }
 
   return (
@@ -200,7 +265,7 @@ export function ReceivedValveEditModal({ row, onClose, onSaved, onError }: Recei
           <h3 id="received-valve-edit-title" style={{ margin: 0 }}>
             Edit received valve
           </h3>
-          <button type="button" className="button-secondary" onClick={onClose} disabled={saving}>
+          <button type="button" className="button-secondary" onClick={onClose} disabled={busy}>
             Close
           </button>
         </div>
@@ -314,7 +379,7 @@ export function ReceivedValveEditModal({ row, onClose, onSaved, onError }: Recei
                 accept="image/*"
                 capture="environment"
                 onChange={onImageChange}
-                disabled={saving || preparingImage}
+                disabled={busy}
               />
             </label>
             <p className="status-breakdown-note">
@@ -327,7 +392,7 @@ export function ReceivedValveEditModal({ row, onClose, onSaved, onError }: Recei
                 <img src={form.imageDataUrl} alt={form.imageName ?? 'Valve photo'} />
                 <div className="received-valves-image-meta">
                   <span>{form.imageName ?? 'Image attached'}</span>
-                  <button type="button" className="button-secondary" onClick={clearImage} disabled={saving}>
+                  <button type="button" className="button-secondary" onClick={clearImage} disabled={busy}>
                     Remove image
                   </button>
                 </div>
@@ -347,13 +412,24 @@ export function ReceivedValveEditModal({ row, onClose, onSaved, onError }: Recei
             />
           </label>
           <div className="received-valves-actions received-valves-span-full">
-            <button type="submit" className="button-primary" disabled={saving || preparingImage}>
+            <button type="submit" className="button-primary" disabled={busy}>
               {saving ? 'Saving…' : 'Save changes'}
             </button>
-            <button type="button" className="button-secondary" onClick={onClose} disabled={saving}>
+            <button type="button" className="button-primary" disabled={busy} onClick={() => void onSaveAndSendRfq()}>
+              {sendingRfq
+                ? 'Opening email…'
+                : row.sentToRfqAt
+                  ? 'Save & resend RFQ'
+                  : 'Save & send to RFQ'}
+            </button>
+            <button type="button" className="button-secondary" onClick={onClose} disabled={busy}>
               Cancel
             </button>
           </div>
+          <p className="status-breakdown-note received-valves-span-full">
+            Send/resend opens an email to {rfqEmail} with the saved details and picture.
+            {row.sentToRfqAt ? ' This entry was emailed to RFQ before — resend is available anytime.' : ''}
+          </p>
         </form>
       </div>
     </div>

@@ -102,7 +102,6 @@ export function ReceivedValvesDashboardPanel() {
       return
     }
     setRows((prev) => prev.map((item) => (item.id === next.id ? next : item)))
-    showToast('Received valve updated')
   }
 
   const sortedRows = useMemo(() => sortReceivedValveRows(rows).slice(0, DASHBOARD_LOG_LIMIT), [rows])
@@ -225,6 +224,7 @@ export function ReceivedValvesDashboardPanel() {
           onClose={() => setEditingRow(null)}
           onSaved={onSavedEdit}
           onError={(message) => showToast(message)}
+          onMessage={(message) => showToast(message)}
         />
       ) : null}
     </section>

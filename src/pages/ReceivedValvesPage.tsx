@@ -849,9 +849,9 @@ export function ReceivedValvesPage() {
           onSaved={(next) => {
             setEditingRow(null)
             setRows((prev) => prev.map((item) => (item.id === next.id ? next : item)))
-            showToast('Received valve updated')
           }}
           onError={(message) => showToast(message)}
+          onMessage={(message) => showToast(message)}
         />
       ) : null}
     </section>
