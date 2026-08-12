@@ -10,6 +10,16 @@ import { testLogHasDetailsColumn, testLogSelectColumns } from '../lib/testLogSch
 import { fetchValveDescriptionsByIds } from '../lib/testLogValveLookup'
 import { formatTestProceduresSummary, parseTestLogTestingDetails, resolveTestMedia } from '../types/testLog'
 import { formatCheckedStandardsSummary, formatTestPressuresSummary } from '../lib/testStandardParams'
+import {
+  averageReliefValveReseatTests,
+  averageReliefValveTests,
+  ensureReliefAttempts,
+  formatReliefValveAverage,
+  formatReliefValveSize,
+  isReliefValveType,
+  resolveReliefValveMedia,
+  type ReliefValveRunFields,
+} from '../lib/reliefValveTest'
 import type { TestLogEntry } from '../types'
 
 type SortColumn =
@@ -242,6 +252,50 @@ function PassFailBadge({ value }: { value: string | null | undefined }) {
   if (isPassResult(value)) return <span className="test-log-result-badge test-log-result-pass">Pass</span>
   if (isFailResult(value)) return <span className="test-log-result-badge test-log-result-fail">Fail</span>
   return <span className="test-log-result-badge test-log-result-unknown">{value?.trim() || '—'}</span>
+}
+
+function reliefAttemptHasContent(run: ReliefValveRunFields): boolean {
+  return Boolean(
+    run.tester ||
+      run.gauge ||
+      run.gaugeId ||
+      run.test1 ||
+      run.test2 ||
+      run.test3 ||
+      run.reseat1 ||
+      run.reseat2 ||
+      run.reseat3 ||
+      run.result ||
+      run.reason,
+  )
+}
+
+function ReliefAttemptDetailCard({
+  label,
+  run,
+}: {
+  label: string
+  run: ReliefValveRunFields
+}) {
+  const popAvg = formatReliefValveAverage(averageReliefValveTests(run))
+  const reseatAvg = formatReliefValveAverage(averageReliefValveReseatTests(run))
+  return (
+    <div className="test-log-detail-pressure-card">
+      <div className="test-log-detail-pressure-title">{label}</div>
+      <div>Tester: {run.tester.trim() || '—'}</div>
+      <div>Gauge: {run.gauge.trim() || '—'}</div>
+      <div>
+        Pops: {[run.test1, run.test2, run.test3].filter(Boolean).join(' / ') || '—'}
+        {popAvg ? ` (avg ${popAvg} PSI)` : ''}
+      </div>
+      <div>
+        Reseats: {[run.reseat1, run.reseat2, run.reseat3].filter(Boolean).join(' / ') || '—'}
+        {reseatAvg ? ` (avg ${reseatAvg} PSI)` : ''}
+      </div>
+      <div>Result: {run.result ? run.result.toUpperCase() : '—'}</div>
+      {run.reason ? <div>Reason: {run.reason}</div> : null}
+    </div>
+  )
 }
 
 export function TestLogEntryPage() {
@@ -991,28 +1045,79 @@ export function TestLogEntryPage() {
 
                             {details ? (
                               <>
-                                <div className="test-log-detail-pressure-grid">
-                                  {(
-                                    [
-                                      ['Low', details.lowTest],
-                                      ['High', details.highTest],
-                                      ['Shell', details.shellTest],
-                                    ] as const
-                                  ).map(([label, block]) => (
-                                    <div key={label} className="test-log-detail-pressure-card">
-                                      <div className="test-log-detail-pressure-title">{label} pressure</div>
-                                      <div>Media: {resolveTestMedia(block) || '—'}</div>
-                                      <div>Gauge: {block.gauge || '—'}</div>
-                                      <div>Pressure: {block.pressure || '—'}</div>
-                                      <div>Time: {block.time || '—'}</div>
-                                      {label === 'Shell' && block.chartRecorderNumber ? (
-                                        <div>Chart recorder: {block.chartRecorderNumber}</div>
+                                {isReliefValveType(row.valve_type) && details.reliefValve ? (
+                                  <>
+                                    <div className="test-log-detail-additional-block">
+                                      <div className="test-log-detail-pressure-title">Relief valve</div>
+                                      <div>
+                                        Size:{' '}
+                                        {formatReliefValveSize(details.reliefValve) || row.size || '—'}
+                                      </div>
+                                      <div>
+                                        Set pressure: {details.reliefValve.setPressure.trim() || row.pressure || '—'}
+                                      </div>
+                                      <div>Media: {resolveReliefValveMedia(details.reliefValve) || '—'}</div>
+                                      {details.reliefValve.includePretest ? (
+                                        <div>
+                                          Pretest type: {details.reliefValve.pretestKind.trim() || 'Pretest'}
+                                        </div>
                                       ) : null}
-                                      <div>Result: {block.result ? block.result.toUpperCase() : '—'}</div>
-                                      {block.reason ? <div>Reason: {block.reason}</div> : null}
                                     </div>
-                                  ))}
-                                </div>
+                                    <div className="test-log-detail-pressure-grid">
+                                      {details.reliefValve.includePretest
+                                        ? ensureReliefAttempts(details.reliefValve.pretestAttempts)
+                                            .filter(reliefAttemptHasContent)
+                                            .map((run, index, list) => (
+                                              <ReliefAttemptDetailCard
+                                                key={`pretest-${index}`}
+                                                label={
+                                                  list.length > 1
+                                                    ? `Pretest attempt ${index + 1}`
+                                                    : 'Pretest'
+                                                }
+                                                run={run}
+                                              />
+                                            ))
+                                        : null}
+                                      {ensureReliefAttempts(details.reliefValve.finalAttempts)
+                                        .filter(reliefAttemptHasContent)
+                                        .map((run, index, list) => (
+                                          <ReliefAttemptDetailCard
+                                            key={`final-${index}`}
+                                            label={
+                                              list.length > 1
+                                                ? `Final attempt ${index + 1}`
+                                                : 'Final test'
+                                            }
+                                            run={run}
+                                          />
+                                        ))}
+                                    </div>
+                                  </>
+                                ) : (
+                                  <div className="test-log-detail-pressure-grid">
+                                    {(
+                                      [
+                                        ['Low', details.lowTest],
+                                        ['High', details.highTest],
+                                        ['Shell', details.shellTest],
+                                      ] as const
+                                    ).map(([label, block]) => (
+                                      <div key={label} className="test-log-detail-pressure-card">
+                                        <div className="test-log-detail-pressure-title">{label} pressure</div>
+                                        <div>Media: {resolveTestMedia(block) || '—'}</div>
+                                        <div>Gauge: {block.gauge || '—'}</div>
+                                        <div>Pressure: {block.pressure || '—'}</div>
+                                        <div>Time: {block.time || '—'}</div>
+                                        {label === 'Shell' && block.chartRecorderNumber ? (
+                                          <div>Chart recorder: {block.chartRecorderNumber}</div>
+                                        ) : null}
+                                        <div>Result: {block.result ? block.result.toUpperCase() : '—'}</div>
+                                        {block.reason ? <div>Reason: {block.reason}</div> : null}
+                                      </div>
+                                    ))}
+                                  </div>
+                                )}
 
                                 {details.heliumTest.enabled ? (
                                   <div className="test-log-detail-additional-block">

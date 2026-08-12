@@ -1,7 +1,18 @@
 import { jsPDF } from 'jspdf'
-import { formatTestProceduresSummary, type TestLogTestingDetails, type YesNo } from '../types/testLog'
-import { resolveTestMedia } from '../lib/testLogMedia'
-import { isFourHourChartTestSelected } from './testLogProcedure'
+import type { TestLogTestingDetails } from '../types/testLog'
+import { resolveTestMedia } from './testLogMedia'
+import jsLogoUrl from '../assets/js-logo.png'
+import {
+  averageReliefValveReseatTests,
+  averageReliefValveTests,
+  ensureReliefAttempts,
+  formatReliefValveAverage,
+  formatReliefValveSize,
+  isReliefValveType,
+  resolveReliefValveMedia,
+  type ReliefValveRunFields,
+  type ReliefValveTestFields,
+} from './reliefValveTest'
 
 export type TestLogReportData = {
   tested_on: string
@@ -13,23 +24,39 @@ export type TestLogReportData = {
   tester: string | null
   pass_fail: string | null
   action_taken: string | null
+  customer?: string | null
+  customerPo?: string | null
   testing_details: TestLogTestingDetails
 }
 
-const MARGIN = 14
-const PAGE_WIDTH = 215.9
-const CONTENT_WIDTH = PAGE_WIDTH - MARGIN * 2
+const PAGE_W = 215.9
+const PAGE_H = 279.4
+const MARGIN = 12
+const INNER = 4
+const BRAND = { r: 146, g: 64, b: 14 } // reddish-brown company name
 
-function formatYesNo(value: YesNo): string {
-  if (value === 'yes') return 'Yes'
-  if (value === 'no') return 'No'
-  return '—'
+let cachedLogoDataUrl: string | null = null
+
+async function getLogoDataUrl(): Promise<string | null> {
+  if (cachedLogoDataUrl) return cachedLogoDataUrl
+  try {
+    const response = await fetch(jsLogoUrl)
+    const blob = await response.blob()
+    cachedLogoDataUrl = await new Promise<string>((resolve, reject) => {
+      const reader = new FileReader()
+      reader.onload = () => resolve(String(reader.result))
+      reader.onerror = () => reject(new Error('logo read failed'))
+      reader.readAsDataURL(blob)
+    })
+    return cachedLogoDataUrl
+  } catch {
+    return null
+  }
 }
 
-function formatResult(value: string): string {
-  if (value === 'pass') return 'PASS'
-  if (value === 'fail') return 'FAIL'
-  return '—'
+function display(value: string | null | undefined): string {
+  const trimmed = value?.trim()
+  return trimmed || '—'
 }
 
 function formatDate(value: string | null | undefined): string {
@@ -39,157 +66,368 @@ function formatDate(value: string | null | undefined): string {
   return parsed.toLocaleDateString()
 }
 
-function display(value: string | null | undefined): string {
+function formatResult(value: string | null | undefined): string {
+  if (!value) return '—'
+  const n = value.trim().toLowerCase()
+  if (n === 'pass' || n === 'passed') return 'PASS'
+  if (n === 'fail' || n === 'failed') return 'FAIL'
+  return value.trim().toUpperCase() || '—'
+}
+
+function psi(value: string | null | undefined): string {
   const trimmed = value?.trim()
-  return trimmed || '—'
+  if (!trimmed) return '—'
+  return /psi|#/i.test(trimmed) ? trimmed : `${trimmed} PSI`
 }
 
-function addSectionTitle(doc: jsPDF, title: string, y: number): number {
-  doc.setFont('helvetica', 'bold')
-  doc.setFontSize(11)
-  doc.text(title, MARGIN, y)
-  doc.setDrawColor(180, 180, 180)
-  doc.line(MARGIN, y + 1.5, PAGE_WIDTH - MARGIN, y + 1.5)
-  return y + 7
+function drawDoubleBorder(doc: jsPDF) {
+  doc.setDrawColor(0, 0, 0)
+  doc.setLineWidth(0.7)
+  doc.rect(MARGIN, MARGIN, PAGE_W - MARGIN * 2, PAGE_H - MARGIN * 2)
+  doc.setLineWidth(0.3)
+  doc.rect(
+    MARGIN + INNER,
+    MARGIN + INNER,
+    PAGE_W - (MARGIN + INNER) * 2,
+    PAGE_H - (MARGIN + INNER) * 2,
+  )
 }
 
-function addKeyValueLines(doc: jsPDF, rows: [string, string][], startY: number): number {
-  doc.setFontSize(9.5)
-  let y = startY
-  for (const [label, value] of rows) {
-    doc.setFont('helvetica', 'bold')
-    doc.text(`${label}:`, MARGIN, y)
-    doc.setFont('helvetica', 'normal')
-    const wrapped = doc.splitTextToSize(value, CONTENT_WIDTH - 42) as string[]
-    doc.text(wrapped, MARGIN + 40, y)
-    y += Math.max(4.5, wrapped.length * 4.2)
-  }
-  return y + 2
-}
-
-function addPressureBlock(
+function drawUnderlineField(
   doc: jsPDF,
-  title: string,
-  block: TestLogTestingDetails['lowTest'],
+  label: string,
+  value: string,
+  x: number,
   y: number,
-  extraLines: [string, string][] = [],
-): number {
-  y = addSectionTitle(doc, title, y)
-  const rows: [string, string][] = [
-    ['Test media', display(resolveTestMedia(block))],
-    ['Test gauge', display(block.gauge)],
-    ['Test pressure', display(block.pressure)],
-    ['Test time', display(block.time)],
-    ...extraLines,
-    ['Result', formatResult(block.result)],
+  width: number,
+) {
+  doc.setFont('times', 'bold')
+  doc.setFontSize(11)
+  doc.setTextColor(0, 0, 0)
+  const labelText = `${label} `
+  doc.text(labelText, x, y)
+  const labelWidth = doc.getTextWidth(labelText)
+  const lineStart = x + labelWidth
+  const lineEnd = x + width
+  doc.setFont('times', 'normal')
+  doc.text(value && value !== '—' ? value : '', lineStart + 1, y)
+  doc.setDrawColor(0, 0, 0)
+  doc.setLineWidth(0.25)
+  doc.line(lineStart, y + 1.2, lineEnd, y + 1.2)
+}
+
+function attemptHasContent(run: ReliefValveRunFields): boolean {
+  return Boolean(
+    run.tester ||
+      run.gauge ||
+      run.gaugeId ||
+      run.test1 ||
+      run.test2 ||
+      run.test3 ||
+      run.reseat1 ||
+      run.reseat2 ||
+      run.reseat3 ||
+      run.result ||
+      run.reason,
+  )
+}
+
+function drawHydroTable(doc: jsPDF, details: TestLogTestingDetails, y: number): number {
+  const left = MARGIN + 18
+  const width = PAGE_W - left * 2
+  const col1 = left
+  const col2 = left + width * 0.42
+  const col3 = left + width * 0.71
+  const rowH = 10
+
+  doc.setFont('times', 'bold')
+  doc.setFontSize(12)
+  doc.text('Test Pressure', col2, y, { align: 'center' })
+  doc.text('Test Time', col3, y, { align: 'center' })
+  y += 4
+  doc.setLineWidth(0.2)
+  doc.line(col2 - 18, y, col2 + 18, y)
+  doc.line(col3 - 16, y, col3 + 16, y)
+  y += 8
+
+  const rows: Array<[string, string, string]> = [
+    ['High Pressure:', display(details.highTest.pressure), display(details.highTest.time)],
+    ['Low Pressure:', display(details.lowTest.pressure), display(details.lowTest.time)],
+    ['Shell Pressure:', display(details.shellTest.pressure), display(details.shellTest.time)],
   ]
-  if (block.result === 'fail' && block.reason.trim()) {
-    rows.push(['Reason', block.reason.trim()])
+
+  doc.setFont('times', 'normal')
+  doc.setFontSize(12)
+  for (const [label, pressure, time] of rows) {
+    doc.setFont('times', 'bold')
+    doc.text(label, col1, y)
+    doc.setFont('times', 'normal')
+    doc.text(pressure === '—' ? '' : pressure, col2, y, { align: 'center' })
+    doc.text(time === '—' ? '' : time, col3, y, { align: 'center' })
+    doc.setDrawColor(0, 0, 0)
+    doc.line(col2 - 22, y + 1.5, col2 + 22, y + 1.5)
+    doc.line(col3 - 20, y + 1.5, col3 + 20, y + 1.5)
+    y += rowH
   }
-  return addKeyValueLines(doc, rows, y)
+
+  const mediaBits = [
+    details.highTest.result ? `High: ${formatResult(details.highTest.result)}` : '',
+    details.lowTest.result ? `Low: ${formatResult(details.lowTest.result)}` : '',
+    details.shellTest.result ? `Shell: ${formatResult(details.shellTest.result)}` : '',
+  ].filter(Boolean)
+  if (mediaBits.length) {
+    y += 2
+    doc.setFont('times', 'italic')
+    doc.setFontSize(10)
+    doc.text(mediaBits.join('   ·   '), PAGE_W / 2, y, { align: 'center' })
+    y += 6
+  }
+
+  const media = [
+    resolveTestMedia(details.highTest),
+    resolveTestMedia(details.lowTest),
+    resolveTestMedia(details.shellTest),
+  ]
+    .map((value) => value.trim())
+    .filter(Boolean)
+  const uniqueMedia = Array.from(new Set(media))
+  if (uniqueMedia.length) {
+    doc.setFont('times', 'normal')
+    doc.setFontSize(10)
+    doc.text(`Test media: ${uniqueMedia.join(' / ')}`, PAGE_W / 2, y, { align: 'center' })
+    y += 6
+  }
+
+  return y + 4
 }
 
-function ensureSpace(doc: jsPDF, y: number, needed: number): number {
-  const pageHeight = doc.internal.pageSize.getHeight()
-  if (y + needed > pageHeight - MARGIN) {
-    doc.addPage()
-    return MARGIN
+function drawReliefTable(doc: jsPDF, fields: ReliefValveTestFields, y: number): number {
+  const left = MARGIN + 14
+  const width = PAGE_W - left * 2
+  const colLabel = left
+  const colPop = left + width * 0.38
+  const colReseat = left + width * 0.62
+  const colResult = left + width * 0.86
+
+  doc.setFont('times', 'bold')
+  doc.setFontSize(11)
+  doc.text('Pop Avg', colPop, y, { align: 'center' })
+  doc.text('Reseat Avg', colReseat, y, { align: 'center' })
+  doc.text('Result', colResult, y, { align: 'center' })
+  y += 3.5
+  doc.setLineWidth(0.2)
+  doc.line(colPop - 14, y, colPop + 14, y)
+  doc.line(colReseat - 16, y, colReseat + 16, y)
+  doc.line(colResult - 12, y, colResult + 12, y)
+  y += 8
+
+  const rows: Array<{ label: string; run: ReliefValveRunFields }> = []
+  if (fields.includePretest) {
+    ensureReliefAttempts(fields.pretestAttempts)
+      .filter(attemptHasContent)
+      .forEach((run, index, list) => {
+        rows.push({
+          label: list.length > 1 ? `Pretest ${index + 1}:` : 'Pretest:',
+          run,
+        })
+      })
   }
-  return y
+  ensureReliefAttempts(fields.finalAttempts)
+    .filter(attemptHasContent)
+    .forEach((run, index, list) => {
+      rows.push({
+        label: list.length > 1 ? `Final ${index + 1}:` : 'Final test:',
+        run,
+      })
+    })
+
+  if (!rows.length) {
+    doc.setFont('times', 'italic')
+    doc.setFontSize(11)
+    doc.text('No pop / reseat readings recorded yet.', PAGE_W / 2, y, { align: 'center' })
+    return y + 10
+  }
+
+  doc.setFontSize(11)
+  for (const row of rows) {
+    const pop = formatReliefValveAverage(averageReliefValveTests(row.run))
+    const reseat = formatReliefValveAverage(averageReliefValveReseatTests(row.run))
+    doc.setFont('times', 'bold')
+    doc.text(row.label, colLabel, y)
+    doc.setFont('times', 'normal')
+    doc.text(pop ? `${pop} PSI` : '', colPop, y, { align: 'center' })
+    doc.text(reseat ? `${reseat} PSI` : '', colReseat, y, { align: 'center' })
+    doc.text(formatResult(row.run.result) === '—' ? '' : formatResult(row.run.result), colResult, y, {
+      align: 'center',
+    })
+    doc.line(colPop - 16, y + 1.4, colPop + 16, y + 1.4)
+    doc.line(colReseat - 18, y + 1.4, colReseat + 18, y + 1.4)
+    doc.line(colResult - 14, y + 1.4, colResult + 14, y + 1.4)
+    y += 9
+    if (row.run.tester.trim()) {
+      doc.setFont('times', 'italic')
+      doc.setFontSize(9.5)
+      doc.text(`Tester: ${row.run.tester.trim()}`, colLabel + 2, y)
+      y += 6
+      doc.setFontSize(11)
+    }
+  }
+
+  doc.setFont('times', 'normal')
+  doc.setFontSize(10)
+  doc.text(
+    `Set pressure ${psi(fields.setPressure)}  ·  Media ${display(resolveReliefValveMedia(fields))}`,
+    PAGE_W / 2,
+    y,
+    { align: 'center' },
+  )
+  return y + 8
 }
 
-export function buildTestLogReportPdf(data: TestLogReportData): jsPDF {
+function certificationText(isRelief: boolean, passed: boolean): string {
+  if (isRelief) {
+    return passed
+      ? 'Was tested in accordance with applicable relief / safety valve procedures and having successfully met all requirements, passed.'
+      : 'Was tested in accordance with applicable relief / safety valve procedures. This valve did not meet all requirements on the recorded test(s).'
+  }
+  return passed
+    ? 'Was hydrostatically tested in accordance with API 6-D test specifications and having successfully met all requirements, passed.'
+    : 'Was hydrostatically tested in accordance with API 6-D test specifications. This valve did not meet all requirements on the recorded test(s).'
+}
+
+export async function buildTestLogReportPdf(data: TestLogReportData): Promise<jsPDF> {
   const details = data.testing_details
   const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'letter' })
+  const logo = await getLogoDataUrl()
+  const relief = details.reliefValve
+  const isRelief =
+    isReliefValveType(data.valve_type) ||
+    Boolean(relief?.includePretest || relief?.inletSize?.trim() || relief?.setPressure?.trim())
+  const passed = formatResult(data.pass_fail) === 'PASS'
 
-  doc.setFont('helvetica', 'bold')
-  doc.setFontSize(16)
-  doc.text('Valve Test Report', MARGIN, 18)
+  drawDoubleBorder(doc)
 
-  doc.setFontSize(10)
-  doc.setFont('helvetica', 'normal')
-  doc.text(`Generated ${new Date().toLocaleString()}`, MARGIN, 24)
+  const contentTop = MARGIN + INNER + 6
+  const logoSize = 28
+  if (logo) {
+    doc.addImage(logo, 'PNG', MARGIN + INNER + 2, contentTop, logoSize, logoSize)
+    doc.addImage(logo, 'PNG', PAGE_W - MARGIN - INNER - 2 - logoSize, contentTop, logoSize, logoSize)
+  }
 
-  let y = 32
-  y = addSectionTitle(doc, 'Valve information', y)
-  y = addKeyValueLines(
-    doc,
-    [
-      ['Valve ID', display(data.valve_id)],
-      ['Test date', formatDate(data.tested_on)],
-      ['Size', display(data.size)],
-      ['Pressure', display(data.pressure)],
-      ['Type', display(data.valve_type)],
-      ['Tester', display(data.tester)],
-      ['Overall result', display(data.pass_fail)],
-    ],
+  let y = contentTop + 8
+  doc.setFont('times', 'bold')
+  doc.setFontSize(22)
+  doc.setTextColor(BRAND.r, BRAND.g, BRAND.b)
+  doc.text('J~S Machine and Valve Inc.', PAGE_W / 2, y, { align: 'center' })
+
+  y += 10
+  doc.setTextColor(0, 0, 0)
+  doc.setFont('times', 'bolditalic')
+  doc.setFontSize(18)
+  doc.text(isRelief ? 'Relief Valve Test Report' : 'Hydrostatic Test Report', PAGE_W / 2, y, {
+    align: 'center',
+  })
+
+  y += 10
+  doc.setFont('times', 'italic')
+  doc.setFontSize(12)
+  doc.text('This certificate certifies that', PAGE_W / 2, y, { align: 'center' })
+
+  y += 14
+  const sizeValue = display(data.size || (relief ? formatReliefValveSize(relief) : null))
+  const pressureValue = display(data.pressure || relief?.setPressure || null)
+  const typeValue = display(data.valve_type)
+
+  doc.setFont('times', 'normal')
+  doc.setFontSize(12)
+  const leftX = MARGIN + 20
+  const midX = PAGE_W / 2
+  const rightX = PAGE_W - MARGIN - 20
+
+  doc.text(`Size: ${sizeValue}`, leftX, y)
+  doc.text(`Valve ID: ${display(data.valve_id)}`, midX, y, { align: 'center' })
+  doc.text(`Type: ${typeValue}`, rightX, y, { align: 'right' })
+  y += 8
+  doc.text(
+    isRelief ? `Set Pressure: ${pressureValue}` : `Pressure: ${pressureValue}`,
+    midX,
     y,
+    { align: 'center' },
   )
 
-  y = ensureSpace(doc, y, 40)
-  y = addSectionTitle(doc, 'Test requirements', y)
-  y = addKeyValueLines(doc, [['Requirements', display(formatTestProceduresSummary(details))]], y)
-
-  const shellExtras: [string, string][] = []
-  if (isFourHourChartTestSelected(details) && details.shellTest.chartRecorderNumber.trim()) {
-    shellExtras.push(['Chart recorder', details.shellTest.chartRecorderNumber.trim()])
+  y += 16
+  if (isRelief && relief) {
+    y = drawReliefTable(doc, relief, y)
+  } else {
+    y = drawHydroTable(doc, details, y)
   }
 
-  y = ensureSpace(doc, y, 48)
-  y = addPressureBlock(doc, 'Low pressure test', details.lowTest, y)
-  y = ensureSpace(doc, y, 48)
-  y = addPressureBlock(doc, 'High pressure test', details.highTest, y)
-  y = ensureSpace(doc, y, 48)
-  y = addPressureBlock(doc, 'Shell pressure test', details.shellTest, y, shellExtras)
+  y = Math.max(y + 8, 165)
+  doc.setFont('times', 'bolditalic')
+  doc.setFontSize(12)
+  const cert = certificationText(isRelief, passed)
+  const wrapped = doc.splitTextToSize(cert, PAGE_W - (MARGIN + 28) * 2) as string[]
+  doc.text(wrapped, PAGE_W / 2, y, { align: 'center' })
+  y += wrapped.length * 5.5 + 10
 
-  if (details.heliumTest.enabled) {
-    y = ensureSpace(doc, y, 70)
-    y = addSectionTitle(doc, 'Helium test', y)
-    y = addKeyValueLines(
-      doc,
-      [
-        ['Test media', display(resolveTestMedia(details.heliumTest))],
-        ['Helium calibrated', formatYesNo(details.heliumTest.heliumCalibrated)],
-        ['Cycled 5×', formatYesNo(details.heliumTest.cycled5x)],
-        ['Mid stroke', formatYesNo(details.heliumTest.midStroke)],
-        ['Drafts eliminated', formatYesNo(details.heliumTest.draftsEliminated)],
-        ['Test gauge', display(details.heliumTest.gauge)],
-        ['Pressure', display(details.heliumTest.pressure)],
-        ['Time', display(details.heliumTest.time)],
-        ['Ambient', display(details.heliumTest.ambient)],
-        ['Stem', display(details.heliumTest.stem)],
-        ['Bonnet', display(details.heliumTest.bonnet)],
-        ['Body', display(details.heliumTest.body)],
-        ['Result', formatResult(details.heliumTest.result)],
-      ],
-      y,
-    )
+  doc.setFont('times', 'normal')
+  doc.setFontSize(12)
+  const dateLabel = 'Dated '
+  const dateValue = formatDate(data.tested_on)
+  const dateWidth = doc.getTextWidth(dateLabel + dateValue)
+  const dateX = (PAGE_W - dateWidth) / 2
+  doc.text(dateLabel, dateX, y)
+  doc.text(dateValue, dateX + doc.getTextWidth(dateLabel), y)
+  doc.setLineWidth(0.25)
+  doc.line(
+    dateX + doc.getTextWidth(dateLabel),
+    y + 1.2,
+    dateX + doc.getTextWidth(dateLabel) + doc.getTextWidth(dateValue) + 8,
+    y + 1.2,
+  )
+
+  y += 22
+  const sigWidth = 70
+  const sigLeft = MARGIN + 22
+  const sigRight = PAGE_W - MARGIN - 22 - sigWidth
+  doc.setLineWidth(0.35)
+  doc.line(sigLeft, y, sigLeft + sigWidth, y)
+  doc.line(sigRight, y, sigRight + sigWidth, y)
+  y += 5
+  doc.setFont('times', 'bold')
+  doc.setFontSize(11)
+  if (isRelief && relief?.includePretest) {
+    doc.text('Pretest Tester', sigLeft + sigWidth / 2, y, { align: 'center' })
+    doc.text('Final Tester', sigRight + sigWidth / 2, y, { align: 'center' })
+    const pretestTester = ensureReliefAttempts(relief.pretestAttempts).filter(attemptHasContent).at(-1)
+      ?.tester
+    const finalTester = ensureReliefAttempts(relief.finalAttempts).filter(attemptHasContent).at(-1)
+      ?.tester
+    doc.setFont('times', 'normal')
+    doc.setFontSize(10)
+    if (pretestTester?.trim()) doc.text(pretestTester.trim(), sigLeft + sigWidth / 2, y - 7, { align: 'center' })
+    if (finalTester?.trim()) doc.text(finalTester.trim(), sigRight + sigWidth / 2, y - 7, { align: 'center' })
+  } else {
+    doc.text('Tester', sigLeft + sigWidth / 2, y, { align: 'center' })
+    doc.text('Inspector', sigRight + sigWidth / 2, y, { align: 'center' })
+    if (data.tester?.trim()) {
+      doc.setFont('times', 'normal')
+      doc.setFontSize(10)
+      doc.text(data.tester.trim(), sigLeft + sigWidth / 2, y - 7, { align: 'center' })
+    }
   }
 
-  if (details.cavityReliefTest.enabled) {
-    y = ensureSpace(doc, y, 50)
-    y = addSectionTitle(doc, 'Cavity relief test', y)
-    y = addKeyValueLines(
-      doc,
-      [
-        ['Test media', display(resolveTestMedia(details.cavityReliefTest))],
-        ['MAWP @ 100°F', display(details.cavityReliefTest.mawp100F)],
-        ['Seat A', display(details.cavityReliefTest.seatA)],
-        ['Seat B', display(details.cavityReliefTest.seatB)],
-        ['Result', formatResult(details.cavityReliefTest.result)],
-      ],
-      y,
-    )
-  }
+  y += 18
+  const fieldWidth = 78
+  drawUnderlineField(doc, 'Customer', display(data.customer), sigLeft, y, fieldWidth)
+  drawUnderlineField(doc, 'Customer PO #', display(data.customerPo), sigRight, y, fieldWidth)
 
-  const notes = details.additionalNotes.trim() || data.action_taken?.trim() || ''
-  if (notes) {
-    y = ensureSpace(doc, y, 24)
-    y = addSectionTitle(doc, 'Notes', y)
-    doc.setFont('helvetica', 'normal')
-    doc.setFontSize(9.5)
-    const wrapped = doc.splitTextToSize(notes, CONTENT_WIDTH) as string[]
-    doc.text(wrapped, MARGIN, y)
+  if (data.action_taken?.trim() && !passed) {
+    y += 14
+    doc.setFont('times', 'italic')
+    doc.setFontSize(9)
+    const notes = doc.splitTextToSize(`Notes: ${data.action_taken.trim()}`, PAGE_W - (MARGIN + 24) * 2) as string[]
+    doc.text(notes, PAGE_W / 2, y, { align: 'center' })
   }
 
   return doc
@@ -200,12 +438,12 @@ export function testLogReportFileName(valveId: string, testedOn: string): string
   return `${safeValve}-test-report-${testedOn}.pdf`
 }
 
-export function downloadTestLogReportPdf(data: TestLogReportData) {
-  const doc = buildTestLogReportPdf(data)
+export async function downloadTestLogReportPdf(data: TestLogReportData) {
+  const doc = await buildTestLogReportPdf(data)
   doc.save(testLogReportFileName(data.valve_id, data.tested_on))
 }
 
-export function testLogReportPdfBlob(data: TestLogReportData): Blob {
-  const doc = buildTestLogReportPdf(data)
+export async function testLogReportPdfBlob(data: TestLogReportData): Promise<Blob> {
+  const doc = await buildTestLogReportPdf(data)
   return doc.output('blob')
 }

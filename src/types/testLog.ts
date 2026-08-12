@@ -7,8 +7,11 @@ import {
 } from '../lib/testLogMedia'
 import {
   emptyReliefValveTestFields,
+  formatReliefValveFailReasons,
   formatReliefValveSize,
+  formatReliefValveWorkedSummary,
   parseReliefValveTestFields,
+  reliefValveRecordPassFail,
   resolveReliefValveMedia,
   type ReliefValveTestFields,
 } from '../lib/reliefValveTest'
@@ -74,7 +77,7 @@ export type TestLogTestingDetails = TestProcedureFields & {
   savedAt?: string | null
   /** Required test parameters audit snapshot (standard, CWP, pressures, hold times, leakage). */
   testStandardParams?: TestStandardParams | null
-  /** Relief / safety valve test header fields (inlet/outlet, set pressure, media, pretest type). */
+  /** Relief / safety valve: shared header + optional pretest + required final on one record. */
   reliefValve?: ReliefValveTestFields
 }
 
@@ -149,8 +152,10 @@ export function deriveLegacyTestType(details: TestLogTestingDetails): string | n
 
 /** Summary for legacy `test_logs.worked` column (test procedure / requirements). */
 export function deriveLegacyWorked(details: TestLogTestingDetails): string | null {
-  const reliefType = details.reliefValve?.testType?.trim()
-  if (reliefType) return reliefType
+  if (details.reliefValve) {
+    const summary = formatReliefValveWorkedSummary(details.reliefValve)
+    if (summary) return summary
+  }
   const summary = formatTestProceduresSummary(details)
   return summary || null
 }
@@ -174,10 +179,13 @@ function collectEnabledResults(details: TestLogTestingDetails): PressureTestResu
 }
 
 export function deriveOverallPassFail(details: TestLogTestingDetails): string {
-  if (details.reliefValve?.testType?.trim() || details.reliefValve?.inletSize?.trim()) {
-    if (details.reliefValve.result === 'fail') return 'FAIL'
-    if (details.reliefValve.result === 'pass') return 'PASS'
-    return ''
+  if (
+    details.reliefValve?.includePretest ||
+    details.reliefValve?.inletSize?.trim() ||
+    details.reliefValve?.finalAttempts?.some((run) => run.result) ||
+    details.reliefValve?.pretestAttempts?.some((run) => run.result)
+  ) {
+    return reliefValveRecordPassFail(details.reliefValve)
   }
 
   const results = collectEnabledResults(details)
@@ -195,10 +203,9 @@ export function deriveOverallPassFail(details: TestLogTestingDetails): string {
 }
 
 export function deriveActionTaken(details: TestLogTestingDetails): string | null {
+  const reliefFails = details.reliefValve ? formatReliefValveFailReasons(details.reliefValve) : []
   const failNotes = [
-    details.reliefValve?.result === 'fail' && details.reliefValve.reason.trim()
-      ? `Relief: ${details.reliefValve.reason.trim()}`
-      : '',
+    ...reliefFails.map((note) => `Relief: ${note}`),
     details.lowTest.result === 'fail' && details.lowTest.reason.trim()
       ? `Low: ${details.lowTest.reason.trim()}`
       : '',

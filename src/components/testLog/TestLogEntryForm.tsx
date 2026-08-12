@@ -8,6 +8,7 @@ import { BodyMaterialSelect } from './BodyMaterialSelect'
 import { ValveTypeSelect } from './ValveTypeSelect'
 import { RequiredTestParametersPanel } from './RequiredTestParametersPanel'
 import { ReliefValveFields } from './ReliefValveFields'
+import { TestLogTesterSelect } from './TestLogTesterSelect'
 import { useToast } from '../ToastNotification'
 import { useEmployees } from '../../hooks/useEmployees'
 import { loadActiveTestGauges, filterChartRecorderGauges, filterPressureTestGauges } from '../../lib/testGaugeRegistry'
@@ -23,8 +24,11 @@ import { formatTesterInitials, parseTesterInitials } from '../../lib/testLogTest
 import { canonicalizeValveType } from '../../lib/testLogValveType'
 import {
   emptyReliefValveTestFields,
+  formatReliefValveLegacyTester,
   isReliefValveType,
   prefillReliefSizesFromJobSize,
+  seedReliefValveTestersFromLegacy,
+  serializeReliefValveTestFields,
   validateReliefValveFields,
   valveSizeSelectOptions,
 } from '../../lib/reliefValveTest'
@@ -132,6 +136,8 @@ export function TestLogEntryForm({
   const [valveId, setValveId] = useState('')
   const [size, setSize] = useState('')
   const [pressure, setPressure] = useState('')
+  const [customer, setCustomer] = useState('')
+  const [customerPo, setCustomerPo] = useState('')
   const [bodyMaterial, setBodyMaterial] = useState('')
   const [bodyMaterialLoadedFromJob, setBodyMaterialLoadedFromJob] = useState(false)
   const [valveRowId, setValveRowId] = useState<number | null>(null)
@@ -177,46 +183,31 @@ export function TestLogEntryForm({
     [testerOptions],
   )
 
-  const selectedTesters = useMemo(
-    () => parseTesterInitials(tester, knownTesterInitials),
+  const formTesterValue = useMemo(
+    () => formatTesterInitials(parseTesterInitials(tester, knownTesterInitials)),
     [tester, knownTesterInitials],
   )
-
-  const orphanTesterInitials = useMemo(
-    () =>
-      selectedTesters.filter(
-        (initials) => !testerOptions.some((employee) => employee.initials.toUpperCase() === initials),
-      ),
-    [selectedTesters, testerOptions],
-  )
-
-  const availableTesterOptions = useMemo(
-    () =>
-      testerOptions.filter(
-        (employee) => !selectedTesters.includes(employee.initials.toUpperCase()),
-      ),
-    [testerOptions, selectedTesters],
-  )
-
-  const toggleTester = (initials: string, checked: boolean) => {
-    const key = initials.trim().toUpperCase()
-    if (!key) return
-    const next = checked
-      ? [...selectedTesters, key]
-      : selectedTesters.filter((value) => value !== key)
-    setTester(formatTesterInitials(next))
-  }
-
-  const addTester = (initials: string) => {
-    const key = initials.trim().toUpperCase()
-    if (!key || selectedTesters.includes(key)) return
-    setTester(formatTesterInitials([...selectedTesters, key]))
-  }
 
   const overallPassFail = useMemo(() => deriveOverallPassFail(testing), [testing])
   const fourHourChartSelected = useMemo(() => isFourHourChartTestSelected(testing), [testing])
   const isReliefValve = useMemo(() => isReliefValveType(valveType), [valveType])
   const reliefFields = testing.reliefValve ?? emptyReliefValveTestFields()
+  const reliefHasTester = useMemo(() => {
+    if (!isReliefValve) return false
+    const latestPretest = reliefFields.pretestAttempts?.[reliefFields.pretestAttempts.length - 1]
+    const latestFinal = reliefFields.finalAttempts?.[reliefFields.finalAttempts.length - 1]
+    const pretestOk =
+      !reliefFields.includePretest || Boolean(latestPretest?.tester?.trim())
+    const finalStarted = Boolean(
+      latestFinal?.tester?.trim() ||
+        latestFinal?.gaugeId ||
+        latestFinal?.test1 ||
+        latestFinal?.result ||
+        (reliefFields.finalAttempts?.length ?? 0) > 1,
+    )
+    if (reliefFields.includePretest && !finalStarted) return pretestOk
+    return pretestOk && Boolean(latestFinal?.tester?.trim())
+  }, [isReliefValve, reliefFields])
   const sizeOptions = useMemo(
     () =>
       valveSizeSelectOptions([
@@ -249,9 +240,13 @@ export function TestLogEntryForm({
         null,
       valve_type: valveType || null,
       manufacturer: null,
-      tester: formatTesterInitials(parseTesterInitials(tester, knownTesterInitials)) || null,
+      tester: isReliefValve
+        ? formatReliefValveLegacyTester(reliefFields)
+        : formTesterValue || null,
       pass_fail: overallPassFail || null,
       action_taken: deriveActionTaken(testing),
+      customer: customer || null,
+      customerPo: customerPo || null,
       testing_details: testing,
     }),
     [
@@ -260,18 +255,19 @@ export function TestLogEntryForm({
       size,
       pressure,
       valveType,
-      tester,
-      knownTesterInitials,
+      formTesterValue,
       overallPassFail,
       testing,
       isReliefValve,
+      reliefFields,
+      customer,
+      customerPo,
     ],
   )
   const canSubmit =
     valveId.trim().length > 0 &&
     testedOn.trim().length > 0 &&
-    formatTesterInitials(parseTesterInitials(tester, knownTesterInitials)).length > 0
-
+    (isReliefValve ? reliefHasTester : formTesterValue.length > 0)
   const checkedStandards = useMemo(
     () => mapProceduresToStandards(testing.testProcedures),
     [testing.testProcedures],
@@ -334,6 +330,8 @@ export function TestLogEntryForm({
     if (pr) setPressure(pr)
     const vt = searchParams.get(TEST_LOG_PREFILL_KEYS.valveType)
     if (vt) setValveType(canonicalizeValveType(vt))
+    const cust = searchParams.get(TEST_LOG_PREFILL_KEYS.customer)
+    if (cust) setCustomer(cust)
     const tt = searchParams.get(TEST_LOG_PREFILL_KEYS.testType)
     if (!tt?.trim()) return
 
@@ -411,23 +409,29 @@ export function TestLogEntryForm({
           const testTypeHint = String(jobTestType ?? '').toLowerCase()
           const pretestWithRepair = testTypeHint.includes('repair')
           const pretest = pretestWithRepair || testTypeHint.includes('pretest')
-          setTesting((prev) => ({
-            ...prev,
-            reliefValve: {
-              ...(prev.reliefValve ?? emptyReliefValveTestFields()),
-              inletSize: sizes.inletSize || prev.reliefValve?.inletSize || '',
-              outletSize: sizes.outletSize || prev.reliefValve?.outletSize || '',
-              setPressure: jobPressure?.trim() || prev.reliefValve?.setPressure || '',
-              testType: pretestWithRepair
-                ? 'Pretest with Repair'
-                : pretest
-                  ? 'Pretest'
-                  : prev.reliefValve?.testType || '',
-            },
-          }))
+          setTesting((prev) => {
+            const existing = prev.reliefValve ?? emptyReliefValveTestFields()
+            return {
+              ...prev,
+              reliefValve: {
+                ...existing,
+                inletSize: sizes.inletSize || existing.inletSize || '',
+                outletSize: sizes.outletSize || existing.outletSize || '',
+                setPressure: jobPressure?.trim() || existing.setPressure || '',
+                includePretest: pretest || existing.includePretest,
+                pretestKind: pretestWithRepair
+                  ? 'Pretest with Repair'
+                  : pretest
+                    ? 'Pretest'
+                    : existing.pretestKind || '',
+              },
+            }
+          })
         },
       })
       setValveRowId(prefill.valveRowId)
+      setCustomer(prefill.customer?.trim() || '')
+      setCustomerPo(prefill.drawingPoNumber?.trim() || '')
       setBodyMaterialLoadedFromJob(Boolean(prefill.bodyMaterial?.trim()))
       setValveTypeLoadedFromJob(Boolean(prefill.valveType?.trim()))
       setValveLookupStatus('found')
@@ -477,6 +481,8 @@ export function TestLogEntryForm({
     setValveId('')
     setSize('')
     setPressure('')
+    setCustomer('')
+    setCustomerPo('')
     setBodyMaterial('')
     setBodyMaterialLoadedFromJob(false)
     setValveRowId(null)
@@ -516,14 +522,27 @@ export function TestLogEntryForm({
     if (isReliefValveType(canonicalType)) {
       const existing = details.reliefValve ?? emptyReliefValveTestFields()
       const sizes = prefillReliefSizesFromJobSize(entry.size)
-      details.reliefValve = {
-        ...existing,
-        inletSize: existing.inletSize || sizes.inletSize,
-        outletSize: existing.outletSize || sizes.outletSize,
-        setPressure: existing.setPressure || entry.pressure || '',
-        testType: existing.testType || (entry.worked?.includes('Repair') ? 'Pretest with Repair' : entry.worked?.includes('Pretest') ? 'Pretest' : ''),
-        media: existing.media || '',
-      }
+      const worked = entry.worked ?? ''
+      const workedSuggestsPretest = /pretest/i.test(worked)
+      const workedSuggestsRepair = /repair/i.test(worked)
+      details.reliefValve = seedReliefValveTestersFromLegacy(
+        {
+          ...existing,
+          inletSize: existing.inletSize || sizes.inletSize,
+          outletSize: existing.outletSize || sizes.outletSize,
+          setPressure: existing.setPressure || entry.pressure || '',
+          includePretest: existing.includePretest || workedSuggestsPretest,
+          pretestKind:
+            existing.pretestKind ||
+            (workedSuggestsRepair
+              ? 'Pretest with Repair'
+              : workedSuggestsPretest
+                ? 'Pretest'
+                : ''),
+          media: existing.media || '',
+        },
+        entry.tester,
+      )
     }
     setTesting(details)
 
@@ -555,6 +574,8 @@ export function TestLogEntryForm({
       setValveRowId(prefill.valveRowId)
       if (!entry.size && prefill.size) setSize(prefill.size)
       if (!entry.pressure && prefill.pressure) setPressure(prefill.pressure)
+      setCustomer(prefill.customer?.trim() || '')
+      setCustomerPo(prefill.drawingPoNumber?.trim() || '')
       if (prefill.bodyMaterial) {
         setBodyMaterial(prefill.bodyMaterial)
         setBodyMaterialLoadedFromJob(true)
@@ -567,6 +588,8 @@ export function TestLogEntryForm({
       lastPrefilledValveId.current = prefill.valveId
     } else {
       setValveRowId(null)
+      setCustomer('')
+      setCustomerPo('')
       setBodyMaterial('')
       setBodyMaterialLoadedFromJob(false)
       setValveTypeLoadedFromJob(false)
@@ -588,13 +611,21 @@ export function TestLogEntryForm({
   }, [editingEntry?.id])
 
   const submit = async () => {
-    const testerValue = formatTesterInitials(parseTesterInitials(tester, knownTesterInitials))
+    const reliefTester = isReliefValveType(valveType)
+      ? formatReliefValveLegacyTester(testing.reliefValve ?? emptyReliefValveTestFields())
+      : null
+    const testerValue =
+      reliefTester || formatTesterInitials(parseTesterInitials(tester, knownTesterInitials))
     if (!valveId.trim() || !testedOn.trim()) {
       showToast('Valve ID and date are required')
       return
     }
     if (!testerValue) {
-      showToast('Select at least one tester before saving')
+      showToast(
+        isReliefValveType(valveType)
+          ? 'Select tester(s) on the pretest and/or final test before saving'
+          : 'Select at least one tester before saving',
+      )
       return
     }
     if (isReliefValveType(valveType)) {
@@ -613,7 +644,11 @@ export function TestLogEntryForm({
     const savedAt = new Date().toISOString()
     const testingWithStamp: TestLogTestingDetails = {
       ...testing,
-      reliefValve: testing.reliefValve ?? emptyReliefValveTestFields(),
+      reliefValve: isReliefValveType(valveType)
+        ? (serializeReliefValveTestFields(
+            testing.reliefValve ?? emptyReliefValveTestFields(),
+          ) as TestLogTestingDetails['reliefValve'])
+        : (testing.reliefValve ?? emptyReliefValveTestFields()),
       savedAt,
     }
     const reliefSize = deriveReliefValveLegacySize(testingWithStamp)
@@ -937,6 +972,24 @@ export function TestLogEntryForm({
               }}
               onSaved={() => showToast('Valve type saved to job record')}
             />
+            <label>
+              Customer
+              <input
+                type="text"
+                value={customer}
+                onChange={(e) => setCustomer(e.target.value)}
+                placeholder="Customer for certificate"
+              />
+            </label>
+            <label>
+              Customer PO #
+              <input
+                type="text"
+                value={customerPo}
+                onChange={(e) => setCustomerPo(e.target.value)}
+                placeholder="Drawing / PO #"
+              />
+            </label>
           </div>
 
           {isReliefValve ? (
@@ -944,74 +997,26 @@ export function TestLogEntryForm({
               value={reliefFields}
               sizeOptions={sizeOptions}
               gaugeOptions={gaugeOptions}
+              testerOptions={testerOptions}
+              testersLoading={employeesLoading}
+              valveRowId={valveRowId}
               onChange={patchReliefValve}
+              onJobRecordUpdated={({ size: nextSize, pressure: nextPressure }) => {
+                setSize(nextSize)
+                setPressure(nextPressure)
+                showToast('Job record updated with relief valve size, set pressure, and media')
+              }}
             />
           ) : null}
 
-          <fieldset className="test-log-tester-select test-log-fieldset">
-            <legend>
-              Tester(s) <span className="test-log-required-mark">*</span>
-            </legend>
-            {employeesLoading ? (
-              <p className="test-log-tester-loading">Loading employees…</p>
-            ) : (
-              <>
-                <div className="test-log-tester-chips" aria-live="polite">
-                  {selectedTesters.length === 0 ? (
-                    <span className="test-log-tester-empty">Required — select at least one tester</span>
-                  ) : (
-                    selectedTesters.map((initials) => {
-                      const employee = testerOptions.find(
-                        (row) => row.initials.toUpperCase() === initials,
-                      )
-                      const orphan = orphanTesterInitials.includes(initials)
-                      return (
-                        <button
-                          key={initials}
-                          type="button"
-                          className="test-log-tester-chip-btn"
-                          onClick={() => toggleTester(initials, false)}
-                          title="Remove tester"
-                        >
-                          {employee ? `${employee.full_name} (${initials})` : orphan ? `${initials} (saved)` : initials}
-                          <span aria-hidden>×</span>
-                        </button>
-                      )
-                    })
-                  )}
-                </div>
-                <label className="test-log-tester-add">
-                  Add tester
-                  <select
-                    value=""
-                    disabled={availableTesterOptions.length === 0}
-                    onChange={(e) => {
-                      addTester(e.target.value)
-                      e.target.value = ''
-                    }}
-                  >
-                    <option value="">
-                      {testerOptions.length === 0
-                        ? 'No testers designated yet'
-                        : availableTesterOptions.length === 0
-                          ? 'All designated testers selected'
-                          : 'Select tester…'}
-                    </option>
-                    {availableTesterOptions.map((employee) => (
-                      <option key={employee.id} value={employee.initials.toUpperCase()}>
-                        {employee.full_name} ({employee.initials.toUpperCase()})
-                      </option>
-                    ))}
-                  </select>
-                </label>
-                {testerOptions.length === 0 ? (
-                  <p className="test-log-tester-hint">
-                    Mark people as testers under Admin → Employees, then they will appear here.
-                  </p>
-                ) : null}
-              </>
-            )}
-          </fieldset>
+          {isReliefValve ? null : (
+            <TestLogTesterSelect
+              value={tester}
+              options={testerOptions}
+              loading={employeesLoading}
+              onChange={setTester}
+            />
+          )}
 
           {valveLookupStatus === 'found' ? (
             <p className="status-breakdown-note test-log-valve-lookup-note">

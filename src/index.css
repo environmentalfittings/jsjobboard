@@ -2440,6 +2440,250 @@ body {
   background: #f8fafc;
 }
 
+.test-log-relief-record-note {
+  grid-column: 1 / -1;
+  margin: 0;
+  font-size: 0.875rem;
+  color: #475569;
+}
+
+.test-log-relief-include-pretest {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-weight: 600;
+  color: #1e3a5f;
+}
+
+.test-log-relief-include-pretest-row {
+  grid-column: 1 / -1;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem 1rem;
+}
+
+.test-log-relief-attempt-group {
+  grid-column: 1 / -1;
+  display: grid;
+  gap: 1rem;
+}
+
+.test-log-relief-close-section-btn,
+.test-log-relief-cancel-retest-btn {
+  border: 1px solid #94a3b8;
+  background: #fff;
+  color: #334155;
+  border-radius: 8px;
+  padding: 0.45rem 0.8rem;
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.test-log-relief-close-section-btn:hover,
+.test-log-relief-cancel-retest-btn:hover {
+  background: #f8fafc;
+  border-color: #64748b;
+}
+
+.test-log-relief-update-record {
+  grid-column: 1 / -1;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 0.65rem 1rem;
+  align-items: center;
+  padding: 0.85rem 1rem;
+  border: 1px solid #cbd5e1;
+  border-radius: 10px;
+  background: #fff;
+}
+
+.test-log-relief-update-record-copy strong {
+  display: block;
+  font-size: 0.95rem;
+  color: #1e3a5f;
+}
+
+.test-log-relief-update-record-copy p {
+  margin: 0.25rem 0 0;
+  font-size: 0.8125rem;
+  color: #64748b;
+}
+
+.test-log-relief-update-record-preview {
+  color: #334155 !important;
+  font-weight: 600;
+}
+
+.test-log-relief-update-record-btn {
+  border: 1px solid #1d4ed8;
+  background: #eff6ff;
+  color: #1e3a8a;
+  border-radius: 8px;
+  padding: 0.6rem 0.95rem;
+  font: inherit;
+  font-weight: 700;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.test-log-relief-update-record-btn:hover:not(:disabled) {
+  background: #dbeafe;
+}
+
+.test-log-relief-update-record-btn:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.test-log-relief-update-record-status {
+  grid-column: 1 / -1;
+  margin: 0;
+  font-size: 0.8125rem;
+}
+
+.test-log-relief-update-record-status--ok {
+  color: #166534;
+}
+
+.test-log-relief-update-record-status--warn {
+  color: #9a3412;
+}
+
+@media (max-width: 720px) {
+  .test-log-relief-update-record {
+    grid-template-columns: 1fr;
+  }
+}
+
+.test-log-relief-run {
+  grid-column: 1 / -1;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+  gap: 1rem;
+  margin-top: 0.25rem;
+  padding: 0.85rem 1rem;
+  border: 1px solid #c7d2e0;
+  border-radius: 10px;
+  background: #fff;
+}
+
+.test-log-relief-run--pretest {
+  border-color: #f0c28a;
+  background: #fffaf3;
+}
+
+.test-log-relief-run--final {
+  border-color: #93c5fd;
+  background: #f8fbff;
+}
+
+.test-log-relief-run-heading {
+  grid-column: 1 / -1;
+}
+
+.test-log-relief-run-heading h4 {
+  margin: 0;
+  font-size: 1.05rem;
+  font-weight: 700;
+  color: #1e3a5f;
+}
+
+.test-log-relief-run-heading p {
+  margin: 0.25rem 0 0;
+  font-size: 0.8125rem;
+  color: #64748b;
+}
+
+.test-log-relief-run-tester {
+  grid-column: 1 / -1;
+}
+
+.test-log-relief-run-tester .test-log-tester-select {
+  margin: 0;
+  padding: 0.75rem 0 0;
+  border: 0;
+  background: transparent;
+}
+
+.test-log-relief-run--failed {
+  border-color: #fca5a5;
+}
+
+.test-log-relief-run--passed {
+  border-color: #86efac;
+}
+
+.test-log-relief-run--readonly {
+  opacity: 0.96;
+  background: #f8fafc;
+}
+
+.test-log-relief-run--readonly .test-log-relief-gauge,
+.test-log-relief-run--readonly .test-log-relief-run-tester {
+  pointer-events: none;
+}
+
+.test-log-relief-attempt-badge {
+  display: inline-flex;
+  align-items: center;
+  margin-left: 0.5rem;
+  padding: 0.15rem 0.5rem;
+  border-radius: 999px;
+  font-size: 0.7rem;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+  vertical-align: middle;
+}
+
+.test-log-relief-attempt-badge.fail {
+  color: #991b1b;
+  background: #fee2e2;
+}
+
+.test-log-relief-attempt-badge.pass {
+  color: #166534;
+  background: #dcfce7;
+}
+
+.test-log-relief-attempt-badge.saved {
+  color: #475569;
+  background: #e2e8f0;
+}
+
+.test-log-relief-retest-actions {
+  grid-column: 1 / -1;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.35rem;
+  margin-top: 0.25rem;
+}
+
+.test-log-relief-retest-btn {
+  border: 1px solid #b45309;
+  background: #fff7ed;
+  color: #9a3412;
+  border-radius: 8px;
+  padding: 0.55rem 0.9rem;
+  font: inherit;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.test-log-relief-retest-btn:hover {
+  background: #ffedd5;
+}
+
+.test-log-relief-retest-hint {
+  margin: 0;
+  font-size: 0.8125rem;
+  color: #64748b;
+}
+
 .test-log-relief-gauge {
   grid-column: 1 / -1;
   max-width: 28rem;
@@ -2487,6 +2731,42 @@ body {
 .test-log-relief-set-pressure-heading p {
   margin: 0.2rem 0 0;
   font-size: 0.8125rem;
+  color: #64748b;
+}
+
+.test-log-relief-criteria {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  margin-top: 0.65rem;
+  padding: 0.65rem 0.85rem;
+  border-radius: 8px;
+  border: 1px solid #cbd5e1;
+  background: #f1f5f9;
+}
+
+.test-log-relief-criteria-label {
+  font-size: 0.7rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: #475569;
+}
+
+.test-log-relief-criteria-value {
+  font-size: 1.2rem;
+  line-height: 1.15;
+  color: #0f172a;
+}
+
+.test-log-relief-criteria-value--pending {
+  font-size: 0.95rem;
+  font-weight: 600;
+  color: #64748b;
+}
+
+.test-log-relief-criteria-detail {
+  font-size: 0.75rem;
   color: #64748b;
 }
 
