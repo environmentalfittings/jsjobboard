@@ -1,6 +1,8 @@
 /** RFQ inbox for receiving-log emails. Override with VITE_RFQ_EMAIL. */
+export const DEFAULT_RFQ_EMAIL = 'RFQ@jsvalve.com'
+
 export function getRfqEmail() {
-  return String(import.meta.env.VITE_RFQ_EMAIL ?? 'rfq@jsvalve.com').trim() || 'rfq@jsvalve.com'
+  return String(import.meta.env.VITE_RFQ_EMAIL ?? DEFAULT_RFQ_EMAIL).trim() || DEFAULT_RFQ_EMAIL
 }
 
 export type RfqEmailDetails = {
@@ -34,8 +36,9 @@ function publicImageUrl(url?: string | null) {
   return null
 }
 
-export function buildRfqEmailBody(details: RfqEmailDetails) {
+export function buildRfqEmailBody(details: RfqEmailDetails, toEmail?: string) {
   const lines = [
+    ...(toEmail ? [`To: ${toEmail}`, ''] : []),
     'A new valve was logged on the Receiving Log.',
     '',
     `Date received: ${details.receivedDate || '—'}`,
@@ -151,7 +154,7 @@ export async function composeRfqEmail(options: {
   }
 
   const subject = buildRfqEmailSubject(details)
-  const body = buildRfqEmailBody(details)
+  const body = buildRfqEmailBody(details, to)
 
   let file = options.imageFile ?? null
   if (!file && options.imageDataUrl) {
