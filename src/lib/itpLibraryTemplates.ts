@@ -16,6 +16,12 @@ import { supabase } from './supabase'
 export const ITP_LIBRARY_MASTER_JOB = '__master__'
 export const ITP_LIBRARY_MASTER_VALVE = '__master__'
 
+/** Default display name for the first / unnamed template per valve type. */
+export const ITP_LIBRARY_DEFAULT_TEMPLATE_NAME = 'Default'
+
+const TEMPLATE_SELECT =
+  'id,job_type,valve_type,name,is_default,scope,updated_at'
+
 export type ItpLibraryTemplateScope = {
   sel: Record<string, ItpLibraryItemSel>
   custom: ItpLibraryCustomItem[]
@@ -27,8 +33,40 @@ export type ItpLibraryTemplateRow = {
   id: number
   job_type: string
   valve_type: string
+  name: string
+  is_default: boolean
   scope: ItpLibraryTemplateScope
   updated_at: string
+}
+
+function normalizeTemplateName(raw: unknown): string {
+  const value = String(raw ?? '').trim()
+  return value || ITP_LIBRARY_DEFAULT_TEMPLATE_NAME
+}
+
+function mapTemplateRow(row: Record<string, unknown>): ItpLibraryTemplateRow {
+  return {
+    id: Number(row.id),
+    job_type: String(row.job_type ?? ''),
+    valve_type: String(row.valve_type ?? ''),
+    name: normalizeTemplateName(row.name),
+    is_default: Boolean(row.is_default),
+    scope: normalizeTemplateScope(row.scope),
+    updated_at: String(row.updated_at ?? ''),
+  }
+}
+
+function isMasterKey(jobType: string, valveType: string) {
+  return jobType === ITP_LIBRARY_MASTER_JOB && valveType === ITP_LIBRARY_MASTER_VALVE
+}
+
+function pickPreferredTemplate(rows: ItpLibraryTemplateRow[]): ItpLibraryTemplateRow | null {
+  if (!rows.length) return null
+  const byDefault = rows.find((row) => row.is_default)
+  if (byDefault) return byDefault
+  const namedDefault = rows.find((row) => row.name === ITP_LIBRARY_DEFAULT_TEMPLATE_NAME)
+  if (namedDefault) return namedDefault
+  return [...rows].sort((a, b) => a.name.localeCompare(b.name))[0] ?? null
 }
 
 function normalizeSel(raw: unknown): ItpLibraryItemSel {
@@ -118,94 +156,181 @@ export function countIncludedInScope(scope: ItpLibraryTemplateScope): number {
   return includedIds.size
 }
 
-export async function listItpLibraryTemplates(): Promise<ItpLibraryTemplateRow[]> {
-  const { data, error } = await supabase
+export function formatItpLibraryTemplateLabel(row: Pick<ItpLibraryTemplateRow, 'valve_type' | 'name' | 'is_default'>) {
+  const suffix = row.is_default ? ' (default)' : ''
+  return `${row.valve_type} — ${row.name}${suffix}`
+}
+
+export async function listItpLibraryTemplates(filters?: {
+  jobType?: string
+  valveType?: string
+}): Promise<ItpLibraryTemplateRow[]> {
+  let query = supabase
     .from('itp_library_templates')
-    .select('id,job_type,valve_type,scope,updated_at')
+    .select(TEMPLATE_SELECT)
     .order('job_type', { ascending: true })
     .order('valve_type', { ascending: true })
+    .order('name', { ascending: true })
+
+  const jobType = String(filters?.jobType ?? '').trim()
+  const valveType = String(filters?.valveType ?? '').trim()
+  if (jobType) query = query.eq('job_type', jobType)
+  if (valveType) query = query.eq('valve_type', valveType)
+
+  const { data, error } = await query
   if (error) throw error
   return (data ?? [])
-    .map((row) => ({
-      id: Number(row.id),
-      job_type: String(row.job_type ?? ''),
-      valve_type: String(row.valve_type ?? ''),
-      scope: normalizeTemplateScope(row.scope),
-      updated_at: String(row.updated_at ?? ''),
-    }))
-    .filter(
-      (row) =>
-        !(row.job_type === ITP_LIBRARY_MASTER_JOB && row.valve_type === ITP_LIBRARY_MASTER_VALVE),
-    )
+    .map((row) => mapTemplateRow(row as Record<string, unknown>))
+    .filter((row) => !isMasterKey(row.job_type, row.valve_type))
 }
 
 export async function loadItpLibraryTemplate(
   jobType: ItpLibraryJobType | string,
   valveType: string,
+  name?: string | null,
 ): Promise<ItpLibraryTemplateRow | null> {
   const jt = String(jobType ?? '').trim()
   const vt = String(valveType ?? '').trim()
   if (!jt || !vt) return null
+
+  const requestedName = name == null ? null : String(name).trim()
+
+  if (requestedName) {
+    const { data, error } = await supabase
+      .from('itp_library_templates')
+      .select(TEMPLATE_SELECT)
+      .eq('job_type', jt)
+      .eq('valve_type', vt)
+      .eq('name', requestedName)
+      .maybeSingle()
+    if (error) throw error
+    if (!data) return null
+    return mapTemplateRow(data as Record<string, unknown>)
+  }
+
   const { data, error } = await supabase
     .from('itp_library_templates')
-    .select('id,job_type,valve_type,scope,updated_at')
+    .select(TEMPLATE_SELECT)
     .eq('job_type', jt)
     .eq('valve_type', vt)
-    .maybeSingle()
+    .order('is_default', { ascending: false })
+    .order('name', { ascending: true })
   if (error) throw error
-  if (!data) return null
-  return {
-    id: Number(data.id),
-    job_type: String(data.job_type ?? ''),
-    valve_type: String(data.valve_type ?? ''),
-    scope: normalizeTemplateScope(data.scope),
-    updated_at: String(data.updated_at ?? ''),
+  const rows = (data ?? []).map((row) => mapTemplateRow(row as Record<string, unknown>))
+  return pickPreferredTemplate(rows)
+}
+
+async function clearDefaultFlags(jobType: string, valveType: string, exceptName?: string) {
+  let query = supabase
+    .from('itp_library_templates')
+    .update({ is_default: false, updated_at: new Date().toISOString() })
+    .eq('job_type', jobType)
+    .eq('valve_type', valveType)
+    .eq('is_default', true)
+  if (exceptName) {
+    query = query.neq('name', exceptName)
   }
+  const { error } = await query
+  if (error) throw error
 }
 
 export async function saveItpLibraryTemplate(
   jobType: ItpLibraryJobType | string,
   valveType: string,
   scope: ItpLibraryTemplateScope,
+  options?: { name?: string; isDefault?: boolean },
 ): Promise<ItpLibraryTemplateRow> {
   const jt = String(jobType ?? '').trim()
   const vt = String(valveType ?? '').trim()
+  const templateName = normalizeTemplateName(options?.name)
   if (!jt) throw new Error('Job type is required')
   if (!vt) throw new Error('Valve type is required')
+
+  const master = isMasterKey(jt, vt)
+  let isDefault = Boolean(options?.isDefault)
+  if (master) {
+    isDefault = false
+  } else if (options?.isDefault == null) {
+    const existing = await listItpLibraryTemplates({ jobType: jt, valveType: vt })
+    const self = existing.find((row) => row.name === templateName)
+    if (self) {
+      isDefault = self.is_default
+    } else {
+      isDefault = existing.length === 0
+    }
+  }
+
+  if (isDefault && !master) {
+    await clearDefaultFlags(jt, vt, templateName)
+  }
+
   const payload = {
     job_type: jt,
     valve_type: vt,
+    name: templateName,
+    is_default: isDefault,
     scope: compactTemplateScope(scope),
     updated_at: new Date().toISOString(),
   }
   const { data, error } = await supabase
     .from('itp_library_templates')
-    .upsert(payload, { onConflict: 'job_type,valve_type' })
-    .select('id,job_type,valve_type,scope,updated_at')
+    .upsert(payload, { onConflict: 'job_type,valve_type,name' })
+    .select(TEMPLATE_SELECT)
     .single()
   if (error) throw error
-  return {
-    id: Number(data.id),
-    job_type: String(data.job_type ?? ''),
-    valve_type: String(data.valve_type ?? ''),
-    scope: normalizeTemplateScope(data.scope),
-    updated_at: String(data.updated_at ?? ''),
-  }
+  return mapTemplateRow(data as Record<string, unknown>)
 }
 
-export async function deleteItpLibraryTemplate(jobType: string, valveType: string): Promise<void> {
-  const { error } = await supabase
+export async function setDefaultItpLibraryTemplate(
+  jobType: string,
+  valveType: string,
+  name: string,
+): Promise<ItpLibraryTemplateRow | null> {
+  const jt = String(jobType ?? '').trim()
+  const vt = String(valveType ?? '').trim()
+  const templateName = normalizeTemplateName(name)
+  if (!jt || !vt) return null
+
+  const existing = await loadItpLibraryTemplate(jt, vt, templateName)
+  if (!existing) return null
+
+  await clearDefaultFlags(jt, vt)
+  const { data, error } = await supabase
     .from('itp_library_templates')
-    .delete()
-    .eq('job_type', jobType)
-    .eq('valve_type', valveType)
+    .update({ is_default: true, updated_at: new Date().toISOString() })
+    .eq('job_type', jt)
+    .eq('valve_type', vt)
+    .eq('name', templateName)
+    .select(TEMPLATE_SELECT)
+    .single()
+  if (error) throw error
+  return mapTemplateRow(data as Record<string, unknown>)
+}
+
+export async function deleteItpLibraryTemplate(
+  jobType: string,
+  valveType: string,
+  name?: string | null,
+): Promise<void> {
+  const jt = String(jobType ?? '').trim()
+  const vt = String(valveType ?? '').trim()
+  let query = supabase.from('itp_library_templates').delete().eq('job_type', jt).eq('valve_type', vt)
+  const templateName = name == null ? null : String(name).trim()
+  if (templateName) {
+    query = query.eq('name', templateName)
+  }
+  const { error } = await query
   if (error) throw error
 }
 
 /** @deprecated Prefer loadItpMasterCatalog from itpMasterCatalog.ts */
 export async function loadItpLibraryMasterItems(): Promise<ItpLibraryCustomItem[]> {
   try {
-    const row = await loadItpLibraryTemplate(ITP_LIBRARY_MASTER_JOB, ITP_LIBRARY_MASTER_VALVE)
+    const row = await loadItpLibraryTemplate(
+      ITP_LIBRARY_MASTER_JOB,
+      ITP_LIBRARY_MASTER_VALVE,
+      ITP_LIBRARY_DEFAULT_TEMPLATE_NAME,
+    )
     return row?.scope.custom ?? []
   } catch {
     return []
@@ -221,10 +346,15 @@ export async function saveItpLibraryMasterItems(items: ItpLibraryCustomItem[]): 
       name: String(row.name ?? '').trim(),
     }))
     .filter((row) => row.id && row.secId && row.name)
-  await saveItpLibraryTemplate(ITP_LIBRARY_MASTER_JOB, ITP_LIBRARY_MASTER_VALVE, {
-    sel: {},
-    custom,
-  })
+  await saveItpLibraryTemplate(
+    ITP_LIBRARY_MASTER_JOB,
+    ITP_LIBRARY_MASTER_VALVE,
+    {
+      sel: {},
+      custom,
+    },
+    { name: ITP_LIBRARY_DEFAULT_TEMPLATE_NAME, isDefault: false },
+  )
 }
 
 /** Seed scope from hardcoded family templates (included only). */
@@ -314,10 +444,10 @@ export function applyScopeToPlan(
 
 export async function applyLibraryTemplateAsync(
   plan: ItpLibraryPlanPayload,
-  options?: { replaceIncludes?: boolean },
+  options?: { replaceIncludes?: boolean; templateName?: string | null },
 ): Promise<ItpLibraryPlanPayload> {
   try {
-    const stored = await loadItpLibraryTemplate(plan.jobType, plan.valveType)
+    const stored = await loadItpLibraryTemplate(plan.jobType, plan.valveType, options?.templateName)
     if (stored && countIncludedInScope(stored.scope) > 0) {
       return applyScopeToPlan(plan, stored.scope, options)
     }

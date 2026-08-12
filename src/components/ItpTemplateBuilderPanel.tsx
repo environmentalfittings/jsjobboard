@@ -20,10 +20,13 @@ import {
   countIncludedInScope,
   deleteItpLibraryTemplate,
   emptyTemplateScope,
+  formatItpLibraryTemplateLabel,
+  ITP_LIBRARY_DEFAULT_TEMPLATE_NAME,
   listItpLibraryTemplates,
   loadItpLibraryTemplate,
   saveItpLibraryTemplate,
   scopeFromCodeTemplate,
+  setDefaultItpLibraryTemplate,
   type ItpLibraryTemplateRow,
   type ItpLibraryTemplateScope,
 } from '../lib/itpLibraryTemplates'
@@ -35,6 +38,18 @@ const JOB_TYPE_OPTIONS: { value: ItpLibraryJobType; label: string }[] = [
   { value: 'manufacturing', label: 'Manufacturing' },
   { value: 'other', label: 'Other' },
 ]
+
+const NEW_TEMPLATE_OPTION = '__new__'
+
+function migrationHint(message: string) {
+  if (/column .*name.* does not exist|Could not find the .*column.*name/i.test(message)) {
+    return 'Run supabase/migration-itp-library-templates-named.sql in Supabase, then try again'
+  }
+  if (/relation .* does not exist|Could not find the table/i.test(message)) {
+    return 'Run migration-itp-library-templates.sql (and the named templates migration) in Supabase, then try again'
+  }
+  return message
+}
 
 function itemRequiresMeasurements(sel: ItpLibraryItemSel) {
   return sel.beforeMeas || sel.afterMeas || sel.measVerify
@@ -86,6 +101,9 @@ export function ItpTemplateBuilderPanel() {
   const { showToast } = useToast()
   const [jobType, setJobType] = useState<ItpLibraryJobType>('repair')
   const [valveType, setValveType] = useState('')
+  const [templateName, setTemplateName] = useState(ITP_LIBRARY_DEFAULT_TEMPLATE_NAME)
+  const [loadedTemplateName, setLoadedTemplateName] = useState<string | null>(null)
+  const [isDefaultTemplate, setIsDefaultTemplate] = useState(false)
   const [valveTypes, setValveTypes] = useState<string[]>([...VALVE_TYPES])
   const [scope, setScope] = useState<ItpLibraryTemplateScope>(() => emptyTemplateScope())
   const [catalog, setCatalog] = useState<ItpMasterCatalogItem[]>([])
@@ -103,6 +121,22 @@ export function ItpTemplateBuilderPanel() {
     () => Object.values(scope.sel).filter((s) => s.included && s.holdPoint).length,
     [scope.sel],
   )
+  const templatesForValve = useMemo(
+    () =>
+      savedRows
+        .filter((row) => row.job_type === jobType && row.valve_type === valveType)
+        .slice()
+        .sort((a, b) => Number(b.is_default) - Number(a.is_default) || a.name.localeCompare(b.name)),
+    [savedRows, jobType, valveType],
+  )
+  const savedForCurrent = useMemo(
+    () =>
+      templatesForValve.find(
+        (row) => row.name.toLowerCase() === templateName.trim().toLowerCase(),
+      ) ?? null,
+    [templatesForValve, templateName],
+  )
+  const pickerValue = loadedTemplateName ?? NEW_TEMPLATE_OPTION
 
   const catalogByArea = useMemo(() => {
     const sorted = catalog.slice().sort((a, b) => a.sortOrder - b.sortOrder || a.name.localeCompare(b.name))
@@ -150,21 +184,39 @@ export function ItpTemplateBuilderPanel() {
   }, [refreshSavedList, refreshCatalog])
 
   const loadTemplate = useCallback(
-    async (jt: ItpLibraryJobType, vt: string) => {
+    async (jt: ItpLibraryJobType, vt: string, name?: string | null) => {
       if (!vt.trim()) {
         setScope(emptyTemplateScope())
+        setTemplateName(ITP_LIBRARY_DEFAULT_TEMPLATE_NAME)
+        setLoadedTemplateName(null)
+        setIsDefaultTemplate(false)
         setDirty(false)
         return
       }
       setLoading(true)
       try {
-        const stored = await loadItpLibraryTemplate(jt, vt)
-        setScope(stored ? stored.scope : scopeFromCodeTemplate(jt, vt))
+        const requestedName = name == null ? null : String(name).trim()
+        const stored = await loadItpLibraryTemplate(jt, vt, requestedName || null)
+        if (stored) {
+          setScope(stored.scope)
+          setTemplateName(stored.name)
+          setLoadedTemplateName(stored.name)
+          setIsDefaultTemplate(stored.is_default)
+        } else {
+          setScope(scopeFromCodeTemplate(jt, vt))
+          const fallbackName = requestedName || ITP_LIBRARY_DEFAULT_TEMPLATE_NAME
+          setTemplateName(fallbackName)
+          setLoadedTemplateName(null)
+          setIsDefaultTemplate(false)
+        }
         setDirty(false)
         setSubReqDrafts({})
       } catch (error) {
-        showToast(error instanceof Error ? error.message : 'Could not load template')
+        showToast(migrationHint(error instanceof Error ? error.message : 'Could not load template'))
         setScope(scopeFromCodeTemplate(jt, vt))
+        setTemplateName(ITP_LIBRARY_DEFAULT_TEMPLATE_NAME)
+        setLoadedTemplateName(null)
+        setIsDefaultTemplate(false)
         setDirty(false)
       } finally {
         setLoading(false)
@@ -176,6 +228,25 @@ export function ItpTemplateBuilderPanel() {
   useEffect(() => {
     void loadTemplate(jobType, valveType)
   }, [jobType, valveType, loadTemplate])
+
+  const startNewTemplate = () => {
+    if (!valveType.trim()) {
+      showToast('Select a valve type first')
+      return
+    }
+    if (dirty && !window.confirm('Discard unsaved template changes?')) return
+    setScope(scopeFromCodeTemplate(jobType, valveType))
+    setTemplateName('')
+    setLoadedTemplateName(null)
+    setIsDefaultTemplate(templatesForValve.length === 0)
+    setDirty(true)
+    setSubReqDrafts({})
+  }
+
+  const selectExistingTemplate = (name: string) => {
+    if (dirty && !window.confirm('Discard unsaved template changes?')) return
+    void loadTemplate(jobType, valveType, name)
+  }
 
   const updateSel = (itemId: string, patch: Partial<ItpLibraryItemSel>) => {
     setScope((prev) => ({
@@ -353,12 +424,7 @@ export function ItpTemplateBuilderPanel() {
       setMasterDirty(false)
       showToast('Master list saved')
     } catch (error) {
-      const message = error instanceof Error ? error.message : 'Could not save master list'
-      if (/relation .* does not exist|Could not find the table/i.test(message)) {
-        showToast('Run migration-itp-library-templates.sql in Supabase, then try again')
-      } else {
-        showToast(message)
-      }
+      showToast(migrationHint(error instanceof Error ? error.message : 'Could not save master list'))
     } finally {
       setSaving(false)
     }
@@ -367,6 +433,11 @@ export function ItpTemplateBuilderPanel() {
   const handleSaveTemplate = async () => {
     if (!valveType.trim()) {
       showToast('Select a valve type first')
+      return
+    }
+    const name = templateName.trim()
+    if (!name) {
+      showToast('Enter a template name (for example Twinseal Template)')
       return
     }
     setSaving(true)
@@ -383,18 +454,45 @@ export function ItpTemplateBuilderPanel() {
         if (!mergedCustom.some((c) => c.id === row.id)) mergedCustom.push(row)
       }
       const toSave = { ...scope, custom: mergedCustom }
-      await saveItpLibraryTemplate(jobType, valveType, toSave)
+      const saved = await saveItpLibraryTemplate(jobType, valveType, toSave, {
+        name,
+        isDefault: isDefaultTemplate || templatesForValve.length === 0,
+      })
+      // If the user renamed an existing template, remove the old name row.
+      if (loadedTemplateName && loadedTemplateName !== saved.name) {
+        await deleteItpLibraryTemplate(jobType, valveType, loadedTemplateName)
+      }
       setScope(toSave)
+      setTemplateName(saved.name)
+      setLoadedTemplateName(saved.name)
+      setIsDefaultTemplate(saved.is_default)
       setDirty(false)
       await refreshSavedList()
-      showToast(`Saved ITP template for ${valveType}`)
+      showToast(`Saved “${saved.name}” for ${valveType}`)
     } catch (error) {
-      const message = error instanceof Error ? error.message : 'Could not save template'
-      if (/relation .* does not exist|Could not find the table/i.test(message)) {
-        showToast('Run migration-itp-library-templates.sql in Supabase, then try again')
-      } else {
-        showToast(message)
+      showToast(migrationHint(error instanceof Error ? error.message : 'Could not save template'))
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  const handleSetDefault = async () => {
+    if (!valveType.trim() || !loadedTemplateName) {
+      showToast('Save the template first, then set it as default')
+      return
+    }
+    setSaving(true)
+    try {
+      const saved = await setDefaultItpLibraryTemplate(jobType, valveType, loadedTemplateName)
+      if (!saved) {
+        showToast('Save the template first, then set it as default')
+        return
       }
+      setIsDefaultTemplate(true)
+      await refreshSavedList()
+      showToast(`“${saved.name}” is now the default for ${valveType}`)
+    } catch (error) {
+      showToast(migrationHint(error instanceof Error ? error.message : 'Could not set default template'))
     } finally {
       setSaving(false)
     }
@@ -408,22 +506,35 @@ export function ItpTemplateBuilderPanel() {
   }
 
   const handleDeleteSaved = async () => {
-    if (!valveType.trim()) return
-    if (!window.confirm(`Delete the saved template for ${valveType}? New ITPs will use the built-in default.`)) {
+    if (!valveType.trim() || !loadedTemplateName) return
+    if (
+      !window.confirm(
+        `Delete the saved template “${loadedTemplateName}” for ${valveType}? New ITPs will use the default template or the built-in list.`,
+      )
+    ) {
       return
     }
     try {
-      await deleteItpLibraryTemplate(jobType, valveType)
-      setScope(scopeFromCodeTemplate(jobType, valveType))
-      setDirty(false)
+      await deleteItpLibraryTemplate(jobType, valveType, loadedTemplateName)
       await refreshSavedList()
+      const remaining = (await listItpLibraryTemplates({ jobType, valveType })).filter(
+        (row) => row.name !== loadedTemplateName,
+      )
+      if (remaining.length) {
+        const next = remaining.find((row) => row.is_default) ?? remaining[0]
+        await loadTemplate(jobType, valveType, next.name)
+      } else {
+        setScope(scopeFromCodeTemplate(jobType, valveType))
+        setTemplateName(ITP_LIBRARY_DEFAULT_TEMPLATE_NAME)
+        setLoadedTemplateName(null)
+        setIsDefaultTemplate(false)
+        setDirty(false)
+      }
       showToast('Saved template deleted')
     } catch (error) {
-      showToast(error instanceof Error ? error.message : 'Could not delete template')
+      showToast(migrationHint(error instanceof Error ? error.message : 'Could not delete template'))
     }
   }
-
-  const savedForCurrent = savedRows.find((r) => r.job_type === jobType && r.valve_type === valveType)
 
   const checklistSections = useMemo(() => {
     return ITP_LIBRARY.map((section) => {
@@ -446,7 +557,8 @@ export function ItpTemplateBuilderPanel() {
       <p className="placeholder-copy">
         Master list is grouped by shop <strong>station</strong> (Teardown, Machine Shop, Welding, Assembly, Actuation,
         PRV, Testing, Painting, QA/QC). Add items, reorder with ↑↓, and assign stations. Pick a{' '}
-        <strong>valve type</strong> to split the screen and check items into that template on the right.
+        <strong>valve type</strong>, then name templates for that valve (for example Twinseal, MJ, Nordstrom) and check
+        items into the template on the right.
       </p>
 
       <div className="itp-template-builder-toolbar">
@@ -484,6 +596,54 @@ export function ItpTemplateBuilderPanel() {
             ))}
           </select>
         </label>
+        <label className="itp-template-builder-field">
+          <span>Saved template</span>
+          <select
+            value={pickerValue}
+            disabled={!valveType || loading}
+            onChange={(e) => {
+              const value = e.target.value
+              if (value === NEW_TEMPLATE_OPTION) {
+                startNewTemplate()
+                return
+              }
+              selectExistingTemplate(value)
+            }}
+          >
+            <option value={NEW_TEMPLATE_OPTION}>＋ New template…</option>
+            {templatesForValve.map((row) => (
+              <option key={row.id} value={row.name}>
+                {row.name}
+                {row.is_default ? ' (default)' : ''}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label className="itp-template-builder-field itp-template-builder-field--name">
+          <span>Template name</span>
+          <input
+            type="text"
+            value={templateName}
+            disabled={!valveType || loading}
+            placeholder="e.g. Twinseal Template"
+            onChange={(e) => {
+              setTemplateName(e.target.value)
+              setDirty(true)
+            }}
+          />
+        </label>
+        <label className="itp-template-builder-default">
+          <input
+            type="checkbox"
+            checked={isDefaultTemplate}
+            disabled={!valveType || loading}
+            onChange={(e) => {
+              setIsDefaultTemplate(e.target.checked)
+              setDirty(true)
+            }}
+          />
+          <span>Default for this valve type</span>
+        </label>
         <div className="itp-template-builder-actions">
           <button
             type="button"
@@ -500,6 +660,14 @@ export function ItpTemplateBuilderPanel() {
             onClick={() => void handleSaveTemplate()}
           >
             {saving ? 'Saving…' : dirty || masterDirty ? 'Save template' : 'Template saved'}
+          </button>
+          <button
+            type="button"
+            className="button-secondary"
+            disabled={!valveType || !loadedTemplateName || isDefaultTemplate || saving}
+            onClick={() => void handleSetDefault()}
+          >
+            Set as default
           </button>
           <button
             type="button"
@@ -525,8 +693,8 @@ export function ItpTemplateBuilderPanel() {
           Saved templates ({jobType}):{' '}
           {savedRows
             .filter((r) => r.job_type === jobType)
-            .map((r) => r.valve_type)
-            .join(', ') || 'none yet'}
+            .map((r) => formatItpLibraryTemplateLabel(r))
+            .join(' · ') || 'none yet'}
         </p>
       ) : null}
 
@@ -816,7 +984,12 @@ export function ItpTemplateBuilderPanel() {
 
         <div className="itp-library-panel itp-library-panel-right">
           <div className="itp-library-panel-hdr">
-            <h3>ITP Checklist{valveType ? ` · ${valveType}` : ''}</h3>
+            <h3>
+              ITP Checklist
+              {valveType
+                ? ` · ${valveType}${templateName.trim() ? ` · ${templateName.trim()}` : ''}`
+                : ''}
+            </h3>
             <span className="itp-library-ph-count">
               {valveType ? `${selectedCount} items · ${holdPointCount} hold pts` : 'Pick a valve type'}
             </span>
@@ -824,7 +997,10 @@ export function ItpTemplateBuilderPanel() {
 
           {!valveType ? (
             <div className="itp-library-empty">
-              <p>Select a valve type above, then check items on the left to build that template here.</p>
+              <p>
+                Select a valve type above, name the template (for example Twinseal Template), then check items on the
+                left to build it here.
+              </p>
             </div>
           ) : loading ? (
             <div className="itp-library-empty">
@@ -832,7 +1008,10 @@ export function ItpTemplateBuilderPanel() {
             </div>
           ) : selectedCount === 0 ? (
             <div className="itp-library-empty">
-              <p>Check items on the left to add them to this valve type&apos;s template.</p>
+              <p>
+                Check items on the left to add them to{' '}
+                {templateName.trim() ? `“${templateName.trim()}”` : 'this template'}.
+              </p>
             </div>
           ) : (
             <>
