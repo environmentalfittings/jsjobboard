@@ -903,6 +903,16 @@ export function ItpTemplateBuilderPanel() {
                                   placeholder="Notes, observations…"
                                   onChange={(e) => updateSel(item.id, { notes: e.target.value })}
                                 />
+                                {sel.subReqs.length > 0 ? (
+                                  <div className="itp-library-exec-subreqs">
+                                    {sel.subReqs.map((sr, idx) => (
+                                      <div key={`${item.id}-preview-sr-${idx}`} className="itp-library-exec-sr-row">
+                                        <span className="itp-library-srcb" aria-hidden />
+                                        <span>• {sr}</span>
+                                      </div>
+                                    ))}
+                                  </div>
+                                ) : null}
                               </div>
                               <div className="itp-library-exec-acts">
                                 <button
