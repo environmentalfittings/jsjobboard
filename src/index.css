@@ -6157,6 +6157,41 @@ a.test-log-reports-item-name:hover {
   gap: 8px;
 }
 
+.received-valves-rfq-badge {
+  display: inline-flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  border-radius: 6px;
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1.25;
+  padding: 4px 8px;
+  white-space: nowrap;
+}
+
+.received-valves-rfq-badge--sent {
+  background: #eaf3de;
+  color: #27500a;
+}
+
+.received-valves-rfq-badge--pending {
+  background: #f1efe8;
+  color: #5f5e5a;
+  font-weight: 600;
+}
+
+.received-valves-rfq-badge-date {
+  font-size: 11px;
+  font-weight: 500;
+  opacity: 0.9;
+  white-space: normal;
+}
+
+.received-valves-rfq-empty {
+  color: #94a3b8;
+}
+
 .received-valves-status-select {
   min-width: 11.5rem;
   max-width: 100%;

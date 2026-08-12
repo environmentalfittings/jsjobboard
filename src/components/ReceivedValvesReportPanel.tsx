@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
+import { ReceivedValveRfqBadge } from './ReceivedValveRfqBadge'
 import {
   isReceivedValveStatus,
   loadReceivedValveRowsShared,
@@ -123,7 +124,9 @@ export function ReceivedValvesReportPanel() {
                   <td>{row.workOrderPrinted ? 'Yes' : 'No'}</td>
                   <td>{receivedValveStatusLabel(row.status)}</td>
                   <td className="table-cell-clamp">{row.notes.trim() || '—'}</td>
-                  <td>{row.sentToRfqAt ? 'Sent' : '—'}</td>
+                  <td>
+                    <ReceivedValveRfqBadge sentToRfqAt={row.sentToRfqAt} showPendingLabel={false} />
+                  </td>
                 </tr>
               ))
             ) : (

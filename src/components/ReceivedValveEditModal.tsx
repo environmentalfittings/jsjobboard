@@ -13,6 +13,7 @@ import {
 import { composeRfqEmail, getRfqEmail } from '../lib/rfqEmail'
 import { supabase } from '../lib/supabase'
 import { VALVE_ATTACHMENTS_BUCKET } from '../lib/valveAttachments'
+import { ReceivedValveRfqBadge } from './ReceivedValveRfqBadge'
 
 type CustomerRow = { id: number; name: string }
 
@@ -412,6 +413,7 @@ export function ReceivedValveEditModal({
             />
           </label>
           <div className="received-valves-actions received-valves-span-full">
+            <ReceivedValveRfqBadge sentToRfqAt={row.sentToRfqAt} />
             <button type="button" className="button-primary" disabled={busy} onClick={() => void onSaveAndSendRfq()}>
               {sendingRfq
                 ? 'Opening email…'
