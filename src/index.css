@@ -6082,7 +6082,6 @@ a.test-log-reports-item-name:hover {
 .dashboard-panel .received-valves-notes-input {
   min-width: 7rem;
   max-width: 11rem;
-  rows: 1;
   min-height: 2rem;
   max-height: 4.5rem;
 }
