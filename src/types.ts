@@ -136,4 +136,7 @@ export interface StatusReworkRecord {
   /** QA follow-up on Reports: N/A or INCR created. */
   qa_disposition?: 'na' | 'incr' | null
   incr_id?: number | null
+  /** Linked INCR status from quality_incrs (enriched on fetch). */
+  incr_status?: 'open' | 'closed' | 'void' | null
+  incr_number?: string | null
 }

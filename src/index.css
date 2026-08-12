@@ -18216,6 +18216,26 @@ body.shop-tv-fullscreen-active .page-content {
   color: #334155;
 }
 
+.rework-qa-badge--incr-open {
+  background: #fee2e2;
+  color: #991b1b;
+}
+
+.rework-qa-badge--incr-closed {
+  background: #eaf3de;
+  color: #27500a;
+}
+
+.rework-qa-badge--incr-void {
+  background: #f1efe8;
+  color: #5f5e5a;
+}
+
+.rework-qa-badge--incr-unknown {
+  background: #e0f2fe;
+  color: #075985;
+}
+
 .rework-qa-actions .rework-qa-badge--na {
   margin-right: 0.15rem;
 }
