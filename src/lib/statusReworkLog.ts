@@ -1,4 +1,5 @@
 import type { StatusReworkRecord } from '../types'
+import type { QualityIncrStatus } from '../types/qualityIncr'
 import { supabase } from './supabase'
 
 export async function recordStatusRework(input: {
@@ -24,33 +25,100 @@ export async function recordStatusRework(input: {
   return { error: null }
 }
 
+function normalizeIncrStatus(raw: unknown): QualityIncrStatus | null {
+  const value = String(raw ?? '').trim().toLowerCase()
+  if (value === 'open' || value === 'closed' || value === 'void') return value
+  return null
+}
+
+type IncrLinkInfo = {
+  id: number
+  status: QualityIncrStatus | null
+  incr_number: string | null
+}
+
 async function enrichReworkRowsWithIncrs(rows: StatusReworkRecord[]): Promise<StatusReworkRecord[]> {
-  const missingLinkIds = rows
+  let next = rows
+
+  const missingLinkIds = next
     .filter((row) => row.qa_disposition !== 'na' && (row.qa_disposition !== 'incr' || row.incr_id == null))
     .map((row) => row.id)
-  if (missingLinkIds.length === 0) return rows
+
+  if (missingLinkIds.length > 0) {
+    const { data, error } = await supabase
+      .from('quality_incrs')
+      .select('id,rework_log_id,status,incr_number')
+      .in('rework_log_id', missingLinkIds)
+    if (!error && data?.length) {
+      const incrByReworkId = new Map<number, IncrLinkInfo>()
+      for (const raw of data) {
+        const reworkId = Number((raw as { rework_log_id?: unknown }).rework_log_id)
+        const incrId = Number((raw as { id?: unknown }).id)
+        if (!Number.isFinite(reworkId) || !Number.isFinite(incrId)) continue
+        if (incrByReworkId.has(reworkId)) continue
+        incrByReworkId.set(reworkId, {
+          id: incrId,
+          status: normalizeIncrStatus((raw as { status?: unknown }).status),
+          incr_number: String((raw as { incr_number?: unknown }).incr_number ?? '').trim() || null,
+        })
+      }
+      next = next.map((row) => {
+        const linked = incrByReworkId.get(row.id)
+        if (!linked) return row
+        return {
+          ...row,
+          qa_disposition: 'incr',
+          incr_id: linked.id,
+          incr_status: linked.status,
+          incr_number: linked.incr_number,
+        }
+      })
+    }
+  }
+
+  return attachIncrStatuses(next)
+}
+
+async function attachIncrStatuses(rows: StatusReworkRecord[]): Promise<StatusReworkRecord[]> {
+  const incrIds = [
+    ...new Set(
+      rows
+        .map((row) => row.incr_id)
+        .filter((id): id is number => typeof id === 'number' && Number.isFinite(id)),
+    ),
+  ]
+  if (incrIds.length === 0) return rows
+
+  const missingStatusIds = incrIds.filter((id) =>
+    rows.some((row) => row.incr_id === id && (row.incr_status == null || row.incr_number == null)),
+  )
+  if (missingStatusIds.length === 0) return rows
 
   const { data, error } = await supabase
     .from('quality_incrs')
-    .select('id,rework_log_id')
-    .in('rework_log_id', missingLinkIds)
+    .select('id,status,incr_number')
+    .in('id', missingStatusIds)
   if (error || !data?.length) return rows
 
-  const incrByReworkId = new Map<number, number>()
+  const byId = new Map<number, IncrLinkInfo>()
   for (const raw of data) {
-    const reworkId = Number((raw as { rework_log_id?: unknown }).rework_log_id)
     const incrId = Number((raw as { id?: unknown }).id)
-    if (!Number.isFinite(reworkId) || !Number.isFinite(incrId)) continue
-    if (!incrByReworkId.has(reworkId)) incrByReworkId.set(reworkId, incrId)
+    if (!Number.isFinite(incrId)) continue
+    byId.set(incrId, {
+      id: incrId,
+      status: normalizeIncrStatus((raw as { status?: unknown }).status),
+      incr_number: String((raw as { incr_number?: unknown }).incr_number ?? '').trim() || null,
+    })
   }
 
   return rows.map((row) => {
-    const incrId = incrByReworkId.get(row.id)
-    if (!incrId) return row
+    if (row.incr_id == null) return row
+    const linked = byId.get(row.incr_id)
+    if (!linked) return row
     return {
       ...row,
-      qa_disposition: 'incr',
-      incr_id: incrId,
+      incr_status: linked.status ?? row.incr_status ?? null,
+      incr_number: linked.incr_number ?? row.incr_number ?? null,
     }
   })
 }
@@ -82,6 +150,8 @@ export async function fetchStatusReworkLog(
         ...row,
         qa_disposition: null as StatusReworkRecord['qa_disposition'],
         incr_id: null as number | null,
+        incr_status: null as StatusReworkRecord['incr_status'],
+        incr_number: null as string | null,
       }))
       return { data: await enrichReworkRowsWithIncrs(mapped), error: null }
     }

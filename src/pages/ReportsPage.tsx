@@ -458,7 +458,18 @@ export function ReportsPage() {
   }
 
   const exportReworkCsv = () => {
-    const header = ['Changed at', 'Valve ID', 'From status', 'To status', 'Reason', 'Changed by', 'QA disposition', 'INCR id']
+    const header = [
+      'Changed at',
+      'Valve ID',
+      'From status',
+      'To status',
+      'Reason',
+      'Changed by',
+      'QA disposition',
+      'INCR id',
+      'INCR number',
+      'INCR status',
+    ]
     const lines = reworkRows.map((row) =>
       [
         row.changed_at,
@@ -469,6 +480,8 @@ export function ReportsPage() {
         row.changed_by_name ?? '',
         row.qa_disposition ?? '',
         row.incr_id == null ? '' : String(row.incr_id),
+        row.incr_number ?? '',
+        row.incr_status ?? '',
       ]
         .map((cell) => `"${String(cell).replace(/"/g, '""')}"`)
         .join(','),
@@ -1225,13 +1238,32 @@ export function ReportsPage() {
                           </button>
                         </>
                       ) : row.qa_disposition === 'incr' && row.incr_id ? (
-                        <button
-                          type="button"
-                          className="button-primary rework-qa-btn"
-                          onClick={() => openReworkIncr(row)}
-                        >
-                          Open INCR
-                        </button>
+                        <>
+                          <span
+                            className={`rework-qa-badge rework-qa-badge--incr-${row.incr_status ?? 'unknown'}`}
+                            title={row.incr_number ? `${row.incr_number}` : undefined}
+                          >
+                            {row.incr_status === 'closed'
+                              ? 'Closed INCR'
+                              : row.incr_status === 'void'
+                                ? 'Void INCR'
+                                : row.incr_status === 'open'
+                                  ? 'Open INCR'
+                                  : 'INCR linked'}
+                            {row.incr_number ? ` · ${row.incr_number}` : ''}
+                          </span>
+                          <button
+                            type="button"
+                            className={
+                              row.incr_status === 'open' || !row.incr_status
+                                ? 'button-primary rework-qa-btn'
+                                : 'button-secondary rework-qa-btn'
+                            }
+                            onClick={() => openReworkIncr(row)}
+                          >
+                            View
+                          </button>
+                        </>
                       ) : (
                         <>
                           <button
