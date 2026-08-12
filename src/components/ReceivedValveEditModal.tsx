@@ -412,9 +412,6 @@ export function ReceivedValveEditModal({
             />
           </label>
           <div className="received-valves-actions received-valves-span-full">
-            <button type="submit" className="button-primary" disabled={busy}>
-              {saving ? 'Saving…' : 'Save changes'}
-            </button>
             <button type="button" className="button-primary" disabled={busy} onClick={() => void onSaveAndSendRfq()}>
               {sendingRfq
                 ? 'Opening email…'
@@ -422,12 +419,16 @@ export function ReceivedValveEditModal({
                   ? 'Save & resend RFQ'
                   : 'Save & send to RFQ'}
             </button>
+            <button type="submit" className="button-secondary" disabled={busy}>
+              {saving ? 'Saving…' : 'Save changes'}
+            </button>
             <button type="button" className="button-secondary" onClick={onClose} disabled={busy}>
               Cancel
             </button>
           </div>
           <p className="status-breakdown-note received-valves-span-full">
-            Send/resend opens an email to {rfqEmail} with the saved details and picture.
+            <strong>Save &amp; send/resend RFQ</strong> saves this record first, then opens an email to {rfqEmail} with
+            the details and picture.
             {row.sentToRfqAt ? ' This entry was emailed to RFQ before — resend is available anytime.' : ''}
           </p>
         </form>

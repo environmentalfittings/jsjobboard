@@ -15,14 +15,33 @@ import {
   type ReceivedValveRecord,
   type ReceivedValveStatus,
 } from '../lib/receivedValves'
+import { composeRfqEmail } from '../lib/rfqEmail'
 
 const DASHBOARD_LOG_LIMIT = 8
+
+function rfqDetailsFromRecord(record: ReceivedValveRecord) {
+  return {
+    receivedDate: record.receivedDate,
+    customer: record.customer,
+    description: record.description,
+    teardownInspectionDate: record.teardownInspectionDate,
+    warehouseCheckInDate: record.warehouseCheckInDate,
+    estimateNumber: record.estimateNumber,
+    salesOrderNumber: record.salesOrderNumber,
+    workOrderPrinted: record.workOrderPrinted,
+    status: receivedValveStatusLabel(record.status),
+    notes: record.notes,
+    imageName: record.imageName,
+    imageUrl: record.imageDataUrl,
+  }
+}
 
 export function ReceivedValvesDashboardPanel() {
   const { showToast } = useToast()
   const [rows, setRows] = useState<ReceivedValveRecord[]>([])
   const [loading, setLoading] = useState(true)
   const [updatingId, setUpdatingId] = useState<string | null>(null)
+  const [sendingRfqId, setSendingRfqId] = useState<string | null>(null)
   const [editingRow, setEditingRow] = useState<ReceivedValveRecord | null>(null)
   const [notesDrafts, setNotesDrafts] = useState<Record<string, string>>({})
 
@@ -94,6 +113,28 @@ export function ReceivedValvesDashboardPanel() {
     showToast('Notes saved')
   }
 
+  const sendRowToRfq = async (row: ReceivedValveRecord) => {
+    setSendingRfqId(row.id)
+    try {
+      const result = await composeRfqEmail({
+        details: rfqDetailsFromRecord(row),
+        imageDataUrl: row.imageDataUrl,
+      })
+      if (!result.ok) {
+        showToast(result.message)
+        return
+      }
+      const sentToRfqAt = new Date().toISOString()
+      const stamp = await updateReceivedValve(row.id, { sentToRfqAt })
+      if (stamp.ok) {
+        setRows((prev) => prev.map((item) => (item.id === row.id ? { ...item, sentToRfqAt } : item)))
+      }
+      showToast(result.message)
+    } finally {
+      setSendingRfqId(null)
+    }
+  }
+
   const onSavedEdit = (next: ReceivedValveRecord) => {
     setEditingRow(null)
     if (isArchivedReceivedValveStatus(next.status)) {
@@ -115,8 +156,9 @@ export function ReceivedValvesDashboardPanel() {
         </Link>
       </div>
       <p className="status-breakdown-note">
-        Open received valves{rows.length ? ` · ${rows.length} active` : ''}. Use Edit to add a missed picture or change
-        details. Notes and Status can be updated here too. Converted and Lost leave this list and stay in Reports.
+        Open received valves{rows.length ? ` · ${rows.length} active` : ''}. Use <strong>Send to RFQ</strong> on the
+        row, or open <strong>Edit</strong> to add a picture then use <strong>Save &amp; send to RFQ</strong>. Converted
+        and Lost leave this list and stay in Reports.
       </p>
       <div className="dashboard-table-wrap manager-dashboard-scroll">
         <table className="dashboard-table">
@@ -194,9 +236,23 @@ export function ReceivedValvesDashboardPanel() {
                   </td>
                   <td>{row.workOrderPrinted ? 'Yes' : 'No'}</td>
                   <td>
-                    <button type="button" className="button-secondary" onClick={() => setEditingRow(row)}>
-                      Edit
-                    </button>
+                    <div className="received-valves-row-actions">
+                      <button
+                        type="button"
+                        className="button-primary"
+                        disabled={sendingRfqId === row.id}
+                        onClick={() => void sendRowToRfq(row)}
+                      >
+                        {sendingRfqId === row.id
+                          ? 'Opening…'
+                          : row.sentToRfqAt
+                            ? 'Resend RFQ'
+                            : 'Send to RFQ'}
+                      </button>
+                      <button type="button" className="button-secondary" onClick={() => setEditingRow(row)}>
+                        Edit
+                      </button>
+                    </div>
                   </td>
                 </tr>
               ))
