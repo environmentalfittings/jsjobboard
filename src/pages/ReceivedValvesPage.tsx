@@ -827,7 +827,7 @@ export function ReceivedValvesPage() {
                           }
                           onClick={() => void sendRowToRfq(row)}
                         >
-                          {sendingRfqId === row.id ? '…' : row.sentToRfqAt ? 'Resend' : 'RFQ'}
+                          {sendingRfqId === row.id ? '…' : 'RFQ'}
                         </button>
                         <button type="button" className="button-secondary" onClick={() => void removeRow(row)}>
                           Delete
