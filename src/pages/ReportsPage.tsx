@@ -1151,7 +1151,7 @@ export function ReportsPage() {
           Cards may skip steps. When a card moves to an earlier stage, the technician must enter a rework reason. Only
           moves logged <strong>after</strong> the rework table is set up in Supabase appear here. Use <strong>NA</strong>{' '}
           to acknowledge no report is needed, or <strong>INCR</strong> to open an Internal Non-Conformance Report (stored
-          under Quality Team).
+          under Quality Team). Linked INCRs show their current status (Open / Closed / Void) here.
         </p>
         <div className="report-filters">
           <label>
