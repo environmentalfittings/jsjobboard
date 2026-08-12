@@ -17854,6 +17854,44 @@ body.shop-tv-fullscreen-active .page-content {
   letter-spacing: normal;
 }
 
+.itp-template-builder-field input[type='text'] {
+  min-width: 200px;
+  padding: 7px 10px;
+  border: 1px solid var(--itp-lib-border);
+  border-radius: 6px;
+  background: #fff;
+  color: #0f172a;
+  font: inherit;
+  font-size: 0.9rem;
+  font-weight: 600;
+  text-transform: none;
+  letter-spacing: normal;
+}
+
+.itp-template-builder-field--name {
+  min-width: 220px;
+  flex: 1 1 220px;
+}
+
+.itp-template-builder-default {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 0;
+  font-size: 0.84rem;
+  font-weight: 600;
+  color: #334155;
+  text-transform: none;
+  letter-spacing: normal;
+  cursor: pointer;
+  user-select: none;
+}
+
+.itp-template-builder-default input {
+  width: 16px;
+  height: 16px;
+}
+
 .itp-template-builder-actions {
   display: flex;
   flex-wrap: wrap;

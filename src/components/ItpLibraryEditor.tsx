@@ -40,7 +40,7 @@ import {
   qualityTeamLevelLabel,
   type QualityTeamLevel,
 } from '../types/employees'
-import { applyLibraryTemplateAsync } from '../lib/itpLibraryTemplates'
+import { applyLibraryTemplateAsync, listItpLibraryTemplates } from '../lib/itpLibraryTemplates'
 import {
   allScopeItems,
   emptyItemExec,
@@ -891,17 +891,52 @@ export function ItpLibraryEditor({ valve, onClose, readOnly = false }: ItpLibrar
 
   const reapplyTemplate = () => {
     if (!canEditScope || !plan) return
-    if (
-      !window.confirm(
-        'Re-apply the template for this job/valve type? Existing selections stay; template items will be included. Uses the Manage lists ITP template builder when one is saved for this valve type.',
-      )
-    ) {
-      return
-    }
     void (async () => {
       try {
-        const next = await applyLibraryTemplateAsync(plan)
+        const templates = await listItpLibraryTemplates({
+          jobType: plan.jobType,
+          valveType: plan.valveType,
+        })
+        let templateName: string | null = null
+        if (templates.length > 1) {
+          const defaultName =
+            templates.find((row) => row.is_default)?.name ??
+            templates.find((row) => row.name === 'Default')?.name ??
+            templates[0]?.name ??
+            ''
+          const listed = templates
+            .map((row) => `${row.name}${row.is_default ? ' (default)' : ''}`)
+            .join('\n')
+          const answer = window.prompt(
+            `Multiple ITP templates exist for ${plan.valveType}.\n\n${listed}\n\nType the template name to apply:`,
+            defaultName,
+          )
+          if (answer == null) return
+          const chosen = answer.trim()
+          if (!chosen) return
+          const match = templates.find((row) => row.name.toLowerCase() === chosen.toLowerCase())
+          if (!match) {
+            showToast(`No template named “${chosen}” for this valve type`)
+            return
+          }
+          templateName = match.name
+        } else if (templates.length === 1) {
+          templateName = templates[0].name
+        }
+
+        if (
+          !window.confirm(
+            templateName
+              ? `Re-apply “${templateName}” for this job/valve type? Existing selections stay; template items will be included.`
+              : 'Re-apply the template for this job/valve type? Existing selections stay; template items will be included. Uses the Manage lists ITP template builder when one is saved for this valve type.',
+          )
+        ) {
+          return
+        }
+
+        const next = await applyLibraryTemplateAsync(plan, { templateName })
         updatePlan(() => next)
+        showToast(templateName ? `Applied “${templateName}”` : 'Template re-applied')
       } catch (error) {
         showToast(error instanceof Error ? error.message : 'Could not re-apply template')
       }

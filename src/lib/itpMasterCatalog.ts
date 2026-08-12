@@ -4,6 +4,7 @@ import {
 } from '../constants/itpLibrary'
 import { isItpShopArea, type ItpShopArea } from '../constants/itpShopAreas'
 import {
+  ITP_LIBRARY_DEFAULT_TEMPLATE_NAME,
   ITP_LIBRARY_MASTER_JOB,
   ITP_LIBRARY_MASTER_VALVE,
   loadItpLibraryTemplate,
@@ -167,7 +168,11 @@ type MasterScope = ItpLibraryTemplateScope & { catalog?: unknown }
 
 export async function loadItpMasterCatalog(): Promise<ItpMasterCatalogItem[]> {
   try {
-    const row = await loadItpLibraryTemplate(ITP_LIBRARY_MASTER_JOB, ITP_LIBRARY_MASTER_VALVE)
+    const row = await loadItpLibraryTemplate(
+      ITP_LIBRARY_MASTER_JOB,
+      ITP_LIBRARY_MASTER_VALVE,
+      ITP_LIBRARY_DEFAULT_TEMPLATE_NAME,
+    )
     if (!row) return seedMasterCatalogFromLibrary()
     const scope = row.scope as MasterScope
     if (Array.isArray(scope.catalog) && scope.catalog.length > 0) {
@@ -196,9 +201,14 @@ export async function saveItpMasterCatalog(items: ItpMasterCatalogItem[]): Promi
   const custom = catalog
     .filter((item) => !item.builtIn)
     .map((item) => ({ id: item.id, secId: item.secId, name: item.name }))
-  await saveItpLibraryTemplate(ITP_LIBRARY_MASTER_JOB, ITP_LIBRARY_MASTER_VALVE, {
-    sel: {},
-    custom,
-    catalog,
-  } as ItpLibraryTemplateScope & { catalog: ItpMasterCatalogItem[] })
+  await saveItpLibraryTemplate(
+    ITP_LIBRARY_MASTER_JOB,
+    ITP_LIBRARY_MASTER_VALVE,
+    {
+      sel: {},
+      custom,
+      catalog,
+    } as ItpLibraryTemplateScope & { catalog: ItpMasterCatalogItem[] },
+    { name: ITP_LIBRARY_DEFAULT_TEMPLATE_NAME, isDefault: false },
+  )
 }
