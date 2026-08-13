@@ -1,7 +1,19 @@
 -- Named ITP library templates: multiple templates per job type + valve type
 -- (e.g. Twinseal / MJ / Nordstrom under the same 4 WAY Diverter Valve).
--- Run once in Supabase SQL Editor after migration-itp-library-templates.sql.
--- Manage Lists → ITP template builder uses name + optional default.
+--
+-- REQUIRED for the current app. Without this migration, Admin → ITP template builder
+-- returns HTTP 400 on GET/POST because the client selects name + is_default and upserts
+-- on (job_type, valve_type, name).
+--
+-- Run once in Supabase SQL Editor AFTER (or after) using the template builder,
+-- after migration-itp-library-templates.sql has created the base table.
+--
+-- Verify afterward:
+--   select column_name
+--   from information_schema.columns
+--   where table_schema = 'public' and table_name = 'itp_library_templates'
+--   order by 1;
+-- Expect: created_at, id, is_default, job_type, name, scope, updated_at, valve_type
 
 begin;
 

@@ -4,6 +4,7 @@ import {
   ITP_LIBRARY_TEMPLATES,
   type ItpLibraryJobType,
 } from '../constants/itpLibrary'
+import { supabase } from './supabase'
 import {
   emptyItemSel,
   type ItpLibraryCustomItem,
@@ -11,7 +12,6 @@ import {
   type ItpLibraryPlanPayload,
 } from '../types/itpLibraryPlan'
 import { normalizeMeasFields } from '../types/itpMeasFields'
-import { supabase } from './supabase'
 
 /** Sentinel row storing admin-added master catalog items (left panel). */
 export const ITP_LIBRARY_MASTER_JOB = '__master__'
@@ -20,8 +20,69 @@ export const ITP_LIBRARY_MASTER_VALVE = '__master__'
 /** Default display name for the first / unnamed template per valve type. */
 export const ITP_LIBRARY_DEFAULT_TEMPLATE_NAME = 'Default'
 
+/**
+ * Columns the app selects on every list/load/save.
+ * Requires migration-itp-library-templates-named.sql (adds name + is_default).
+ * Base migration-itp-library-templates.sql alone only has:
+ * id, job_type, valve_type, scope, created_at, updated_at — selecting name/is_default → HTTP 400.
+ */
 const TEMPLATE_SELECT =
   'id,job_type,valve_type,name,is_default,scope,updated_at'
+
+const TEMPLATE_SELECT_LEGACY_PROBE = 'id,job_type,valve_type,scope,updated_at'
+
+export const ITP_LIBRARY_NAMED_TEMPLATE_MIGRATION_HINT =
+  'Supabase itp_library_templates is missing columns name and/or is_default. Open the Supabase SQL Editor and run supabase/migration-itp-library-templates-named.sql, then reload this page.'
+
+export function isItpLibraryTemplateSchemaError(error: unknown): boolean {
+  const message =
+    error && typeof error === 'object' && 'message' in error
+      ? String((error as { message?: unknown }).message ?? '')
+      : error instanceof Error
+        ? error.message
+        : String(error ?? '')
+  return /column .*?(name|is_default).*does not exist|Could not find the .*column.*?(name|is_default)|itp_library_templates is missing columns name/i.test(
+    message,
+  )
+}
+
+function mapTemplateError(error: unknown): Error {
+  if (isItpLibraryTemplateSchemaError(error)) {
+    return new Error(ITP_LIBRARY_NAMED_TEMPLATE_MIGRATION_HINT)
+  }
+  if (error instanceof Error) return error
+  if (error && typeof error === 'object' && 'message' in error) {
+    return new Error(String((error as { message?: unknown }).message ?? 'Request failed'))
+  }
+  return new Error(String(error ?? 'Request failed'))
+}
+
+/** Lightweight check used by the admin builder to show a blocking banner. */
+export async function probeItpLibraryTemplateSchema(): Promise<{
+  ok: boolean
+  message: string | null
+}> {
+  const named = await supabase.from('itp_library_templates').select(TEMPLATE_SELECT).limit(1)
+  if (!named.error) return { ok: true, message: null }
+
+  if (isItpLibraryTemplateSchemaError(named.error)) {
+    const legacy = await supabase.from('itp_library_templates').select(TEMPLATE_SELECT_LEGACY_PROBE).limit(1)
+    if (!legacy.error) {
+      return { ok: false, message: ITP_LIBRARY_NAMED_TEMPLATE_MIGRATION_HINT }
+    }
+    return { ok: false, message: mapTemplateError(named.error).message }
+  }
+
+  if (/relation .*itp_library_templates.* does not exist|Could not find the table/i.test(named.error.message)) {
+    return {
+      ok: false,
+      message:
+        'Table itp_library_templates does not exist. Run supabase/migration-itp-library-templates.sql, then supabase/migration-itp-library-templates-named.sql.',
+    }
+  }
+
+  return { ok: false, message: mapTemplateError(named.error).message }
+}
 
 export type ItpLibraryTemplateScope = {
   sel: Record<string, ItpLibraryItemSel>
@@ -191,7 +252,7 @@ export async function listItpLibraryTemplates(filters?: {
   if (valveType) query = query.eq('valve_type', valveType)
 
   const { data, error } = await query
-  if (error) throw error
+  if (error) throw mapTemplateError(error)
   return (data ?? [])
     .map((row) => mapTemplateRow(row as Record<string, unknown>))
     .filter((row) => !isMasterKey(row.job_type, row.valve_type))
@@ -216,7 +277,7 @@ export async function loadItpLibraryTemplate(
       .eq('valve_type', vt)
       .eq('name', requestedName)
       .maybeSingle()
-    if (error) throw error
+    if (error) throw mapTemplateError(error)
     if (!data) return null
     return mapTemplateRow(data as Record<string, unknown>)
   }
@@ -228,7 +289,7 @@ export async function loadItpLibraryTemplate(
     .eq('valve_type', vt)
     .order('is_default', { ascending: false })
     .order('name', { ascending: true })
-  if (error) throw error
+  if (error) throw mapTemplateError(error)
   const rows = (data ?? []).map((row) => mapTemplateRow(row as Record<string, unknown>))
   return pickPreferredTemplate(rows)
 }
@@ -244,7 +305,7 @@ async function clearDefaultFlags(jobType: string, valveType: string, exceptName?
     query = query.neq('name', exceptName)
   }
   const { error } = await query
-  if (error) throw error
+  if (error) throw mapTemplateError(error)
 }
 
 export async function saveItpLibraryTemplate(
@@ -285,12 +346,17 @@ export async function saveItpLibraryTemplate(
     scope: compactTemplateScope(scope),
     updated_at: new Date().toISOString(),
   }
+
+  // Touch auth session first so a stalled gotrue lock can recover before the upsert.
+  // Do not require a session — RLS allows authenticated/anon writes for this table.
+  await supabase.auth.getSession()
+
   const { data, error } = await supabase
     .from('itp_library_templates')
     .upsert(payload, { onConflict: 'job_type,valve_type,name' })
     .select(TEMPLATE_SELECT)
     .single()
-  if (error) throw error
+  if (error) throw mapTemplateError(error)
   return mapTemplateRow(data as Record<string, unknown>)
 }
 
@@ -316,7 +382,7 @@ export async function setDefaultItpLibraryTemplate(
     .eq('name', templateName)
     .select(TEMPLATE_SELECT)
     .single()
-  if (error) throw error
+  if (error) throw mapTemplateError(error)
   return mapTemplateRow(data as Record<string, unknown>)
 }
 
@@ -333,7 +399,7 @@ export async function deleteItpLibraryTemplate(
     query = query.eq('name', templateName)
   }
   const { error } = await query
-  if (error) throw error
+  if (error) throw mapTemplateError(error)
 }
 
 /** @deprecated Prefer loadItpMasterCatalog from itpMasterCatalog.ts */

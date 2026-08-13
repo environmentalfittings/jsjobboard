@@ -10,4 +10,12 @@ export const supabaseConfigError =
 const safeUrl = url || 'https://example.supabase.co'
 const safeAnonKey = anonKey || 'public-anon-placeholder-key'
 
-export const supabase = createClient(safeUrl, safeAnonKey)
+export const supabase = createClient(safeUrl, safeAnonKey, {
+  auth: {
+    persistSession: true,
+    autoRefreshToken: true,
+    detectSessionInUrl: true,
+    // Avoid creating multiple GoTrue clients that fight over the same web lock.
+    storageKey: 'jsjb-supabase-auth',
+  },
+})

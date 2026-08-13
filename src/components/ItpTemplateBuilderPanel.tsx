@@ -12,6 +12,7 @@ import { loadLookupOptionsMap } from '../lib/lookupValues'
 import {
   loadItpMasterCatalog,
   moveCatalogItemInArea,
+  normalizeMasterCatalog,
   reindexCatalog,
   requirementDefaultsFromCatalogItem,
   saveItpMasterCatalog,
@@ -23,8 +24,11 @@ import {
   emptyTemplateScope,
   formatItpLibraryTemplateLabel,
   ITP_LIBRARY_DEFAULT_TEMPLATE_NAME,
+  ITP_LIBRARY_NAMED_TEMPLATE_MIGRATION_HINT,
+  isItpLibraryTemplateSchemaError,
   listItpLibraryTemplates,
   loadItpLibraryTemplate,
+  probeItpLibraryTemplateSchema,
   saveItpLibraryTemplate,
   scopeFromCodeTemplate,
   setDefaultItpLibraryTemplate,
@@ -47,15 +51,62 @@ const JOB_TYPE_OPTIONS: { value: ItpLibraryJobType; label: string }[] = [
 ]
 
 const NEW_TEMPLATE_OPTION = '__new__'
+const MASTER_CATALOG_DRAFT_KEY = 'jsjb-itp-master-catalog-draft-v1'
 
 function migrationHint(message: string) {
+  if (isItpLibraryTemplateSchemaError(message) || /missing columns name/i.test(message)) {
+    return ITP_LIBRARY_NAMED_TEMPLATE_MIGRATION_HINT
+  }
   if (/column .*name.* does not exist|Could not find the .*column.*name/i.test(message)) {
-    return 'Run supabase/migration-itp-library-templates-named.sql in Supabase, then try again'
+    return ITP_LIBRARY_NAMED_TEMPLATE_MIGRATION_HINT
   }
   if (/relation .* does not exist|Could not find the table/i.test(message)) {
     return 'Run migration-itp-library-templates.sql (and the named templates migration) in Supabase, then try again'
   }
+  if (/JWT|session|not authenticated|invalid claim|refresh_token|Auth session/i.test(message)) {
+    return `${message} — sign in again, then click Save master list (Add to master only stages until save).`
+  }
   return message
+}
+
+function formatSaveError(error: unknown): string {
+  if (!error || typeof error !== 'object') {
+    return migrationHint(error instanceof Error ? error.message : 'Could not save')
+  }
+  const e = error as { message?: string; code?: string; details?: string; hint?: string }
+  const parts = [e.message, e.code ? `(${e.code})` : '', e.details, e.hint].filter(Boolean)
+  return migrationHint(parts.join(' ') || 'Could not save')
+}
+
+function readMasterCatalogDraft(): ItpMasterCatalogItem[] | null {
+  try {
+    const raw = window.localStorage.getItem(MASTER_CATALOG_DRAFT_KEY)
+    if (!raw) return null
+    const parsed = JSON.parse(raw) as { items?: unknown }
+    if (!Array.isArray(parsed.items) || parsed.items.length === 0) return null
+    return normalizeMasterCatalog(parsed.items)
+  } catch {
+    return null
+  }
+}
+
+function writeMasterCatalogDraft(items: ItpMasterCatalogItem[]) {
+  try {
+    window.localStorage.setItem(
+      MASTER_CATALOG_DRAFT_KEY,
+      JSON.stringify({ savedAt: new Date().toISOString(), items }),
+    )
+  } catch {
+    // Quota / private mode — ignore; beforeunload still warns.
+  }
+}
+
+function clearMasterCatalogDraft() {
+  try {
+    window.localStorage.removeItem(MASTER_CATALOG_DRAFT_KEY)
+  } catch {
+    // ignore
+  }
 }
 
 function getSel(scope: ItpLibraryTemplateScope, itemId: string): ItpLibraryItemSel {
@@ -130,6 +181,7 @@ export function ItpTemplateBuilderPanel() {
   const [saving, setSaving] = useState(false)
   const [dirty, setDirty] = useState(false)
   const [masterDirty, setMasterDirty] = useState(false)
+  const [schemaError, setSchemaError] = useState<string | null>(null)
   const [subReqDrafts, setSubReqDrafts] = useState<Record<string, string>>({})
   const [newItem, setNewItem] = useState<NewMasterDraft>(() => emptyNewMasterDraft())
 
@@ -169,22 +221,79 @@ export function ItpTemplateBuilderPanel() {
   const refreshSavedList = useCallback(async () => {
     try {
       setSavedRows(await listItpLibraryTemplates())
-    } catch {
+      setSchemaError(null)
+    } catch (error) {
       setSavedRows([])
+      if (isItpLibraryTemplateSchemaError(error)) {
+        setSchemaError(ITP_LIBRARY_NAMED_TEMPLATE_MIGRATION_HINT)
+      }
     }
   }, [])
 
   const refreshCatalog = useCallback(async () => {
     setCatalogLoading(true)
     try {
-      setCatalog(await loadItpMasterCatalog())
-      setMasterDirty(false)
-    } catch {
-      showToast('Could not load master list')
+      const probe = await probeItpLibraryTemplateSchema()
+      if (!probe.ok) {
+        setSchemaError(probe.message)
+        // Still seed the in-memory catalog so the UI is usable offline until migration runs.
+        setCatalog(await loadItpMasterCatalog().catch(() => []))
+        setCatalogLoading(false)
+        return
+      }
+      setSchemaError(null)
+      const server = await loadItpMasterCatalog()
+      const draft = readMasterCatalogDraft()
+      const draftFingerprint = draft
+        ? draft
+            .map(
+              (item) =>
+                `${item.id}|${item.name}|${item.area}|${item.requirePicture ? 1 : 0}|${item.requireMeasurement ? 1 : 0}|${item.holdPoint ? 1 : 0}|${item.blockNext ? 1 : 0}|${(item.measFields ?? []).map((f) => f.label).join(',')}`,
+            )
+            .sort()
+            .join('\n')
+        : ''
+      const serverFingerprint = server
+        .map(
+          (item) =>
+            `${item.id}|${item.name}|${item.area}|${item.requirePicture ? 1 : 0}|${item.requireMeasurement ? 1 : 0}|${item.holdPoint ? 1 : 0}|${item.blockNext ? 1 : 0}|${(item.measFields ?? []).map((f) => f.label).join(',')}`,
+        )
+        .sort()
+        .join('\n')
+      if (draft && draftFingerprint && draftFingerprint !== serverFingerprint) {
+        setCatalog(reindexCatalog(draft))
+        setMasterDirty(true)
+        showToast('Restored unsaved master list draft — click Save master list to keep it')
+      } else {
+        clearMasterCatalogDraft()
+        setCatalog(server)
+        setMasterDirty(false)
+      }
+    } catch (error) {
+      if (isItpLibraryTemplateSchemaError(error)) {
+        setSchemaError(ITP_LIBRARY_NAMED_TEMPLATE_MIGRATION_HINT)
+      } else {
+        showToast('Could not load master list')
+      }
     } finally {
       setCatalogLoading(false)
     }
   }, [showToast])
+
+  useEffect(() => {
+    if (!masterDirty) return
+    writeMasterCatalogDraft(catalog)
+  }, [catalog, masterDirty])
+
+  useEffect(() => {
+    if (!masterDirty) return
+    const onBeforeUnload = (event: BeforeUnloadEvent) => {
+      event.preventDefault()
+      event.returnValue = ''
+    }
+    window.addEventListener('beforeunload', onBeforeUnload)
+    return () => window.removeEventListener('beforeunload', onBeforeUnload)
+  }, [masterDirty])
 
   useEffect(() => {
     void (async () => {
@@ -447,7 +556,9 @@ export function ItpTemplateBuilderPanel() {
     )
     setNewItem(emptyNewMasterDraft())
     setMasterDirty(true)
-    showToast(`Added to ${ITP_SHOP_AREAS.find((a) => a.value === area)?.label ?? area} — click Save master list`)
+    showToast(
+      `Staged in ${ITP_SHOP_AREAS.find((a) => a.value === area)?.label ?? area} — not saved yet. Click Save master list.`,
+    )
   }
 
   const removeMasterItem = (itemId: string) => {
@@ -488,9 +599,10 @@ export function ItpTemplateBuilderPanel() {
     try {
       await saveItpMasterCatalog(catalog)
       setMasterDirty(false)
+      clearMasterCatalogDraft()
       showToast('Master list saved')
     } catch (error) {
-      showToast(migrationHint(error instanceof Error ? error.message : 'Could not save master list'))
+      showToast(formatSaveError(error))
     } finally {
       setSaving(false)
     }
@@ -511,6 +623,7 @@ export function ItpTemplateBuilderPanel() {
       if (masterDirty) {
         await saveItpMasterCatalog(catalog)
         setMasterDirty(false)
+        clearMasterCatalogDraft()
       }
       const includedCustom = catalog
         .filter((item) => !item.builtIn && getSel(scope, item.id).included)
@@ -536,7 +649,7 @@ export function ItpTemplateBuilderPanel() {
       await refreshSavedList()
       showToast(`Saved “${saved.name}” for ${valveType}`)
     } catch (error) {
-      showToast(migrationHint(error instanceof Error ? error.message : 'Could not save template'))
+      showToast(formatSaveError(error))
     } finally {
       setSaving(false)
     }
@@ -627,6 +740,24 @@ export function ItpTemplateBuilderPanel() {
         items into the template on the right.
       </p>
 
+      {schemaError ? (
+        <div className="itp-template-schema-error" role="alert">
+          <strong>Database migration required.</strong> {schemaError}
+          <div className="itp-template-schema-error-actions">
+            <button
+              type="button"
+              className="button-secondary"
+              onClick={() => {
+                void refreshSavedList()
+                void refreshCatalog()
+              }}
+            >
+              Recheck schema
+            </button>
+          </div>
+        </div>
+      ) : null}
+
       <div className="itp-template-builder-toolbar">
         <label className="itp-template-builder-field">
           <span>Job type</span>
@@ -714,7 +845,7 @@ export function ItpTemplateBuilderPanel() {
           <button
             type="button"
             className="button-secondary"
-            disabled={saving || !masterDirty}
+            disabled={saving || !masterDirty || Boolean(schemaError)}
             onClick={() => void handleSaveMaster()}
           >
             {masterDirty ? 'Save master list' : 'Master saved'}
@@ -722,7 +853,7 @@ export function ItpTemplateBuilderPanel() {
           <button
             type="button"
             className="button-primary"
-            disabled={!valveType || saving || loading}
+            disabled={!valveType || saving || loading || Boolean(schemaError)}
             onClick={() => void handleSaveTemplate()}
           >
             {saving ? 'Saving…' : dirty || masterDirty ? 'Save template' : 'Template saved'}
@@ -753,6 +884,13 @@ export function ItpTemplateBuilderPanel() {
           </button>
         </div>
       </div>
+
+      {masterDirty ? (
+        <p className="itp-master-unsaved-banner" role="status">
+          Unsaved master list changes — <strong>Add to master</strong> only stages items until you click{' '}
+          <strong>Save master list</strong>. A local draft is kept if this page closes before save.
+        </p>
+      ) : null}
 
       {savedRows.length > 0 ? (
         <p className="itp-template-builder-saved-meta">
@@ -927,38 +1065,40 @@ export function ItpTemplateBuilderPanel() {
                 {newItem.requireMeasurement ? (
                   <div className="itp-master-meas-fields">
                     <div className="itp-master-meas-fields-hdr">Measurement / nameplate fields</div>
-                    {newItem.measFields.map((field, idx) => (
-                      <div key={field.id} className="itp-master-meas-field-row">
-                        <input
-                          type="text"
-                          value={field.label}
-                          placeholder="Field label"
-                          onChange={(e) => {
-                            const label = e.target.value
-                            setNewItem((prev) => ({
-                              ...prev,
-                              measFields: prev.measFields.map((f, i) =>
-                                i === idx ? { ...f, label } : f,
-                              ),
-                            }))
-                          }}
-                        />
-                        <button
-                          type="button"
-                          className="itp-library-sr-del"
-                          title="Remove field"
-                          disabled={newItem.measFields.length <= 1}
-                          onClick={() =>
-                            setNewItem((prev) => ({
-                              ...prev,
-                              measFields: prev.measFields.filter((_, i) => i !== idx),
-                            }))
-                          }
-                        >
-                          ✕
-                        </button>
-                      </div>
-                    ))}
+                    <div className="itp-master-meas-fields-list">
+                      {newItem.measFields.map((field, idx) => (
+                        <div key={field.id} className="itp-master-meas-field-row">
+                          <input
+                            type="text"
+                            value={field.label}
+                            placeholder="Field label"
+                            onChange={(e) => {
+                              const label = e.target.value
+                              setNewItem((prev) => ({
+                                ...prev,
+                                measFields: prev.measFields.map((f, i) =>
+                                  i === idx ? { ...f, label } : f,
+                                ),
+                              }))
+                            }}
+                          />
+                          <button
+                            type="button"
+                            className="itp-library-sr-del"
+                            title="Remove field"
+                            disabled={newItem.measFields.length <= 1}
+                            onClick={() =>
+                              setNewItem((prev) => ({
+                                ...prev,
+                                measFields: prev.measFields.filter((_, i) => i !== idx),
+                              }))
+                            }
+                          >
+                            ✕
+                          </button>
+                        </div>
+                      ))}
+                    </div>
                     <button
                       type="button"
                       className="itp-library-add-sr-btn"

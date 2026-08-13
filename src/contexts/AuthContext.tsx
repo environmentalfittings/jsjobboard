@@ -135,11 +135,18 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, [])
 
   useEffect(() => {
+    let active = true
     void refreshAuth()
-    const { data: sub } = supabase.auth.onAuthStateChange(() => {
+    const { data: sub } = supabase.auth.onAuthStateChange((event) => {
+      // INITIAL_SESSION races with the refreshAuth() above under React Strict Mode and
+      // used to trip gotrue's navigator lock timeout. Skip it — we already hydrate once.
+      if (!active || event === 'INITIAL_SESSION') return
       void refreshAuth()
     })
-    return () => sub.subscription.unsubscribe()
+    return () => {
+      active = false
+      sub.subscription.unsubscribe()
+    }
   }, [refreshAuth])
 
   const handleLogin = useCallback(

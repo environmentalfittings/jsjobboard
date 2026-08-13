@@ -11,7 +11,7 @@
     "generate:valve-descriptions-sql": "node scripts/generate-valve-descriptions-sql.mjs"
   },
   "dependencies": {
-    "@supabase/supabase-js": "^2.101.1",
+    "@supabase/supabase-js": "^2.112.3",
     "@thermal-label/brother-ql-core": "^0.6.1",
     "@thermal-label/brother-ql-web": "^0.6.1",
     "jspdf": "^4.2.1",
