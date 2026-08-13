@@ -378,7 +378,6 @@ export function ReceivedValveEditModal({
               <input
                 type="file"
                 accept="image/*"
-                capture="environment"
                 onChange={onImageChange}
                 disabled={busy}
               />
@@ -386,7 +385,7 @@ export function ReceivedValveEditModal({
             <p className="status-breakdown-note">
               {preparingImage
                 ? 'Preparing photo…'
-                : 'Add or replace a photo if one was missed. Large photos are compressed automatically.'}
+                : 'Take a photo or choose one from the library. Large photos are compressed automatically.'}
             </p>
             {form.imageDataUrl ? (
               <div className="received-valves-image-preview">

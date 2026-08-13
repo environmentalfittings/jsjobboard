@@ -506,11 +506,11 @@ export function ReceivedValvesPage() {
           <div className="received-valves-image-wrap received-valves-span-full">
             <label>
               Picture
-              <input type="file" accept="image/*" capture="environment" onChange={onImageChange} />
+              <input type="file" accept="image/*" onChange={onImageChange} />
             </label>
             <p className="status-breakdown-note">
-              On iPad, tapping Picture opens the camera so you can take a photo. Large photos are compressed
-              automatically (up to 20 MB original).
+              On iPad, choose Take Photo or Photo Library. Large photos are compressed automatically (up to 20 MB
+              original).
             </p>
             {form.imageDataUrl ? (
               <div className="received-valves-image-preview">
