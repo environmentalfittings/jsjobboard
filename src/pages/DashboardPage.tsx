@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { DashboardNotesPanel } from '../components/DashboardNotesPanel'
 import { ReceivedValvesDashboardPanel } from '../components/ReceivedValvesDashboardPanel'
+import { ReworkDashboardPanel } from '../components/ReworkDashboardPanel'
 import { useToast } from '../components/ToastNotification'
 import { useAuth } from '../contexts/AuthContext'
 import {
@@ -403,6 +404,8 @@ export function DashboardPage() {
             </div>
             <div className="status-breakdown-note">Click a finish cell to set and print its daily priorities.</div>
           </section>
+
+          <ReworkDashboardPanel />
 
           <section className="dashboard-panel">
             <h3>Recent tested valves (last 5)</h3>

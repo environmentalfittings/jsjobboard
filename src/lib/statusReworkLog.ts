@@ -234,3 +234,35 @@ export async function clearReworkQaDisposition(
 ): Promise<{ error: string | null }> {
   return updateReworkQaDisposition(reworkLogId, { qa_disposition: null, incr_id: null })
 }
+
+/** True when QA still needs NA/INCR, or the linked INCR is still open. */
+export function isReworkActionQueueRow(row: StatusReworkRecord): boolean {
+  const disposition = row.qa_disposition ?? null
+  if (!disposition || disposition === null) return true
+  if (disposition === 'incr') {
+    return row.incr_status == null || row.incr_status === 'open'
+  }
+  return false
+}
+
+/**
+ * Dashboard queue: pending NA/INCR decisions + rows with an open INCR.
+ * Looks back one year so older unresolved rework still surfaces.
+ */
+export async function fetchReworkActionQueue(): Promise<{
+  data: StatusReworkRecord[]
+  error: Error | null
+}> {
+  const start = new Date()
+  start.setFullYear(start.getFullYear() - 1)
+  const startDate = start.toISOString().slice(0, 10)
+  const endDate = new Date().toISOString().slice(0, 10)
+
+  const { data, error } = await fetchStatusReworkLog(startDate, endDate)
+  if (error) return { data: [], error }
+
+  return {
+    data: data.filter(isReworkActionQueueRow),
+    error: null,
+  }
+}
