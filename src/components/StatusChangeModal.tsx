@@ -706,6 +706,15 @@ export function StatusChangeModal({
               ) : null}
               <button
                 type="button"
+                className="button-secondary job-card-header-btn"
+                onClick={() => navigate(`/quality-team/incrs/new?valveRowId=${valve.id}`)}
+                disabled={isSaving}
+                title="Start an Internal Non-Conformance Report for this job"
+              >
+                Start INCR
+              </button>
+              <button
+                type="button"
                 className="button-primary job-card-header-btn"
                 onClick={onOpenItp}
                 disabled={isSaving}
@@ -788,6 +797,15 @@ export function StatusChangeModal({
                   </button>
                   <button type="button" className="job-card-seg" onClick={() => setActiveTab('details')}>
                     Details
+                  </button>
+                  <button
+                    type="button"
+                    className="job-card-seg"
+                    onClick={() => navigate(`/quality-team/incrs/new?valveRowId=${valve.id}`)}
+                    disabled={isSaving}
+                    title="Start an Internal Non-Conformance Report for this job"
+                  >
+                    Start INCR
                   </button>
                   <button type="button" className="job-card-seg job-card-seg-primary" onClick={onOpenItp}>
                     Open ITP ▾
@@ -1356,6 +1374,15 @@ export function StatusChangeModal({
               title="Reprint production job card"
             >
               Reprint job card
+            </button>
+            <button
+              type="button"
+              className="button-secondary"
+              onClick={() => navigate(`/quality-team/incrs/new?valveRowId=${valve.id}`)}
+              disabled={isSaving}
+              title="Start an Internal Non-Conformance Report for this job"
+            >
+              Start INCR
             </button>
             <button type="button" className="button-primary job-card-footer-itp" onClick={onOpenItp} disabled={isSaving}>
               Open ITP ›

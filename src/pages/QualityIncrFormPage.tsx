@@ -4,6 +4,7 @@ import { useToast } from '../components/ToastNotification'
 import { useAuth } from '../contexts/AuthContext'
 import {
   buildIncrFormFromRework,
+  buildIncrFormFromValveRowId,
   createQualityIncr,
   getQualityIncr,
   getStatusReworkById,
@@ -46,6 +47,8 @@ export function QualityIncrFormPage() {
   const editingId = id && id !== 'new' ? Number(id) : null
   const reworkIdRaw = searchParams.get('reworkId')
   const reworkId = reworkIdRaw ? Number(reworkIdRaw) : null
+  const valveRowIdParamRaw = searchParams.get('valveRowId')
+  const valveRowIdParam = valveRowIdParamRaw ? Number(valveRowIdParamRaw) : null
 
   const [form, setForm] = useState<QualityIncrFormState>(() => emptyQualityIncrForm())
   const [incrNumber, setIncrNumber] = useState<string | null>(null)
@@ -94,6 +97,23 @@ export function QualityIncrFormPage() {
             return
           }
         }
+        if (valveRowIdParam && Number.isFinite(valveRowIdParam)) {
+          const { form: prefilled, valveId: fromValve, error } = await buildIncrFormFromValveRowId(
+            valveRowIdParam,
+            { initiatorName: username },
+          )
+          if (cancelled) return
+          if (error) {
+            showToast(error)
+          } else {
+            setForm(prefilled)
+            setLinkedReworkId(null)
+            setValveRowId(valveRowIdParam)
+            setValveId(fromValve)
+            setLoading(false)
+            return
+          }
+        }
         if (!cancelled) setForm(base)
       } finally {
         if (!cancelled) setLoading(false)
@@ -102,7 +122,7 @@ export function QualityIncrFormPage() {
     return () => {
       cancelled = true
     }
-  }, [editingId, reworkId, navigate, showToast, username])
+  }, [editingId, reworkId, valveRowIdParam, navigate, showToast, username])
 
   const patch = <K extends keyof QualityIncrFormState>(key: K, value: QualityIncrFormState[K]) => {
     setForm((prev) => ({ ...prev, [key]: value }))

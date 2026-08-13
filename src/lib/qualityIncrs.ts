@@ -130,7 +130,7 @@ async function technicianNamesForIds(ids: number[]): Promise<string> {
     .join(', ')
 }
 
-async function fetchValveForIncr(valveRowId: number): Promise<ValveIncrSource | null> {
+export async function fetchValveForIncr(valveRowId: number): Promise<ValveIncrSource | null> {
   const { data, error } = await supabase
     .from('valves')
     .select(
@@ -334,6 +334,24 @@ export async function buildIncrFormFromRework(
     }
   }
   return form
+}
+
+/** Prefill a new INCR from an open job card (no rework row required). */
+export async function buildIncrFormFromValveRowId(
+  valveRowId: number,
+  options?: { initiatorName?: string | null },
+): Promise<{ form: QualityIncrFormState; valveId: string | null; error: string | null }> {
+  const valve = await fetchValveForIncr(valveRowId)
+  if (!valve) {
+    return { form: emptyQualityIncrForm(), valveId: null, error: 'Job not found for INCR prefills' }
+  }
+  let form = emptyQualityIncrForm()
+  form.initiator_name = options?.initiatorName?.trim() || ''
+  form = await applyValveToIncrForm(form, valve)
+  if (!form.initiator_name.trim() && options?.initiatorName?.trim()) {
+    form.initiator_name = options.initiatorName.trim()
+  }
+  return { form, valveId: valve.valve_id, error: null }
 }
 
 export async function createQualityIncr(options: {
