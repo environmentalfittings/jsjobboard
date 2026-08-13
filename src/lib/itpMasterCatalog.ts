@@ -11,6 +11,8 @@ import {
   saveItpLibraryTemplate,
   type ItpLibraryTemplateScope,
 } from './itpLibraryTemplates'
+import type { ItpItemRequirementDefaults } from './itpItemRequirements'
+import { DEFAULT_ITP_MEAS_FIELDS, normalizeMeasFields, type ItpMeasFieldDef } from '../types/itpMeasFields'
 
 export type ItpMasterCatalogItem = {
   id: string
@@ -21,6 +23,41 @@ export type ItpMasterCatalogItem = {
   sortOrder: number
   builtIn: boolean
   defaultSubReqs?: string[]
+  requirePicture?: boolean
+  pictureLabel?: string
+  minPhotos?: number
+  requireMeasurement?: boolean
+  measFields?: ItpMeasFieldDef[]
+  holdPoint?: boolean
+  blockNext?: boolean
+}
+
+/** Built-in requirement defaults that used to be template/hardcoded UI only. */
+const BUILTIN_REQUIREMENT_DEFAULTS: Record<string, ItpItemRequirementDefaults> = {
+  // Body / bonnet — measurements + hold point (section 3)
+  i1: {
+    holdPoint: true,
+    requireMeasurement: true,
+    measFields: DEFAULT_ITP_MEAS_FIELDS.map((f) => ({ ...f })),
+  },
+  // Fastener Record — sub-reqs come from defaultSubReqs; hold often used with QA
+  d4: {
+    holdPoint: true,
+  },
+}
+
+export function requirementDefaultsFromCatalogItem(
+  item: ItpMasterCatalogItem,
+): ItpItemRequirementDefaults {
+  return {
+    requirePicture: item.requirePicture,
+    pictureLabel: item.pictureLabel,
+    minPhotos: item.minPhotos,
+    requireMeasurement: item.requireMeasurement,
+    measFields: item.measFields,
+    holdPoint: item.holdPoint,
+    blockNext: item.blockNext,
+  }
 }
 
 /** Map ITP library sections to a default shop area. */
@@ -64,6 +101,28 @@ function looksLikePainting(name: string, ref: string): boolean {
   return /\bpaint|\bcoat|\bprimer|\bfinish coat/.test(text)
 }
 
+function applyBuiltinRequirementDefaults(item: ItpMasterCatalogItem): ItpMasterCatalogItem {
+  const extras = BUILTIN_REQUIREMENT_DEFAULTS[item.id]
+  if (!extras) return item
+  return {
+    ...item,
+    holdPoint: item.holdPoint ?? extras.holdPoint,
+    blockNext: item.blockNext ?? extras.blockNext,
+    requirePicture: item.requirePicture ?? extras.requirePicture,
+    pictureLabel: item.pictureLabel ?? extras.pictureLabel,
+    minPhotos: item.minPhotos ?? extras.minPhotos,
+    requireMeasurement: item.requireMeasurement ?? extras.requireMeasurement,
+    measFields:
+      item.measFields && item.measFields.length > 0
+        ? item.measFields
+        : extras.measFields?.map((f) => ({ ...f })),
+  }
+}
+
+export function builtinRequirementDefaults(itemId: string): ItpItemRequirementDefaults | null {
+  return BUILTIN_REQUIREMENT_DEFAULTS[itemId] ?? null
+}
+
 export function seedMasterCatalogFromLibrary(): ItpMasterCatalogItem[] {
   const items: ItpMasterCatalogItem[] = []
   let sortOrder = 0
@@ -72,16 +131,18 @@ export function seedMasterCatalogFromLibrary(): ItpMasterCatalogItem[] {
       let area = defaultAreaForSection(section.id)
       if (looksLikeWelding(item.name, item.ref)) area = 'welding'
       if (looksLikePainting(item.name, item.ref)) area = 'painting'
-      items.push({
-        id: item.id,
-        name: item.name,
-        ref: item.ref,
-        secId: section.id,
-        area,
-        sortOrder: sortOrder++,
-        builtIn: true,
-        defaultSubReqs: item.defaultSubReqs ? [...item.defaultSubReqs] : undefined,
-      })
+      items.push(
+        applyBuiltinRequirementDefaults({
+          id: item.id,
+          name: item.name,
+          ref: item.ref,
+          secId: section.id,
+          area,
+          sortOrder: sortOrder++,
+          builtIn: true,
+          defaultSubReqs: item.defaultSubReqs ? [...item.defaultSubReqs] : undefined,
+        }),
+      )
     }
   }
   return items
@@ -96,7 +157,9 @@ function normalizeCatalogItem(raw: unknown, fallbackOrder: number): ItpMasterCat
   if (!id || !name || !secId) return null
   const areaRaw = String(row.area ?? '').trim()
   const area = isItpShopArea(areaRaw) ? areaRaw : defaultAreaForSection(secId)
-  return {
+  const minPhotosRaw = Number(row.minPhotos)
+  const measFields = normalizeMeasFields(row.measFields)
+  const base: ItpMasterCatalogItem = {
     id,
     name,
     ref: String(row.ref ?? '').trim() || 'Custom',
@@ -107,7 +170,18 @@ function normalizeCatalogItem(raw: unknown, fallbackOrder: number): ItpMasterCat
     defaultSubReqs: Array.isArray(row.defaultSubReqs)
       ? row.defaultSubReqs.map((s) => String(s))
       : undefined,
+    requirePicture: row.requirePicture != null ? Boolean(row.requirePicture) : undefined,
+    pictureLabel: row.pictureLabel != null ? String(row.pictureLabel) : undefined,
+    minPhotos:
+      row.minPhotos != null && Number.isFinite(minPhotosRaw) && minPhotosRaw > 0
+        ? Math.floor(minPhotosRaw)
+        : undefined,
+    requireMeasurement: row.requireMeasurement != null ? Boolean(row.requireMeasurement) : undefined,
+    measFields: measFields.length > 0 ? measFields : undefined,
+    holdPoint: row.holdPoint != null ? Boolean(row.holdPoint) : undefined,
+    blockNext: row.blockNext != null ? Boolean(row.blockNext) : undefined,
   }
+  return applyBuiltinRequirementDefaults(base)
 }
 
 export function normalizeMasterCatalog(raw: unknown): ItpMasterCatalogItem[] {
@@ -130,8 +204,16 @@ export function mergeCatalogWithLibrary(saved: ItpMasterCatalogItem[]): ItpMaste
   const seeded = seedMasterCatalogFromLibrary()
   let nextOrder = saved.reduce((max, item) => Math.max(max, item.sortOrder), -1) + 1
   for (const builtIn of seeded) {
-    if (!byId.has(builtIn.id)) {
+    const existing = byId.get(builtIn.id)
+    if (!existing) {
       byId.set(builtIn.id, { ...builtIn, sortOrder: nextOrder++ })
+    } else if (existing.builtIn) {
+      byId.set(builtIn.id, applyBuiltinRequirementDefaults({
+        ...existing,
+        defaultSubReqs: existing.defaultSubReqs?.length
+          ? existing.defaultSubReqs
+          : builtIn.defaultSubReqs,
+      }))
     }
   }
   return [...byId.values()]

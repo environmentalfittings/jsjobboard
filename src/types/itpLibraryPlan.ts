@@ -9,8 +9,9 @@ import {
   type ItpLibraryJobType,
   type ItpLibrarySectionId,
 } from '../constants/itpLibrary'
+import { normalizeMeasFields, type ItpMeasFieldDef } from './itpMeasFields'
 
-export const ITP_LIBRARY_PLAN_SCHEMA_VERSION = 7 as const
+export const ITP_LIBRARY_PLAN_SCHEMA_VERSION = 8 as const
 
 export type ItpLibraryItemSel = {
   included: boolean
@@ -21,6 +22,14 @@ export type ItpLibraryItemSel = {
   subReqs: string[]
   /** Free-form notes for this ITP line (scope + checklist). */
   notes: string
+  /** Per-item photo requirement (from master catalog / builder). */
+  requirePicture: boolean
+  pictureLabel: string
+  minPhotos: number
+  /** Configurable measurement / nameplate fields (empty = use legacy before/after/verify flags). */
+  measFields: ItpMeasFieldDef[]
+  /** When true, the next item in this section stays locked until this item is fully done. */
+  blockNext: boolean
 }
 
 export type ItpLibraryItemExec = {
@@ -30,6 +39,15 @@ export type ItpLibraryItemExec = {
   beforeVal: string
   afterVal: string
   verifyVal: string
+  /** Values keyed by meas field id (also mirrored into before/after/verify for legacy ids). */
+  measValues: Record<string, string>
+  /** Photos attached to satisfy a picture requirement on this line. */
+  photos: ItpLibraryAttachment[]
+  /** HOLD POINT clicked by tech — waiting for supervisor / QC sign-off. */
+  holdPending: boolean
+  holdSignedOffAt: string | null
+  holdSignedOffByUserId: string | null
+  holdSignedOffByName: string | null
   subDone: Record<string, boolean>
   /** Required when flagged — why the technician raised this issue. */
   flagReason: string
@@ -161,6 +179,11 @@ export function emptyItemSel(): ItpLibraryItemSel {
     measVerify: false,
     subReqs: [],
     notes: '',
+    requirePicture: false,
+    pictureLabel: '',
+    minPhotos: 1,
+    measFields: [],
+    blockNext: false,
   }
 }
 
@@ -172,6 +195,12 @@ export function emptyItemExec(): ItpLibraryItemExec {
     beforeVal: '',
     afterVal: '',
     verifyVal: '',
+    measValues: {},
+    photos: [],
+    holdPending: false,
+    holdSignedOffAt: null,
+    holdSignedOffByUserId: null,
+    holdSignedOffByName: null,
     subDone: {},
     flagReason: '',
     flagPhotos: [],
@@ -319,7 +348,10 @@ export function createEmptyItpLibraryPlan(valve: Valve): ItpLibraryPlanPayload {
 }
 
 function normalizeSel(raw: unknown, fallbackNotes = ''): ItpLibraryItemSel {
-  const o = (raw && typeof raw === 'object' ? raw : {}) as Partial<ItpLibraryItemSel>
+  const o = (raw && typeof raw === 'object' ? raw : {}) as Partial<ItpLibraryItemSel> & {
+    minPhotos?: unknown
+  }
+  const minPhotosRaw = Number(o.minPhotos)
   return {
     included: Boolean(o.included),
     holdPoint: Boolean(o.holdPoint),
@@ -328,12 +360,18 @@ function normalizeSel(raw: unknown, fallbackNotes = ''): ItpLibraryItemSel {
     measVerify: Boolean(o.measVerify),
     subReqs: Array.isArray(o.subReqs) ? o.subReqs.map((s) => String(s)) : [],
     notes: String(o.notes ?? fallbackNotes ?? ''),
+    requirePicture: Boolean(o.requirePicture),
+    pictureLabel: String(o.pictureLabel ?? '').trim(),
+    minPhotos: Number.isFinite(minPhotosRaw) && minPhotosRaw > 0 ? Math.floor(minPhotosRaw) : 1,
+    measFields: normalizeMeasFields(o.measFields),
+    blockNext: Boolean(o.blockNext),
   }
 }
 
 function normalizeExec(raw: unknown): ItpLibraryItemExec {
   const o = (raw && typeof raw === 'object' ? raw : {}) as Partial<ItpLibraryItemExec> & {
     subDone?: Record<string, unknown>
+    measValues?: Record<string, unknown>
   }
   const subDone: Record<string, boolean> = {}
   if (o.subDone && typeof o.subDone === 'object') {
@@ -341,13 +379,37 @@ function normalizeExec(raw: unknown): ItpLibraryItemExec {
       subDone[k] = Boolean(v)
     }
   }
+  const measValues: Record<string, string> = {}
+  if (o.measValues && typeof o.measValues === 'object') {
+    for (const [k, v] of Object.entries(o.measValues)) {
+      measValues[k] = String(v ?? '')
+    }
+  }
+  const beforeVal = String(o.beforeVal ?? '')
+  const afterVal = String(o.afterVal ?? '')
+  const verifyVal = String(o.verifyVal ?? '')
+  if (beforeVal && measValues.before == null) measValues.before = beforeVal
+  if (afterVal && measValues.after == null) measValues.after = afterVal
+  if (verifyVal && measValues.verify == null) measValues.verify = verifyVal
   return {
     done: Boolean(o.done),
     flagged: Boolean(o.flagged),
     notes: String(o.notes ?? ''),
-    beforeVal: String(o.beforeVal ?? ''),
-    afterVal: String(o.afterVal ?? ''),
-    verifyVal: String(o.verifyVal ?? ''),
+    beforeVal,
+    afterVal,
+    verifyVal,
+    measValues,
+    photos: normalizeAttachments((o as { photos?: unknown }).photos),
+    holdPending: Boolean((o as { holdPending?: unknown }).holdPending),
+    holdSignedOffAt: (o as { holdSignedOffAt?: unknown }).holdSignedOffAt
+      ? String((o as { holdSignedOffAt?: unknown }).holdSignedOffAt)
+      : null,
+    holdSignedOffByUserId: (o as { holdSignedOffByUserId?: unknown }).holdSignedOffByUserId
+      ? String((o as { holdSignedOffByUserId?: unknown }).holdSignedOffByUserId)
+      : null,
+    holdSignedOffByName: (o as { holdSignedOffByName?: unknown }).holdSignedOffByName
+      ? String((o as { holdSignedOffByName?: unknown }).holdSignedOffByName)
+      : null,
     subDone,
     flagReason: String((o as { flagReason?: unknown }).flagReason ?? ''),
     flagPhotos: normalizeAttachments((o as { flagPhotos?: unknown }).flagPhotos).slice(0, 3),

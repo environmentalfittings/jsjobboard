@@ -18,8 +18,19 @@ import {
   deleteItpLibraryAttachment,
   isItpLibraryAttachmentImage,
   isItpLibraryAttachmentPdf,
+  uploadItpFlagPhoto,
   uploadItpLibraryAttachment,
 } from '../lib/itpLibraryAttachments'
+import {
+  DEFAULT_ITP_MEAS_FIELDS,
+  getMeasValue,
+  itemRequiresMeasurements,
+  markDoneBlockedReason,
+  patchMeasValue,
+  resolvedMeasFields,
+  selFromRequirementDefaults,
+} from '../lib/itpItemRequirements'
+import { builtinRequirementDefaults } from '../lib/itpMasterCatalog'
 import { loadItpLibraryPlan, saveItpLibraryPlan } from '../lib/itpLibraryStorage'
 import { buildItpPageUrl, createItpQrDataUrl } from '../lib/itpQrCode'
 import { notifyQualityTeamItpItemFlagged } from '../lib/messages'
@@ -62,11 +73,7 @@ type ItpLibraryEditorProps = {
   readOnly?: boolean
 }
 
-type AttrFlag = keyof Pick<ItpLibraryItemSel, 'holdPoint'>
-
-function itemRequiresMeasurements(sel: ItpLibraryItemSel): boolean {
-  return sel.beforeMeas || sel.afterMeas || sel.measVerify
-}
+type AttrFlag = keyof Pick<ItpLibraryItemSel, 'holdPoint' | 'blockNext' | 'requirePicture'>
 
 function JobTypeBadge({ jobType }: { jobType: ItpLibraryJobType }) {
   const color = ITP_LIBRARY_JOB_TYPE_COLORS[jobType]
@@ -226,6 +233,7 @@ export function ItpLibraryEditor({ valve, onClose, readOnly = false }: ItpLibrar
       }),
   )
   const isQcScopeEditor = isQualityTeamFlagOwner(qualityTeamLevel) || isShopAdmin
+  const canSignOffHold = isQcScopeEditor
   const isAccepted = plan?.qcReview.status === 'accepted'
   const acceptedByLevelForLog =
     qualityTeamLevel !== 'none' ? qualityTeamLevel : isShopAdmin ? 'admin' : qualityTeamLevel
@@ -482,16 +490,27 @@ export function ItpLibraryEditor({ valve, onClose, readOnly = false }: ItpLibrar
     updatePlan((prev) => {
       const current = ensureSel(prev, itemId)
       const included = !current.included
-      let subReqs = current.subReqs
-      if (included && subReqs.length === 0) {
-        const found = findLibraryItem(itemId)
-        if (found?.item.defaultSubReqs?.length) subReqs = [...found.item.defaultSubReqs]
+      let next = { ...current, included }
+      if (included) {
+        let subReqs = current.subReqs
+        if (subReqs.length === 0) {
+          const found = findLibraryItem(itemId)
+          if (found?.item.defaultSubReqs?.length) subReqs = [...found.item.defaultSubReqs]
+        }
+        next = {
+          ...selFromRequirementDefaults(
+            { ...current, included: true, subReqs },
+            builtinRequirementDefaults(itemId),
+          ),
+          included: true,
+          subReqs,
+        }
       }
       return {
         ...prev,
         sel: {
           ...prev.sel,
-          [itemId]: { ...current, included, subReqs },
+          [itemId]: next,
         },
       }
     })
@@ -525,6 +544,11 @@ export function ItpLibraryEditor({ valve, onClose, readOnly = false }: ItpLibrar
             beforeMeas: next,
             afterMeas: next,
             measVerify: next,
+            measFields: next
+              ? current.measFields.length > 0
+                ? current.measFields
+                : DEFAULT_ITP_MEAS_FIELDS.map((f) => ({ ...f }))
+              : [],
           },
         },
       }
@@ -703,6 +727,81 @@ export function ItpLibraryEditor({ valve, onClose, readOnly = false }: ItpLibrar
   }
 
   const toggleDone = (itemId: string) => {
+    if (readOnly || !plan) return
+    const current = plan.exec[itemId] ?? emptyItemExec()
+    const sel = plan.sel[itemId] ?? emptyItemSel()
+
+    if (!current.done && !current.holdPending) {
+      const blocked = markDoneBlockedReason(sel, current)
+      if (blocked) {
+        showToast(blocked)
+        return
+      }
+    }
+    if (current.done && sel.holdPoint && !canSignOffHold) {
+      showToast('Only a supervisor or Quality Team owner can clear a signed-off hold point')
+      return
+    }
+
+    updatePlan((prev) => {
+      const exec = prev.exec[itemId] ?? emptyItemExec()
+      const itemSel = prev.sel[itemId] ?? emptyItemSel()
+
+      if (exec.done || exec.holdPending) {
+        return {
+          ...prev,
+          exec: {
+            ...prev.exec,
+            [itemId]: {
+              ...exec,
+              done: false,
+              holdPending: false,
+              holdSignedOffAt: null,
+              holdSignedOffByUserId: null,
+              holdSignedOffByName: null,
+            },
+          },
+        }
+      }
+
+      if (itemSel.holdPoint) {
+        if (canSignOffHold) {
+          const who = username?.trim() || user?.email || 'QC'
+          return {
+            ...prev,
+            exec: {
+              ...prev.exec,
+              [itemId]: {
+                ...exec,
+                done: true,
+                holdPending: false,
+                holdSignedOffAt: new Date().toISOString(),
+                holdSignedOffByUserId: user?.id ?? null,
+                holdSignedOffByName: who,
+              },
+            },
+          }
+        }
+        return {
+          ...prev,
+          exec: {
+            ...prev.exec,
+            [itemId]: { ...exec, done: false, holdPending: true },
+          },
+        }
+      }
+
+      return {
+        ...prev,
+        exec: {
+          ...prev.exec,
+          [itemId]: { ...exec, done: true, holdPending: false },
+        },
+      }
+    })
+  }
+
+  const setMeasFieldValue = (itemId: string, fieldId: string, value: string) => {
     if (readOnly) return
     updatePlan((prev) => {
       const current = prev.exec[itemId] ?? emptyItemExec()
@@ -710,10 +809,72 @@ export function ItpLibraryEditor({ valve, onClose, readOnly = false }: ItpLibrar
         ...prev,
         exec: {
           ...prev.exec,
-          [itemId]: { ...current, done: !current.done },
+          [itemId]: { ...current, ...patchMeasValue(current, fieldId, value) },
         },
       }
     })
+  }
+
+  const addItemPhotos = async (itemId: string, fileList: FileList | null) => {
+    if (readOnly || !fileList?.length || attachmentBusy) return
+    setAttachmentBusy(true)
+    try {
+      const uploaded: ItpLibraryAttachment[] = []
+      for (const file of Array.from(fileList)) {
+        const { attachment, error } = await uploadItpFlagPhoto(valve.id, itemId, file)
+        if (error || !attachment) {
+          showToast(error || 'Upload failed')
+          continue
+        }
+        uploaded.push(attachment)
+      }
+      if (uploaded.length === 0) return
+      updatePlan((prev) => {
+        const current = prev.exec[itemId] ?? emptyItemExec()
+        return {
+          ...prev,
+          exec: {
+            ...prev.exec,
+            [itemId]: { ...current, photos: [...(current.photos ?? []), ...uploaded] },
+          },
+        }
+      })
+      showToast(
+        uploaded.length === 1
+          ? 'Photo added — save ITP to keep it'
+          : `${uploaded.length} photos added — save ITP to keep them`,
+      )
+    } finally {
+      setAttachmentBusy(false)
+    }
+  }
+
+  const removeItemPhoto = async (itemId: string, attachment: ItpLibraryAttachment) => {
+    if (readOnly || attachmentBusy) return
+    if (!window.confirm(`Remove “${attachment.fileName}”?`)) return
+    setAttachmentBusy(true)
+    try {
+      const { error } = await deleteItpLibraryAttachment(attachment)
+      if (error) {
+        showToast(error)
+        return
+      }
+      updatePlan((prev) => {
+        const current = prev.exec[itemId] ?? emptyItemExec()
+        return {
+          ...prev,
+          exec: {
+            ...prev.exec,
+            [itemId]: {
+              ...current,
+              photos: (current.photos ?? []).filter((p) => p.id !== attachment.id),
+            },
+          },
+        }
+      })
+    } finally {
+      setAttachmentBusy(false)
+    }
   }
 
   const toggleFlag = (itemId: string, itemName: string) => {
@@ -835,20 +996,6 @@ export function ItpLibraryEditor({ valve, onClose, readOnly = false }: ItpLibrar
     } finally {
       setFlagBusy(false)
     }
-  }
-
-  const setExecField = (itemId: string, field: 'beforeVal' | 'afterVal' | 'verifyVal', value: string) => {
-    if (readOnly) return
-    updatePlan((prev) => {
-      const current = prev.exec[itemId] ?? emptyItemExec()
-      return {
-        ...prev,
-        exec: {
-          ...prev.exec,
-          [itemId]: { ...current, [field]: value },
-        },
-      }
-    })
   }
 
   const setItemNotes = (itemId: string, notes: string) => {
@@ -1232,6 +1379,17 @@ export function ItpLibraryEditor({ valve, onClose, readOnly = false }: ItpLibrar
                               >
                                 Requires Measurements
                               </button>
+                              <button
+                                type="button"
+                                className={`itp-library-attr-toggle${sel.blockNext ? ' on' : ''}`}
+                                disabled={readOnly}
+                                onClick={(e) => {
+                                  e.stopPropagation()
+                                  toggleAttr(item.id, 'blockNext')
+                                }}
+                              >
+                                Block next
+                              </button>
                             </div>
                             <div className="itp-library-sub-reqs-area">
                               <label className="itp-library-scope-notes">
@@ -1505,87 +1663,161 @@ export function ItpLibraryEditor({ valve, onClose, readOnly = false }: ItpLibrar
                           </span>
                         </div>
                       </div>
-                      {items.map((it) => {
+                      {items.map((it, itemIndex) => {
                         const ex = getExec(plan, it.id)
                         const sel = it.sel
+                        const prevItem = itemIndex > 0 ? items[itemIndex - 1] : null
+                        const prevSel = prevItem ? prevItem.sel : null
+                        const prevExec = prevItem ? getExec(plan, prevItem.id) : null
+                        const blockedByPrior =
+                          Boolean(prevSel?.blockNext) && Boolean(prevExec) && !prevExec!.done
+                        const itemLocked = blockedByPrior
+                        const controlsDisabled = readOnly || itemLocked
+                        const doneBlockedReason =
+                          !ex.done && !ex.holdPending ? markDoneBlockedReason(sel, ex) : null
+                        const measFields = resolvedMeasFields(sel)
+                        const cbSelected = ex.done || ex.holdPending
+                        const cbTitle = itemLocked
+                          ? 'Complete the previous item first'
+                          : doneBlockedReason
+                            ? doneBlockedReason
+                            : ex.holdPending
+                              ? canSignOffHold
+                                ? 'Sign off hold point'
+                                : 'Pending supervisor sign-off — click to withdraw'
+                              : ex.done
+                                ? 'Mark incomplete'
+                                : sel.holdPoint
+                                  ? canSignOffHold
+                                    ? 'Sign off hold point'
+                                    : 'Submit for supervisor sign-off'
+                                  : 'Mark done'
                         return (
-                          <div key={it.id} className="itp-library-exec-item">
+                          <div
+                            key={it.id}
+                            className={`itp-library-exec-item${itemLocked ? ' is-blocked' : ''}`}
+                          >
                             {sel.holdPoint ? (
                               <div className="itp-library-hp-divider">
                                 QA/QC HOLD POINT — Inspector sign-off required before proceeding
                               </div>
                             ) : null}
+                            {ex.holdPending && !ex.done ? (
+                              <div className="itp-library-hp-pending-banner">
+                                Pending sign-off
+                                {canSignOffHold
+                                  ? ' — check again to accept as supervisor'
+                                  : ' — waiting for supervisor / QC'}
+                              </div>
+                            ) : null}
                             <div
-                              className={`itp-library-exec-row${ex.done ? ' done' : ''}${ex.flagged ? ' flagged' : ''}${sel.holdPoint ? ' hold-point' : ''}`}
+                              className={`itp-library-exec-row${ex.done ? ' done' : ''}${ex.holdPending ? ' hold-pending' : ''}${ex.flagged ? ' flagged' : ''}${sel.holdPoint ? ' hold-point' : ''}${itemLocked ? ' is-locked' : ''}`}
                             >
                               <div className="itp-library-exec-top">
                                 <button
                                   type="button"
                                   className="itp-library-exec-cb"
-                                  disabled={readOnly}
+                                  disabled={controlsDisabled || Boolean(doneBlockedReason)}
+                                  title={cbTitle}
                                   onClick={() => toggleDone(it.id)}
-                                  aria-label={ex.done ? 'Mark incomplete' : 'Mark done'}
+                                  aria-label={cbTitle}
                                 >
-                                  <span className={`itp-library-cb${ex.done ? ' sel' : ''}`} />
+                                  <span
+                                    className={`itp-library-cb${cbSelected ? ' sel' : ''}${ex.holdPending && !ex.done ? ' pending' : ''}`}
+                                  />
                                 </button>
                                 <div className="itp-library-exec-body">
                                   <div className="itp-library-en">
                                     {it.name}{' '}
                                     {sel.holdPoint ? <span className="itp-library-hp-badge">HOLD POINT</span> : null}
+                                    {ex.holdPending && !ex.done ? (
+                                      <span className="itp-library-hp-badge pending">Pending sign-off</span>
+                                    ) : null}
+                                    {sel.requirePicture ? (
+                                      <span className="itp-library-attr-badge photo">Photo</span>
+                                    ) : null}
                                     {itemRequiresMeasurements(sel) ? (
                                       <span className="itp-library-attr-badge meas">Measurements</span>
                                     ) : null}
+                                    {sel.blockNext ? (
+                                      <span className="itp-library-attr-badge block">Blocks next</span>
+                                    ) : null}
                                   </div>
                                   <div className="itp-library-er">[{it.ref}]</div>
-                                  {itemRequiresMeasurements(sel) ? (
+                                  {sel.requirePicture ? (
+                                    <div className="itp-library-item-photos screen-only">
+                                      <div className="itp-library-item-photos-hdr">
+                                        {sel.pictureLabel.trim() || 'Required photos'}{' '}
+                                        <span>
+                                          ({(ex.photos ?? []).length}/{Math.max(1, sel.minPhotos || 1)})
+                                        </span>
+                                      </div>
+                                      <div className="itp-library-item-photos-grid">
+                                        {(ex.photos ?? []).map((photo) => (
+                                          <div key={photo.id} className="itp-library-item-photo-card">
+                                            <a href={photo.url} target="_blank" rel="noreferrer">
+                                              <img src={photo.url} alt={photo.fileName} />
+                                            </a>
+                                            {!controlsDisabled ? (
+                                              <button
+                                                type="button"
+                                                className="itp-library-item-photo-rm"
+                                                onClick={() => void removeItemPhoto(it.id, photo)}
+                                              >
+                                                ✕
+                                              </button>
+                                            ) : null}
+                                          </div>
+                                        ))}
+                                        {!controlsDisabled ? (
+                                          <label className="itp-library-item-photo-add">
+                                            <input
+                                              type="file"
+                                              accept="image/*"
+                                              multiple
+                                              disabled={attachmentBusy}
+                                              onChange={(e) => {
+                                                void addItemPhotos(it.id, e.target.files)
+                                                e.target.value = ''
+                                              }}
+                                            />
+                                            + Photo
+                                          </label>
+                                        ) : null}
+                                      </div>
+                                    </div>
+                                  ) : null}
+                                  {measFields.length > 0 ? (
                                     <div className="itp-library-meas-fields">
-                                      <label className="itp-library-mf-wrap">
-                                        Before Measurement
-                                        <input
-                                          type="text"
-                                          value={ex.beforeVal}
-                                          disabled={readOnly}
-                                          placeholder="Value / units"
-                                          onChange={(e) => setExecField(it.id, 'beforeVal', e.target.value)}
-                                        />
-                                        <span className="itp-library-print-field-line" aria-hidden="true">
-                                          {ex.beforeVal || '\u00a0'}
-                                        </span>
-                                      </label>
-                                      <label className="itp-library-mf-wrap">
-                                        After Measurement
-                                        <input
-                                          type="text"
-                                          value={ex.afterVal}
-                                          disabled={readOnly}
-                                          placeholder="Value / units"
-                                          onChange={(e) => setExecField(it.id, 'afterVal', e.target.value)}
-                                        />
-                                        <span className="itp-library-print-field-line" aria-hidden="true">
-                                          {ex.afterVal || '\u00a0'}
-                                        </span>
-                                      </label>
-                                      <label className="itp-library-mf-wrap">
-                                        Verification / Acceptance
-                                        <input
-                                          type="text"
-                                          className="verify"
-                                          value={ex.verifyVal}
-                                          disabled={readOnly}
-                                          placeholder="Spec / result"
-                                          onChange={(e) => setExecField(it.id, 'verifyVal', e.target.value)}
-                                        />
-                                        <span className="itp-library-print-field-line" aria-hidden="true">
-                                          {ex.verifyVal || '\u00a0'}
-                                        </span>
-                                      </label>
+                                      {measFields.map((field) => {
+                                        const value = getMeasValue(ex, field.id)
+                                        const isVerify = /verif|accept/i.test(field.label) || field.id === 'verify'
+                                        return (
+                                          <label key={field.id} className="itp-library-mf-wrap">
+                                            {field.label}
+                                            <input
+                                              type="text"
+                                              className={isVerify ? 'verify' : undefined}
+                                              value={value}
+                                              disabled={controlsDisabled}
+                                              placeholder="Value / units"
+                                              onChange={(e) =>
+                                                setMeasFieldValue(it.id, field.id, e.target.value)
+                                              }
+                                            />
+                                            <span className="itp-library-print-field-line" aria-hidden="true">
+                                              {value || '\u00a0'}
+                                            </span>
+                                          </label>
+                                        )
+                                      })}
                                     </div>
                                   ) : null}
                                   <input
                                     className="itp-library-enote screen-only"
                                     type="text"
                                     value={sel.notes || ex.notes}
-                                    disabled={readOnly}
+                                    disabled={controlsDisabled}
                                     placeholder="Notes, observations…"
                                     onChange={(e) => setItemNotes(it.id, e.target.value)}
                                   />
@@ -1593,6 +1825,14 @@ export function ItpLibraryEditor({ valve, onClose, readOnly = false }: ItpLibrar
                                     <span className="itp-library-print-notes-label">Notes</span>
                                     <span className="itp-library-print-notes-line">{sel.notes || ex.notes || '\u00a0'}</span>
                                   </div>
+                                  {ex.holdSignedOffByName && ex.done ? (
+                                    <p className="itp-library-hold-signed">
+                                      Hold signed off by {ex.holdSignedOffByName}
+                                      {ex.holdSignedOffAt
+                                        ? ` · ${new Date(ex.holdSignedOffAt).toLocaleString()}`
+                                        : ''}
+                                    </p>
+                                  ) : null}
                                   {!ex.flagged && ex.flagClearReason?.trim() ? (
                                     <p className="itp-library-flag-cleared-note">
                                       Flag removed
@@ -1600,7 +1840,7 @@ export function ItpLibraryEditor({ valve, onClose, readOnly = false }: ItpLibrar
                                       {ex.flagClearReason.trim()}
                                     </p>
                                   ) : null}
-                                      {ex.flagged ? (
+                                  {ex.flagged ? (
                                     <div className="itp-library-flag-detail">
                                       <div className="itp-library-flag-detail-reason">
                                         <strong>Flag reason:</strong> {ex.flagReason?.trim() || '—'}
@@ -1653,7 +1893,7 @@ export function ItpLibraryEditor({ valve, onClose, readOnly = false }: ItpLibrar
                                             <button
                                               type="button"
                                               className={`itp-library-srcb${done ? ' on' : ''}`}
-                                              disabled={readOnly}
+                                              disabled={controlsDisabled}
                                               onClick={() => toggleSubDone(it.id, idx)}
                                               aria-label={done ? 'Uncheck sub-requirement' : 'Check sub-requirement'}
                                             >
@@ -1670,7 +1910,7 @@ export function ItpLibraryEditor({ valve, onClose, readOnly = false }: ItpLibrar
                                   <button
                                     type="button"
                                     className={`itp-library-flag-btn${ex.flagged ? ' on' : ''}`}
-                                    disabled={readOnly}
+                                    disabled={controlsDisabled}
                                     title="Flag issue"
                                     onClick={() => toggleFlag(it.id, it.name)}
                                   >

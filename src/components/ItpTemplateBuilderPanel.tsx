@@ -13,6 +13,7 @@ import {
   loadItpMasterCatalog,
   moveCatalogItemInArea,
   reindexCatalog,
+  requirementDefaultsFromCatalogItem,
   saveItpMasterCatalog,
   type ItpMasterCatalogItem,
 } from '../lib/itpMasterCatalog'
@@ -30,6 +31,12 @@ import {
   type ItpLibraryTemplateRow,
   type ItpLibraryTemplateScope,
 } from '../lib/itpLibraryTemplates'
+import {
+  DEFAULT_ITP_MEAS_FIELDS,
+  itemRequiresMeasurements,
+  newMeasFieldId,
+  selFromRequirementDefaults,
+} from '../lib/itpItemRequirements'
 import { emptyItemSel, type ItpLibraryItemSel } from '../types/itpLibraryPlan'
 
 const JOB_TYPE_OPTIONS: { value: ItpLibraryJobType; label: string }[] = [
@@ -51,10 +58,6 @@ function migrationHint(message: string) {
   return message
 }
 
-function itemRequiresMeasurements(sel: ItpLibraryItemSel) {
-  return sel.beforeMeas || sel.afterMeas || sel.measVerify
-}
-
 function getSel(scope: ItpLibraryTemplateScope, itemId: string): ItpLibraryItemSel {
   return scope.sel[itemId] ?? emptyItemSel()
 }
@@ -64,6 +67,13 @@ type NewMasterDraft = {
   area: ItpShopArea
   secId: ItpLibrarySectionId
   ref: string
+  requirePicture: boolean
+  pictureLabel: string
+  minPhotos: number
+  requireMeasurement: boolean
+  measFields: { id: string; label: string }[]
+  holdPoint: boolean
+  blockNext: boolean
 }
 
 function defaultSectionForArea(area: ItpShopArea): ItpLibrarySectionId {
@@ -95,6 +105,13 @@ const emptyNewMasterDraft = (): NewMasterDraft => ({
   area: 'teardown',
   secId: 'disassembly',
   ref: '',
+  requirePicture: false,
+  pictureLabel: '',
+  minPhotos: 1,
+  requireMeasurement: false,
+  measFields: DEFAULT_ITP_MEAS_FIELDS.map((f) => ({ ...f })),
+  holdPoint: false,
+  blockNext: false,
 })
 
 export function ItpTemplateBuilderPanel() {
@@ -273,12 +290,23 @@ export function ItpTemplateBuilderPanel() {
     const catalogItem = catalogById.get(itemId)
     const current = getSel(scope, itemId)
     const included = !current.included
-    let subReqs = current.subReqs
-    if (included && subReqs.length === 0) {
-      if (catalogItem?.defaultSubReqs?.length) subReqs = [...catalogItem.defaultSubReqs]
-      else {
-        const found = findLibraryItem(itemId)
-        if (found?.item.defaultSubReqs?.length) subReqs = [...found.item.defaultSubReqs]
+    let nextSel: ItpLibraryItemSel = { ...current, included }
+    if (included) {
+      let subReqs = current.subReqs
+      if (subReqs.length === 0) {
+        if (catalogItem?.defaultSubReqs?.length) subReqs = [...catalogItem.defaultSubReqs]
+        else {
+          const found = findLibraryItem(itemId)
+          if (found?.item.defaultSubReqs?.length) subReqs = [...found.item.defaultSubReqs]
+        }
+      }
+      nextSel = {
+        ...selFromRequirementDefaults(
+          { ...current, included: true, subReqs },
+          catalogItem ? requirementDefaultsFromCatalogItem(catalogItem) : null,
+        ),
+        included: true,
+        subReqs,
       }
     }
     setScope((prev) => {
@@ -289,7 +317,7 @@ export function ItpTemplateBuilderPanel() {
         custom,
         sel: {
           ...prev.sel,
-          [itemId]: { ...(prev.sel[itemId] ?? emptyItemSel()), included, subReqs },
+          [itemId]: nextSel,
         },
       }
     })
@@ -304,7 +332,16 @@ export function ItpTemplateBuilderPanel() {
   const toggleRequiresMeasurements = (itemId: string) => {
     const current = getSel(scope, itemId)
     const next = !itemRequiresMeasurements(current)
-    updateSel(itemId, { beforeMeas: next, afterMeas: next, measVerify: next })
+    updateSel(itemId, {
+      beforeMeas: next,
+      afterMeas: next,
+      measVerify: next,
+      measFields: next
+        ? current.measFields.length > 0
+          ? current.measFields
+          : DEFAULT_ITP_MEAS_FIELDS.map((f) => ({ ...f }))
+        : [],
+    })
   }
 
   const selectAllInArea = (area: ItpShopArea, select: boolean) => {
@@ -318,11 +355,22 @@ export function ItpTemplateBuilderPanel() {
       const sel = { ...prev.sel }
       for (const item of areaItems) {
         const current = sel[item.id] ?? emptyItemSel()
-        let subReqs = current.subReqs
-        if (select && subReqs.length === 0 && item.defaultSubReqs?.length) {
-          subReqs = [...item.defaultSubReqs]
+        let nextSel: ItpLibraryItemSel = { ...current, included: select }
+        if (select) {
+          let subReqs = current.subReqs
+          if (subReqs.length === 0 && item.defaultSubReqs?.length) {
+            subReqs = [...item.defaultSubReqs]
+          }
+          nextSel = {
+            ...selFromRequirementDefaults(
+              { ...current, included: true, subReqs },
+              requirementDefaultsFromCatalogItem(item),
+            ),
+            included: true,
+            subReqs,
+          }
         }
-        sel[item.id] = { ...current, included: select, subReqs }
+        sel[item.id] = nextSel
         if (select && !item.builtIn && !custom.some((c) => c.id === item.id)) {
           custom = [...custom, { id: item.id, secId: item.secId, name: item.name }]
         }
@@ -365,6 +413,15 @@ export function ItpTemplateBuilderPanel() {
     const area = newItem.area
     const id = `master-${area}-${Date.now().toString(36)}`
     const nextOrder = catalog.reduce((max, item) => Math.max(max, item.sortOrder), -1) + 1
+    const measFields = newItem.requireMeasurement
+      ? newItem.measFields
+          .map((f) => ({ id: f.id || newMeasFieldId(), label: f.label.trim() }))
+          .filter((f) => f.label)
+      : undefined
+    if (newItem.requireMeasurement && (!measFields || measFields.length === 0)) {
+      showToast('Add at least one measurement field label')
+      return
+    }
     setCatalog((prev) =>
       reindexCatalog([
         ...prev,
@@ -376,6 +433,15 @@ export function ItpTemplateBuilderPanel() {
           area,
           sortOrder: nextOrder,
           builtIn: false,
+          requirePicture: newItem.requirePicture || undefined,
+          pictureLabel: newItem.requirePicture
+            ? newItem.pictureLabel.trim() || undefined
+            : undefined,
+          minPhotos: newItem.requirePicture ? Math.max(1, newItem.minPhotos || 1) : undefined,
+          requireMeasurement: newItem.requireMeasurement || undefined,
+          measFields,
+          holdPoint: newItem.holdPoint || undefined,
+          blockNext: newItem.blockNext || undefined,
         },
       ]),
     )
@@ -783,6 +849,131 @@ export function ItpTemplateBuilderPanel() {
                   Add to master
                 </button>
               </div>
+              <div className="itp-master-req-toggles">
+                <span className="itp-master-req-toggles-label">Requirement types</span>
+                <div className="itp-master-req-toggle-row">
+                  <button type="button" className="itp-library-attr-toggle on" disabled title="Every item is a requirement">
+                    Requirement
+                  </button>
+                  <button
+                    type="button"
+                    className={`itp-library-attr-toggle${newItem.requirePicture ? ' on' : ''}`}
+                    onClick={() =>
+                      setNewItem((prev) => ({ ...prev, requirePicture: !prev.requirePicture }))
+                    }
+                  >
+                    Picture requirement
+                  </button>
+                  <button
+                    type="button"
+                    className={`itp-library-attr-toggle meas${newItem.requireMeasurement ? ' on' : ''}`}
+                    onClick={() =>
+                      setNewItem((prev) => ({
+                        ...prev,
+                        requireMeasurement: !prev.requireMeasurement,
+                        measFields:
+                          prev.measFields.length > 0
+                            ? prev.measFields
+                            : DEFAULT_ITP_MEAS_FIELDS.map((f) => ({ ...f })),
+                      }))
+                    }
+                  >
+                    Measurement requirement
+                  </button>
+                  <button
+                    type="button"
+                    className={`itp-library-attr-toggle hp${newItem.holdPoint ? ' on' : ''}`}
+                    onClick={() => setNewItem((prev) => ({ ...prev, holdPoint: !prev.holdPoint }))}
+                  >
+                    QA/QC hold point
+                  </button>
+                </div>
+                <label className="itp-master-block-next">
+                  <input
+                    type="checkbox"
+                    checked={newItem.blockNext}
+                    onChange={(e) => setNewItem((prev) => ({ ...prev, blockNext: e.target.checked }))}
+                  />
+                  <span>Block the next item until this item&apos;s requirements are met</span>
+                </label>
+                {newItem.requirePicture ? (
+                  <div className="itp-master-req-detail-row">
+                    <label className="itp-master-global-field itp-master-global-field--wide">
+                      <span>Photo label</span>
+                      <input
+                        type="text"
+                        value={newItem.pictureLabel}
+                        placeholder="e.g. As-received body photo"
+                        onChange={(e) => setNewItem((prev) => ({ ...prev, pictureLabel: e.target.value }))}
+                      />
+                    </label>
+                    <label className="itp-master-global-field">
+                      <span>Minimum photos</span>
+                      <input
+                        type="number"
+                        min={1}
+                        max={20}
+                        value={newItem.minPhotos}
+                        onChange={(e) =>
+                          setNewItem((prev) => ({
+                            ...prev,
+                            minPhotos: Math.max(1, Number(e.target.value) || 1),
+                          }))
+                        }
+                      />
+                    </label>
+                  </div>
+                ) : null}
+                {newItem.requireMeasurement ? (
+                  <div className="itp-master-meas-fields">
+                    <div className="itp-master-meas-fields-hdr">Measurement / nameplate fields</div>
+                    {newItem.measFields.map((field, idx) => (
+                      <div key={field.id} className="itp-master-meas-field-row">
+                        <input
+                          type="text"
+                          value={field.label}
+                          placeholder="Field label"
+                          onChange={(e) => {
+                            const label = e.target.value
+                            setNewItem((prev) => ({
+                              ...prev,
+                              measFields: prev.measFields.map((f, i) =>
+                                i === idx ? { ...f, label } : f,
+                              ),
+                            }))
+                          }}
+                        />
+                        <button
+                          type="button"
+                          className="itp-library-sr-del"
+                          title="Remove field"
+                          disabled={newItem.measFields.length <= 1}
+                          onClick={() =>
+                            setNewItem((prev) => ({
+                              ...prev,
+                              measFields: prev.measFields.filter((_, i) => i !== idx),
+                            }))
+                          }
+                        >
+                          ✕
+                        </button>
+                      </div>
+                    ))}
+                    <button
+                      type="button"
+                      className="itp-library-add-sr-btn"
+                      onClick={() =>
+                        setNewItem((prev) => ({
+                          ...prev,
+                          measFields: [...prev.measFields, { id: newMeasFieldId(), label: '' }],
+                        }))
+                      }
+                    >
+                      + Add field
+                    </button>
+                  </div>
+                ) : null}
+              </div>
             </div>
 
             {catalogLoading ? (
@@ -920,6 +1111,16 @@ export function ItpTemplateBuilderPanel() {
                                   }}
                                 >
                                   Requires Measurements
+                                </button>
+                                <button
+                                  type="button"
+                                  className={`itp-library-attr-toggle${sel.blockNext ? ' on' : ''}`}
+                                  onClick={(e) => {
+                                    e.stopPropagation()
+                                    updateSel(item.id, { blockNext: !sel.blockNext })
+                                  }}
+                                >
+                                  Block next
                                 </button>
                               </div>
                               <div className="itp-library-sub-reqs-area">

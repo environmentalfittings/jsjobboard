@@ -10,6 +10,7 @@ import {
   type ItpLibraryItemSel,
   type ItpLibraryPlanPayload,
 } from '../types/itpLibraryPlan'
+import { normalizeMeasFields } from '../types/itpMeasFields'
 import { supabase } from './supabase'
 
 /** Sentinel row storing admin-added master catalog items (left panel). */
@@ -70,7 +71,11 @@ function pickPreferredTemplate(rows: ItpLibraryTemplateRow[]): ItpLibraryTemplat
 }
 
 function normalizeSel(raw: unknown): ItpLibraryItemSel {
-  const o = (raw && typeof raw === 'object' ? raw : {}) as Partial<ItpLibraryItemSel>
+  const o = (raw && typeof raw === 'object' ? raw : {}) as Partial<ItpLibraryItemSel> & {
+    minPhotos?: unknown
+    measFields?: unknown
+  }
+  const minPhotosRaw = Number(o.minPhotos)
   return {
     included: Boolean(o.included),
     holdPoint: Boolean(o.holdPoint),
@@ -79,6 +84,11 @@ function normalizeSel(raw: unknown): ItpLibraryItemSel {
     measVerify: Boolean(o.measVerify),
     subReqs: Array.isArray(o.subReqs) ? o.subReqs.map((s) => String(s)) : [],
     notes: String(o.notes ?? ''),
+    requirePicture: Boolean(o.requirePicture),
+    pictureLabel: String(o.pictureLabel ?? '').trim(),
+    minPhotos: Number.isFinite(minPhotosRaw) && minPhotosRaw > 0 ? Math.floor(minPhotosRaw) : 1,
+    measFields: normalizeMeasFields(o.measFields),
+    blockNext: Boolean(o.blockNext),
   }
 }
 
@@ -131,6 +141,9 @@ export function compactTemplateScope(scope: ItpLibraryTemplateScope): ItpLibrary
       value.beforeMeas ||
       value.afterMeas ||
       value.measVerify ||
+      value.requirePicture ||
+      value.blockNext ||
+      value.measFields.length > 0 ||
       value.subReqs.length > 0 ||
       value.notes.trim()
     ) {
@@ -415,6 +428,16 @@ export function applyScopeToPlan(
         beforeMeas: templateSel.beforeMeas || prev.beforeMeas,
         afterMeas: templateSel.afterMeas || prev.afterMeas,
         measVerify: templateSel.measVerify || prev.measVerify,
+        requirePicture: templateSel.requirePicture || prev.requirePicture,
+        pictureLabel: templateSel.pictureLabel.trim() || prev.pictureLabel,
+        minPhotos: templateSel.requirePicture
+          ? templateSel.minPhotos || prev.minPhotos || 1
+          : prev.minPhotos || 1,
+        measFields:
+          templateSel.measFields.length > 0
+            ? templateSel.measFields.map((f) => ({ ...f }))
+            : prev.measFields,
+        blockNext: templateSel.blockNext || prev.blockNext,
         subReqs,
         notes: templateSel.notes.trim() || prev.notes,
       }

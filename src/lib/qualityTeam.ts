@@ -145,6 +145,11 @@ export function itpScopeFingerprint(plan: ItpLibraryPlanPayload): string {
       s.beforeMeas ? 1 : 0,
       s.afterMeas ? 1 : 0,
       s.measVerify ? 1 : 0,
+      s.requirePicture ? 1 : 0,
+      s.minPhotos || 1,
+      s.pictureLabel.trim(),
+      s.blockNext ? 1 : 0,
+      s.measFields.map((f) => `${f.id}:${f.label.trim()}`).join(';'),
       [...s.subReqs].map((x) => x.trim()).filter(Boolean).sort().join(';'),
     ].join('|')
   })
