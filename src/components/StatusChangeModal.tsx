@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
+import { createPortal } from 'react-dom'
 import { Link, useNavigate } from 'react-router-dom'
 import { JOB_TYPES, isValveRelatedJobType, normalizeJobType } from '../constants/jobTypes'
 import { STATUS_ORDER } from '../constants/statuses'
@@ -187,6 +188,55 @@ export function StatusChangeModal({
     setIsMaximized(forceMaximized)
     setActiveTab(initialTab)
   }, [valve.id, forceMaximized, initialTab])
+
+  // Keep the board behind the card from scrolling with the mouse wheel.
+  useEffect(() => {
+    const html = document.documentElement
+    const body = document.body
+    const prevHtmlOverflow = html.style.overflow
+    const prevBodyOverflow = body.style.overflow
+    const prevBodyPaddingRight = body.style.paddingRight
+    const scrollbarGap = window.innerWidth - html.clientWidth
+
+    html.style.overflow = 'hidden'
+    body.style.overflow = 'hidden'
+    if (scrollbarGap > 0) {
+      body.style.paddingRight = `${scrollbarGap}px`
+    }
+
+    const onWheel = (event: WheelEvent) => {
+      const target = event.target
+      if (!(target instanceof Element)) {
+        event.preventDefault()
+        return
+      }
+      const scrollRoot = target.closest(
+        '.job-card-body, .modal-job-card-body--max-scroll, .modal-test-log-list, .job-card-shell textarea',
+      )
+      if (scrollRoot instanceof HTMLElement) {
+        const { scrollTop, scrollHeight, clientHeight } = scrollRoot
+        const maxScroll = scrollHeight - clientHeight
+        if (maxScroll > 1) {
+          const next = Math.min(maxScroll, Math.max(0, scrollTop + event.deltaY))
+          if (next !== scrollTop) {
+            scrollRoot.scrollTop = next
+          }
+        }
+        event.preventDefault()
+        return
+      }
+      // Header, footer, tabs, or dimmed overlay — do not scroll the page.
+      event.preventDefault()
+    }
+
+    document.addEventListener('wheel', onWheel, { passive: false, capture: true })
+    return () => {
+      html.style.overflow = prevHtmlOverflow
+      body.style.overflow = prevBodyOverflow
+      body.style.paddingRight = prevBodyPaddingRight
+      document.removeEventListener('wheel', onWheel, { capture: true })
+    }
+  }, [])
 
   useEffect(() => {
     let cancelled = false
@@ -623,7 +673,7 @@ export function StatusChangeModal({
     </>
   )
 
-  return (
+  return createPortal(
     <div
       className={`modal-overlay${isMaximized ? ' modal-overlay--job-max' : ''}`}
       role="dialog"
@@ -1398,6 +1448,7 @@ export function StatusChangeModal({
           </div>
         </footer>
       </div>
-    </div>
+    </div>,
+    document.body,
   )
 }

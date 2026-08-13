@@ -8549,6 +8549,7 @@ tbody tr:hover {
   justify-content: center;
   padding: 12px;
   color: #1e293b;
+  overscroll-behavior: contain;
 }
 
 .modal-overlay--job-max {
@@ -8805,6 +8806,7 @@ tbody tr:hover {
   min-height: 0;
   overflow-y: auto;
   overflow-x: hidden;
+  overscroll-behavior: contain;
   -webkit-overflow-scrolling: touch;
   padding: 16px;
   background: #f1f5f9;
