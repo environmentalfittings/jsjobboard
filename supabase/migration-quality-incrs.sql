@@ -46,6 +46,7 @@ create table if not exists public.quality_incrs (
   material_cost text,
   code_violation_article text,
   root_cause_corrective_action text,
+  five_whys jsonb not null default '["","","","",""]'::jsonb,
   qc_approval_name text,
   qc_approval_date date,
   initiator_name text,

@@ -13,6 +13,23 @@ export const QUALITY_INCR_DISPOSITION_OPTIONS: { value: QualityIncrDisposition; 
   { value: 'rework_same_wo', label: 'Rework, Same WO' },
 ]
 
+/** Default 5 Whys rows on a new INCR; users can add more (6Y, 7Y, …). */
+export const QUALITY_INCR_DEFAULT_WHY_COUNT = 5
+export const QUALITY_INCR_MAX_WHY_COUNT = 12
+
+export function emptyFiveWhys(count = QUALITY_INCR_DEFAULT_WHY_COUNT): string[] {
+  const n = Math.max(QUALITY_INCR_DEFAULT_WHY_COUNT, Math.min(QUALITY_INCR_MAX_WHY_COUNT, count))
+  return Array.from({ length: n }, () => '')
+}
+
+export function normalizeFiveWhys(raw: unknown): string[] {
+  const list = Array.isArray(raw)
+    ? raw.map((item) => (typeof item === 'string' ? item : String(item ?? '')))
+    : []
+  while (list.length < QUALITY_INCR_DEFAULT_WHY_COUNT) list.push('')
+  return list.slice(0, QUALITY_INCR_MAX_WHY_COUNT)
+}
+
 export type QualityIncr = {
   id: number
   incr_number: string
@@ -46,6 +63,8 @@ export type QualityIncr = {
   material_cost: string | null
   code_violation_article: string | null
   root_cause_corrective_action: string | null
+  /** Ordered Why answers (5 by default; may grow to 6–12). */
+  five_whys?: string[] | null
   qc_approval_name: string | null
   qc_approval_date: string | null
   initiator_name: string | null
@@ -73,6 +92,7 @@ export type QualityIncrFormState = {
   item: string
   nonconformance_details: string
   discrepancy_description: string
+  five_whys: string[]
   disposition: QualityIncrDisposition | ''
   final_disposition: string
   labor_cost: string
@@ -104,6 +124,7 @@ export function emptyQualityIncrForm(): QualityIncrFormState {
     item: '',
     nonconformance_details: '',
     discrepancy_description: '',
+    five_whys: emptyFiveWhys(),
     disposition: '',
     final_disposition: '',
     labor_cost: '',
@@ -135,6 +156,7 @@ export function qualityIncrToForm(row: QualityIncr): QualityIncrFormState {
     item: row.item ?? '',
     nonconformance_details: row.nonconformance_details ?? '',
     discrepancy_description: row.discrepancy_description ?? '',
+    five_whys: normalizeFiveWhys(row.five_whys),
     disposition: row.disposition ?? '',
     final_disposition: row.final_disposition ?? '',
     labor_cost: row.labor_cost ?? '',

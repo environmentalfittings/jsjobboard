@@ -12,6 +12,8 @@ import {
 import {
   emptyQualityIncrForm,
   QUALITY_INCR_DISPOSITION_OPTIONS,
+  QUALITY_INCR_DEFAULT_WHY_COUNT,
+  QUALITY_INCR_MAX_WHY_COUNT,
   qualityIncrToForm,
   type QualityIncrFormState,
   type QualityIncrStatus,
@@ -104,6 +106,29 @@ export function QualityIncrFormPage() {
 
   const patch = <K extends keyof QualityIncrFormState>(key: K, value: QualityIncrFormState[K]) => {
     setForm((prev) => ({ ...prev, [key]: value }))
+  }
+
+  const patchWhy = (index: number, value: string) => {
+    setForm((prev) => {
+      const five_whys = [...prev.five_whys]
+      five_whys[index] = value
+      return { ...prev, five_whys }
+    })
+  }
+
+  const addWhyRow = () => {
+    setForm((prev) => {
+      if (prev.five_whys.length >= QUALITY_INCR_MAX_WHY_COUNT) return prev
+      return { ...prev, five_whys: [...prev.five_whys, ''] }
+    })
+  }
+
+  const removeWhyRow = (index: number) => {
+    setForm((prev) => {
+      if (prev.five_whys.length <= QUALITY_INCR_DEFAULT_WHY_COUNT) return prev
+      if (index < QUALITY_INCR_DEFAULT_WHY_COUNT) return prev
+      return { ...prev, five_whys: prev.five_whys.filter((_, i) => i !== index) }
+    })
   }
 
   const save = async () => {
@@ -278,6 +303,52 @@ export function QualityIncrFormPage() {
               disabled={saving}
             />
           </Field>
+        </div>
+      </section>
+
+      <section className="dashboard-panel">
+        <h3>5 Whys</h3>
+        <p className="placeholder-copy resources-hint">
+          Ask why five times to dig into the root cause. Add rows if you need a 6Y, 7Y, or 8Y.
+        </p>
+        <div className="incr-five-whys">
+          {form.five_whys.map((answer, index) => (
+            <div key={`why-${index}`} className="incr-five-whys-row">
+              <label className="incr-form-field incr-five-whys-field">
+                <span>Why {index + 1}</span>
+                <input
+                  value={answer}
+                  onChange={(e) => patchWhy(index, e.target.value)}
+                  disabled={saving}
+                  placeholder={`Why ${index + 1}…`}
+                />
+              </label>
+              {index >= QUALITY_INCR_DEFAULT_WHY_COUNT ? (
+                <button
+                  type="button"
+                  className="button-secondary rework-qa-btn"
+                  disabled={saving}
+                  onClick={() => removeWhyRow(index)}
+                  aria-label={`Remove Why ${index + 1}`}
+                >
+                  Remove
+                </button>
+              ) : null}
+            </div>
+          ))}
+          <div className="incr-five-whys-add">
+            <button
+              type="button"
+              className="button-secondary"
+              disabled={saving || form.five_whys.length >= QUALITY_INCR_MAX_WHY_COUNT}
+              onClick={addWhyRow}
+            >
+              Add row
+            </button>
+            {form.five_whys.length >= QUALITY_INCR_MAX_WHY_COUNT ? (
+              <span className="status-breakdown-note">Maximum {QUALITY_INCR_MAX_WHY_COUNT} whys.</span>
+            ) : null}
+          </div>
         </div>
       </section>
 

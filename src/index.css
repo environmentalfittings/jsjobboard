@@ -18305,3 +18305,29 @@ body.shop-tv-fullscreen-active .page-content {
 .incr-form-check input {
   width: auto;
 }
+
+.incr-five-whys {
+  display: flex;
+  flex-direction: column;
+  gap: 0.65rem;
+}
+
+.incr-five-whys-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  align-items: flex-end;
+}
+
+.incr-five-whys-field {
+  flex: 1 1 16rem;
+  min-width: 0;
+}
+
+.incr-five-whys-add {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.65rem;
+  align-items: center;
+  margin-top: 0.25rem;
+}

@@ -2,6 +2,7 @@ import type { StatusReworkRecord } from '../types'
 import { getPriorityDepartment } from '../constants/priorityDepartments'
 import {
   emptyQualityIncrForm,
+  normalizeFiveWhys,
   type QualityIncr,
   type QualityIncrFormState,
 } from '../types/qualityIncr'
@@ -11,6 +12,9 @@ import { supabase } from './supabase'
 import { parseAssignedTechnicianIds } from './valveTechnicianIds'
 
 const INCR_SELECT =
+  'id,incr_number,status,rework_log_id,valve_row_id,valve_id,customer_name,date_rejected,wo_so,sequence_no,po_number,customer_code,serial_no,ovation_ncmr_no,part_number,part_description,employee_name,dept_responsible,location,quantity,work_cell,item,reason_code,discrepancy_code,nonconformance_details,discrepancy_description,five_whys,disposition,final_disposition,labor_cost,material_cost,code_violation_article,root_cause_corrective_action,qc_approval_name,qc_approval_date,initiator_name,initiator_date,final_approval_name,final_approval_date,customer_signature_required,customer_signature_date,requires_corporate_ncr,notes,created_by_user_id,created_by_name,created_at,updated_at'
+
+const INCR_SELECT_NO_FIVE_WHYS =
   'id,incr_number,status,rework_log_id,valve_row_id,valve_id,customer_name,date_rejected,wo_so,sequence_no,po_number,customer_code,serial_no,ovation_ncmr_no,part_number,part_description,employee_name,dept_responsible,location,quantity,work_cell,item,reason_code,discrepancy_code,nonconformance_details,discrepancy_description,disposition,final_disposition,labor_cost,material_cost,code_violation_article,root_cause_corrective_action,qc_approval_name,qc_approval_date,initiator_name,initiator_date,final_approval_name,final_approval_date,customer_signature_required,customer_signature_date,requires_corporate_ncr,notes,created_by_user_id,created_by_name,created_at,updated_at'
 
 const INCR_SELECT_LEGACY =
@@ -20,7 +24,12 @@ function withCorporateNcrDefault(row: QualityIncr): QualityIncr {
   return {
     ...row,
     requires_corporate_ncr: Boolean(row.requires_corporate_ncr),
+    five_whys: normalizeFiveWhys(row.five_whys),
   }
+}
+
+function isMissingFiveWhysColumn(message: string): boolean {
+  return /five_whys|schema cache|column/i.test(message)
 }
 
 type ValveIncrSource = {
@@ -46,7 +55,8 @@ function emptyToNull(value: string): string | null {
   return trimmed ? trimmed : null
 }
 
-function formToPayload(form: QualityIncrFormState) {
+function formToPayload(form: QualityIncrFormState, options?: { includeFiveWhys?: boolean }) {
+  const includeFiveWhys = options?.includeFiveWhys !== false
   return {
     status: form.status,
     customer_name: emptyToNull(form.customer_name),
@@ -59,6 +69,7 @@ function formToPayload(form: QualityIncrFormState) {
     item: emptyToNull(form.item),
     nonconformance_details: emptyToNull(form.nonconformance_details),
     discrepancy_description: emptyToNull(form.discrepancy_description),
+    ...(includeFiveWhys ? { five_whys: normalizeFiveWhys(form.five_whys) } : {}),
     disposition: form.disposition || null,
     final_disposition: emptyToNull(form.final_disposition),
     labor_cost: emptyToNull(form.labor_cost),
@@ -203,6 +214,19 @@ export async function listQualityIncrs(limit = 200): Promise<{ data: QualityIncr
     .order('created_at', { ascending: false })
     .limit(limit)
   if (error) {
+    if (isMissingFiveWhysColumn(error.message)) {
+      const noWhys = await supabase
+        .from('quality_incrs')
+        .select(INCR_SELECT_NO_FIVE_WHYS)
+        .order('created_at', { ascending: false })
+        .limit(limit)
+      if (!noWhys.error) {
+        return {
+          data: ((noWhys.data ?? []) as QualityIncr[]).map(withCorporateNcrDefault),
+          error: null,
+        }
+      }
+    }
     if (/requires_corporate_ncr/i.test(error.message)) {
       const legacy = await supabase
         .from('quality_incrs')
@@ -237,6 +261,19 @@ export async function listQualityIncrs(limit = 200): Promise<{ data: QualityIncr
 export async function getQualityIncr(id: number): Promise<{ data: QualityIncr | null; error: string | null }> {
   const { data, error } = await supabase.from('quality_incrs').select(INCR_SELECT).eq('id', id).maybeSingle()
   if (error) {
+    if (isMissingFiveWhysColumn(error.message)) {
+      const noWhys = await supabase
+        .from('quality_incrs')
+        .select(INCR_SELECT_NO_FIVE_WHYS)
+        .eq('id', id)
+        .maybeSingle()
+      if (!noWhys.error) {
+        return {
+          data: noWhys.data ? withCorporateNcrDefault(noWhys.data as QualityIncr) : null,
+          error: null,
+        }
+      }
+    }
     if (/requires_corporate_ncr/i.test(error.message)) {
       const legacy = await supabase
         .from('quality_incrs')
@@ -318,6 +355,38 @@ export async function createQualityIncr(options: {
     created_by_name: options.createdByName?.trim() || null,
   }
   let { data, error } = await supabase.from('quality_incrs').insert(payload).select(INCR_SELECT).single()
+  if (error && isMissingFiveWhysColumn(error.message)) {
+    const payloadNoWhys = {
+      ...formToPayload(options.form, { includeFiveWhys: false }),
+      incr_number: incrNumber,
+      rework_log_id: options.reworkLogId ?? null,
+      valve_row_id: options.valveRowId ?? null,
+      valve_id: options.valveId?.trim() || emptyToNull(options.form.wo_so),
+      created_by_user_id: options.createdByUserId ?? null,
+      created_by_name: options.createdByName?.trim() || null,
+    }
+    const retry = await supabase
+      .from('quality_incrs')
+      .insert(payloadNoWhys)
+      .select(INCR_SELECT_NO_FIVE_WHYS)
+      .single()
+    data = retry.data as typeof data
+    error = retry.error
+    if (!error) {
+      const created = withCorporateNcrDefault(data as QualityIncr)
+      if (options.reworkLogId) {
+        await supabase
+          .from('status_rework_log')
+          .update({ qa_disposition: 'incr', incr_id: created.id })
+          .eq('id', options.reworkLogId)
+      }
+      return {
+        data: created,
+        error:
+          'INCR saved, but 5 Whys needs supabase/migration-quality-incrs-five-whys.sql in Supabase.',
+      }
+    }
+  }
   if (error && /requires_corporate_ncr/i.test(error.message)) {
     const { requires_corporate_ncr: _ignored, ...legacyPayload } = payload
     const legacy = await supabase
@@ -368,6 +437,23 @@ export async function updateQualityIncr(
     .eq('id', id)
     .select(INCR_SELECT)
     .single()
+  if (error && isMissingFiveWhysColumn(error.message)) {
+    const retry = await supabase
+      .from('quality_incrs')
+      .update(formToPayload(form, { includeFiveWhys: false }))
+      .eq('id', id)
+      .select(INCR_SELECT_NO_FIVE_WHYS)
+      .single()
+    data = retry.data as typeof data
+    error = retry.error
+    if (!error) {
+      return {
+        data: withCorporateNcrDefault(data as QualityIncr),
+        error:
+          'Saved, but 5 Whys needs supabase/migration-quality-incrs-five-whys.sql in Supabase.',
+      }
+    }
+  }
   if (error && /requires_corporate_ncr/i.test(error.message)) {
     const { requires_corporate_ncr: _ignored, ...legacyPayload } = payload
     const legacy = await supabase
