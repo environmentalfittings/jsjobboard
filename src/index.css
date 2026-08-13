@@ -15234,7 +15234,7 @@ tbody tr:hover {
 
 .itp-library-lib-item.sel .itp-library-cb::after,
 .itp-library-cb.sel::after {
-  content: '?';
+  content: '✓';
 }
 
 .itp-library-lib-item-name {
