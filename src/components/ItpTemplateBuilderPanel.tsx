@@ -857,7 +857,7 @@ export function ItpTemplateBuilderPanel() {
                   </button>
                   <button
                     type="button"
-                    className={`itp-library-attr-toggle${newItem.requirePicture ? ' on' : ''}`}
+                    className={`itp-library-attr-toggle photo${newItem.requirePicture ? ' on' : ''}`}
                     onClick={() =>
                       setNewItem((prev) => ({ ...prev, requirePicture: !prev.requirePicture }))
                     }

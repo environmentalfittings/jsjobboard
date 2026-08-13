@@ -14658,6 +14658,11 @@ tbody tr:hover {
   color: #475569;
 }
 
+.itp-library-traveler-capture-count {
+  color: #64748b;
+  font-weight: 600;
+}
+
 .itp-library-qc-status {
   margin: 8px 0 0;
   font-size: 0.8rem;
@@ -15284,10 +15289,22 @@ tbody tr:hover {
   white-space: nowrap;
 }
 
+.itp-library-attr-toggle.on {
+  background: #f1f5f9;
+  border-color: #64748b;
+  color: #0f172a;
+}
+
 .itp-library-attr-toggle.on.hp {
   background: #f5f3ff;
   border-color: var(--itp-lib-hp);
   color: var(--itp-lib-hp);
+}
+
+.itp-library-attr-toggle.on.photo {
+  background: #e0f2fe;
+  border-color: #0284c7;
+  color: #0369a1;
 }
 
 .itp-library-attr-toggle.on.meas,
@@ -18514,4 +18531,193 @@ body.shop-tv-fullscreen-active .page-content {
   gap: 0.65rem;
   align-items: center;
   margin-top: 0.25rem;
+}
+
+/* Compiled View Traveler (ITP picture/measurement report) */
+.itp-traveler-report-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 16px;
+}
+
+.itp-traveler-report-meta {
+  margin: 4px 0 0;
+  font-size: 0.85rem;
+  color: #64748b;
+}
+
+.itp-traveler-report-summary {
+  margin: 8px 0 0;
+  font-size: 0.9rem;
+  font-weight: 700;
+  color: #0f172a;
+}
+
+.itp-traveler-report-actions {
+  display: flex;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+.itp-traveler-section {
+  margin-bottom: 18px;
+}
+
+.itp-traveler-section-title {
+  margin: 0 0 10px;
+  font-size: 0.95rem;
+  font-weight: 800;
+  color: #1e293b;
+}
+
+.itp-traveler-section-items {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.itp-traveler-item-card {
+  background: #fff;
+  border: 1px solid #e2e8f0;
+  border-radius: 10px;
+  padding: 12px 14px;
+}
+
+.itp-traveler-item-card--pending {
+  border-left: 4px solid #f59e0b;
+}
+
+.itp-traveler-item-card--captured {
+  border-left: 4px solid #16a34a;
+}
+
+.itp-traveler-item-hdr {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.itp-traveler-item-name {
+  margin: 0;
+  font-size: 0.95rem;
+  font-weight: 700;
+  color: #0f172a;
+}
+
+.itp-traveler-item-ref {
+  margin-left: 6px;
+  font-size: 0.78rem;
+  color: #64748b;
+  font-weight: 600;
+}
+
+.itp-traveler-item-badges {
+  margin-top: 6px;
+}
+
+.itp-traveler-status-pill {
+  display: inline-flex;
+  align-items: center;
+  padding: 3px 9px;
+  border-radius: 999px;
+  font-size: 0.7rem;
+  font-weight: 800;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+}
+
+.itp-traveler-status-pill--captured {
+  background: #dcfce7;
+  color: #166534;
+  border: 1px solid #86efac;
+}
+
+.itp-traveler-status-pill--pending {
+  background: #fffbeb;
+  color: #b45309;
+  border: 1px solid #fcd34d;
+}
+
+.itp-traveler-meas-grid {
+  margin-top: 10px;
+  display: grid;
+  gap: 6px;
+}
+
+.itp-traveler-meas-row {
+  display: grid;
+  grid-template-columns: minmax(120px, 0.9fr) minmax(0, 1.4fr);
+  gap: 8px;
+  align-items: baseline;
+  padding: 6px 8px;
+  background: #f8fafc;
+  border-radius: 6px;
+  border: 1px solid #e2e8f0;
+}
+
+.itp-traveler-meas-label {
+  font-size: 0.75rem;
+  font-weight: 700;
+  color: #475569;
+}
+
+.itp-traveler-meas-value {
+  font-size: 0.9rem;
+  font-weight: 600;
+  color: #0f172a;
+  word-break: break-word;
+}
+
+.itp-traveler-meas-value.is-empty {
+  color: #94a3b8;
+  font-weight: 500;
+}
+
+.itp-traveler-photos {
+  margin-top: 10px;
+}
+
+.itp-traveler-photos-hdr {
+  font-size: 0.75rem;
+  font-weight: 700;
+  color: #475569;
+  margin-bottom: 6px;
+}
+
+.itp-traveler-photos-empty {
+  margin: 0;
+  font-size: 0.8rem;
+  color: #94a3b8;
+}
+
+.itp-traveler-photos-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.itp-traveler-photo-thumb {
+  width: 88px;
+  height: 88px;
+  border-radius: 8px;
+  overflow: hidden;
+  border: 1px solid #cbd5e1;
+  display: block;
+}
+
+.itp-traveler-photo-thumb img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+@media (max-width: 640px) {
+  .itp-traveler-meas-row {
+    grid-template-columns: 1fr;
+  }
 }

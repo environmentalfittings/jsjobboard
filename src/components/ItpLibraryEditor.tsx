@@ -53,6 +53,10 @@ import {
 } from '../types/employees'
 import { applyLibraryTemplateAsync, listItpLibraryTemplates } from '../lib/itpLibraryTemplates'
 import {
+  buildItpTravelerReport,
+  formatItpTravelerCaptureSummary,
+} from '../lib/itpTravelerReport'
+import {
   allScopeItems,
   emptyItemExec,
   emptyItemSel,
@@ -200,6 +204,10 @@ export function ItpLibraryEditor({ valve, onClose, readOnly = false }: ItpLibrar
     prev.sel[itemId] ?? emptyItemSel()
 
   const scopeItems = useMemo(() => (plan ? allScopeItems(plan) : []), [plan])
+  const travelerReportStats = useMemo(
+    () => (plan ? buildItpTravelerReport(plan).stats : { total: 0, captured: 0, pending: 0 }),
+    [plan],
+  )
   const stats = useMemo(() => (plan ? execStats(plan) : null), [plan])
 
   const canEditScope = Boolean(
@@ -1142,7 +1150,15 @@ export function ItpLibraryEditor({ valve, onClose, readOnly = false }: ItpLibrar
           </p>
           <p className="itp-library-jb-note">
             Build scope on the left; the checklist on the right updates as you select items.{' '}
-            <Link to={`/traveler/${encodeURIComponent(valve.valve_id)}/inspection`}>Traveler inspection</Link>
+            <Link to={`/itp/${valve.id}/traveler`}>View Traveler</Link>
+            {travelerReportStats.total > 0 ? (
+              <span className="itp-library-traveler-capture-count">
+                {' '}
+                · {formatItpTravelerCaptureSummary(travelerReportStats)}
+              </span>
+            ) : (
+              <span className="itp-library-traveler-capture-count"> · No picture/measurement items yet</span>
+            )}
             {hasLegacyInspection ? ' · detailed inspection data on file' : null}
           </p>
           <p className={`itp-library-qc-status itp-library-qc-status--${plan.qcReview.status}`}>
@@ -1252,7 +1268,8 @@ export function ItpLibraryEditor({ valve, onClose, readOnly = false }: ItpLibrar
       {hasLegacyProcessPlan ? (
         <div className="status-breakdown-note itp-library-legacy-banner" role="status">
           A previous overall-steps / parts process plan is still saved for this valve. This page uses the new library
-          checklist. Use Traveler inspection for the detailed part checklist.
+          checklist. Use <Link to={`/itp/${valve.id}/traveler`}>View Traveler</Link> for captured photos and
+          measurements from Picture / Measurement requirements.
         </div>
       ) : null}
 

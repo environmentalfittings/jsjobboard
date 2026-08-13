@@ -22,6 +22,7 @@ import { MyWorkPage } from './pages/MyWorkPage'
 import { ReceivedValvesPage } from './pages/ReceivedValvesPage'
 import { TravelerPage } from './pages/TravelerPage'
 import { ItpPage } from './pages/ItpPage'
+import { ItpTravelerViewPage } from './pages/ItpTravelerViewPage'
 import { CustomerLogin } from './pages/CustomerLogin'
 import { CustomerPortal } from './pages/CustomerPortal'
 import { CustomerTravelerView } from './pages/CustomerTravelerView'
@@ -168,6 +169,14 @@ function AppRoutes() {
               element={
                 <ShopRoute>
                   <ItpPage />
+                </ShopRoute>
+              }
+            />
+            <Route
+              path="/itp/:id/traveler"
+              element={
+                <ShopRoute>
+                  <ItpTravelerViewPage />
                 </ShopRoute>
               }
             />
