@@ -280,6 +280,57 @@ function getCompletedDatePresetRange(preset: Exclude<CompletedDatePreset, 'custo
   return { start: `${y - 1}-01-01`, end: `${y - 1}-12-31` }
 }
 
+type ReworkDatePreset =
+  | 'custom'
+  | 'this_week'
+  | 'this_month'
+  | 'last_3_months'
+  | 'last_6_months'
+  | 'this_year'
+  | 'all_time'
+
+const REWORK_DATE_PRESETS: { value: ReworkDatePreset; label: string }[] = [
+  { value: 'this_week', label: 'This week' },
+  { value: 'this_month', label: 'This month' },
+  { value: 'last_3_months', label: 'Last three months' },
+  { value: 'last_6_months', label: 'Last six months' },
+  { value: 'this_year', label: 'This year' },
+  { value: 'all_time', label: 'All time' },
+  { value: 'custom', label: 'Custom dates' },
+]
+
+function monthsAgoLocal(today: Date, months: number): Date {
+  const start = new Date(today.getFullYear(), today.getMonth() - months, today.getDate())
+  // Clamp if the source month had more days than the target (e.g. Mar 31 → Feb).
+  if (start.getDate() !== today.getDate()) start.setDate(0)
+  return start
+}
+
+function getReworkDatePresetRange(preset: Exclude<ReworkDatePreset, 'custom'>, now = new Date()) {
+  const today = startOfLocalDay(now)
+  const y = today.getFullYear()
+  const m = today.getMonth()
+
+  if (preset === 'this_week') return getCurrentWeekRange()
+  if (preset === 'this_month') {
+    return {
+      start: toLocalInputDate(new Date(y, m, 1)),
+      end: toLocalInputDate(today),
+    }
+  }
+  if (preset === 'last_3_months') {
+    return { start: toLocalInputDate(monthsAgoLocal(today, 3)), end: toLocalInputDate(today) }
+  }
+  if (preset === 'last_6_months') {
+    return { start: toLocalInputDate(monthsAgoLocal(today, 6)), end: toLocalInputDate(today) }
+  }
+  if (preset === 'this_year') {
+    return { start: `${y}-01-01`, end: toLocalInputDate(today) }
+  }
+  // all_time — wide enough to cover any logged rework
+  return { start: '2000-01-01', end: toLocalInputDate(today) }
+}
+
 export function ReportsPage() {
   const navigate = useNavigate()
   const [searchParams] = useSearchParams()
@@ -352,6 +403,13 @@ export function ReportsPage() {
     if (end && /^\d{4}-\d{2}-\d{2}$/.test(end)) return end
     if (start && /^\d{4}-\d{2}-\d{2}$/.test(start)) return start
     return defaultRange.end
+  })
+  const [reworkPreset, setReworkPreset] = useState<ReworkDatePreset>(() => {
+    const start = searchParams.get('reworkStart')
+    const end = searchParams.get('reworkEnd')
+    if (start && /^\d{4}-\d{2}-\d{2}$/.test(start)) return 'custom'
+    if (end && /^\d{4}-\d{2}-\d{2}$/.test(end)) return 'custom'
+    return 'this_week'
   })
   const [reworkRows, setReworkRows] = useState<StatusReworkRecord[]>([])
   const [reworkLoading, setReworkLoading] = useState(false)
@@ -457,6 +515,15 @@ export function ReportsPage() {
     setReworkRows(data)
   }
 
+  const applyReworkDatePreset = (preset: ReworkDatePreset) => {
+    setReworkPreset(preset)
+    if (preset === 'custom') return
+    const range = getReworkDatePresetRange(preset)
+    setReworkStart(range.start)
+    setReworkEnd(range.end)
+    void loadReworkLog(range)
+  }
+
   const exportReworkCsv = () => {
     const header = [
       'Changed at',
@@ -550,6 +617,7 @@ export function ReportsPage() {
       reworkEndParam && /^\d{4}-\d{2}-\d{2}$/.test(reworkEndParam) ? reworkEndParam : reworkStartParam
     setReworkStart(reworkStartParam)
     setReworkEnd(end)
+    setReworkPreset('custom')
     void loadReworkLog({ start: reworkStartParam, end })
     const scrollToRework = () => {
       document.getElementById('rework')?.scrollIntoView({ behavior: 'smooth', block: 'start' })
@@ -1155,12 +1223,40 @@ export function ReportsPage() {
         </p>
         <div className="report-filters">
           <label>
+            Date range
+            <select
+              value={reworkPreset}
+              onChange={(e) => applyReworkDatePreset(e.target.value as ReworkDatePreset)}
+              disabled={reworkLoading}
+            >
+              {REWORK_DATE_PRESETS.map((preset) => (
+                <option key={preset.value} value={preset.value}>
+                  {preset.label}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label>
             From
-            <input type="date" value={reworkStart} onChange={(e) => setReworkStart(e.target.value)} />
+            <input
+              type="date"
+              value={reworkStart}
+              onChange={(e) => {
+                setReworkPreset('custom')
+                setReworkStart(e.target.value)
+              }}
+            />
           </label>
           <label>
             To
-            <input type="date" value={reworkEnd} onChange={(e) => setReworkEnd(e.target.value)} />
+            <input
+              type="date"
+              value={reworkEnd}
+              onChange={(e) => {
+                setReworkPreset('custom')
+                setReworkEnd(e.target.value)
+              }}
+            />
           </label>
           <button
             type="button"
