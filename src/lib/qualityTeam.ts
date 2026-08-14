@@ -332,16 +332,49 @@ export type QualityTeamItpRow = {
   plan: ItpLibraryPlanPayload
 }
 
+function planHasOpenFlags(plan: ItpLibraryPlanPayload): boolean {
+  return Object.values(plan.exec ?? {}).some((ex) => Boolean(ex?.flagged) && !String(ex.flagResolution ?? '').trim())
+}
+
+async function fetchAllValveItpRows(): Promise<{
+  rows: Array<{ valve_row_id: unknown; itp_data: unknown; updated_at: unknown }>
+  error: string | null
+}> {
+  const pageSize = 1000
+  const rows: Array<{ valve_row_id: unknown; itp_data: unknown; updated_at: unknown }> = []
+  for (let from = 0; ; from += pageSize) {
+    const to = from + pageSize - 1
+    const { data, error } = await supabase
+      .from('valve_itp')
+      .select('valve_row_id,itp_data,updated_at')
+      .order('updated_at', { ascending: false })
+      .range(from, to)
+    if (error) return { rows: [], error: error.message }
+    const batch = (data as typeof rows | null) ?? []
+    rows.push(...batch)
+    if (batch.length < pageSize) break
+  }
+  return { rows, error: null }
+}
+
+async function fetchValvesByIds(valveIds: number[]): Promise<{ valves: Valve[]; error: string | null }> {
+  const valves: Valve[] = []
+  const chunkSize = 150
+  for (let i = 0; i < valveIds.length; i += chunkSize) {
+    const chunk = valveIds.slice(i, i + chunkSize)
+    const { data, error } = await supabase.from('valves').select(VALVE_LIST_SELECT).in('id', chunk)
+    if (error) return { valves: [], error: error.message }
+    valves.push(...(((data as Valve[] | null) ?? []) as Valve[]))
+  }
+  return { valves, error: null }
+}
+
 export async function loadActiveQualityTeamItps(): Promise<{
   rows: QualityTeamItpRow[]
   error: string | null
 }> {
-  const { data: itpRows, error: itpError } = await supabase
-    .from('valve_itp')
-    .select('valve_row_id,itp_data,updated_at')
-    .order('updated_at', { ascending: false })
-
-  if (itpError) return { rows: [], error: itpError.message }
+  const { rows: itpRows, error: itpError } = await fetchAllValveItpRows()
+  if (itpError) return { rows: [], error: itpError }
 
   const withPlans: Array<{
     valveRowId: number
@@ -349,7 +382,7 @@ export async function loadActiveQualityTeamItps(): Promise<{
     plan: ItpLibraryPlanPayload
   }> = []
 
-  for (const row of itpRows ?? []) {
+  for (const row of itpRows) {
     const valveRowId = Number(row.valve_row_id)
     if (!Number.isFinite(valveRowId)) continue
     const libraryPlan = extractLibraryPlanFromItpData(row.itp_data)
@@ -367,15 +400,11 @@ export async function loadActiveQualityTeamItps(): Promise<{
   if (withPlans.length === 0) return { rows: [], error: null }
 
   const valveIds = [...new Set(withPlans.map((row) => row.valveRowId))]
-  const { data: valves, error: valveError } = await supabase
-    .from('valves')
-    .select(VALVE_LIST_SELECT)
-    .in('id', valveIds)
-
-  if (valveError) return { rows: [], error: valveError.message }
+  const { valves, error: valveError } = await fetchValvesByIds(valveIds)
+  if (valveError) return { rows: [], error: valveError }
 
   const valveById = new Map<number, Valve>()
-  for (const valve of (valves as Valve[] | null) ?? []) {
+  for (const valve of valves) {
     valveById.set(valve.id, valve)
   }
 
@@ -383,8 +412,9 @@ export async function loadActiveQualityTeamItps(): Promise<{
   for (const item of withPlans) {
     const valve = valveById.get(item.valveRowId)
     if (!valve) continue
-    if (isClosedWorkOrder(valve)) continue
     const plan = normalizeItpLibraryPlan(item.plan, valve)
+    // Keep closed jobs that still have open QA flags so tickets remain visible.
+    if (isClosedWorkOrder(valve) && !planHasOpenFlags(plan)) continue
     const level = normalizeQualityTeamLevel(plan.qcReview.acceptedByLevel)
     rows.push({
       valveRowId: valve.id,

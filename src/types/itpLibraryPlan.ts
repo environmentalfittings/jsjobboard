@@ -570,44 +570,66 @@ function normalizeQcReview(raw: unknown): ItpQcReview {
 }
 
 export function normalizeItpLibraryPlan(raw: unknown, valve: Valve): ItpLibraryPlanPayload {
-  if (isItpLibraryPlanPayload(raw)) {
+  const candidate =
+    raw && typeof raw === 'object' && (raw as { kind?: unknown }).kind === 'library_plan'
+      ? (raw as Partial<ItpLibraryPlanPayload> & {
+          sel?: Record<string, unknown>
+          exec?: Record<string, unknown>
+          custom?: unknown
+          attachments?: unknown
+          qcReview?: unknown
+        })
+      : null
+
+  if (candidate || isItpLibraryPlanPayload(raw)) {
+    const source = (candidate ?? raw) as Partial<ItpLibraryPlanPayload> & {
+      sel?: Record<string, unknown>
+      exec?: Record<string, unknown>
+      custom?: unknown
+      attachments?: unknown
+      qcReview?: unknown
+    }
     const exec: Record<string, ItpLibraryItemExec> = {}
-    for (const [id, value] of Object.entries(raw.exec ?? {})) {
+    for (const [id, value] of Object.entries(source.exec ?? {})) {
       exec[id] = normalizeExec(value)
     }
     const sel: Record<string, ItpLibraryItemSel> = {}
-    for (const [id, value] of Object.entries(raw.sel ?? {})) {
+    for (const [id, value] of Object.entries(source.sel ?? {})) {
       // Prefer sel.notes; fall back to legacy exec.notes from earlier saves.
       sel[id] = normalizeSel(value, exec[id]?.notes ?? '')
     }
-    const custom = Array.isArray(raw.custom)
-      ? raw.custom
+    const custom = Array.isArray(source.custom)
+      ? source.custom
           .filter((c) => c && typeof c === 'object')
           .map((c) => ({
             id: String((c as ItpLibraryCustomItem).id),
             secId: (c as ItpLibraryCustomItem).secId,
             name: String((c as ItpLibraryCustomItem).name ?? ''),
           }))
-          .filter((c) => c.id && c.name && ITP_LIBRARY.some((s) => s.id === c.secId))
+          .filter((c) => c.id && c.name)
+          .map((c) => ({
+            ...c,
+            secId: isItpLibrarySectionId(String(c.secId)) ? c.secId : ('receipt' as ItpLibrarySectionId),
+          }))
       : []
 
     return {
       v: ITP_LIBRARY_PLAN_SCHEMA_VERSION,
       kind: 'library_plan',
       valveSnapshot: valveToLibrarySnapshot(valve),
-      jobType: raw.jobType || mapShopJobTypeToLibrary(valve.job_type),
-      valveType: raw.valveType || resolveLibraryValveType(valve.valve_type, valve.bowl_type),
+      jobType: source.jobType || mapShopJobTypeToLibrary(valve.job_type),
+      valveType: source.valveType || resolveLibraryValveType(valve.valve_type, valve.bowl_type),
       sel,
       custom,
       exec,
-      attachments: normalizeAttachments((raw as { attachments?: unknown }).attachments),
-      qcReview: normalizeQcReview((raw as { qcReview?: unknown }).qcReview),
-      inspector: String(raw.inspector ?? ''),
-      inspDate: String(raw.inspDate ?? ''),
-      qcMgr: String(raw.qcMgr ?? ''),
-      qcDate: String(raw.qcDate ?? ''),
-      notes: String(raw.notes ?? ''),
-      updatedAt: String(raw.updatedAt ?? new Date().toISOString()),
+      attachments: normalizeAttachments(source.attachments),
+      qcReview: normalizeQcReview(source.qcReview),
+      inspector: String(source.inspector ?? ''),
+      inspDate: String(source.inspDate ?? ''),
+      qcMgr: String(source.qcMgr ?? ''),
+      qcDate: String(source.qcDate ?? ''),
+      notes: String(source.notes ?? ''),
+      updatedAt: String(source.updatedAt ?? new Date().toISOString()),
     }
   }
   return createEmptyItpLibraryPlan(valve)

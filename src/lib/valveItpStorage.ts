@@ -36,9 +36,32 @@ export function extractProcessPlanFromItpData(stored: unknown): ItpProcessPlanPa
 }
 
 export function extractLibraryPlanFromItpData(stored: unknown): ItpLibraryPlanPayload | null {
-  if (isItpBundle(stored)) return stored.libraryPlan ?? null
-  if (isItpLibraryPlanPayload(stored)) return stored
+  let value: unknown = stored
+  if (typeof value === 'string') {
+    const trimmed = value.trim()
+    if (!trimmed) return null
+    try {
+      value = JSON.parse(trimmed)
+    } catch {
+      return null
+    }
+  }
+  if (isItpBundle(value)) {
+    const plan = value.libraryPlan ?? null
+    return plan && looksLikeLibraryPlan(plan) ? (plan as ItpLibraryPlanPayload) : null
+  }
+  if (looksLikeLibraryPlan(value)) return value as ItpLibraryPlanPayload
   return null
+}
+
+function looksLikeLibraryPlan(value: unknown): boolean {
+  if (!value || typeof value !== 'object') return false
+  const o = value as { kind?: unknown; sel?: unknown; exec?: unknown }
+  if (o.kind !== 'library_plan') return false
+  // Prefer the typed version gate, but still accept recognizable plans if the gate rejects
+  // (e.g. newer schema versions before the app was redeployed).
+  if (isItpLibraryPlanPayload(value)) return true
+  return typeof o.sel === 'object' && o.sel != null && typeof o.exec === 'object' && o.exec != null
 }
 
 export function hasItpInspectionData(stored: unknown, legacyContent?: string): boolean {

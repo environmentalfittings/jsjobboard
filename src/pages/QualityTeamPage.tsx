@@ -436,6 +436,11 @@ export function QualityTeamPage() {
         ) : filteredFlags.length === 0 ? (
           <p className="placeholder-copy">
             {flagFilter === 'open' ? 'No open flagged items.' : 'No flagged items match this filter.'}
+            <span className="quality-team-flag-scan-hint">
+              {' '}
+              Scanned {rows.length} library ITP{rows.length === 1 ? '' : 's'}
+              {flaggedItems.length > 0 ? ` (${flaggedItems.length} flagged total).` : '.'}
+            </span>
           </p>
         ) : (
           <div className="quality-team-flag-list">
