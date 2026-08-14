@@ -184,7 +184,7 @@ function cellForMoveAttribution(fromCell: string, toCell: string): string {
 
 const DEPT_TEARDOWN_STATUSES = new Set(['Pull from Customer Yard', 'Teardown'])
 const DEPT_WELDING_STATUSES = new Set(['Welding'])
-const DEPT_MACHINE_SHOP_STATUSES = new Set(['Machine 1', 'Machine 2'])
+const DEPT_MACHINE_SHOP_STATUSES = new Set(['Machine 1', 'Machine 2', 'Water Jet', 'Grinding'])
 const DEPT_TESTING_STATUSES = new Set(['Testing'])
 const DEPT_PAINTING_STATUSES = new Set(['Painting'])
 

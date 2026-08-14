@@ -1,6 +1,7 @@
 import { isOnHoldForMetrics } from './onTimeDelivery'
 import type { Valve } from '../types'
 import { metricsCompletionDateForValve, displayJobStatus, isClosedWorkOrder, isCompletedForMetrics } from './jobDisplayStatus'
+import { STATUS_ORDER } from '../constants/statuses'
 
 /** KPI cards — matches Excel Dashboard sheet on the Valve Status workbook. */
 export function calcDashboardKpis(valves: Valve[]) {
@@ -34,21 +35,35 @@ export function calcActiveJobsByCell(valves: Valve[], limit = 20) {
 /** Shop status counts for open work orders (excludes closed Completed order type). */
 export function calcActiveStatusBreakdown(valves: Valve[]) {
   const counts = new Map<string, number>()
+  // Always include configured shop statuses (e.g. Grinding) even at zero so new
+  // statuses stay visible on the dashboard / priority drill-in.
+  for (const status of STATUS_ORDER) {
+    if (status === 'Completed') continue
+    counts.set(status, 0)
+  }
+
   valves.forEach((v) => {
     if (isClosedWorkOrder(v)) return
     const status = displayJobStatus(v)
     if (status === 'Completed') return
     counts.set(status, (counts.get(status) ?? 0) + 1)
   })
+
+  const orderIndex = new Map<string, number>(STATUS_ORDER.map((status, index) => [status, index]))
   const rows = [...counts.entries()]
     .map(([status, count]) => ({
       status,
       label: status === 'Warehouse RTS' ? 'Ready to Ship' : status,
       count,
     }))
-    .filter((row) => row.count > 0)
-    .sort((a, b) => b.count - a.count || a.label.localeCompare(b.label))
-  return { rows, maxCount: rows[0]?.count ?? 1 }
+    .sort((a, b) => {
+      if (b.count !== a.count) return b.count - a.count
+      const orderA = orderIndex.get(a.status) ?? 999
+      const orderB = orderIndex.get(b.status) ?? 999
+      if (orderA !== orderB) return orderA - orderB
+      return a.label.localeCompare(b.label)
+    })
+  return { rows, maxCount: Math.max(1, ...rows.map((row) => row.count)) }
 }
 
 export function calcCompletedMetrics(valves: Valve[], now = new Date()) {

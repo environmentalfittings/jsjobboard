@@ -465,7 +465,7 @@ export function DashboardPage() {
                 return (
                   <Link
                     key={item.status}
-                    className={`status-breakdown-chip ${toneClass}`}
+                    className={`status-breakdown-chip ${toneClass}${item.count === 0 ? ' status-breakdown-chip-empty' : ''}`}
                     to={(() => {
                       const dept = departmentIdForShopStatus(item.status)
                       return dept
@@ -483,7 +483,7 @@ export function DashboardPage() {
               })}
             </div>
             <p className="status-breakdown-note">
-              Open work orders only — click a status to set and print its daily priorities.
+              All shop statuses are listed (zeros included) — click a status to set and print its daily priorities.
             </p>
           </section>
 

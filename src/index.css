@@ -4806,6 +4806,11 @@ a.test-log-reports-item-name:hover {
   background: #fff;
 }
 
+.status-breakdown-chip-empty {
+  opacity: 0.72;
+  color: #64748b;
+}
+
 .status-breakdown-meter {
   position: absolute;
   left: 10px;
