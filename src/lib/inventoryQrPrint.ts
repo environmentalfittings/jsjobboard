@@ -19,6 +19,7 @@ export type InventoryQrPrintItem = Pick<
   | 'id'
   | 'js_inventory_id'
   | 'customer'
+  | 'customer_id_no'
   | 'size'
   | 'pressure'
   | 'hf_acid'
@@ -36,6 +37,7 @@ export function printInventoryQrSheet(items: InventoryQrPrintItem[]): { error: s
   const cards = printable
     .map((item) => {
       const title = escapeHtml(display(item.js_inventory_id))
+      const customerId = escapeHtml(display(item.customer_id_no))
       const customer = escapeHtml(display(item.customer))
       const sizePressure = [item.size, item.pressure]
         .map((value) => value?.trim())
@@ -47,6 +49,7 @@ export function printInventoryQrSheet(items: InventoryQrPrintItem[]): { error: s
       const hf = item.hf_acid ? '<span class="hf">HF Acid</span>' : ''
       return `<article class="card">
         <h2>${title}${hf}</h2>
+        <p class="customer-id">Customer ID: ${customerId}</p>
         <p class="customer">${customer}</p>
         <p class="meta">${meta}</p>
         <img src="${qr}" alt="QR code for ${title}" />
@@ -128,10 +131,15 @@ export function printInventoryQrSheet(items: InventoryQrPrintItem[]): { error: s
       font-family: system-ui, sans-serif;
     }
     .card .customer,
+    .card .customer-id,
     .card .meta {
       margin: 0.12rem 0 0;
       font-size: 10pt;
       color: #334155;
+    }
+    .card .customer-id {
+      font-weight: 700;
+      color: #0f172a;
     }
     .card .meta { color: #64748b; }
     .card img {

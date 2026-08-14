@@ -41,6 +41,7 @@ import {
   printInventoryCustomerReport,
 } from '../lib/inventoryCustomerReport'
 import { clearInventoryMonthlyReportAlert } from '../lib/inventoryMonthlyAlert'
+import { printInventoryQrToBrotherUsb } from '../lib/brotherQlInventoryQr'
 import { printInventoryQrSheet } from '../lib/inventoryQrPrint'
 import {
   notifySalesRepCustomerInventoryReport,
@@ -424,6 +425,7 @@ export function AdminInventoryPage() {
   const [expandedRowId, setExpandedRowId] = useState<string | null>(null)
   const [sendingReport, setSendingReport] = useState(false)
   const [sendingMonthly, setSendingMonthly] = useState(false)
+  const [printingBrother, setPrintingBrother] = useState(false)
 
   const reload = useCallback(async () => {
     setLoading(true)
@@ -841,6 +843,31 @@ export function AdminInventoryPage() {
     if (error) showToast(error)
   }
 
+  const printBrotherLabels = async (items: InventoryRecord[]) => {
+    setPrintingBrother(true)
+    try {
+      await printInventoryQrToBrotherUsb(items)
+      showToast(
+        items.length === 1
+          ? 'Sent label to barcode printer'
+          : `Sent ${items.length} labels to barcode printer`,
+      )
+    } catch (error) {
+      showToast(error instanceof Error ? error.message : 'Could not print on barcode printer')
+    } finally {
+      setPrintingBrother(false)
+    }
+  }
+
+  const printQrOnBrother = () => {
+    if (!qrItem) return
+    void printBrotherLabels([qrItem])
+  }
+
+  const printSelectedOnBrother = () => {
+    void printBrotherLabels(selectedPrintable)
+  }
+
   const setCustomerFilterValue = (value: string) => {
     setCustomerFilter(value)
     const next = new URLSearchParams(searchParams)
@@ -1112,8 +1139,16 @@ export function AdminInventoryPage() {
                   <button type="button" className="button-secondary" onClick={clearSelection}>
                     Clear selection
                   </button>
-                  <button type="button" className="button-primary" onClick={printSelectedQrCodes}>
-                    Print selected QR codes
+                  <button type="button" className="button-secondary" onClick={printSelectedQrCodes}>
+                    Print sheet
+                  </button>
+                  <button
+                    type="button"
+                    className="button-primary"
+                    disabled={printingBrother}
+                    onClick={printSelectedOnBrother}
+                  >
+                    {printingBrother ? 'Printing…' : 'Print on barcode printer'}
                   </button>
                 </div>
               ) : null}
@@ -1740,6 +1775,10 @@ export function AdminInventoryPage() {
             </div>
             <div className="technician-modal-body inventory-qr-body">
               <img src={qrItem.qr_code_data_url} alt="Inventory QR code" className="inventory-qr-image" />
+              <p className="inventory-qr-js-id">{qrItem.js_inventory_id || '—'}</p>
+              <p className="inventory-qr-customer-id">
+                Customer ID: {qrItem.customer_id_no?.trim() || '—'}
+              </p>
               <p className="inventory-qr-customer">{qrItem.customer || '—'}</p>
               <p className="inventory-qr-url">{buildInventoryItemUrl(qrItem.id)}</p>
               <div className="inventory-table-thumbs inventory-qr-thumbs">
@@ -1754,8 +1793,16 @@ export function AdminInventoryPage() {
               <button type="button" className="button-secondary" onClick={downloadQr}>
                 Download QR
               </button>
-              <button type="button" className="button-primary" onClick={printQr}>
-                Print QR
+              <button type="button" className="button-secondary" onClick={printQr}>
+                Print sheet
+              </button>
+              <button
+                type="button"
+                className="button-primary"
+                disabled={printingBrother}
+                onClick={printQrOnBrother}
+              >
+                {printingBrother ? 'Printing…' : 'Print on barcode printer'}
               </button>
             </div>
           </div>
