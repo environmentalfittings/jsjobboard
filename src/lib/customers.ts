@@ -173,3 +173,142 @@ export function findCustomerByName(
   if (!needle) return null
   return customers.find((row) => normalizeCustomerNameKey(row.name) === needle) ?? null
 }
+
+type CustomerNameRewriteTarget = {
+  table: string
+  column: string
+  label: string
+}
+
+const CUSTOMER_NAME_REWRITE_TARGETS: CustomerNameRewriteTarget[] = [
+  { table: 'valves', column: 'customer', label: 'jobs' },
+  { table: 'inventory', column: 'customer', label: 'inventory' },
+  { table: 'inventory_events', column: 'customer', label: 'inventory activity' },
+  { table: 'received_valves', column: 'customer', label: 'received valves' },
+  { table: 'traveler_basic_info', column: 'customer', label: 'travelers' },
+  { table: 'quality_incrs', column: 'customer_name', label: 'INCRs' },
+  { table: 'customer_portal_users', column: 'customer_name', label: 'customer portal users' },
+]
+
+async function rewriteCustomerNameInTable(
+  table: string,
+  column: string,
+  fromName: string,
+  toName: string,
+): Promise<{ updated: number; error: string | null; skipped?: boolean }> {
+  const { data, error } = await supabase
+    .from(table)
+    .update({ [column]: toName })
+    .eq(column, fromName)
+    .select('id')
+
+  if (error) {
+    // Table/column may not exist in every environment — skip quietly.
+    if (/schema cache|does not exist|relation|column/i.test(error.message)) {
+      return { updated: 0, error: null, skipped: true }
+    }
+    return { updated: 0, error: error.message }
+  }
+  return { updated: (data ?? []).length, error: null }
+}
+
+export type CustomerMergeResult = {
+  keepName: string
+  mergedNames: string[]
+  updatedByTable: Record<string, number>
+  deletedCustomerRows: number
+  error: string | null
+}
+
+/**
+ * Merge duplicate customer list entries into one kept name.
+ * Rewrites linked job/inventory/etc. rows that still use the source names,
+ * then deletes the source customers list rows.
+ */
+export async function mergeCustomers(options: {
+  keepCustomerId: number
+  sourceCustomerIds: number[]
+  customers: CustomerSalesRepRow[]
+}): Promise<CustomerMergeResult> {
+  const keep = options.customers.find((row) => row.id === options.keepCustomerId)
+  if (!keep) {
+    return {
+      keepName: '',
+      mergedNames: [],
+      updatedByTable: {},
+      deletedCustomerRows: 0,
+      error: 'Keep customer not found',
+    }
+  }
+
+  const sourceIds = [...new Set(options.sourceCustomerIds.filter((id) => id !== keep.id))]
+  if (!sourceIds.length) {
+    return {
+      keepName: keep.name,
+      mergedNames: [],
+      updatedByTable: {},
+      deletedCustomerRows: 0,
+      error: 'Select at least one other customer to merge',
+    }
+  }
+
+  const sources = options.customers.filter((row) => sourceIds.includes(row.id))
+  if (!sources.length) {
+    return {
+      keepName: keep.name,
+      mergedNames: [],
+      updatedByTable: {},
+      deletedCustomerRows: 0,
+      error: 'Source customers not found',
+    }
+  }
+
+  const keepName = keep.name.trim()
+  const updatedByTable: Record<string, number> = {}
+  const errors: string[] = []
+
+  for (const source of sources) {
+    const fromName = source.name.trim()
+    if (!fromName || normalizeCustomerNameKey(fromName) === normalizeCustomerNameKey(keepName)) {
+      continue
+    }
+    for (const target of CUSTOMER_NAME_REWRITE_TARGETS) {
+      const result = await rewriteCustomerNameInTable(target.table, target.column, fromName, keepName)
+      if (result.error) {
+        errors.push(`${target.label}: ${result.error}`)
+        continue
+      }
+      if (result.skipped) continue
+      updatedByTable[target.label] = (updatedByTable[target.label] ?? 0) + result.updated
+    }
+  }
+
+  // If the keep row has no salesman, inherit from the first source that has one.
+  if (!keep.sales_rep_employee_id) {
+    const donor = sources.find((row) => row.sales_rep_employee_id)
+    if (donor?.sales_rep_employee_id) {
+      const { error } = await updateCustomerSalesRep(keep.id, donor.sales_rep_employee_id)
+      if (error) errors.push(`Salesman copy: ${error}`)
+    }
+  }
+
+  const { error: deleteError, count } = await supabase
+    .from('customers')
+    .delete({ count: 'exact' })
+    .in(
+      'id',
+      sources.map((row) => row.id),
+    )
+
+  if (deleteError) {
+    errors.push(`Could not delete merged customer list rows: ${deleteError.message}`)
+  }
+
+  return {
+    keepName,
+    mergedNames: sources.map((row) => row.name),
+    updatedByTable,
+    deletedCustomerRows: count ?? sources.length,
+    error: errors.length ? errors.join(' · ') : null,
+  }
+}

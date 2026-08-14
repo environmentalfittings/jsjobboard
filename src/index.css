@@ -5873,6 +5873,84 @@ a.test-log-reports-item-name:hover {
   align-items: flex-end;
 }
 
+.admin-list-row-customer.is-selected {
+  background: #f0fdfa;
+  border-color: #99f6e4;
+}
+
+.admin-customer-select {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 1.5rem;
+  padding-bottom: 0.55rem;
+}
+
+.admin-customer-select input {
+  width: 1rem;
+  height: 1rem;
+  accent-color: #0f766e;
+  cursor: pointer;
+}
+
+.admin-customer-merge-bar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem 1rem;
+  align-items: end;
+  margin: 0 0 1rem;
+  padding: 0.85rem 1rem;
+  border: 1px solid #99f6e4;
+  border-radius: 12px;
+  background: #f0fdfa;
+}
+
+.admin-customer-merge-copy {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  min-width: 180px;
+  flex: 1;
+  font-size: 13px;
+  color: #334155;
+}
+
+.admin-customer-merge-copy strong {
+  color: #0f766e;
+  font-size: 14px;
+}
+
+.admin-customer-merge-keep {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+  min-width: 220px;
+  flex: 1.2;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+  color: #64748b;
+}
+
+.admin-customer-merge-keep select {
+  min-height: 2.35rem;
+  border: 1px solid #cbd5e1;
+  border-radius: 8px;
+  padding: 0.4rem 0.55rem;
+  background: #fff;
+  font: 400 14px/1.2 system-ui, sans-serif;
+  text-transform: none;
+  letter-spacing: normal;
+  color: #0f172a;
+}
+
+.admin-customer-merge-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
 .admin-customer-name-block {
   display: flex;
   flex-direction: column;

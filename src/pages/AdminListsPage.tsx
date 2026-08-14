@@ -11,6 +11,7 @@ import {
   formatCustomerUsageSummary,
   loadCustomerRecordUsageByName,
   loadCustomersWithSalesRep,
+  mergeCustomers,
   updateCustomerSalesRep,
   usageForCustomerName,
   type CustomerRecordUsage,
@@ -120,6 +121,9 @@ export function AdminListsPage() {
   const [customerDraft, setCustomerDraft] = useState('')
   const [savingCustomer, setSavingCustomer] = useState(false)
   const [savingSalesRepId, setSavingSalesRepId] = useState<number | null>(null)
+  const [selectedCustomerIds, setSelectedCustomerIds] = useState<Set<number>>(() => new Set())
+  const [mergeKeepId, setMergeKeepId] = useState<number | null>(null)
+  const [mergingCustomers, setMergingCustomers] = useState(false)
   const [itpRows, setItpRows] = useState<ItpTemplateRow[]>([])
   const [itpLoading, setItpLoading] = useState(true)
 
@@ -520,6 +524,78 @@ export function AdminListsPage() {
     }
     showToast('Removed')
     loadCustomers()
+  }
+
+  const toggleCustomerSelected = (id: number, checked: boolean) => {
+    setSelectedCustomerIds((prev) => {
+      const next = new Set(prev)
+      if (checked) next.add(id)
+      else next.delete(id)
+      return next
+    })
+    setMergeKeepId((prev) => {
+      if (!checked && prev === id) return null
+      if (checked && prev == null) return id
+      return prev
+    })
+  }
+
+  const clearCustomerSelection = () => {
+    setSelectedCustomerIds(new Set())
+    setMergeKeepId(null)
+  }
+
+  const selectedCustomers = useMemo(
+    () => customers.filter((row) => selectedCustomerIds.has(row.id)),
+    [customers, selectedCustomerIds],
+  )
+
+  const runCustomerMerge = async () => {
+    if (!mergeKeepId || selectedCustomerIds.size < 2) {
+      showToast('Select at least two customers, then choose which name to keep')
+      return
+    }
+    const keep = customers.find((row) => row.id === mergeKeepId)
+    const sources = selectedCustomers.filter((row) => row.id !== mergeKeepId)
+    if (!keep || !sources.length) {
+      showToast('Choose which customer name to keep')
+      return
+    }
+
+    const sourceList = sources.map((row) => `• ${row.name}`).join('\n')
+    if (
+      !window.confirm(
+        `Merge these customers into “${keep.name}”?\n\n${sourceList}\n\nJobs, inventory, and other records using the merged names will be updated to “${keep.name}”, then the duplicate list entries will be removed.`,
+      )
+    ) {
+      return
+    }
+
+    setMergingCustomers(true)
+    const result = await mergeCustomers({
+      keepCustomerId: keep.id,
+      sourceCustomerIds: sources.map((row) => row.id),
+      customers,
+    })
+    setMergingCustomers(false)
+
+    if (result.error && !result.deletedCustomerRows) {
+      showToast(result.error)
+      return
+    }
+
+    const moved = Object.entries(result.updatedByTable)
+      .filter(([, count]) => count > 0)
+      .map(([label, count]) => `${count} ${label}`)
+      .join(', ')
+
+    showToast(
+      `Merged into “${result.keepName}”` +
+        (moved ? ` · updated ${moved}` : ' · no linked records needed renaming') +
+        (result.error ? ` (${result.error})` : ''),
+    )
+    clearCustomerSelection()
+    await loadCustomers()
   }
 
   const addItpStep = async () => {
@@ -1302,7 +1378,8 @@ export function AdminListsPage() {
           <p className="placeholder-copy resources-hint">
             Assign a salesman to each customer so monthly Customer Inventory reports can be sent in Messages.
             The badge under each name shows how many jobs, inventory, received-valve, and traveler records use
-            that name — delete only entries with 0 records when cleaning duplicates.
+            that name. To clean duplicates (for example three AEP PSO Oologah variants), select them and use
+            Merge — pick the name to keep and all linked records move onto that name.
             {salesRepColumnMissing
               ? ' Run migration-customers-sales-rep.sql in Supabase to enable salesman assignment.'
               : null}
@@ -1311,13 +1388,54 @@ export function AdminListsPage() {
             <p className="placeholder-copy">Loading…</p>
           ) : (
             <>
+              {selectedCustomerIds.size > 0 ? (
+                <div className="admin-customer-merge-bar">
+                  <div className="admin-customer-merge-copy">
+                    <strong>{selectedCustomerIds.size} selected</strong>
+                    <span>Choose the name to keep, then merge the others into it.</span>
+                  </div>
+                  <label className="admin-customer-merge-keep">
+                    <span>Keep this name</span>
+                    <select
+                      value={mergeKeepId ?? ''}
+                      onChange={(e) => setMergeKeepId(e.target.value ? Number(e.target.value) : null)}
+                      aria-label="Customer name to keep after merge"
+                    >
+                      <option value="">— Select —</option>
+                      {selectedCustomers.map((row) => (
+                        <option key={row.id} value={row.id}>
+                          {row.name} (
+                          {usageForCustomerName(customerUsageByName, row.name).total} records)
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  <div className="admin-customer-merge-actions">
+                    <button type="button" className="button-secondary" onClick={clearCustomerSelection}>
+                      Clear
+                    </button>
+                    <button
+                      type="button"
+                      className="button-primary"
+                      disabled={mergingCustomers || selectedCustomerIds.size < 2 || !mergeKeepId}
+                      onClick={() => void runCustomerMerge()}
+                    >
+                      {mergingCustomers ? 'Merging…' : 'Merge selected'}
+                    </button>
+                  </div>
+                </div>
+              ) : null}
               <ul className="admin-list-rows">
                 {customers.map((c) => {
                   const usage = usageForCustomerName(customerUsageByName, c.name)
                   const usageLabel = formatCustomerUsageSummary(usage)
                   const hasRecords = usage.total > 0
+                  const selected = selectedCustomerIds.has(c.id)
                   return (
-                  <li key={c.id} className="admin-list-row admin-list-row-customer">
+                  <li
+                    key={c.id}
+                    className={`admin-list-row admin-list-row-customer${selected ? ' is-selected' : ''}`}
+                  >
                     {editingCustomerId === c.id ? (
                       <>
                         <input
@@ -1344,6 +1462,14 @@ export function AdminListsPage() {
                       </>
                     ) : (
                       <>
+                        <label className="admin-customer-select">
+                          <input
+                            type="checkbox"
+                            checked={selected}
+                            onChange={(e) => toggleCustomerSelected(c.id, e.target.checked)}
+                            aria-label={`Select ${c.name} for merge`}
+                          />
+                        </label>
                         <div className="admin-customer-name-block">
                           <span className="admin-list-value">{c.name}</span>
                           <span
