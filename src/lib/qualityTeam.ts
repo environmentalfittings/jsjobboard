@@ -3,6 +3,7 @@ import { normalizeEmployeeUsername } from './employeeAuth'
 import { supabase } from './supabase'
 import { extractLibraryPlanFromItpData } from './valveItpStorage'
 import { VALVE_LIST_SELECT } from './valveSelect'
+import { findLibraryItem } from '../constants/itpLibrary'
 import {
   normalizeQualityTeamLevel,
   qualityTeamLevelLabel,
@@ -444,18 +445,28 @@ export type QualityTeamFlaggedItem = {
 export function collectFlaggedItemsFromItps(rows: QualityTeamItpRow[]): QualityTeamFlaggedItem[] {
   const out: QualityTeamFlaggedItem[] = []
   for (const row of rows) {
-    for (const item of allScopeItems(row.plan)) {
-      const ex = getExec(row.plan, item.id)
+    const scopeById = new Map(allScopeItems(row.plan).map((item) => [item.id, item]))
+    const itemIds = new Set<string>([...scopeById.keys(), ...Object.keys(row.plan.exec ?? {})])
+    for (const itemId of itemIds) {
+      const ex = getExec(row.plan, itemId)
       if (!ex.flagged) continue
+      const scopeItem = scopeById.get(itemId)
+      const custom = row.plan.custom.find((c) => c.id === itemId)
+      const found = findLibraryItem(itemId)
+      const itemName =
+        scopeItem?.name?.trim() ||
+        custom?.name?.trim() ||
+        found?.item.name?.trim() ||
+        itemId
       const resolution = ex.flagResolution?.trim() ?? ''
       out.push({
-        key: `${row.valveRowId}:${item.id}`,
+        key: `${row.valveRowId}:${itemId}`,
         valveRowId: row.valveRowId,
         valveId: row.valveId,
         customer: row.customer,
         cell: row.cell,
-        itemId: item.id,
-        itemName: item.name,
+        itemId,
+        itemName,
         flagReason: ex.flagReason?.trim() || '—',
         flagPhotos: ex.flagPhotos ?? [],
         flaggedAt: ex.flaggedAt,

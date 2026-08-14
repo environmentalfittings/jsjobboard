@@ -157,7 +157,9 @@ export function isItpLibraryPlanPayload(value: unknown): value is ItpLibraryPlan
   if (!value || typeof value !== 'object') return false
   const o = value as { v?: unknown; kind?: unknown }
   const version = typeof o.v === 'number' ? o.v : Number(o.v)
-  return (version === 4 || version === 5 || version === 6 || version === 7) && o.kind === 'library_plan'
+  if (o.kind !== 'library_plan' || !Number.isFinite(version)) return false
+  // Accept current schema and prior versions (v8 added sectionId overrides).
+  return version >= 4 && version <= ITP_LIBRARY_PLAN_SCHEMA_VERSION
 }
 
 export function emptyQcReview(): ItpQcReview {
