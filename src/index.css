@@ -29,7 +29,8 @@ body {
   padding: 12px 18px;
   display: flex;
   align-items: center;
-  gap: 18px;
+  flex-wrap: wrap;
+  gap: 12px 18px;
 }
 
 .brand {
@@ -202,16 +203,22 @@ body {
   display: flex;
   gap: 4px;
   align-items: center;
-  flex-wrap: nowrap;
-  flex: 1;
+  flex-wrap: wrap;
+  flex: 1 1 28rem;
   min-width: 0;
 }
 
 .nav-session {
   display: flex;
-  gap: 12px;
+  gap: 10px;
   align-items: center;
+  flex-wrap: wrap;
+  justify-content: flex-end;
   margin-left: auto;
+  flex: 0 0 auto;
+  max-width: 100%;
+  position: relative;
+  z-index: 5;
 }
 
 .nav-feedback-button {
@@ -1293,6 +1300,10 @@ body {
   font-size: 12px;
   font-weight: 700;
   padding: 3px 10px;
+  max-width: 9.5rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .logout-button {
@@ -11764,24 +11775,21 @@ tbody tr:hover {
   font-weight: 600;
 }
 
-@media (max-width: 1200px) {
+@media (max-width: 1360px) {
   .navbar-inner {
-    flex-wrap: wrap;
     gap: 10px 14px;
   }
 
   .nav-main-links {
     order: 3;
+    flex: 1 1 100%;
     width: 100%;
     padding-top: 2px;
-    flex-wrap: wrap;
     gap: 4px;
   }
 
   .nav-session {
-    margin-left: 0;
-    flex-wrap: wrap;
-    justify-content: flex-end;
+    margin-left: auto;
     gap: 8px;
   }
 }
