@@ -979,23 +979,32 @@ export function AdminInventoryPage() {
             </select>
           </label>
           <div className="inventory-toolbar-meta">
-            <span className="inventory-toolbar-count">
-              {filtered.length} item{filtered.length === 1 ? '' : 's'}
-              {customerFilter.trim() || search.trim() ? ' matching' : ''}
-              {selectedPrintable.length > 0
-                ? ` · ${selectedPrintable.length} selected for print`
-                : ''}
-            </span>
-            {selectedPrintable.length > 0 ? (
-              <div className="inventory-selection-actions">
-                <button type="button" className="button-secondary" onClick={clearSelection}>
-                  Clear selection
-                </button>
-                <button type="button" className="button-primary" onClick={printSelectedQrCodes}>
-                  Print selected QR codes
-                </button>
-              </div>
-            ) : null}
+            <button
+              type="button"
+              className="button-primary inventory-toolbar-add"
+              onClick={() => void openCreate()}
+            >
+              Add customer inventory item
+            </button>
+            <div className="inventory-toolbar-meta-end">
+              <span className="inventory-toolbar-count">
+                {filtered.length} item{filtered.length === 1 ? '' : 's'}
+                {customerFilter.trim() || search.trim() ? ' matching' : ''}
+                {selectedPrintable.length > 0
+                  ? ` · ${selectedPrintable.length} selected for print`
+                  : ''}
+              </span>
+              {selectedPrintable.length > 0 ? (
+                <div className="inventory-selection-actions">
+                  <button type="button" className="button-secondary" onClick={clearSelection}>
+                    Clear selection
+                  </button>
+                  <button type="button" className="button-primary" onClick={printSelectedQrCodes}>
+                    Print selected QR codes
+                  </button>
+                </div>
+              ) : null}
+            </div>
           </div>
         </div>
 
