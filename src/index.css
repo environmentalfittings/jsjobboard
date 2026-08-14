@@ -17378,6 +17378,20 @@ tbody tr:hover {
   color: #0f172a;
 }
 
+.inventory-qr-js-id {
+  margin: 0.35rem 0 0;
+  font-size: 1.15rem;
+  font-weight: 700;
+  color: #0f172a;
+}
+
+.inventory-qr-customer-id {
+  margin: 0;
+  font-size: 0.95rem;
+  font-weight: 700;
+  color: #334155;
+}
+
 .inventory-qr-url {
   margin: 0;
   font-size: 11px;
