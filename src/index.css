@@ -8711,13 +8711,13 @@ tbody tr:hover {
   overflow: hidden;
   display: flex;
   flex-direction: column;
-  height: min(88dvh, calc(100dvh - 24px));
-  min-height: min(680px, calc(100dvh - 24px));
-  max-height: min(90vh, calc(100dvh - 24px));
+  height: min(90dvh, calc(100dvh - 16px));
+  min-height: min(520px, calc(100dvh - 16px));
+  max-height: min(94vh, calc(100dvh - 16px));
 }
 
 .job-card-shell.modal-card-with-attachments {
-  width: min(760px, 100%);
+  width: min(920px, 100%);
 }
 
 .job-card-shell.modal-card-job-detail--max {
@@ -8734,8 +8734,8 @@ tbody tr:hover {
   display: flex;
   align-items: flex-start;
   justify-content: space-between;
-  gap: 16px;
-  padding: 16px 16px 0;
+  gap: 10px;
+  padding: 10px 12px 0;
 }
 
 .job-card-header-text {
@@ -8743,46 +8743,81 @@ tbody tr:hover {
   flex: 1;
 }
 
+.job-card-title-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 6px 10px;
+  min-width: 0;
+}
+
 .job-card-job-id {
-  font-size: 14px;
+  font-size: 13px;
   font-weight: 700;
   color: #64748b;
   letter-spacing: 0.02em;
+  white-space: nowrap;
 }
 
 .job-card-valve-type-title {
-  margin: 4px 0 0;
-  font-size: 22px;
+  margin: 0;
+  font-size: 18px;
   font-weight: 800;
   letter-spacing: -0.02em;
   color: #0f172a;
-  line-height: 1.2;
+  line-height: 1.15;
+  min-width: 0;
 }
 
 .job-card-subtitle {
-  margin: 8px 0 0;
-  font-size: 14px;
-  line-height: 1.45;
+  margin: 4px 0 0;
+  font-size: 13px;
+  line-height: 1.35;
   color: #475569;
+}
+
+.job-card-meta-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 6px;
+  margin-top: 6px;
+  min-width: 0;
+}
+
+.job-card-meta-chip {
+  display: inline-block;
+  max-width: min(280px, 100%);
+  padding: 2px 8px;
+  border-radius: 999px;
+  border: 1px solid #e2e8f0;
+  background: #f8fafc;
+  color: #334155;
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1.35;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .job-card-header-chips {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 10px 12px;
-  margin-top: 12px;
+  gap: 6px 8px;
+  margin-top: 8px;
 }
 
 .job-card-turnaround-pill {
   display: inline-flex;
   align-items: center;
-  gap: 8px;
-  padding: 6px 12px;
+  gap: 6px;
+  padding: 4px 10px;
   border-radius: 999px;
   border: 1px solid #cbd5e1;
   background: #fff;
-  font-size: 13px;
+  font-size: 12px;
   font-weight: 600;
   color: #0f172a;
   cursor: pointer;
@@ -8790,8 +8825,8 @@ tbody tr:hover {
 }
 
 .job-card-turnaround-pill input {
-  width: 16px;
-  height: 16px;
+  width: 14px;
+  height: 14px;
   margin: 0;
   accent-color: #2563eb;
   cursor: pointer;
@@ -8809,28 +8844,28 @@ tbody tr:hover {
 .job-card-status-field {
   display: inline-flex;
   align-items: center;
-  gap: 8px;
+  gap: 6px;
 }
 
 .job-card-status-prefix {
-  font-size: 13px;
+  font-size: 12px;
   font-weight: 700;
   color: #334155;
 }
 
 .job-card-status-select {
   appearance: none;
-  padding: 6px 28px 6px 12px;
+  padding: 4px 26px 4px 10px;
   border-radius: 8px;
   border: 1px solid #f59e0b;
   background: #fef3c7
     url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='%2378350f' d='M3 4.5L6 7.5L9 4.5'/%3E%3C/svg%3E")
-    no-repeat right 10px center;
-  font-size: 13px;
+    no-repeat right 8px center;
+  font-size: 12px;
   font-weight: 700;
   color: #78350f;
   cursor: pointer;
-  max-width: min(280px, 72vw);
+  max-width: min(240px, 70vw);
 }
 
 .job-card-status-select:disabled {
@@ -8840,16 +8875,16 @@ tbody tr:hover {
 
 .job-card-header-actions {
   display: flex;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
   align-items: flex-start;
   justify-content: flex-end;
-  gap: 8px;
+  gap: 2px;
   flex-shrink: 0;
 }
 
 .job-card-header-btn {
-  font-size: 14px;
-  padding: 8px 14px;
+  font-size: 13px;
+  padding: 6px 10px;
   border-radius: 8px;
 }
 
@@ -8865,20 +8900,20 @@ tbody tr:hover {
 .job-card-tabs {
   display: flex;
   flex-wrap: wrap;
-  gap: 4px 2px;
-  padding: 0 12px;
-  margin-top: 14px;
+  gap: 2px;
+  padding: 0 8px;
+  margin-top: 8px;
   border-bottom: 1px solid #e2e8f0;
 }
 
 .job-card-tab {
   margin: 0;
-  padding: 10px 14px;
+  padding: 7px 11px;
   border: none;
   border-bottom: 2px solid transparent;
   margin-bottom: -1px;
   background: transparent;
-  font-size: 14px;
+  font-size: 13px;
   font-weight: 600;
   color: #64748b;
   cursor: pointer;
@@ -8905,7 +8940,7 @@ tbody tr:hover {
   overflow-x: hidden;
   overscroll-behavior: contain;
   -webkit-overflow-scrolling: touch;
-  padding: 16px;
+  padding: 12px;
   background: #f1f5f9;
 }
 
@@ -9183,13 +9218,13 @@ tbody tr:hover {
   flex-wrap: wrap;
   align-items: center;
   justify-content: space-between;
-  gap: 10px;
-  margin-bottom: 14px;
+  gap: 8px;
+  margin-bottom: 10px;
 }
 
 .job-card-section-title {
   margin: 0;
-  font-size: 17px;
+  font-size: 15px;
   font-weight: 800;
   color: #0f172a;
   letter-spacing: -0.02em;
@@ -9234,7 +9269,7 @@ tbody tr:hover {
   background: #fff;
   border: 1px solid #e2e8f0;
   border-radius: 10px;
-  margin-bottom: 12px;
+  margin-bottom: 10px;
   box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04);
   overflow: hidden;
 }
@@ -9433,8 +9468,8 @@ tbody tr:hover {
   flex-wrap: wrap;
   align-items: center;
   justify-content: space-between;
-  gap: 12px;
-  padding: 12px 16px 16px;
+  gap: 8px;
+  padding: 8px 12px 10px;
   border-top: 1px solid #e2e8f0;
   background: #fff;
   border-radius: 0 0 12px 12px;
@@ -9443,8 +9478,14 @@ tbody tr:hover {
 .job-card-footer-right {
   display: flex;
   flex-wrap: wrap;
-  gap: 10px;
+  gap: 6px;
   justify-content: flex-end;
+}
+
+.job-card-footer .button-primary,
+.job-card-footer .button-secondary {
+  padding: 6px 11px;
+  font-size: 13px;
 }
 
 .job-card-footer-itp {

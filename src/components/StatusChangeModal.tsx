@@ -70,17 +70,21 @@ function JobCardMaximizeIcon({ expanded }: { expanded: boolean }) {
   )
 }
 
-function jobCardSubtitle(valve: Valve, descriptionDraft: string): string {
+function jobCardMetaParts(valve: Valve, descriptionDraft: string): string[] {
   const parts: string[] = []
   const sz = (valve.size ?? '').trim()
   if (sz) parts.push(sz.includes('"') ? sz : `${sz}"`)
   const pc = (valve.pressure_class ?? '').trim()
   if (pc) parts.push(`Class ${pc}`)
-  const d = (descriptionDraft ?? '').trim()
+  const d = (descriptionDraft ?? '').trim().replace(/\s+/g, ' ')
   if (d) parts.push(d)
   const ot = (valve.order_type ?? '').trim()
   if (ot) parts.push(ot)
-  return parts.join(' · ') || 'Add description on the Details tab'
+  const jt = normalizeJobType(valve.job_type)
+  if (jt) parts.push(jt)
+  const cust = (valve.customer ?? '').trim()
+  if (cust) parts.push(cust)
+  return parts
 }
 
 interface StatusChangeModalProps {
@@ -443,6 +447,7 @@ export function StatusChangeModal({
   }, [valveTypeOptions, valveTypeDraft])
 
   const displayValveType = (valveTypeUnlocked ? valveTypeDraft : (valve.valve_type ?? '')).trim() || '—'
+  const metaParts = jobCardMetaParts(valve, description)
   const bowlSummaryLabel =
     bowlTypeDraft.trim() === '' ? 'Auto (from valve type)' : itpTemplateLabel(bowlTypeDraft)
 
@@ -691,11 +696,19 @@ export function StatusChangeModal({
         <header className="job-card-header">
           <div className="job-card-header-top">
             <div className="job-card-header-text">
-              <div id="job-modal-title" className="job-card-job-id">
-                {valve.valve_id}
+              <div className="job-card-title-row">
+                <div id="job-modal-title" className="job-card-job-id">
+                  {valve.valve_id}
+                </div>
+                <div className="job-card-valve-type-title">{displayValveType}</div>
               </div>
-              <div className="job-card-valve-type-title">{displayValveType}</div>
-              <p className="job-card-subtitle">{jobCardSubtitle(valve, description)}</p>
+              <div className="job-card-meta-row" aria-label="Job summary">
+                {(metaParts.length > 0 ? metaParts : ['Add description on the Details tab']).map((part, index) => (
+                  <span key={`${index}-${part.slice(0, 24)}`} className="job-card-meta-chip" title={part}>
+                    {part}
+                  </span>
+                ))}
+              </div>
               <div className="job-card-header-chips">
                 <label className="job-card-turnaround-pill">
                   <input
@@ -736,58 +749,6 @@ export function StatusChangeModal({
               </div>
             </div>
             <div className="job-card-header-actions">
-              <button
-                type="button"
-                className="button-secondary job-card-header-btn"
-                onClick={onCancel}
-                disabled={isSaving}
-              >
-                Cancel
-              </button>
-              {onCopy ? (
-                <button
-                  type="button"
-                  className="button-secondary job-card-header-btn"
-                  onClick={onCopy}
-                  disabled={isSaving}
-                >
-                  Copy job
-                </button>
-              ) : null}
-              <button
-                type="button"
-                className="button-secondary job-card-header-btn"
-                onClick={() => navigate(`/quality-team/incrs/new?valveRowId=${valve.id}`)}
-                disabled={isSaving}
-                title="Start an Internal Non-Conformance Report for this job"
-              >
-                Start INCR
-              </button>
-              <button
-                type="button"
-                className="button-primary job-card-header-btn"
-                onClick={onOpenItp}
-                disabled={isSaving}
-              >
-                Open ITP
-              </button>
-              <button
-                type="button"
-                className="button-primary job-card-header-btn"
-                onClick={() => navigate(`/traveler/${encodeURIComponent(travelerValveId)}`)}
-                disabled={isSaving || !travelerValveId}
-              >
-                Open Traveler
-              </button>
-              <button
-                type="button"
-                className="button-secondary job-card-header-btn"
-                onClick={reprintJobCard}
-                disabled={isSaving}
-                title="Reprint production job card"
-              >
-                Reprint card
-              </button>
               <button
                 type="button"
                 className="modal-window-toggle job-card-window-toggle"
@@ -837,38 +798,6 @@ export function StatusChangeModal({
             <>
               <div className="job-card-section-head">
                 <h3 className="job-card-section-title">Job details</h3>
-                <div className="job-card-section-tools">
-                  <button
-                    type="button"
-                    className={`job-card-seg${activeTab === 'summary' ? ' job-card-seg--on' : ''}`}
-                    onClick={() => setActiveTab('summary')}
-                  >
-                    Summary
-                  </button>
-                  <button type="button" className="job-card-seg" onClick={() => setActiveTab('details')}>
-                    Details
-                  </button>
-                  <button
-                    type="button"
-                    className="job-card-seg"
-                    onClick={() => navigate(`/quality-team/incrs/new?valveRowId=${valve.id}`)}
-                    disabled={isSaving}
-                    title="Start an Internal Non-Conformance Report for this job"
-                  >
-                    Start INCR
-                  </button>
-                  <button type="button" className="job-card-seg job-card-seg-primary" onClick={onOpenItp}>
-                    Open ITP ▾
-                  </button>
-                  <button
-                    type="button"
-                    className="job-card-seg job-card-seg-primary"
-                    onClick={() => navigate(`/traveler/${encodeURIComponent(travelerValveId)}`)}
-                    disabled={isSaving || !travelerValveId}
-                  >
-                    Open Traveler
-                  </button>
-                </div>
               </div>
 
               <div className="job-card-panel">
@@ -1416,6 +1345,11 @@ export function StatusChangeModal({
             <button type="button" className="button-primary" disabled={isSaving || !canEditJobDetails} onClick={save}>
               {isSaving ? 'Saving…' : 'Save changes'}
             </button>
+            {onCopy ? (
+              <button type="button" className="button-secondary" onClick={onCopy} disabled={isSaving}>
+                Copy job
+              </button>
+            ) : null}
             <button
               type="button"
               className="button-secondary job-card-footer-reprint"
@@ -1423,7 +1357,7 @@ export function StatusChangeModal({
               disabled={isSaving}
               title="Reprint production job card"
             >
-              Reprint job card
+              Reprint
             </button>
             <button
               type="button"
@@ -1435,7 +1369,7 @@ export function StatusChangeModal({
               Start INCR
             </button>
             <button type="button" className="button-primary job-card-footer-itp" onClick={onOpenItp} disabled={isSaving}>
-              Open ITP ›
+              Open ITP
             </button>
             <button
               type="button"
@@ -1443,7 +1377,7 @@ export function StatusChangeModal({
               onClick={() => navigate(`/traveler/${encodeURIComponent(travelerValveId)}`)}
               disabled={isSaving || !travelerValveId}
             >
-              Open Traveler ›
+              Open Traveler
             </button>
           </div>
         </footer>
