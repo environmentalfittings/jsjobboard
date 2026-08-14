@@ -58,6 +58,24 @@ export type InventoryFormState = {
   repairTagNumber: string
   notes: string
   hfAcid: boolean
+  /** Required when adding (or restoring) an item — logged in inventory_events. */
+  changeReason: string
+}
+
+export type InventoryEventType = 'added' | 'removed' | 'restored'
+
+export type InventoryEvent = {
+  id: number
+  inventory_id: string
+  event_type: InventoryEventType
+  reason: string
+  po_number: string | null
+  js_inventory_id: string | null
+  customer: string | null
+  customer_id_no: string | null
+  created_by_user_id: string | null
+  created_by_name: string | null
+  created_at: string
 }
 
 export type InventoryPhotoDraft = {
@@ -220,6 +238,7 @@ export function emptyInventoryForm(): InventoryFormState {
     repairTagNumber: '',
     notes: '',
     hfAcid: false,
+    changeReason: '',
   }
 }
 
@@ -301,6 +320,7 @@ export function inventoryToForm(row: InventoryRecord): InventoryFormState {
     repairTagNumber: row.repair_tag_number ?? '',
     notes: row.notes ?? '',
     hfAcid: Boolean(row.hf_acid),
+    changeReason: '',
   }
 }
 
@@ -350,6 +370,103 @@ function mapInventoryRow(row: InventoryRow): InventoryRecord {
 
 export function isInventoryRemoved(row: Pick<InventoryRecord, 'removed_at'>): boolean {
   return Boolean(row.removed_at?.trim())
+}
+
+export function inventoryEventLabel(eventType: string): string {
+  if (eventType === 'added') return 'Added'
+  if (eventType === 'removed') return 'Removed'
+  if (eventType === 'restored') return 'Added back'
+  return eventType
+}
+
+const INVENTORY_FULL_SELECT = `${INVENTORY_SELECT},valve_image_url,tag_image_url,qr_code_data_url,hf_acid,${INVENTORY_CONDITION_SELECT},${INVENTORY_REMOVAL_SELECT},valve_types(label)`
+
+async function logInventoryEvent(options: {
+  inventoryId: string
+  eventType: InventoryEventType
+  reason: string
+  poNumber?: string | null
+  record?: Pick<InventoryRecord, 'js_inventory_id' | 'customer' | 'customer_id_no'> | null
+  createdByUserId?: string | null
+  createdByName?: string | null
+}): Promise<{ error: string | null }> {
+  const reason = options.reason.trim()
+  if (!reason) return { error: 'A reason is required' }
+
+  const { error } = await supabase.from('inventory_events').insert({
+    inventory_id: options.inventoryId,
+    event_type: options.eventType,
+    reason,
+    po_number: options.poNumber?.trim() || null,
+    js_inventory_id: options.record?.js_inventory_id ?? null,
+    customer: options.record?.customer ?? null,
+    customer_id_no: options.record?.customer_id_no ?? null,
+    created_by_user_id: options.createdByUserId ?? null,
+    created_by_name: options.createdByName?.trim() || null,
+  })
+
+  if (!error) return { error: null }
+  if (/inventory_events|schema cache|does not exist/i.test(error.message)) {
+    return {
+      error: 'Run supabase/migration-inventory-events.sql in Supabase to keep add/remove history.',
+    }
+  }
+  return { error: error.message }
+}
+
+export async function loadInventoryEvents(): Promise<{ data: InventoryEvent[]; error: string | null }> {
+  const { data, error } = await supabase
+    .from('inventory_events')
+    .select(
+      'id,inventory_id,event_type,reason,po_number,js_inventory_id,customer,customer_id_no,created_by_user_id,created_by_name,created_at',
+    )
+    .order('created_at', { ascending: false })
+    .limit(500)
+
+  if (error) {
+    if (/inventory_events|schema cache|does not exist/i.test(error.message)) {
+      return { data: [], error: null }
+    }
+    return { data: [], error: error.message }
+  }
+
+  return {
+    data: ((data ?? []) as InventoryEvent[]).map((row) => ({
+      ...row,
+      id: Number(row.id),
+      inventory_id: String(row.inventory_id),
+      event_type: row.event_type,
+      reason: String(row.reason ?? ''),
+      po_number: row.po_number ? String(row.po_number) : null,
+      js_inventory_id: row.js_inventory_id ? String(row.js_inventory_id) : null,
+      customer: row.customer ? String(row.customer) : null,
+      customer_id_no: row.customer_id_no ? String(row.customer_id_no) : null,
+      created_by_user_id: row.created_by_user_id ? String(row.created_by_user_id) : null,
+      created_by_name: row.created_by_name ? String(row.created_by_name) : null,
+      created_at: String(row.created_at),
+    })),
+    error: null,
+  }
+}
+
+export async function loadRemovedInventoryRecords(): Promise<{
+  data: InventoryRecord[]
+  error: string | null
+}> {
+  const { data, error } = await supabase
+    .from('inventory')
+    .select(INVENTORY_FULL_SELECT)
+    .not('removed_at', 'is', null)
+    .order('removed_at', { ascending: false })
+    .limit(2000)
+
+  if (error) {
+    if (/removed_at|schema cache|column/i.test(error.message)) {
+      return { data: [], error: null }
+    }
+    return { data: [], error: error.message }
+  }
+  return { data: ((data ?? []) as InventoryRow[]).map(mapInventoryRow), error: null }
 }
 
 export async function loadInventoryRecords(): Promise<{ data: InventoryRecord[]; error: string | null }> {
@@ -494,7 +611,67 @@ export async function removeInventoryRecord(options: {
   if (!data) {
     return { data: null, error: 'Item was already removed or could not be found' }
   }
-  return { data: mapInventoryRow(data as InventoryRow), error: null }
+  const mapped = mapInventoryRow(data as InventoryRow)
+  const log = await logInventoryEvent({
+    inventoryId: mapped.id,
+    eventType: 'removed',
+    reason,
+    poNumber,
+    record: mapped,
+    createdByUserId: options.removedByUserId,
+    createdByName: options.removedByName,
+  })
+  return { data: mapped, error: log.error }
+}
+
+export async function restoreInventoryRecord(options: {
+  id: string
+  reason: string
+  restoredByUserId: string | null
+  restoredByName: string | null
+}): Promise<{ data: InventoryRecord | null; error: string | null }> {
+  const reason = options.reason.trim()
+  if (!reason) return { data: null, error: 'Enter a reason for adding this item back' }
+
+  const payload = {
+    removed_at: null,
+    removed_reason: null,
+    removed_po_number: null,
+    removed_by_user_id: null,
+    removed_by_name: null,
+    updated_at: new Date().toISOString(),
+  }
+
+  const { data, error } = await supabase
+    .from('inventory')
+    .update(payload)
+    .eq('id', options.id)
+    .not('removed_at', 'is', null)
+    .select(INVENTORY_FULL_SELECT)
+    .maybeSingle()
+
+  if (error) {
+    if (/removed_at|removed_reason|removed_po|schema cache|column/i.test(error.message)) {
+      return {
+        data: null,
+        error: 'Run supabase/migration-inventory-removal.sql in Supabase, then try again',
+      }
+    }
+    return { data: null, error: friendlyInventoryError(error.message) }
+  }
+  if (!data) {
+    return { data: null, error: 'Item is not currently removed, or could not be found' }
+  }
+  const mapped = mapInventoryRow(data as InventoryRow)
+  const log = await logInventoryEvent({
+    inventoryId: mapped.id,
+    eventType: 'restored',
+    reason,
+    record: mapped,
+    createdByUserId: options.restoredByUserId,
+    createdByName: options.restoredByName,
+  })
+  return { data: mapped, error: log.error }
 }
 
 /** Distinct Customer ID # values already used for a given customer in inventory. */
@@ -796,7 +973,13 @@ export async function createInventoryRecord(
   form: InventoryFormState,
   photos: { valve: File; tag: File },
   document: InventoryDocumentDraft = emptyDocumentDraft(),
+  actor?: { userId: string | null; name: string | null },
 ): Promise<{ data: InventoryRecord | null; error: string | null }> {
+  const changeReason = form.changeReason.trim()
+  if (!changeReason) {
+    return { data: null, error: 'Enter a reason for adding this item to inventory' }
+  }
+
   const id = crypto.randomUUID()
   const [manufacturerId, valveTypeId, valveUpload, tagUpload, allocated] = await Promise.all([
     ensureManufacturerId(form.manufacturerName),
@@ -878,8 +1061,20 @@ export async function createInventoryRecord(
       ...mediaPayload,
     }
     const result = await writeInventoryRow('insert', id, payload)
-    if (!result.error && result.data) return result
-    if (result.data && result.error) return result
+    if (result.data) {
+      const log = await logInventoryEvent({
+        inventoryId: result.data.id,
+        eventType: 'added',
+        reason: changeReason,
+        record: result.data,
+        createdByUserId: actor?.userId ?? null,
+        createdByName: actor?.name ?? null,
+      })
+      return {
+        data: result.data,
+        error: [result.error, log.error].filter(Boolean).join(' ') || null,
+      }
+    }
 
     lastError = result.error
     const isDuplicate =

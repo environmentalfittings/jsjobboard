@@ -21,17 +21,22 @@ import {
   INVENTORY_OPERATORS,
   INVENTORY_ORIGINS,
   inventoryConditionLabel,
+  inventoryEventLabel,
   inventoryMatchesSearch,
   inventoryToForm,
   isInventoryRemoved,
+  loadInventoryEvents,
   loadInventoryFormOptions,
   loadInventoryRecords,
+  loadRemovedInventoryRecords,
   removeInventoryRecord,
+  restoreInventoryRecord,
   updateInventoryRecord,
   validateInventoryDocument,
   validateInventoryPhoto,
   type InventoryCondition,
   type InventoryDocumentDraft,
+  type InventoryEvent,
   type InventoryFormState,
   type InventoryPhotoDraft,
   type InventoryRecord,
@@ -51,18 +56,21 @@ import {
 } from '../lib/messages'
 
 type ModalMode = 'create' | 'edit' | 'duplicate'
+type ListScope = 'active' | 'removed' | 'activity'
 
 function Field({
   label,
   required,
   children,
+  className = '',
 }: {
   label: string
   required?: boolean
   children: ReactNode
+  className?: string
 }) {
   return (
-    <label className="inventory-field">
+    <label className={`inventory-field ${className}`.trim()}>
       <span>
         {label}
         {required ? <span className="inventory-required"> *</span> : null}
@@ -403,6 +411,9 @@ export function AdminInventoryPage() {
   const { employees } = useEmployees()
   const [searchParams, setSearchParams] = useSearchParams()
   const [rows, setRows] = useState<InventoryRecord[]>([])
+  const [removedRows, setRemovedRows] = useState<InventoryRecord[]>([])
+  const [events, setEvents] = useState<InventoryEvent[]>([])
+  const [listScope, setListScope] = useState<ListScope>('active')
   const [loading, setLoading] = useState(true)
   const [search, setSearch] = useState('')
   const [customerFilter, setCustomerFilter] = useState('')
@@ -432,13 +443,18 @@ export function AdminInventoryPage() {
   const [removePoNumber, setRemovePoNumber] = useState('')
   const [removing, setRemoving] = useState(false)
   const [showRemoveForm, setShowRemoveForm] = useState(false)
+  const [showRestoreForm, setShowRestoreForm] = useState(false)
+  const [restoreReason, setRestoreReason] = useState('')
+  const [restoring, setRestoring] = useState(false)
 
   const reload = useCallback(async () => {
     setLoading(true)
-    const [{ data, error }, options, customerResult] = await Promise.all([
+    const [{ data, error }, options, customerResult, removedResult, eventsResult] = await Promise.all([
       loadInventoryRecords(),
       loadInventoryFormOptions(),
       loadCustomersWithSalesRep(),
+      loadRemovedInventoryRecords(),
+      loadInventoryEvents(),
     ])
     setLoading(false)
     if (error) {
@@ -450,6 +466,17 @@ export function AdminInventoryPage() {
       setRows([])
     } else {
       setRows(data)
+    }
+    if (removedResult.error) {
+      setRemovedRows([])
+    } else {
+      setRemovedRows(removedResult.data)
+    }
+    if (eventsResult.error) {
+      showToast(`Could not load inventory activity: ${eventsResult.error}`)
+      setEvents([])
+    } else {
+      setEvents(eventsResult.data)
     }
     setCustomers(options.customers)
     setManufacturers(options.manufacturers)
@@ -478,12 +505,15 @@ export function AdminInventoryPage() {
     const itemId = searchParams.get('item')?.trim()
     if (!itemId || loading) return
 
-    const match = rows.find((row) => row.id === itemId)
+    const match =
+      rows.find((row) => row.id === itemId) || removedRows.find((row) => row.id === itemId)
     if (match) {
       setQrItem(match)
       setShowRemoveForm(false)
+      setShowRestoreForm(false)
       setRemoveReason('')
       setRemovePoNumber('')
+      setRestoreReason('')
       return
     }
 
@@ -501,40 +531,67 @@ export function AdminInventoryPage() {
       }
       setQrItem(data)
       setShowRemoveForm(false)
+      setShowRestoreForm(false)
       setRemoveReason('')
       setRemovePoNumber('')
+      setRestoreReason('')
     })()
 
     return () => {
       cancelled = true
     }
-  }, [searchParams, rows, loading, showToast])
+  }, [searchParams, rows, removedRows, loading, showToast])
 
   const periodLabel = useMemo(() => currentInventoryReportPeriod(), [])
 
   const inventoryCustomers = useMemo(() => {
     const names = new Set<string>()
-    for (const row of rows) {
+    for (const row of [...rows, ...removedRows]) {
       const name = row.customer?.trim()
       if (name) names.add(name)
     }
     return [...names].sort((a, b) => a.localeCompare(b, undefined, { sensitivity: 'base' }))
-  }, [rows])
+  }, [rows, removedRows])
 
   const customerIdOptions = useMemo(
-    () => customerIdNosForCustomer(rows, form.customer),
-    [rows, form.customer],
+    () => customerIdNosForCustomer([...rows, ...removedRows], form.customer),
+    [rows, removedRows, form.customer],
   )
 
+  const sourceRows = listScope === 'removed' ? removedRows : rows
+
   const filtered = useMemo(() => {
-    return rows.filter((row) => {
+    return sourceRows.filter((row) => {
       if (customerFilter.trim()) {
         const needle = customerFilter.trim().toLowerCase()
         if ((row.customer ?? '').trim().toLowerCase() !== needle) return false
       }
       return inventoryMatchesSearch(row, search)
     })
-  }, [rows, search, customerFilter])
+  }, [sourceRows, search, customerFilter])
+
+  const filteredEvents = useMemo(() => {
+    return events.filter((event) => {
+      if (customerFilter.trim()) {
+        const needle = customerFilter.trim().toLowerCase()
+        if ((event.customer ?? '').trim().toLowerCase() !== needle) return false
+      }
+      if (!search.trim()) return true
+      const q = search.trim().toLowerCase()
+      return [
+        event.js_inventory_id,
+        event.customer,
+        event.customer_id_no,
+        event.reason,
+        event.po_number,
+        inventoryEventLabel(event.event_type),
+        event.created_by_name,
+      ]
+        .map((value) => String(value ?? '').toLowerCase())
+        .join(' ')
+        .includes(q)
+    })
+  }, [events, customerFilter, search])
 
   const customerGroups = useMemo(
     () => groupInventoryByCustomer(rows, customerRows),
@@ -760,6 +817,10 @@ export function AdminInventoryPage() {
       showToast('Enter the repair tag number')
       return
     }
+    if ((modalMode === 'create' || modalMode === 'duplicate') && !form.changeReason.trim()) {
+      showToast('Enter a reason for adding this item to inventory')
+      return
+    }
 
     const hasValve = Boolean(valvePhoto.file || valvePhoto.existingUrl)
     const hasTag = Boolean(tagPhoto.file || tagPhoto.existingUrl)
@@ -787,6 +848,7 @@ export function AdminInventoryPage() {
         form,
         { valve: valvePhoto.file, tag: tagPhoto.file },
         documentDraft,
+        { userId: user?.id ?? null, name: username || null },
       )
       setSaving(false)
       if (!result.data) {
@@ -841,8 +903,10 @@ export function AdminInventoryPage() {
   const openQrItem = (row: InventoryRecord) => {
     setQrItem(row)
     setShowRemoveForm(false)
+    setShowRestoreForm(false)
     setRemoveReason('')
     setRemovePoNumber('')
+    setRestoreReason('')
   }
 
   const remove = (row: InventoryRecord) => {
@@ -876,12 +940,12 @@ export function AdminInventoryPage() {
       removedByName: username || null,
     })
     setRemoving(false)
-    if (error || !data) {
+    if (!data) {
       showToast(error || 'Could not remove inventory item')
       return
     }
-
-    showToast(`Removed ${data.js_inventory_id || 'inventory item'} from inventory`)
+    if (error) showToast(error)
+    else showToast(`Removed ${data.js_inventory_id || 'inventory item'} from inventory`)
     setQrItem(data)
     setShowRemoveForm(false)
     setRemoveReason('')
@@ -893,6 +957,39 @@ export function AdminInventoryPage() {
       next.delete(data.id)
       return next
     })
+    await reload()
+  }
+
+  const confirmRestoreToInventory = async () => {
+    if (!qrItem) return
+    if (!isInventoryRemoved(qrItem)) {
+      showToast('This item is already in active inventory')
+      return
+    }
+    const reason = restoreReason.trim()
+    if (!reason) {
+      showToast('Enter a reason for adding this item back')
+      return
+    }
+
+    setRestoring(true)
+    const { data, error } = await restoreInventoryRecord({
+      id: qrItem.id,
+      reason,
+      restoredByUserId: user?.id ?? null,
+      restoredByName: username || null,
+    })
+    setRestoring(false)
+    if (!data) {
+      showToast(error || 'Could not add item back to inventory')
+      return
+    }
+    if (error) showToast(error)
+    else showToast(`Added ${data.js_inventory_id || 'inventory item'} back to inventory`)
+    setQrItem(data)
+    setShowRestoreForm(false)
+    setRestoreReason('')
+    setListScope('active')
     await reload()
   }
 
@@ -1065,8 +1162,10 @@ export function AdminInventoryPage() {
   const closeQr = () => {
     setQrItem(null)
     setShowRemoveForm(false)
+    setShowRestoreForm(false)
     setRemoveReason('')
     setRemovePoNumber('')
+    setRestoreReason('')
     if (searchParams.get('item')) {
       const next = new URLSearchParams(searchParams)
       next.delete('item')
@@ -1169,13 +1268,46 @@ export function AdminInventoryPage() {
       </section>
 
       <section className="dashboard-panel">
+        <div className="inventory-scope-tabs" role="tablist" aria-label="Inventory views">
+          <button
+            type="button"
+            role="tab"
+            aria-selected={listScope === 'active'}
+            className={`inventory-scope-tab${listScope === 'active' ? ' is-active' : ''}`}
+            onClick={() => setListScope('active')}
+          >
+            Active ({rows.length})
+          </button>
+          <button
+            type="button"
+            role="tab"
+            aria-selected={listScope === 'removed'}
+            className={`inventory-scope-tab${listScope === 'removed' ? ' is-active' : ''}`}
+            onClick={() => setListScope('removed')}
+          >
+            Removed ({removedRows.length})
+          </button>
+          <button
+            type="button"
+            role="tab"
+            aria-selected={listScope === 'activity'}
+            className={`inventory-scope-tab${listScope === 'activity' ? ' is-active' : ''}`}
+            onClick={() => setListScope('activity')}
+          >
+            Activity ({events.length})
+          </button>
+        </div>
         <div className="inventory-toolbar">
           <label className="inventory-toolbar-field inventory-toolbar-search">
             <span>Search</span>
             <input
               type="search"
               value={search}
-              placeholder="JS ID, customer, manufacturer, type…"
+              placeholder={
+                listScope === 'activity'
+                  ? 'JS ID, customer, reason, PO…'
+                  : 'JS ID, customer, manufacturer, type…'
+              }
               onChange={(e) => setSearch(e.target.value)}
             />
           </label>
@@ -1204,13 +1336,15 @@ export function AdminInventoryPage() {
             </button>
             <div className="inventory-toolbar-meta-end">
               <span className="inventory-toolbar-count">
-                {filtered.length} item{filtered.length === 1 ? '' : 's'}
+                {listScope === 'activity'
+                  ? `${filteredEvents.length} event${filteredEvents.length === 1 ? '' : 's'}`
+                  : `${filtered.length} item${filtered.length === 1 ? '' : 's'}`}
                 {customerFilter.trim() || search.trim() ? ' matching' : ''}
-                {selectedPrintable.length > 0
+                {listScope === 'active' && selectedPrintable.length > 0
                   ? ` · ${selectedPrintable.length} selected for print`
                   : ''}
               </span>
-              {selectedPrintable.length > 0 ? (
+              {listScope === 'active' && selectedPrintable.length > 0 ? (
                 <div className="inventory-selection-actions">
                   <button type="button" className="button-secondary" onClick={clearSelection}>
                     Clear selection
@@ -1232,6 +1366,84 @@ export function AdminInventoryPage() {
           </div>
         </div>
 
+        {listScope === 'activity' ? (
+          <div className="dashboard-table-wrap">
+            <table className="dashboard-table">
+              <thead>
+                <tr>
+                  <th>When</th>
+                  <th>Change</th>
+                  <th>JS inventory ID</th>
+                  <th>Customer</th>
+                  <th>Customer ID #</th>
+                  <th>PO #</th>
+                  <th>Reason</th>
+                  <th>By</th>
+                  <th>Actions</th>
+                </tr>
+              </thead>
+              <tbody>
+                {loading ? (
+                  <tr>
+                    <td colSpan={9}>Loading…</td>
+                  </tr>
+                ) : filteredEvents.length === 0 ? (
+                  <tr>
+                    <td colSpan={9}>
+                      {events.length === 0
+                        ? 'No inventory activity yet — adds and removals will appear here.'
+                        : 'No activity matches this search.'}
+                    </td>
+                  </tr>
+                ) : (
+                  filteredEvents.map((event) => (
+                    <tr key={event.id}>
+                      <td>{new Date(event.created_at).toLocaleString()}</td>
+                      <td>
+                        <span
+                          className={`inventory-event-badge inventory-event-badge--${event.event_type}`}
+                        >
+                          {inventoryEventLabel(event.event_type)}
+                        </span>
+                      </td>
+                      <td>{event.js_inventory_id || '—'}</td>
+                      <td>{event.customer || '—'}</td>
+                      <td>{event.customer_id_no || '—'}</td>
+                      <td>{event.po_number || '—'}</td>
+                      <td>{event.reason}</td>
+                      <td>{event.created_by_name || '—'}</td>
+                      <td>
+                        <button
+                          type="button"
+                          className="button-secondary report-table-open-link"
+                          onClick={() => {
+                            const match =
+                              rows.find((row) => row.id === event.inventory_id) ||
+                              removedRows.find((row) => row.id === event.inventory_id)
+                            if (match) {
+                              openQrItem(match)
+                              return
+                            }
+                            void (async () => {
+                              const { data, error } = await getInventoryRecordById(event.inventory_id)
+                              if (error || !data) {
+                                showToast(error || 'Inventory item not found')
+                                return
+                              }
+                              openQrItem(data)
+                            })()
+                          }}
+                        >
+                          Open
+                        </button>
+                      </td>
+                    </tr>
+                  ))
+                )}
+              </tbody>
+            </table>
+          </div>
+        ) : (
         <div className="dashboard-table-wrap">
           <table className="dashboard-table">
             <thead>
@@ -1268,8 +1480,10 @@ export function AdminInventoryPage() {
               ) : filtered.length === 0 ? (
                 <tr>
                   <td colSpan={9} className="table-empty-cell">
-                    {rows.length === 0
-                      ? 'No customer inventory items yet — add the first one.'
+                    {sourceRows.length === 0
+                      ? listScope === 'removed'
+                        ? 'No removed inventory items.'
+                        : 'No customer inventory items yet — add the first one.'
                       : 'No customer inventory items match this search.'}
                   </td>
                 </tr>
@@ -1349,27 +1563,51 @@ export function AdminInventoryPage() {
                           onClick={(e) => e.stopPropagation()}
                           onKeyDown={(e) => e.stopPropagation()}
                         >
-                          <button type="button" className="job-list-quick-action" onClick={() => openEdit(row)}>
-                            Edit
-                          </button>{' '}
-                          <button
-                            type="button"
-                            className="job-list-quick-action"
-                            onClick={() => void openDuplicate(row)}
-                          >
-                            Duplicate
-                          </button>{' '}
-                          <button
-                            type="button"
-                            className="job-list-quick-action"
-                            onClick={() => openQrItem(row)}
-                            disabled={!row.qr_code_data_url}
-                          >
-                            QR
-                          </button>{' '}
-                          <button type="button" className="job-list-quick-action" onClick={() => void remove(row)}>
-                            Remove
-                          </button>
+                          {listScope === 'removed' ? (
+                            <>
+                              <button
+                                type="button"
+                                className="job-list-quick-action"
+                                onClick={() => {
+                                  openQrItem(row)
+                                  setShowRestoreForm(true)
+                                }}
+                              >
+                                Add back
+                              </button>{' '}
+                              <button
+                                type="button"
+                                className="job-list-quick-action"
+                                onClick={() => openQrItem(row)}
+                              >
+                                Open
+                              </button>
+                            </>
+                          ) : (
+                            <>
+                              <button type="button" className="job-list-quick-action" onClick={() => openEdit(row)}>
+                                Edit
+                              </button>{' '}
+                              <button
+                                type="button"
+                                className="job-list-quick-action"
+                                onClick={() => void openDuplicate(row)}
+                              >
+                                Duplicate
+                              </button>{' '}
+                              <button
+                                type="button"
+                                className="job-list-quick-action"
+                                onClick={() => openQrItem(row)}
+                                disabled={!row.qr_code_data_url}
+                              >
+                                QR
+                              </button>{' '}
+                              <button type="button" className="job-list-quick-action" onClick={() => remove(row)}>
+                                Remove
+                              </button>
+                            </>
+                          )}
                         </td>
                       </tr>
                       {isExpanded ? (
@@ -1517,6 +1755,7 @@ export function AdminInventoryPage() {
             </tbody>
           </table>
         </div>
+        )}
       </section>
 
       {modalOpen ? (
@@ -1663,6 +1902,16 @@ export function AdminInventoryPage() {
                         value={form.repairTagNumber}
                         onChange={(e) => patchForm({ repairTagNumber: e.target.value })}
                         placeholder="Repair / traveler tag number"
+                      />
+                    </Field>
+                  ) : null}
+                  {modalMode === 'create' || modalMode === 'duplicate' ? (
+                    <Field label="Reason for adding" required className="inventory-field-wide">
+                      <textarea
+                        rows={2}
+                        value={form.changeReason}
+                        onChange={(e) => patchForm({ changeReason: e.target.value })}
+                        placeholder="Why is this valve being added to customer inventory?"
                       />
                     </Field>
                   ) : null}
@@ -1885,6 +2134,52 @@ export function AdminInventoryPage() {
                   <p>
                     <strong>Reason:</strong> {qrItem.removed_reason || '—'}
                   </p>
+                  {showRestoreForm ? (
+                    <div className="inventory-remove-form inventory-restore-form">
+                      <h4>Add back to inventory</h4>
+                      <p>Enter a reason for returning this item to active inventory.</p>
+                      <label className="inventory-remove-field">
+                        <span>Reason</span>
+                        <textarea
+                          rows={3}
+                          value={restoreReason}
+                          onChange={(e) => setRestoreReason(e.target.value)}
+                          placeholder="Why is this being added back?"
+                          disabled={restoring}
+                          autoFocus
+                        />
+                      </label>
+                      <div className="inventory-remove-actions">
+                        <button
+                          type="button"
+                          className="button-secondary"
+                          disabled={restoring}
+                          onClick={() => {
+                            setShowRestoreForm(false)
+                            setRestoreReason('')
+                          }}
+                        >
+                          Cancel
+                        </button>
+                        <button
+                          type="button"
+                          className="button-primary"
+                          disabled={restoring}
+                          onClick={() => void confirmRestoreToInventory()}
+                        >
+                          {restoring ? 'Saving…' : 'Confirm add back'}
+                        </button>
+                      </div>
+                    </div>
+                  ) : (
+                    <button
+                      type="button"
+                      className="button-primary inventory-remove-trigger"
+                      onClick={() => setShowRestoreForm(true)}
+                    >
+                      Add back to inventory
+                    </button>
+                  )}
                 </div>
               ) : showRemoveForm ? (
                 <div className="inventory-remove-form">
