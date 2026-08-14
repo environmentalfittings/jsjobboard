@@ -5,6 +5,7 @@
 import type { LookupCategory } from './lookupCategories'
 import { LOOKUP_CATEGORY_DEFS } from './lookupCategories'
 import {
+  API_TRIMS,
   BODY_MATERIALS,
   FINISH_CELLS,
   ORDER_TYPES,
@@ -24,6 +25,7 @@ const BY_CATEGORY: Record<LookupCategory, readonly string[]> = {
   valve_type: VALVE_TYPES,
   pressure_class: PRESSURE_CLASSES,
   body_material: BODY_MATERIALS,
+  api_trim: API_TRIMS,
   finish_cell: FINISH_CELLS,
   order_type: ORDER_TYPES,
   manufacturer: [],

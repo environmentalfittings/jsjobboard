@@ -191,6 +191,7 @@ export function AdminInventoryPage() {
   const [manufacturers, setManufacturers] = useState<string[]>([])
   const [valveTypes, setValveTypes] = useState<string[]>([])
   const [bodyMaterials, setBodyMaterials] = useState<string[]>([])
+  const [apiTrims, setApiTrims] = useState<string[]>([])
   const [sizes, setSizes] = useState<string[]>([])
   const [pressureClasses, setPressureClasses] = useState<string[]>([])
   const [modalOpen, setModalOpen] = useState(false)
@@ -228,6 +229,7 @@ export function AdminInventoryPage() {
     setManufacturers(options.manufacturers)
     setValveTypes(options.valveTypes)
     setBodyMaterials(options.bodyMaterials)
+    setApiTrims(options.apiTrims)
     setSizes(options.sizes)
     setPressureClasses(options.pressureClasses)
     if (customerResult.error) {
@@ -1280,11 +1282,18 @@ export function AdminInventoryPage() {
                     />
                   </Field>
                   <Field label="API trim">
-                    <input
-                      type="text"
-                      value={form.apiTrim}
-                      onChange={(e) => patchForm({ apiTrim: e.target.value })}
-                    />
+                    <select value={form.apiTrim} onChange={(e) => patchForm({ apiTrim: e.target.value })}>
+                      <option value="">— Select —</option>
+                      {apiTrims.map((option) => (
+                        <option key={option} value={option}>
+                          {option}
+                        </option>
+                      ))}
+                      {form.apiTrim &&
+                      !apiTrims.some((option) => option.toLowerCase() === form.apiTrim.toLowerCase()) ? (
+                        <option value={form.apiTrim}>{form.apiTrim}</option>
+                      ) : null}
+                    </select>
                   </Field>
                   <Field label="Operator">
                     <select value={form.operator} onChange={(e) => patchForm({ operator: e.target.value })}>

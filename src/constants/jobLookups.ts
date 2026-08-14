@@ -132,3 +132,27 @@ export const BODY_MATERIALS = [
   '304 SS', '309 SS', '316 SS', '347 SS',
   'Monel', 'Hastelloy', 'Alloy 400', 'Alloy C276',
 ] as const
+
+/** API trim numbers (API 600 / common shop trim chart) used as fallback when DB lookup_values is empty. */
+export const API_TRIMS = [
+  '1',
+  '2',
+  '3',
+  '4',
+  '5',
+  '5A',
+  '6',
+  '7',
+  '8',
+  '8A',
+  '9',
+  '10',
+  '11',
+  '12',
+  '13',
+  '14',
+  '15',
+  '16',
+  '17',
+  '18',
+] as const

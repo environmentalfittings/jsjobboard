@@ -1,7 +1,7 @@
 import QRCode from 'qrcode'
 import { supabase } from './supabase'
 import { loadLookupOptionsMap } from './lookupValues'
-import { PRESSURE_CLASSES } from '../constants/jobLookups'
+import { API_TRIMS, PRESSURE_CLASSES } from '../constants/jobLookups'
 import { attachmentPublicUrl, VALVE_ATTACHMENTS_BUCKET } from './valveAttachments'
 
 export type InventoryRecord = {
@@ -301,6 +301,7 @@ export async function loadInventoryFormOptions(): Promise<{
   manufacturers: string[]
   valveTypes: string[]
   bodyMaterials: string[]
+  apiTrims: string[]
   sizes: string[]
   pressureClasses: string[]
   error: string | null
@@ -319,11 +320,15 @@ export async function loadInventoryFormOptions(): Promise<{
     ? pressureFromLookup
     : [...PRESSURE_CLASSES]
 
+  const apiTrimFromLookup = lookups.api_trim ?? []
+  const apiTrims = apiTrimFromLookup.length ? apiTrimFromLookup : [...API_TRIMS]
+
   return {
     customers: customerNames,
     manufacturers: lookups.manufacturer ?? [],
     valveTypes: lookups.valve_type ?? [],
     bodyMaterials: lookups.body_material ?? [],
+    apiTrims,
     sizes: lookups.valve_size ?? [],
     pressureClasses,
     error: customersRes.error?.message ?? null,

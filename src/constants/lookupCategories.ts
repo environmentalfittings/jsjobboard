@@ -1,4 +1,5 @@
 import {
+  API_TRIMS,
   BODY_MATERIALS,
   FINISH_CELLS,
   ORDER_TYPES,
@@ -20,6 +21,7 @@ export type LookupCategory =
   | 'order_type'
   | 'pressure_class'
   | 'body_material'
+  | 'api_trim'
   | 'manufacturer'
   | 'vendor'
 
@@ -35,6 +37,7 @@ export const LOOKUP_CATEGORY_DEFS: readonly {
   { key: 'valve_type', label: 'Valve type', fallback: VALVE_TYPES },
   { key: 'pressure_class', label: 'Pressure class', fallback: PRESSURE_CLASSES },
   { key: 'body_material', label: 'Body material', fallback: BODY_MATERIALS },
+  { key: 'api_trim', label: 'API trim', fallback: API_TRIMS },
   { key: 'finish_cell', label: 'Finish cell', fallback: FINISH_CELLS },
   { key: 'order_type', label: 'Order type', fallback: ORDER_TYPES },
   { key: 'manufacturer', label: 'Manufacturer', fallback: [] },
