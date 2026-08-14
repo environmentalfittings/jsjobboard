@@ -1,4 +1,5 @@
-import { Fragment, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
+import { Fragment, useCallback, useEffect, useId, useMemo, useRef, useState, type ReactNode } from 'react'
+import { createPortal } from 'react-dom'
 import { Link, useSearchParams } from 'react-router-dom'
 import { useToast } from '../components/ToastNotification'
 import { useAuth } from '../contexts/AuthContext'
@@ -11,6 +12,7 @@ import {
   buildInventoryItemUrl,
   allocateNextJsInventoryId,
   createInventoryRecord,
+  customerIdNosForCustomer,
   deleteInventoryRecord,
   emptyInventoryForm,
   emptyPhotoDraft,
@@ -89,6 +91,154 @@ function DatalistInput({
         ))}
       </datalist>
     </>
+  )
+}
+
+/** Type freely; pick from suggestions filtered by the current list. */
+function FreeTextCombobox({
+  options,
+  value,
+  onChange,
+  placeholder,
+  disabled,
+  emptyHint,
+}: {
+  options: string[]
+  value: string
+  onChange: (value: string) => void
+  placeholder?: string
+  disabled?: boolean
+  emptyHint?: string
+}) {
+  const listId = useId()
+  const rootRef = useRef<HTMLDivElement>(null)
+  const inputRef = useRef<HTMLInputElement>(null)
+  const [open, setOpen] = useState(false)
+  const [menuPos, setMenuPos] = useState({ top: 0, left: 0, width: 0 })
+
+  const suggestions = useMemo(() => {
+    const q = value.trim().toLowerCase()
+    const list = q
+      ? options.filter((option) => option.toLowerCase().includes(q))
+      : options
+    return list.slice(0, 40)
+  }, [options, value])
+
+  const updateMenuPos = useCallback(() => {
+    const el = inputRef.current
+    if (!el) return
+    const rect = el.getBoundingClientRect()
+    setMenuPos({ top: rect.bottom + 4, left: rect.left, width: rect.width })
+  }, [])
+
+  useEffect(() => {
+    if (!open) return
+    updateMenuPos()
+    const onPointerDown = (event: MouseEvent) => {
+      if (rootRef.current?.contains(event.target as Node)) return
+      const target = event.target as HTMLElement | null
+      if (target?.closest(`[data-inventory-id-menu="${listId}"]`)) return
+      setOpen(false)
+    }
+    const onReposition = () => updateMenuPos()
+    document.addEventListener('mousedown', onPointerDown)
+    window.addEventListener('resize', onReposition)
+    window.addEventListener('scroll', onReposition, true)
+    return () => {
+      document.removeEventListener('mousedown', onPointerDown)
+      window.removeEventListener('resize', onReposition)
+      window.removeEventListener('scroll', onReposition, true)
+    }
+  }, [open, listId, updateMenuPos])
+
+  const pick = (next: string) => {
+    onChange(next)
+    setOpen(false)
+  }
+
+  const showMenu = open && !disabled && (suggestions.length > 0 || Boolean(emptyHint))
+
+  return (
+    <div className="job-board-wo-combobox inventory-customer-id-combobox" ref={rootRef}>
+      <input
+        ref={inputRef}
+        type="text"
+        role="combobox"
+        aria-expanded={open}
+        aria-controls={listId}
+        aria-autocomplete="list"
+        value={value}
+        disabled={disabled}
+        placeholder={placeholder}
+        onChange={(e) => {
+          onChange(e.target.value)
+          setOpen(true)
+        }}
+        onFocus={() => setOpen(true)}
+        onKeyDown={(e) => {
+          if (e.key === 'Escape') {
+            setOpen(false)
+            return
+          }
+          if (e.key === 'Enter' && open && suggestions[0]) {
+            e.preventDefault()
+            pick(suggestions[0])
+          }
+        }}
+      />
+      {value ? (
+        <button
+          type="button"
+          className="job-board-wo-clear"
+          onClick={() => {
+            onChange('')
+            setOpen(true)
+          }}
+          aria-label="Clear customer ID"
+        >
+          ×
+        </button>
+      ) : null}
+      {showMenu
+        ? createPortal(
+            <ul
+              className="job-board-wo-suggestions inventory-customer-id-menu"
+              id={listId}
+              role="listbox"
+              data-inventory-id-menu={listId}
+              style={{
+                position: 'fixed',
+                top: menuPos.top,
+                left: menuPos.left,
+                width: menuPos.width,
+                right: 'auto',
+                zIndex: 80,
+              }}
+            >
+              {suggestions.length > 0 ? (
+                suggestions.map((option) => (
+                  <li key={option} role="none">
+                    <button
+                      type="button"
+                      role="option"
+                      className="job-board-wo-suggestion"
+                      onMouseDown={(event) => event.preventDefault()}
+                      onClick={() => pick(option)}
+                    >
+                      <strong>{option}</strong>
+                    </button>
+                  </li>
+                ))
+              ) : (
+                <li className="job-board-wo-suggestion-empty" role="option" aria-disabled>
+                  {emptyHint}
+                </li>
+              )}
+            </ul>,
+            document.body,
+          )
+        : null}
+    </div>
   )
 }
 
@@ -265,6 +415,11 @@ export function AdminInventoryPage() {
     }
     return [...names].sort((a, b) => a.localeCompare(b, undefined, { sensitivity: 'base' }))
   }, [rows])
+
+  const customerIdOptions = useMemo(
+    () => customerIdNosForCustomer(rows, form.customer),
+    [rows, form.customer],
+  )
 
   const filtered = useMemo(() => {
     return rows.filter((row) => {
@@ -1158,10 +1313,23 @@ export function AdminInventoryPage() {
                     />
                   </Field>
                   <Field label="Customer ID #">
-                    <input
-                      type="text"
+                    <FreeTextCombobox
+                      options={customerIdOptions}
                       value={form.customerIdNo}
-                      onChange={(e) => patchForm({ customerIdNo: e.target.value })}
+                      onChange={(customerIdNo) => patchForm({ customerIdNo })}
+                      disabled={!form.customer.trim()}
+                      placeholder={
+                        form.customer.trim()
+                          ? customerIdOptions.length
+                            ? 'Select or type a new ID'
+                            : 'Type a new customer ID #'
+                          : 'Select a customer first'
+                      }
+                      emptyHint={
+                        form.customer.trim()
+                          ? 'No saved IDs for this customer yet — type a new one'
+                          : 'Select a customer to see their IDs'
+                      }
                     />
                   </Field>
                   <Field label="Origin / location">

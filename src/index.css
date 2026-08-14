@@ -5873,6 +5873,50 @@ a.test-log-reports-item-name:hover {
   align-items: flex-end;
 }
 
+.admin-customer-name-block {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.3rem;
+  flex: 1;
+  min-width: 160px;
+}
+
+.admin-customer-name-block .admin-list-value {
+  flex: none;
+  min-width: 0;
+}
+
+.admin-customer-record-badge {
+  display: inline-flex;
+  align-items: center;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  line-height: 1.2;
+  padding: 0.2rem 0.45rem;
+  border-radius: 999px;
+  border: 1px solid transparent;
+}
+
+.admin-customer-record-badge.is-zero {
+  color: #166534;
+  background: #f0fdf4;
+  border-color: #bbf7d0;
+}
+
+.admin-customer-record-badge.has-records {
+  color: #9a3412;
+  background: #fff7ed;
+  border-color: #fed7aa;
+}
+
+.admin-list-btn.danger.is-disabled,
+.admin-list-btn.danger:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
 .admin-customer-salesman {
   display: flex;
   flex-direction: column;
@@ -7412,6 +7456,14 @@ a.test-log-reports-item-name:hover {
 
 .job-board-wo-suggestion strong {
   color: #0f172a;
+}
+
+.job-board-wo-suggestion-empty {
+  padding: 8px 10px;
+  color: #64748b;
+  font-size: 12px;
+  font-weight: 400;
+  list-style: none;
 }
 
 .job-board-wo-suggestion span {
@@ -16970,6 +17022,14 @@ tbody tr:hover {
   font-size: 13px;
   font-weight: 600;
   color: #334155;
+}
+
+.inventory-customer-id-combobox {
+  width: 100%;
+}
+
+.inventory-customer-id-combobox .job-board-wo-suggestions {
+  z-index: 60;
 }
 
 .inventory-field input,

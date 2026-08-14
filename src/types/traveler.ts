@@ -45,7 +45,7 @@ export interface TravelerBasicInfo {
   outlet_connection: 'RF' | 'RTJ' | 'BW' | 'FF' | 'Other' | null
   figure_number: string | null
   drawing_number: string | null
-  operator: 'Handwheel' | 'Gear Op.' | 'Air Act.' | 'Electric Act.' | null
+  operator: 'Handwheel' | 'Lever' | 'Bare stem' | 'Gear Op.' | 'Air Act.' | 'Electric Act.' | null
   valve_condition: 'Repairable' | 'Unrepairable' | null
   junked_reason: string | null
   notes: string | null

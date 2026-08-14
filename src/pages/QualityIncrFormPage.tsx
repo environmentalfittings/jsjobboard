@@ -16,6 +16,8 @@ import {
   QUALITY_INCR_DEFAULT_WHY_COUNT,
   QUALITY_INCR_MAX_WHY_COUNT,
   qualityIncrToForm,
+  reopenQualityIncrForm,
+  syncIncrStatusWithApprovals,
   type QualityIncrFormState,
   type QualityIncrStatus,
 } from '../types/qualityIncr'
@@ -125,7 +127,17 @@ export function QualityIncrFormPage() {
   }, [editingId, reworkId, valveRowIdParam, navigate, showToast, username])
 
   const patch = <K extends keyof QualityIncrFormState>(key: K, value: QualityIncrFormState[K]) => {
-    setForm((prev) => ({ ...prev, [key]: value }))
+    setForm((prev) => {
+      const next = { ...prev, [key]: value }
+      if (
+        key === 'final_approval_name' ||
+        key === 'final_approval_date' ||
+        key === 'status'
+      ) {
+        return syncIncrStatusWithApprovals(next)
+      }
+      return next
+    })
   }
 
   const patchWhy = (index: number, value: string) => {
@@ -151,24 +163,27 @@ export function QualityIncrFormPage() {
     })
   }
 
-  const save = async () => {
-    if (!form.nonconformance_details.trim() && !form.discrepancy_description.trim()) {
+  const save = async (nextForm?: QualityIncrFormState) => {
+    const draft = syncIncrStatusWithApprovals(nextForm ?? form)
+    if (draft !== form && !nextForm) setForm(draft)
+    if (!draft.nonconformance_details.trim() && !draft.discrepancy_description.trim()) {
       showToast('Enter non-conformance details or a discrepancy description')
       return
     }
     setSaving(true)
     try {
       if (editingId && Number.isFinite(editingId)) {
-        const { data, error } = await updateQualityIncr(editingId, form)
+        const { data, error } = await updateQualityIncr(editingId, draft)
         if (error) {
           showToast(error)
           return
         }
+        if (data) setForm(qualityIncrToForm(data))
         showToast(`Saved ${data?.incr_number ?? 'INCR'}`)
         return
       }
       const { data, error } = await createQualityIncr({
-        form,
+        form: draft,
         reworkLogId: linkedReworkId,
         valveRowId,
         valveId,
@@ -185,6 +200,19 @@ export function QualityIncrFormPage() {
     } finally {
       setSaving(false)
     }
+  }
+
+  const reopen = async () => {
+    if (
+      !window.confirm(
+        'Reopen this INCR? Final approval will be cleared and status will be set to Open so it can be reviewed again.',
+      )
+    ) {
+      return
+    }
+    const next = reopenQualityIncrForm(form)
+    setForm(next)
+    await save(next)
   }
 
   if (loading) {
@@ -227,6 +255,11 @@ export function QualityIncrFormPage() {
           <Link to="/quality-team" className="button-secondary">
             Back to Quality Team
           </Link>
+          {editingId && form.status === 'closed' ? (
+            <button type="button" className="button-secondary" disabled={saving} onClick={() => void reopen()}>
+              Reopen INCR
+            </button>
+          ) : null}
           <button type="button" className="button-primary" disabled={saving} onClick={() => void save()}>
             {saving ? 'Saving…' : incrNumber ? 'Save' : 'Save INCR'}
           </button>
@@ -246,6 +279,12 @@ export function QualityIncrFormPage() {
               <option value="closed">Closed</option>
               <option value="void">Void</option>
             </select>
+            {form.status === 'closed' ? (
+              <span className="status-breakdown-note">
+                Closed requires final approval name and date. Clearing approval (or Reopen INCR) sets status
+                back to Open on save.
+              </span>
+            ) : null}
           </Field>
           <Field label="Date rejected">
             <input type="date" value={form.date_rejected} onChange={(e) => patch('date_rejected', e.target.value)} disabled={saving} />

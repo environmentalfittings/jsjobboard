@@ -52,7 +52,15 @@ export type InventoryPhotoDraft = {
   existingUrl: string | null
 }
 
-export const INVENTORY_OPERATORS = ['Handwheel', 'Gear Op.', 'Air Act.', 'Electric Act.', 'Other'] as const
+export const INVENTORY_OPERATORS = [
+  'Handwheel',
+  'Lever',
+  'Bare stem',
+  'Gear Op.',
+  'Air Act.',
+  'Electric Act.',
+  'Other',
+] as const
 export const INVENTORY_ORIGINS = ['JS Warehouse', 'JS Yard', 'JS Cage', 'other'] as const
 export const INVENTORY_MAX_IMAGE_BYTES = 8 * 1024 * 1024
 export const JS_INVENTORY_ID_PREFIX = 'JS-INV-'
@@ -294,6 +302,19 @@ export async function loadInventoryRecords(): Promise<{ data: InventoryRecord[];
   }
 
   return { data: ((data ?? []) as InventoryRow[]).map(mapInventoryRow), error: null }
+}
+
+/** Distinct Customer ID # values already used for a given customer in inventory. */
+export function customerIdNosForCustomer(rows: InventoryRecord[], customer: string): string[] {
+  const key = customer.trim().toLowerCase()
+  if (!key) return []
+  const ids = new Set<string>()
+  for (const row of rows) {
+    if ((row.customer ?? '').trim().toLowerCase() !== key) continue
+    const id = row.customer_id_no?.trim()
+    if (id) ids.add(id)
+  }
+  return [...ids].sort((a, b) => a.localeCompare(b, undefined, { numeric: true, sensitivity: 'base' }))
 }
 
 export async function loadInventoryFormOptions(): Promise<{

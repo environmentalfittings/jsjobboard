@@ -8,8 +8,12 @@ import { JOB_TYPES, normalizeJobType } from '../constants/jobTypes'
 import { LOOKUP_CATEGORY_DEFS, type LookupCategory } from '../constants/lookupCategories'
 import { useEmployees } from '../hooks/useEmployees'
 import {
+  formatCustomerUsageSummary,
+  loadCustomerRecordUsageByName,
   loadCustomersWithSalesRep,
   updateCustomerSalesRep,
+  usageForCustomerName,
+  type CustomerRecordUsage,
   type CustomerSalesRepRow,
 } from '../lib/customers'
 import {
@@ -107,6 +111,9 @@ export function AdminListsPage() {
 
   const [customers, setCustomers] = useState<CustomerRow[]>([])
   const [customersLoading, setCustomersLoading] = useState(true)
+  const [customerUsageByName, setCustomerUsageByName] = useState<Map<string, CustomerRecordUsage>>(
+    () => new Map(),
+  )
   const [salesRepColumnMissing, setSalesRepColumnMissing] = useState(false)
   const [newCustomerName, setNewCustomerName] = useState('')
   const [editingCustomerId, setEditingCustomerId] = useState<number | null>(null)
@@ -214,15 +221,24 @@ export function AdminListsPage() {
 
   const loadCustomers = useCallback(async () => {
     setCustomersLoading(true)
-    const { data, error, salesRepColumnMissing: missing } = await loadCustomersWithSalesRep()
+    const [customersResult, usageResult] = await Promise.all([
+      loadCustomersWithSalesRep(),
+      loadCustomerRecordUsageByName(),
+    ])
     setCustomersLoading(false)
-    setSalesRepColumnMissing(missing)
-    if (error) {
+    setSalesRepColumnMissing(customersResult.salesRepColumnMissing)
+    if (customersResult.error) {
       showToast('Could not load customers')
       setCustomers([])
-      return
+    } else {
+      setCustomers(customersResult.data)
     }
-    setCustomers(data)
+    if (usageResult.error) {
+      showToast(`Could not load customer record counts: ${usageResult.error}`)
+      setCustomerUsageByName(new Map())
+    } else {
+      setCustomerUsageByName(usageResult.byName)
+    }
   }, [showToast])
 
   const salesmanOptions = useMemo(
@@ -482,8 +498,21 @@ export function AdminListsPage() {
     loadCustomers()
   }
 
-  const deleteCustomer = async (id: number) => {
-    if (!window.confirm('Remove this customer from the list? Existing jobs keep their stored name.')) return
+  const deleteCustomer = async (id: number, name: string) => {
+    const usage = usageForCustomerName(customerUsageByName, name)
+    if (usage.total > 0) {
+      showToast(
+        `Cannot delete “${name}” — ${formatCustomerUsageSummary(usage)}. Keep this list entry or rename the records first.`,
+      )
+      return
+    }
+    if (
+      !window.confirm(
+        `Remove “${name}” from the customer list? It has 0 linked records, so this only cleans up the list.`,
+      )
+    ) {
+      return
+    }
     const { error } = await supabase.from('customers').delete().eq('id', id)
     if (error) {
       showToast('Could not delete')
@@ -1272,6 +1301,8 @@ export function AdminListsPage() {
           <h3>Customers</h3>
           <p className="placeholder-copy resources-hint">
             Assign a salesman to each customer so monthly Customer Inventory reports can be sent in Messages.
+            The badge under each name shows how many jobs, inventory, received-valve, and traveler records use
+            that name — delete only entries with 0 records when cleaning duplicates.
             {salesRepColumnMissing
               ? ' Run migration-customers-sales-rep.sql in Supabase to enable salesman assignment.'
               : null}
@@ -1281,7 +1312,11 @@ export function AdminListsPage() {
           ) : (
             <>
               <ul className="admin-list-rows">
-                {customers.map((c) => (
+                {customers.map((c) => {
+                  const usage = usageForCustomerName(customerUsageByName, c.name)
+                  const usageLabel = formatCustomerUsageSummary(usage)
+                  const hasRecords = usage.total > 0
+                  return (
                   <li key={c.id} className="admin-list-row admin-list-row-customer">
                     {editingCustomerId === c.id ? (
                       <>
@@ -1309,7 +1344,17 @@ export function AdminListsPage() {
                       </>
                     ) : (
                       <>
-                        <span className="admin-list-value">{c.name}</span>
+                        <div className="admin-customer-name-block">
+                          <span className="admin-list-value">{c.name}</span>
+                          <span
+                            className={`admin-customer-record-badge${hasRecords ? ' has-records' : ' is-zero'}`}
+                            title={usageLabel}
+                          >
+                            {hasRecords
+                              ? `${usage.total} record${usage.total === 1 ? '' : 's'}`
+                              : '0 records'}
+                          </span>
+                        </div>
                         <label className="admin-customer-salesman">
                           <span className="admin-customer-salesman-label">Salesman</span>
                           <select
@@ -1340,8 +1385,14 @@ export function AdminListsPage() {
                           </button>
                           <button
                             type="button"
-                            className="button-secondary admin-list-btn danger"
-                            onClick={() => deleteCustomer(c.id)}
+                            className={`button-secondary admin-list-btn danger${hasRecords ? ' is-disabled' : ''}`}
+                            disabled={hasRecords}
+                            title={
+                              hasRecords
+                                ? usageLabel
+                                : 'No linked records — safe to remove from the list'
+                            }
+                            onClick={() => void deleteCustomer(c.id, c.name)}
                           >
                             Delete
                           </button>
@@ -1349,7 +1400,8 @@ export function AdminListsPage() {
                       </>
                     )}
                   </li>
-                ))}
+                  )
+                })}
               </ul>
               <div className="admin-add-row">
                 <span className="admin-add-label">Add customer</span>

@@ -175,3 +175,31 @@ export function qualityIncrToForm(row: QualityIncr): QualityIncrFormState {
     status: row.status,
   }
 }
+
+export function hasFinalIncrApproval(
+  form: Pick<QualityIncrFormState, 'final_approval_name' | 'final_approval_date'>,
+): boolean {
+  return Boolean(form.final_approval_name.trim()) && Boolean(form.final_approval_date.trim())
+}
+
+/**
+ * Closed INCRs require final approval name + date. Clearing those fields reopens
+ * the report so Quality Team lists it under Open again.
+ */
+export function syncIncrStatusWithApprovals(form: QualityIncrFormState): QualityIncrFormState {
+  if (form.status === 'void') return form
+  if (form.status === 'closed' && !hasFinalIncrApproval(form)) {
+    return { ...form, status: 'open' }
+  }
+  return form
+}
+
+/** Clear final approval and set status to open (ready for another review cycle). */
+export function reopenQualityIncrForm(form: QualityIncrFormState): QualityIncrFormState {
+  return {
+    ...form,
+    status: 'open',
+    final_approval_name: '',
+    final_approval_date: '',
+  }
+}

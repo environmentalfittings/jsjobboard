@@ -37,7 +37,7 @@ type BasicInfoFormState = {
   outlet_connection: 'RF' | 'RTJ' | 'BW' | 'FF' | 'Other' | ''
   figure_number: string
   drawing_number: string
-  operator: 'Handwheel' | 'Gear Op.' | 'Air Act.' | 'Electric Act.' | ''
+  operator: 'Handwheel' | 'Lever' | 'Bare stem' | 'Gear Op.' | 'Air Act.' | 'Electric Act.' | ''
   valve_condition: 'Repairable' | 'Unrepairable' | ''
   junked_reason: string
   notes: string
@@ -601,6 +601,8 @@ export function BasicInfoSection({ travelerId, valveId, valveTypeId, onComplete 
             >
               <option value="">Select</option>
               <option value="Handwheel">Handwheel</option>
+              <option value="Lever">Lever</option>
+              <option value="Bare stem">Bare stem</option>
               <option value="Gear Op.">Gear Op.</option>
               <option value="Air Act.">Air Act.</option>
               <option value="Electric Act.">Electric Act.</option>
