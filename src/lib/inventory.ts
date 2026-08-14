@@ -20,6 +20,12 @@ export type InventoryRecord = {
   notes: string | null
   js_inventory_id: string | null
   origin: string | null
+  condition: InventoryCondition | null
+  manufacturer_serial_no: string | null
+  repair_tag_number: string | null
+  document_url: string | null
+  document_name: string | null
+  document_storage_path: string | null
   hf_acid: boolean
   image_url: string | null
   valve_image_url: string | null
@@ -42,6 +48,9 @@ export type InventoryFormState = {
   customerIdNo: string
   origin: string
   originOther: string
+  condition: InventoryCondition | ''
+  manufacturerSerialNo: string
+  repairTagNumber: string
   notes: string
   hfAcid: boolean
 }
@@ -50,6 +59,13 @@ export type InventoryPhotoDraft = {
   file: File | null
   previewUrl: string | null
   existingUrl: string | null
+}
+
+export type InventoryDocumentDraft = {
+  file: File | null
+  existingUrl: string | null
+  existingName: string | null
+  existingPath: string | null
 }
 
 export const INVENTORY_OPERATORS = [
@@ -62,11 +78,23 @@ export const INVENTORY_OPERATORS = [
   'Other',
 ] as const
 export const INVENTORY_ORIGINS = ['JS Warehouse', 'JS Yard', 'JS Cage', 'other'] as const
+export const INVENTORY_CONDITIONS = [
+  { value: 'new', label: 'New' },
+  { value: 'reconditioned', label: 'Reconditioned' },
+] as const
+export type InventoryCondition = (typeof INVENTORY_CONDITIONS)[number]['value']
 export const INVENTORY_MAX_IMAGE_BYTES = 8 * 1024 * 1024
+export const INVENTORY_MAX_DOCUMENT_BYTES = 20 * 1024 * 1024
 export const JS_INVENTORY_ID_PREFIX = 'JS-INV-'
 export const JS_INVENTORY_ID_START = 1001
 
 export type InventoryOriginOption = (typeof INVENTORY_ORIGINS)[number]
+
+export function inventoryConditionLabel(condition: string | null | undefined): string {
+  if (condition === 'new') return 'New'
+  if (condition === 'reconditioned') return 'Reconditioned'
+  return ''
+}
 
 export function formatJsInventoryId(sequence: number): string {
   return `${JS_INVENTORY_ID_PREFIX}${sequence}`
@@ -119,6 +147,9 @@ const PRODUCTION_APP_ORIGIN = 'https://jsjobboard.vercel.app'
 export const INVENTORY_SELECT =
   'id,customer,manufacturer_id,manufacturer_name,valve_type_id,body_material,api_trim,size,pressure,operator,customer_id_no,notes,js_inventory_id,origin,image_url,created_at,updated_at'
 
+const INVENTORY_CONDITION_SELECT =
+  'condition,manufacturer_serial_no,repair_tag_number,document_url,document_name,document_storage_path'
+
 type InventoryRow = {
   id: string
   customer: string | null
@@ -139,6 +170,12 @@ type InventoryRow = {
   tag_image_url?: string | null
   qr_code_data_url?: string | null
   hf_acid?: boolean | null
+  condition?: string | null
+  manufacturer_serial_no?: string | null
+  repair_tag_number?: string | null
+  document_url?: string | null
+  document_name?: string | null
+  document_storage_path?: string | null
   created_at: string
   updated_at: string
   valve_types?: { label: string | null } | { label: string | null }[] | null
@@ -165,6 +202,9 @@ export function emptyInventoryForm(): InventoryFormState {
     customerIdNo: '',
     origin: '',
     originOther: '',
+    condition: '',
+    manufacturerSerialNo: '',
+    repairTagNumber: '',
     notes: '',
     hfAcid: false,
   }
@@ -172,6 +212,23 @@ export function emptyInventoryForm(): InventoryFormState {
 
 export function emptyPhotoDraft(existingUrl: string | null = null): InventoryPhotoDraft {
   return { file: null, previewUrl: existingUrl, existingUrl }
+}
+
+export function emptyDocumentDraft(
+  existing?: Pick<InventoryRecord, 'document_url' | 'document_name' | 'document_storage_path'> | null,
+): InventoryDocumentDraft {
+  return {
+    file: null,
+    existingUrl: existing?.document_url ?? null,
+    existingName: existing?.document_name ?? null,
+    existingPath: existing?.document_storage_path ?? null,
+  }
+}
+
+function normalizeInventoryCondition(raw: string | null | undefined): InventoryCondition | null {
+  const value = String(raw ?? '').trim().toLowerCase()
+  if (value === 'new' || value === 'reconditioned') return value
+  return null
 }
 
 function unpackMedia(raw: string | null | undefined): PackedMedia {
@@ -226,6 +283,9 @@ export function inventoryToForm(row: InventoryRecord): InventoryFormState {
     customerIdNo: row.customer_id_no ?? '',
     origin: originParts.origin,
     originOther: originParts.originOther,
+    condition: row.condition ?? '',
+    manufacturerSerialNo: row.manufacturer_serial_no ?? '',
+    repairTagNumber: row.repair_tag_number ?? '',
     notes: row.notes ?? '',
     hfAcid: Boolean(row.hf_acid),
   }
@@ -254,6 +314,12 @@ function mapInventoryRow(row: InventoryRow): InventoryRecord {
     notes: row.notes,
     js_inventory_id: row.js_inventory_id,
     origin: row.origin,
+    condition: normalizeInventoryCondition(row.condition),
+    manufacturer_serial_no: row.manufacturer_serial_no?.trim() || null,
+    repair_tag_number: row.repair_tag_number?.trim() || null,
+    document_url: row.document_url?.trim() || null,
+    document_name: row.document_name?.trim() || null,
+    document_storage_path: row.document_storage_path?.trim() || null,
     hf_acid: row.hf_acid === true || packed.hfAcid === true,
     image_url: row.image_url,
     valve_image_url: valveImageUrl,
@@ -265,6 +331,18 @@ function mapInventoryRow(row: InventoryRow): InventoryRecord {
 }
 
 export async function loadInventoryRecords(): Promise<{ data: InventoryRecord[]; error: string | null }> {
+  const withCondition = await supabase
+    .from('inventory')
+    .select(
+      `${INVENTORY_SELECT},valve_image_url,tag_image_url,qr_code_data_url,hf_acid,${INVENTORY_CONDITION_SELECT},valve_types(label)`,
+    )
+    .order('updated_at', { ascending: false })
+    .limit(2000)
+
+  if (!withCondition.error) {
+    return { data: ((withCondition.data ?? []) as InventoryRow[]).map(mapInventoryRow), error: null }
+  }
+
   const withExtras = await supabase
     .from('inventory')
     .select(`${INVENTORY_SELECT},valve_image_url,tag_image_url,qr_code_data_url,hf_acid,valve_types(label)`)
@@ -391,6 +469,7 @@ async function ensureValveTypeId(label: string): Promise<string | null> {
 }
 
 function formToPayload(form: InventoryFormState, manufacturerId: string | null, valveTypeId: string | null) {
+  const condition = normalizeInventoryCondition(form.condition)
   return {
     js_inventory_id: form.jsInventoryId.trim() || null,
     customer: form.customer.trim() || null,
@@ -404,6 +483,11 @@ function formToPayload(form: InventoryFormState, manufacturerId: string | null, 
     operator: form.operator.trim() || null,
     customer_id_no: form.customerIdNo.trim() || null,
     origin: resolveInventoryOrigin(form.origin, form.originOther) || null,
+    condition,
+    manufacturer_serial_no:
+      condition === 'new' ? form.manufacturerSerialNo.trim() || null : null,
+    repair_tag_number:
+      condition === 'reconditioned' ? form.repairTagNumber.trim() || null : null,
     notes: form.notes.trim() || null,
     hf_acid: Boolean(form.hfAcid),
   }
@@ -413,6 +497,14 @@ function friendlyInventoryError(message: string | undefined): string {
   if (!message) return 'Could not save customer inventory item'
   if (message.includes('js_inventory_id') || message.includes('23505')) {
     return 'That JS inventory ID is already in use'
+  }
+  if (
+    /condition|manufacturer_serial_no|repair_tag_number|document_url|document_name|document_storage_path/i.test(
+      message,
+    ) &&
+    /column|schema|does not exist/i.test(message)
+  ) {
+    return 'Run supabase/migration-inventory-condition-document.sql in Supabase, then try again'
   }
   if (message.includes('permission') || message.includes('policy') || message.includes('RLS')) {
     return 'Run migration-inventory-rls.sql in Supabase, then try again'
@@ -441,6 +533,15 @@ export function validateInventoryPhoto(file: File): string | null {
   return null
 }
 
+export function validateInventoryDocument(file: File): string | null {
+  const isPdf = file.type === 'application/pdf' || /\.pdf$/i.test(file.name)
+  if (!isPdf) return 'Please choose a PDF file (MTR or traveler)'
+  if (file.size > INVENTORY_MAX_DOCUMENT_BYTES) {
+    return 'PDF is too large (max 20 MB)'
+  }
+  return null
+}
+
 export async function uploadInventoryPhoto(
   inventoryId: string,
   kind: 'valve' | 'tag',
@@ -456,6 +557,27 @@ export async function uploadInventoryPhoto(
   })
   if (error) return { url: null, path: null, error: error.message || 'Photo upload failed' }
   return { url: attachmentPublicUrl(path), path, error: null }
+}
+
+export async function uploadInventoryDocument(
+  inventoryId: string,
+  file: File,
+): Promise<{ url: string | null; path: string | null; name: string | null; error: string | null }> {
+  const validation = validateInventoryDocument(file)
+  if (validation) return { url: null, path: null, name: null, error: validation }
+
+  const path = `inventory/${inventoryId}/document-${crypto.randomUUID()}.pdf`
+  const { error } = await supabase.storage.from(VALVE_ATTACHMENTS_BUCKET).upload(path, file, {
+    contentType: file.type || 'application/pdf',
+    upsert: false,
+  })
+  if (error) return { url: null, path: null, name: null, error: error.message || 'PDF upload failed' }
+  return {
+    url: attachmentPublicUrl(path),
+    path,
+    name: file.name.slice(0, 500),
+    error: null,
+  }
 }
 
 export function resolveInventoryPublicOrigin(): string {
@@ -504,6 +626,29 @@ async function writeInventoryRow(
 
   let lastError = primary.error?.message
 
+  if (
+    lastError &&
+    /condition|manufacturer_serial_no|repair_tag_number|document_url|document_name|document_storage_path/i.test(
+      lastError,
+    )
+  ) {
+    const withoutCondition: Record<string, unknown> = { ...withExtras }
+    delete withoutCondition.condition
+    delete withoutCondition.manufacturer_serial_no
+    delete withoutCondition.repair_tag_number
+    delete withoutCondition.document_url
+    delete withoutCondition.document_name
+    delete withoutCondition.document_storage_path
+    const retry = await run(withoutCondition)
+    if (!retry.error && retry.data) {
+      return {
+        data: mapInventoryRow(retry.data as InventoryRow),
+        error: 'Saved, but run supabase/migration-inventory-condition-document.sql for condition/PDF fields.',
+      }
+    }
+    lastError = retry.error?.message || lastError
+  }
+
   if (lastError && /hf_acid/i.test(lastError)) {
     const withoutHf: Record<string, unknown> = { ...withExtras }
     delete withoutHf.hf_acid
@@ -518,6 +663,12 @@ async function writeInventoryRow(
     delete packedOnly.tag_image_url
     delete packedOnly.qr_code_data_url
     delete packedOnly.hf_acid
+    delete packedOnly.condition
+    delete packedOnly.manufacturer_serial_no
+    delete packedOnly.repair_tag_number
+    delete packedOnly.document_url
+    delete packedOnly.document_name
+    delete packedOnly.document_storage_path
     const fallback = await run(packedOnly)
     if (!fallback.error && fallback.data) return { data: mapInventoryRow(fallback.data as InventoryRow), error: null }
     lastError = fallback.error?.message || lastError
@@ -529,6 +680,7 @@ async function writeInventoryRow(
 export async function createInventoryRecord(
   form: InventoryFormState,
   photos: { valve: File; tag: File },
+  document: InventoryDocumentDraft = emptyDocumentDraft(),
 ): Promise<{ data: InventoryRecord | null; error: string | null }> {
   const id = crypto.randomUUID()
   const [manufacturerId, valveTypeId, valveUpload, tagUpload, allocated] = await Promise.all([
@@ -548,18 +700,35 @@ export async function createInventoryRecord(
     return { data: null, error: tagUpload.error || 'Tag photo upload failed' }
   }
 
+  let documentUpload: { url: string | null; path: string | null; name: string | null; error: string | null } = {
+    url: null,
+    path: null,
+    name: null,
+    error: null,
+  }
+  if (document.file) {
+    documentUpload = await uploadInventoryDocument(id, document.file)
+    if (documentUpload.error || !documentUpload.url) {
+      if (valveUpload.path) await supabase.storage.from(VALVE_ATTACHMENTS_BUCKET).remove([valveUpload.path])
+      if (tagUpload.path) await supabase.storage.from(VALVE_ATTACHMENTS_BUCKET).remove([tagUpload.path])
+      return { data: null, error: documentUpload.error || 'PDF upload failed' }
+    }
+  }
+
   let qrCodeDataUrl: string
   try {
     qrCodeDataUrl = await createInventoryQrDataUrl(id)
   } catch {
     if (valveUpload.path) await supabase.storage.from(VALVE_ATTACHMENTS_BUCKET).remove([valveUpload.path])
     if (tagUpload.path) await supabase.storage.from(VALVE_ATTACHMENTS_BUCKET).remove([tagUpload.path])
+    if (documentUpload.path) await supabase.storage.from(VALVE_ATTACHMENTS_BUCKET).remove([documentUpload.path])
     return { data: null, error: 'Could not generate QR code' }
   }
 
   const cleanupUploads = async () => {
     if (valveUpload.path) await supabase.storage.from(VALVE_ATTACHMENTS_BUCKET).remove([valveUpload.path])
     if (tagUpload.path) await supabase.storage.from(VALVE_ATTACHMENTS_BUCKET).remove([tagUpload.path])
+    if (documentUpload.path) await supabase.storage.from(VALVE_ATTACHMENTS_BUCKET).remove([documentUpload.path])
   }
 
   // Prefer freshly allocated ID; fall back to form value only if allocation failed oddly.
@@ -580,6 +749,9 @@ export async function createInventoryRecord(
     valve_image_url: valveUpload.url,
     tag_image_url: tagUpload.url,
     qr_code_data_url: qrCodeDataUrl,
+    document_url: documentUpload.url,
+    document_name: documentUpload.name,
+    document_storage_path: documentUpload.path,
   }
 
   // Retry a few times if another user grabbed the same sequence concurrently.
@@ -592,6 +764,7 @@ export async function createInventoryRecord(
     }
     const result = await writeInventoryRow('insert', id, payload)
     if (!result.error && result.data) return result
+    if (result.data && result.error) return result
 
     lastError = result.error
     const isDuplicate =
@@ -619,6 +792,7 @@ export async function updateInventoryRecord(
     tag: InventoryPhotoDraft
     existing: InventoryRecord
   },
+  document: InventoryDocumentDraft = emptyDocumentDraft(),
 ): Promise<{ data: InventoryRecord | null; error: string | null }> {
   const valveUrl = photos.valve.existingUrl
   const tagUrl = photos.tag.existingUrl
@@ -650,6 +824,25 @@ export async function updateInventoryRecord(
     if (uploaded.path) uploadedPaths.push(uploaded.path)
   }
 
+  let nextDocumentUrl = document.existingUrl
+  let nextDocumentName = document.existingName
+  let nextDocumentPath = document.existingPath
+  if (document.file) {
+    const uploaded = await uploadInventoryDocument(id, document.file)
+    if (uploaded.error || !uploaded.url) {
+      if (uploadedPaths.length) await supabase.storage.from(VALVE_ATTACHMENTS_BUCKET).remove(uploadedPaths)
+      return { data: null, error: uploaded.error || 'PDF upload failed' }
+    }
+    nextDocumentUrl = uploaded.url
+    nextDocumentName = uploaded.name
+    nextDocumentPath = uploaded.path
+    if (uploaded.path) uploadedPaths.push(uploaded.path)
+  } else if (!document.existingUrl) {
+    nextDocumentUrl = null
+    nextDocumentName = null
+    nextDocumentPath = null
+  }
+
   const qrCodeDataUrl =
     photos.existing.qr_code_data_url?.trim() || (await createInventoryQrDataUrl(id))
 
@@ -665,10 +858,13 @@ export async function updateInventoryRecord(
     valve_image_url: nextValveUrl,
     tag_image_url: nextTagUrl,
     qr_code_data_url: qrCodeDataUrl,
+    document_url: nextDocumentUrl,
+    document_name: nextDocumentName,
+    document_storage_path: nextDocumentPath,
   }
 
   const result = await writeInventoryRow('update', id, payload)
-  if (result.error && uploadedPaths.length) {
+  if (result.error && !result.data && uploadedPaths.length) {
     await supabase.storage.from(VALVE_ATTACHMENTS_BUCKET).remove(uploadedPaths)
   }
   return result
@@ -697,6 +893,10 @@ export function inventoryMatchesSearch(row: InventoryRecord, rawQuery: string): 
     row.operator,
     row.customer_id_no,
     row.origin,
+    inventoryConditionLabel(row.condition),
+    row.manufacturer_serial_no,
+    row.repair_tag_number,
+    row.document_name,
     row.notes,
     row.hf_acid ? 'hf acid' : '',
   ]

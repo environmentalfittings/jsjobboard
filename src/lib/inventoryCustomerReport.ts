@@ -49,6 +49,12 @@ function lineForItem(item: InventoryRecord): string {
     item.pressure?.trim() || null,
     item.body_material?.trim() || null,
     item.origin?.trim() ? `Origin: ${item.origin.trim()}` : null,
+    item.condition === 'new'
+      ? `New · S/N ${item.manufacturer_serial_no?.trim() || '—'}`
+      : item.condition === 'reconditioned'
+        ? `Reconditioned · Tag ${item.repair_tag_number?.trim() || '—'}`
+        : null,
+    item.document_url ? `PDF: ${item.document_name?.trim() || 'attached'}` : null,
     item.hf_acid ? 'HF Acid' : null,
   ].filter(Boolean)
   return parts.join(' | ')

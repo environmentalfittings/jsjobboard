@@ -17178,6 +17178,39 @@ tbody tr:hover {
   border-color: #cbd5e1;
 }
 
+.inventory-document-card {
+  border: 1px dashed #94a3b8;
+  border-radius: 12px;
+  padding: 0.85rem;
+  background: #fff;
+  display: flex;
+  flex-direction: column;
+  gap: 0.65rem;
+}
+
+.inventory-document-card.has-file {
+  border-style: solid;
+  border-color: #cbd5e1;
+}
+
+.inventory-document-preview {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem 1rem;
+  padding: 0.85rem 1rem;
+  border-radius: 10px;
+  background: #f1f5f9;
+  color: #334155;
+  font-size: 14px;
+}
+
+.inventory-document-preview a {
+  font-weight: 600;
+  color: #0f766e;
+}
+
 .inventory-photo-card-head h4 {
   margin: 0 0 0.15rem;
   font-size: 0.9rem;

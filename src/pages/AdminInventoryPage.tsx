@@ -14,16 +14,22 @@ import {
   createInventoryRecord,
   customerIdNosForCustomer,
   deleteInventoryRecord,
+  emptyDocumentDraft,
   emptyInventoryForm,
   emptyPhotoDraft,
+  INVENTORY_CONDITIONS,
   INVENTORY_OPERATORS,
   INVENTORY_ORIGINS,
+  inventoryConditionLabel,
   inventoryMatchesSearch,
   inventoryToForm,
   loadInventoryFormOptions,
   loadInventoryRecords,
   updateInventoryRecord,
+  validateInventoryDocument,
   validateInventoryPhoto,
+  type InventoryCondition,
+  type InventoryDocumentDraft,
   type InventoryFormState,
   type InventoryPhotoDraft,
   type InventoryRecord,
@@ -327,6 +333,67 @@ function PhotoCard({
   )
 }
 
+function DocumentCard({
+  draft,
+  onPick,
+  onClear,
+}: {
+  draft: InventoryDocumentDraft
+  onPick: (file: File) => void
+  onClear: () => void
+}) {
+  const inputRef = useRef<HTMLInputElement>(null)
+  const label = draft.file?.name || draft.existingName || 'MTR / traveler PDF'
+  const hasFile = Boolean(draft.file || draft.existingUrl)
+
+  return (
+    <div className={`inventory-document-card${hasFile ? ' has-file' : ''}`}>
+      <div className="inventory-photo-card-head">
+        <h4>MTR / traveler PDF</h4>
+        <p>Optional — upload the manufacturer test report or traveler as a PDF.</p>
+      </div>
+      {hasFile ? (
+        <div className="inventory-document-preview">
+          <strong>{label}</strong>
+          {draft.existingUrl && !draft.file ? (
+            <a href={draft.existingUrl} target="_blank" rel="noreferrer">
+              Open PDF
+            </a>
+          ) : (
+            <span>Ready to upload on save</span>
+          )}
+        </div>
+      ) : (
+        <button type="button" className="inventory-photo-drop" onClick={() => inputRef.current?.click()}>
+          <span className="inventory-photo-drop-title">Upload PDF</span>
+          <span className="inventory-photo-drop-sub">MTR or traveler · max 20 MB</span>
+        </button>
+      )}
+      <div className="inventory-photo-actions">
+        <button type="button" className="button-secondary" onClick={() => inputRef.current?.click()}>
+          {hasFile ? 'Replace PDF' : 'Choose PDF'}
+        </button>
+        {hasFile ? (
+          <button type="button" className="button-secondary" onClick={onClear}>
+            Clear
+          </button>
+        ) : null}
+      </div>
+      <input
+        ref={inputRef}
+        type="file"
+        accept="application/pdf,.pdf"
+        className="inventory-file-input"
+        onChange={(e) => {
+          const file = e.target.files?.[0]
+          if (file) onPick(file)
+          e.target.value = ''
+        }}
+      />
+    </div>
+  )
+}
+
 export function AdminInventoryPage() {
   const { showToast } = useToast()
   const { user, username } = useAuth()
@@ -350,6 +417,7 @@ export function AdminInventoryPage() {
   const [form, setForm] = useState<InventoryFormState>(() => emptyInventoryForm())
   const [valvePhoto, setValvePhoto] = useState<InventoryPhotoDraft>(() => emptyPhotoDraft())
   const [tagPhoto, setTagPhoto] = useState<InventoryPhotoDraft>(() => emptyPhotoDraft())
+  const [documentDraft, setDocumentDraft] = useState<InventoryDocumentDraft>(() => emptyDocumentDraft())
   const [saving, setSaving] = useState(false)
   const [qrItem, setQrItem] = useState<InventoryRecord | null>(null)
   const [selectedIds, setSelectedIds] = useState<Set<string>>(() => new Set())
@@ -539,6 +607,22 @@ export function AdminInventoryPage() {
     }
   }
 
+  const pickDocument = (file: File) => {
+    const error = validateInventoryDocument(file)
+    if (error) {
+      showToast(error)
+      return
+    }
+    setDocumentDraft((prev) => ({
+      ...prev,
+      file,
+    }))
+  }
+
+  const clearDocument = () => {
+    setDocumentDraft(emptyDocumentDraft())
+  }
+
   const openCreate = async () => {
     setModalMode('create')
     setEditingId(null)
@@ -551,6 +635,7 @@ export function AdminInventoryPage() {
       revokePreview(prev)
       return emptyPhotoDraft()
     })
+    setDocumentDraft(emptyDocumentDraft())
     setModalOpen(true)
     const allocated = await allocateNextJsInventoryId()
     if (allocated.error) {
@@ -572,6 +657,7 @@ export function AdminInventoryPage() {
       revokePreview(prev)
       return emptyPhotoDraft(null)
     })
+    setDocumentDraft(emptyDocumentDraft())
     setModalOpen(true)
     const allocated = await allocateNextJsInventoryId()
     if (allocated.error) {
@@ -592,6 +678,7 @@ export function AdminInventoryPage() {
       revokePreview(prev)
       return emptyPhotoDraft(row.tag_image_url)
     })
+    setDocumentDraft(emptyDocumentDraft(row))
     setModalOpen(true)
   }
 
@@ -608,6 +695,7 @@ export function AdminInventoryPage() {
       revokePreview(prev)
       return emptyPhotoDraft()
     })
+    setDocumentDraft(emptyDocumentDraft())
   }
 
   const save = async () => {
@@ -621,6 +709,18 @@ export function AdminInventoryPage() {
     }
     if (form.origin === 'other' && !form.originOther.trim()) {
       showToast('Enter the other location')
+      return
+    }
+    if (!form.condition) {
+      showToast('Select New or Reconditioned')
+      return
+    }
+    if (form.condition === 'new' && !form.manufacturerSerialNo.trim()) {
+      showToast('Enter the new manufacturer serial number')
+      return
+    }
+    if (form.condition === 'reconditioned' && !form.repairTagNumber.trim()) {
+      showToast('Enter the repair tag number')
       return
     }
 
@@ -646,17 +746,24 @@ export function AdminInventoryPage() {
         )
         return
       }
-      const result = await createInventoryRecord(form, { valve: valvePhoto.file, tag: tagPhoto.file })
+      const result = await createInventoryRecord(
+        form,
+        { valve: valvePhoto.file, tag: tagPhoto.file },
+        documentDraft,
+      )
       setSaving(false)
-      if (result.error || !result.data) {
+      if (!result.data) {
         showToast(result.error || 'Could not create item')
         return
       }
-      showToast(
-        modalMode === 'duplicate'
-          ? 'Duplicate inventory item created'
-          : 'Customer inventory item added',
-      )
+      if (result.error) showToast(result.error)
+      else {
+        showToast(
+          modalMode === 'duplicate'
+            ? 'Duplicate inventory item created'
+            : 'Customer inventory item added',
+        )
+      }
       closeModal()
       setQrItem(result.data)
       await reload()
@@ -673,17 +780,23 @@ export function AdminInventoryPage() {
       showToast('Could not find inventory item to update')
       return
     }
-    const result = await updateInventoryRecord(editingId, form, {
-      valve: valvePhoto,
-      tag: tagPhoto,
-      existing,
-    })
+    const result = await updateInventoryRecord(
+      editingId,
+      form,
+      {
+        valve: valvePhoto,
+        tag: tagPhoto,
+        existing,
+      },
+      documentDraft,
+    )
     setSaving(false)
-    if (result.error || !result.data) {
+    if (!result.data) {
       showToast(result.error || 'Could not update item')
       return
     }
-    showToast('Customer inventory item updated')
+    if (result.error) showToast(result.error)
+    else showToast('Customer inventory item updated')
     closeModal()
     await reload()
   }
@@ -1194,6 +1307,38 @@ export function AdminInventoryPage() {
                                   <span className="inventory-detail-value">{display(row.origin)}</span>
                                 </div>
                                 <div className="inventory-detail-item">
+                                  <span className="inventory-detail-label">Condition</span>
+                                  <span className="inventory-detail-value">
+                                    {display(inventoryConditionLabel(row.condition))}
+                                  </span>
+                                </div>
+                                <div className="inventory-detail-item">
+                                  <span className="inventory-detail-label">
+                                    {row.condition === 'reconditioned'
+                                      ? 'Repair tag number'
+                                      : 'Manufacturer serial number'}
+                                  </span>
+                                  <span className="inventory-detail-value">
+                                    {display(
+                                      row.condition === 'reconditioned'
+                                        ? row.repair_tag_number
+                                        : row.manufacturer_serial_no,
+                                    )}
+                                  </span>
+                                </div>
+                                <div className="inventory-detail-item">
+                                  <span className="inventory-detail-label">MTR / traveler PDF</span>
+                                  <span className="inventory-detail-value">
+                                    {row.document_url ? (
+                                      <a href={row.document_url} target="_blank" rel="noreferrer">
+                                        {row.document_name || 'Open PDF'}
+                                      </a>
+                                    ) : (
+                                      '—'
+                                    )}
+                                  </span>
+                                </div>
+                                <div className="inventory-detail-item">
                                   <span className="inventory-detail-label">Manufacturer</span>
                                   <span className="inventory-detail-value">{display(row.manufacturer_name)}</span>
                                 </div>
@@ -1369,6 +1514,47 @@ export function AdminInventoryPage() {
                       />
                     </Field>
                   ) : null}
+                  <Field label="New or reconditioned" required>
+                    <select
+                      value={form.condition}
+                      onChange={(e) =>
+                        patchForm({
+                          condition: e.target.value as InventoryCondition | '',
+                          manufacturerSerialNo:
+                            e.target.value === 'new' ? form.manufacturerSerialNo : '',
+                          repairTagNumber:
+                            e.target.value === 'reconditioned' ? form.repairTagNumber : '',
+                        })
+                      }
+                    >
+                      <option value="">— Select —</option>
+                      {INVENTORY_CONDITIONS.map((option) => (
+                        <option key={option.value} value={option.value}>
+                          {option.label}
+                        </option>
+                      ))}
+                    </select>
+                  </Field>
+                  {form.condition === 'new' ? (
+                    <Field label="Manufacturer serial number" required>
+                      <input
+                        type="text"
+                        value={form.manufacturerSerialNo}
+                        onChange={(e) => patchForm({ manufacturerSerialNo: e.target.value })}
+                        placeholder="New valve serial number"
+                      />
+                    </Field>
+                  ) : null}
+                  {form.condition === 'reconditioned' ? (
+                    <Field label="Repair tag number" required>
+                      <input
+                        type="text"
+                        value={form.repairTagNumber}
+                        onChange={(e) => patchForm({ repairTagNumber: e.target.value })}
+                        placeholder="Repair / traveler tag number"
+                      />
+                    </Field>
+                  ) : null}
                 </div>
               </section>
 
@@ -1404,6 +1590,18 @@ export function AdminInventoryPage() {
                 {modalMode === 'create' || modalMode === 'duplicate' ? (
                   <p className="inventory-qr-note">A QR code is generated automatically when you create this item.</p>
                 ) : null}
+              </section>
+
+              <section className="inventory-form-section">
+                <div className="inventory-form-section-head">
+                  <h4>MTR / traveler document</h4>
+                  <p>
+                    {modalMode === 'duplicate'
+                      ? 'PDF is not copied — upload the MTR or traveler for this duplicate if needed.'
+                      : 'Optional PDF attachment for the MTR or traveler.'}
+                  </p>
+                </div>
+                <DocumentCard draft={documentDraft} onPick={pickDocument} onClear={clearDocument} />
               </section>
 
               <section className="inventory-form-section">
