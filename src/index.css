@@ -8660,6 +8660,15 @@ tbody tr:hover {
   justify-content: stretch;
 }
 
+.modal-overlay--job-max > .modal-card {
+  flex: 1 1 auto;
+  align-self: stretch;
+  width: 100%;
+  max-width: none;
+  height: 100%;
+  max-height: none;
+}
+
 .itp-modal-overlay {
   z-index: 110;
   background: rgba(15, 23, 42, 0.72);
@@ -8725,8 +8734,14 @@ tbody tr:hover {
   width: min(920px, 100%);
 }
 
-.job-card-shell.modal-card-job-detail--max {
+.job-card-shell.modal-card.modal-card-job-detail--max,
+.job-card-shell.modal-card-with-attachments.modal-card-job-detail--max {
+  width: 100%;
+  max-width: none;
+  height: 100%;
+  min-height: 100%;
   max-height: none;
+  border-radius: 0;
 }
 
 .job-card-header {
