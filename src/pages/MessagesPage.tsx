@@ -111,7 +111,7 @@ export function MessagesPage({ userId, username, homePath }: MessagesPageProps) 
   const { role } = useAuth()
   const canWrite = canWriteShop(role)
   const { employees, loading: employeesLoading } = useEmployees()
-  const { items, loading, error, refresh } = useInbox(userId)
+  const { items, loading, refreshing, error, refresh } = useInbox(userId)
   const [searchParams, setSearchParams] = useSearchParams()
   const [filter, setFilter] = useState<InboxFilter>('inbox')
   const [selectedKey, setSelectedKey] = useState<string | null>(searchParams.get('item'))
@@ -415,8 +415,13 @@ export function MessagesPage({ userId, username, homePath }: MessagesPageProps) 
       <div className="dashboard-title-row">
         <h2 className="dashboard-title">Messages</h2>
         <div className="technicians-page-actions">
-          <button type="button" className="button-secondary" onClick={() => void refresh()} disabled={loading}>
-            Refresh
+          <button
+            type="button"
+            className="button-secondary"
+            onClick={() => void refresh()}
+            disabled={loading || refreshing}
+          >
+            {refreshing ? 'Refreshing…' : 'Refresh'}
           </button>
           {canWrite ? (
             <button
@@ -462,7 +467,7 @@ export function MessagesPage({ userId, username, homePath }: MessagesPageProps) 
               </button>
             ))}
           </div>
-          {!loading && filteredItems.length > 0 ? (
+          {filteredItems.length > 0 ? (
             <div className="messages-bulk-bar">
               <label className="messages-bulk-select-all">
                 <input
@@ -474,7 +479,7 @@ export function MessagesPage({ userId, username, homePath }: MessagesPageProps) 
                     }
                   }}
                   onChange={toggleSelectAllVisible}
-                  disabled={actionBusy}
+                  disabled={actionBusy || loading}
                 />
                 <span>
                   {allVisibleSelected
@@ -515,12 +520,12 @@ export function MessagesPage({ userId, username, homePath }: MessagesPageProps) 
               </div>
             </div>
           ) : null}
-          {loading ? (
+          {loading && filteredItems.length === 0 ? (
             <p className="placeholder-copy">Loading…</p>
           ) : filteredItems.length === 0 ? (
             <p className="placeholder-copy">No messages in this view.</p>
           ) : (
-            <div className="messages-list">
+            <div className={`messages-list${refreshing ? ' messages-list--refreshing' : ''}`}>
               {filteredItems.map((item) => {
                 const isChecked = visibleCheckedKeys.includes(item.key)
                 return (

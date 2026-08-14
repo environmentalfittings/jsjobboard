@@ -505,6 +505,11 @@ body {
   padding: 2px 4px 2px 0;
 }
 
+.messages-list--refreshing {
+  opacity: 0.72;
+  pointer-events: none;
+}
+
 .messages-list-item {
   display: flex;
   align-items: flex-start;
