@@ -41,7 +41,11 @@ import {
   newMeasFieldId,
   selFromRequirementDefaults,
 } from '../lib/itpItemRequirements'
-import { emptyItemSel, type ItpLibraryItemSel } from '../types/itpLibraryPlan'
+import {
+  effectiveScopeSectionId,
+  emptyItemSel,
+  type ItpLibraryItemSel,
+} from '../types/itpLibraryPlan'
 
 const JOB_TYPE_OPTIONS: { value: ItpLibraryJobType; label: string }[] = [
   { value: 'repair', label: 'Valve Repair' },
@@ -216,6 +220,29 @@ export function ItpTemplateBuilderPanel() {
     }))
   }, [catalog])
 
+  const valveTypeOptions = useMemo(() => {
+    const fromSaved = savedRows
+      .filter((row) => row.job_type === jobType)
+      .map((row) => row.valve_type.trim())
+      .filter(Boolean)
+    const merged = [...valveTypes]
+    for (const vt of fromSaved) {
+      if (!merged.some((existing) => existing.toLowerCase() === vt.toLowerCase())) {
+        merged.push(vt)
+      }
+    }
+    return merged
+  }, [valveTypes, savedRows, jobType])
+
+  const savedRowsForJob = useMemo(
+    () =>
+      savedRows
+        .filter((row) => row.job_type === jobType)
+        .slice()
+        .sort((a, b) => a.valve_type.localeCompare(b.valve_type) || a.name.localeCompare(b.name)),
+    [savedRows, jobType],
+  )
+
   const catalogById = useMemo(() => new Map(catalog.map((item) => [item.id, item])), [catalog])
 
   const refreshSavedList = useCallback(async () => {
@@ -367,6 +394,14 @@ export function ItpTemplateBuilderPanel() {
     setIsDefaultTemplate(templatesForValve.length === 0)
     setDirty(true)
     setSubReqDrafts({})
+  }
+
+  const openSavedTemplate = (row: ItpLibraryTemplateRow) => {
+    if (dirty && !window.confirm('Discard unsaved template changes?')) return
+    const jt = row.job_type as ItpLibraryJobType
+    if (jt !== jobType) setJobType(jt)
+    setValveType(row.valve_type)
+    void loadTemplate(jt, row.valve_type, row.name)
   }
 
   const selectExistingTemplate = (name: string) => {
@@ -589,6 +624,19 @@ export function ItpTemplateBuilderPanel() {
     setMasterDirty(true)
   }
 
+  /** Template-only: move a checklist line between ITP sections without changing the master catalog. */
+  const changeTemplateItemSection = (itemId: string, secId: ItpLibrarySectionId) => {
+    setScope((prev) => ({
+      ...prev,
+      sel: {
+        ...prev.sel,
+        [itemId]: { ...(prev.sel[itemId] ?? emptyItemSel()), sectionId: secId },
+      },
+      custom: prev.custom.map((row) => (row.id === itemId ? { ...row, secId } : row)),
+    }))
+    setDirty(true)
+  }
+
   const moveItem = (itemId: string, direction: -1 | 1) => {
     setCatalog((prev) => moveCatalogItemInArea(prev, itemId, direction))
     setMasterDirty(true)
@@ -718,13 +766,17 @@ export function ItpTemplateBuilderPanel() {
   const checklistSections = useMemo(() => {
     return ITP_LIBRARY.map((section) => {
       const items = catalog
-        .filter((item) => item.secId === section.id && getSel(scope, item.id).included)
+        .filter((item) => {
+          if (!getSel(scope, item.id).included) return false
+          return effectiveScopeSectionId(item.secId, getSel(scope, item.id)) === section.id
+        })
         .sort((a, b) => a.sortOrder - b.sortOrder)
         .map((item) => ({
           id: item.id,
           name: item.name,
           ref: item.ref,
           area: item.area,
+          catalogSecId: item.secId,
         }))
       return { section, items }
     }).filter((row) => row.items.length > 0)
@@ -785,7 +837,7 @@ export function ItpTemplateBuilderPanel() {
             }}
           >
             <option value="">Select valve type…</option>
-            {valveTypes.map((vt) => (
+            {valveTypeOptions.map((vt) => (
               <option key={vt} value={vt}>
                 {vt}
                 {savedRows.some((r) => r.job_type === jobType && r.valve_type === vt) ? ' ✓' : ''}
@@ -892,15 +944,30 @@ export function ItpTemplateBuilderPanel() {
         </p>
       ) : null}
 
-      {savedRows.length > 0 ? (
+      {savedRowsForJob.length > 0 ? (
+        <div className="itp-template-builder-saved-meta">
+          <span>Saved templates ({jobType}) — click to open:</span>
+          <div className="itp-template-builder-saved-links">
+            {savedRowsForJob.map((row) => (
+              <button
+                key={row.id}
+                type="button"
+                className={`itp-template-saved-link${
+                  valveType === row.valve_type && loadedTemplateName === row.name ? ' is-active' : ''
+                }`}
+                onClick={() => openSavedTemplate(row)}
+                title={`Open ${row.valve_type} — ${row.name}`}
+              >
+                {formatItpLibraryTemplateLabel(row)}
+              </button>
+            ))}
+          </div>
+        </div>
+      ) : (
         <p className="itp-template-builder-saved-meta">
-          Saved templates ({jobType}):{' '}
-          {savedRows
-            .filter((r) => r.job_type === jobType)
-            .map((r) => formatItpLibraryTemplateLabel(r))
-            .join(' · ') || 'none yet'}
+          Saved templates ({jobType}): none yet — pick a valve type, check items, then Save template.
         </p>
-      ) : null}
+      )}
 
       <div
         className={`itp-library-split itp-template-builder-layout${valveType ? ' is-valve-selected' : ' is-master-only'}`}
@@ -1400,22 +1467,43 @@ export function ItpTemplateBuilderPanel() {
                                     <span className="itp-library-attr-badge meas">Measurements</span>
                                   ) : null}
                                 </div>
-                                <label className="itp-template-station-field">
-                                  <span>Assigned station</span>
-                                  <select
-                                    value={item.area}
-                                    onChange={(e) =>
-                                      changeItemArea(item.id, e.target.value as ItpShopArea)
-                                    }
-                                    title="Change station assignment"
-                                  >
-                                    {ITP_SHOP_AREAS.map((opt) => (
-                                      <option key={opt.value} value={opt.value}>
-                                        {opt.label}
-                                      </option>
-                                    ))}
-                                  </select>
-                                </label>
+                                <div className="itp-template-preview-fields">
+                                  <label className="itp-template-station-field">
+                                    <span>Assigned station</span>
+                                    <select
+                                      value={item.area}
+                                      onChange={(e) =>
+                                        changeItemArea(item.id, e.target.value as ItpShopArea)
+                                      }
+                                      title="Change station assignment"
+                                    >
+                                      {ITP_SHOP_AREAS.map((opt) => (
+                                        <option key={opt.value} value={opt.value}>
+                                          {opt.label}
+                                        </option>
+                                      ))}
+                                    </select>
+                                  </label>
+                                  <label className="itp-template-station-field">
+                                    <span>ITP section</span>
+                                    <select
+                                      value={effectiveScopeSectionId(item.catalogSecId, sel)}
+                                      onChange={(e) =>
+                                        changeTemplateItemSection(
+                                          item.id,
+                                          e.target.value as ItpLibrarySectionId,
+                                        )
+                                      }
+                                      title="Move this item to another ITP section (this template only)"
+                                    >
+                                      {ITP_LIBRARY.map((opt) => (
+                                        <option key={opt.id} value={opt.id}>
+                                          {opt.title}
+                                        </option>
+                                      ))}
+                                    </select>
+                                  </label>
+                                </div>
                                 <input
                                   className="itp-library-enote"
                                   type="text"

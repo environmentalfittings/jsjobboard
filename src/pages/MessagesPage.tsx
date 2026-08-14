@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useState, type MouseEvent } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 import { useToast } from '../components/ToastNotification'
 import { useAuth } from '../contexts/AuthContext'
@@ -125,6 +125,7 @@ export function MessagesPage({ userId, username, homePath }: MessagesPageProps) 
   const [resolvedAttachments, setResolvedAttachments] = useState<MessageAttachment[]>([])
   const [attachmentsLoading, setAttachmentsLoading] = useState(false)
   const [technicians, setTechnicians] = useState<Awaited<ReturnType<typeof loadTechniciansForMessages>>>([])
+  const [checkedKeys, setCheckedKeys] = useState<string[]>([])
 
   useEffect(() => {
     void loadTechniciansForMessages().then(setTechnicians)
@@ -154,6 +155,27 @@ export function MessagesPage({ userId, username, homePath }: MessagesPageProps) 
     () => filteredItems.find((item) => item.key === selectedKey) ?? filteredItems[0] ?? null,
     [filteredItems, selectedKey],
   )
+
+  const filteredKeySet = useMemo(() => new Set(filteredItems.map((item) => item.key)), [filteredItems])
+
+  const visibleCheckedKeys = useMemo(
+    () => checkedKeys.filter((key) => filteredKeySet.has(key)),
+    [checkedKeys, filteredKeySet],
+  )
+
+  const allVisibleSelected =
+    filteredItems.length > 0 && visibleCheckedKeys.length === filteredItems.length
+
+  useEffect(() => {
+    setCheckedKeys([])
+  }, [filter])
+
+  useEffect(() => {
+    setCheckedKeys((prev) => {
+      const next = prev.filter((key) => filteredKeySet.has(key))
+      return next.length === prev.length ? prev : next
+    })
+  }, [filteredKeySet])
 
   useEffect(() => {
     return () => {
@@ -290,6 +312,25 @@ export function MessagesPage({ userId, username, homePath }: MessagesPageProps) 
     void refresh()
   }
 
+  const toggleChecked = (key: string, checked: boolean) => {
+    setCheckedKeys((prev) => {
+      if (checked) return prev.includes(key) ? prev : [...prev, key]
+      return prev.filter((row) => row !== key)
+    })
+  }
+
+  const toggleSelectAllVisible = () => {
+    if (allVisibleSelected) {
+      setCheckedKeys([])
+      return
+    }
+    setCheckedKeys(filteredItems.map((item) => item.key))
+  }
+
+  const stopCheckboxClick = (event: MouseEvent) => {
+    event.stopPropagation()
+  }
+
   const runItemAction = async (action: 'archive' | 'unarchive' | 'delete') => {
     if (!selectedItem) return
     if (action === 'delete' && !window.confirm('Delete this message from your view?')) return
@@ -308,13 +349,66 @@ export function MessagesPage({ userId, username, homePath }: MessagesPageProps) 
       return
     }
 
+    setCheckedKeys((prev) => prev.filter((key) => key !== selectedItem.key))
     setSelectedKey(null)
     clearSearchParams()
     showToast(action === 'delete' ? 'Message deleted' : action === 'archive' ? 'Message archived' : 'Message restored')
     void refresh()
   }
 
+  const runBulkAction = async (action: 'archive' | 'unarchive' | 'delete') => {
+    const targets = filteredItems.filter((item) => visibleCheckedKeys.includes(item.key))
+    if (targets.length === 0) return
+
+    if (
+      action === 'delete' &&
+      !window.confirm(
+        `Delete ${targets.length} message${targets.length === 1 ? '' : 's'} from your view? This cannot be undone.`,
+      )
+    ) {
+      return
+    }
+
+    setActionBusy(true)
+    const errors: string[] = []
+    for (const item of targets) {
+      const error =
+        action === 'archive'
+          ? await archiveInboxItem(item)
+          : action === 'unarchive'
+            ? await unarchiveInboxItem(item)
+            : await deleteInboxItem(item)
+      if (error) errors.push(error)
+    }
+    setActionBusy(false)
+
+    const done = targets.length - errors.length
+    setCheckedKeys([])
+    if (selectedItem && targets.some((item) => item.key === selectedItem.key)) {
+      setSelectedKey(null)
+      clearSearchParams()
+    }
+
+    if (errors.length > 0) {
+      showToast(
+        done > 0
+          ? `${done} updated, ${errors.length} failed: ${errors[0]}`
+          : errors[0] ?? 'Could not update messages',
+      )
+    } else {
+      showToast(
+        action === 'delete'
+          ? `${done} message${done === 1 ? '' : 's'} deleted`
+          : action === 'archive'
+            ? `${done} message${done === 1 ? '' : 's'} archived`
+            : `${done} message${done === 1 ? '' : 's'} restored`,
+      )
+    }
+    void refresh()
+  }
+
   const canAddAttachments = attachmentDrafts.length < MAX_MESSAGE_ATTACHMENTS
+  const checkedCount = visibleCheckedKeys.length
 
   return (
     <section className="dashboard-page messages-page">
@@ -368,43 +462,114 @@ export function MessagesPage({ userId, username, homePath }: MessagesPageProps) 
               </button>
             ))}
           </div>
+          {!loading && filteredItems.length > 0 ? (
+            <div className="messages-bulk-bar">
+              <label className="messages-bulk-select-all">
+                <input
+                  type="checkbox"
+                  checked={allVisibleSelected}
+                  ref={(el) => {
+                    if (el) {
+                      el.indeterminate = checkedCount > 0 && !allVisibleSelected
+                    }
+                  }}
+                  onChange={toggleSelectAllVisible}
+                  disabled={actionBusy}
+                />
+                <span>
+                  {allVisibleSelected
+                    ? 'Deselect all'
+                    : checkedCount > 0
+                      ? `Select all (${checkedCount} selected)`
+                      : 'Select all'}
+                </span>
+              </label>
+              <div className="messages-bulk-actions">
+                {filter === 'archived' ? (
+                  <button
+                    type="button"
+                    className="button-secondary"
+                    disabled={actionBusy || checkedCount === 0}
+                    onClick={() => void runBulkAction('unarchive')}
+                  >
+                    Unarchive{checkedCount > 0 ? ` (${checkedCount})` : ''}
+                  </button>
+                ) : (
+                  <button
+                    type="button"
+                    className="button-secondary"
+                    disabled={actionBusy || checkedCount === 0}
+                    onClick={() => void runBulkAction('archive')}
+                  >
+                    Archive{checkedCount > 0 ? ` (${checkedCount})` : ''}
+                  </button>
+                )}
+                <button
+                  type="button"
+                  className="button-secondary messages-delete-btn"
+                  disabled={actionBusy || checkedCount === 0}
+                  onClick={() => void runBulkAction('delete')}
+                >
+                  Delete{checkedCount > 0 ? ` (${checkedCount})` : ''}
+                </button>
+              </div>
+            </div>
+          ) : null}
           {loading ? (
             <p className="placeholder-copy">Loading…</p>
           ) : filteredItems.length === 0 ? (
             <p className="placeholder-copy">No messages in this view.</p>
           ) : (
             <div className="messages-list">
-              {filteredItems.map((item) => (
-                <button
-                  key={item.key}
-                  type="button"
-                  className={`messages-list-item${selectedItem?.key === item.key ? ' messages-list-item--active' : ''}${
-                    !item.read && item.recipientUserId === userId ? ' messages-list-item--unread' : ''
-                  }`}
-                  onClick={() => {
-                    setSelectedKey(item.key)
-                    setComposeOpen(false)
-                    clearSearchParams()
-                  }}
-                >
-                  <div className="messages-list-item-top">
-                    <span className="messages-list-item-title">
-                      {!item.read && item.recipientUserId === userId ? (
-                        <span className="messages-list-item-new">New</span>
-                      ) : null}
-                      {itemTitle(item)}
-                    </span>
-                    <time dateTime={item.createdAt}>{formatListWhen(item.createdAt)}</time>
+              {filteredItems.map((item) => {
+                const isChecked = visibleCheckedKeys.includes(item.key)
+                return (
+                  <div
+                    key={item.key}
+                    className={`messages-list-item${selectedItem?.key === item.key ? ' messages-list-item--active' : ''}${
+                      !item.read && item.recipientUserId === userId ? ' messages-list-item--unread' : ''
+                    }${isChecked ? ' messages-list-item--checked' : ''}`}
+                  >
+                    <label className="messages-list-check" onClick={stopCheckboxClick}>
+                      <input
+                        type="checkbox"
+                        checked={isChecked}
+                        disabled={actionBusy}
+                        onChange={(e) => toggleChecked(item.key, e.target.checked)}
+                        aria-label={`Select ${itemTitle(item)}`}
+                      />
+                    </label>
+                    <button
+                      type="button"
+                      className="messages-list-item-body"
+                      onClick={() => {
+                        setSelectedKey(item.key)
+                        setComposeOpen(false)
+                        clearSearchParams()
+                      }}
+                    >
+                      <div className="messages-list-item-top">
+                        <span className="messages-list-item-title">
+                          {!item.read && item.recipientUserId === userId ? (
+                            <span className="messages-list-item-new">New</span>
+                          ) : null}
+                          {itemTitle(item)}
+                        </span>
+                        <time dateTime={item.createdAt}>{formatListWhen(item.createdAt)}</time>
+                      </div>
+                      <div className="messages-list-item-meta">
+                        {filter === 'sent'
+                          ? `To ${messageRecipientName(recipients, item.recipientUserId) ?? 'employee'}`
+                          : item.senderName ?? 'System'}
+                        {item.attachments.length > 0
+                          ? ` · ${item.attachments.length} attachment${item.attachments.length === 1 ? '' : 's'}`
+                          : ''}
+                      </div>
+                      <div className="messages-list-item-preview">{itemPreview(item.body)}</div>
+                    </button>
                   </div>
-                  <div className="messages-list-item-meta">
-                    {filter === 'sent'
-                      ? `To ${messageRecipientName(recipients, item.recipientUserId) ?? 'employee'}`
-                      : item.senderName ?? 'System'}
-                    {item.attachments.length > 0 ? ` · ${item.attachments.length} attachment${item.attachments.length === 1 ? '' : 's'}` : ''}
-                  </div>
-                  <div className="messages-list-item-preview">{itemPreview(item.body)}</div>
-                </button>
-              ))}
+                )
+              })}
             </div>
           )}
         </aside>

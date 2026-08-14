@@ -30,6 +30,11 @@ export type ItpLibraryItemSel = {
   measFields: ItpMeasFieldDef[]
   /** When true, the next item in this section stays locked until this item is fully done. */
   blockNext: boolean
+  /**
+   * Optional ITP section override for this template/job scope.
+   * Empty string = use the master/library default section.
+   */
+  sectionId: ItpLibrarySectionId | ''
 }
 
 export type ItpLibraryItemExec = {
@@ -184,6 +189,7 @@ export function emptyItemSel(): ItpLibraryItemSel {
     minPhotos: 1,
     measFields: [],
     blockNext: false,
+    sectionId: '',
   }
 }
 
@@ -258,35 +264,71 @@ export type ItpLibraryScopeItem = {
   sel: ItpLibraryItemSel
 }
 
+export function isItpLibrarySectionId(value: string): value is ItpLibrarySectionId {
+  return ITP_LIBRARY.some((section) => section.id === value)
+}
+
+export function effectiveScopeSectionId(
+  defaultSecId: ItpLibrarySectionId,
+  sel: ItpLibraryItemSel,
+): ItpLibrarySectionId {
+  const override = String(sel.sectionId ?? '').trim()
+  if (override && isItpLibrarySectionId(override)) return override
+  return defaultSecId
+}
+
+export function sectionTitleForId(secId: ItpLibrarySectionId): string {
+  return ITP_LIBRARY.find((section) => section.id === secId)?.title ?? secId
+}
+
 export function allScopeItems(plan: ItpLibraryPlanPayload): ItpLibraryScopeItem[] {
   const out: ItpLibraryScopeItem[] = []
+  const seen = new Set<string>()
+
   for (const section of ITP_LIBRARY) {
     for (const item of section.items) {
-      if (!isItemIncluded(plan, item.id)) continue
+      if (!isItemIncluded(plan, item.id) || seen.has(item.id)) continue
+      const sel = getSel(plan, item.id)
+      const secId = effectiveScopeSectionId(section.id, sel)
       out.push({
         id: item.id,
         name: item.name,
         ref: item.ref,
-        secId: section.id,
-        secTitle: section.title,
+        secId,
+        secTitle: sectionTitleForId(secId),
         custom: false,
-        sel: getSel(plan, item.id),
+        sel,
       })
-    }
-    for (const custom of plan.custom.filter((c) => c.secId === section.id)) {
-      if (!isItemIncluded(plan, custom.id)) continue
-      out.push({
-        id: custom.id,
-        name: custom.name,
-        ref: 'Custom',
-        secId: section.id,
-        secTitle: section.title,
-        custom: true,
-        sel: getSel(plan, custom.id),
-      })
+      seen.add(item.id)
     }
   }
-  return out
+
+  for (const custom of plan.custom) {
+    if (!isItemIncluded(plan, custom.id) || seen.has(custom.id)) continue
+    const sel = getSel(plan, custom.id)
+    const defaultSec = isItpLibrarySectionId(String(custom.secId))
+      ? (custom.secId as ItpLibrarySectionId)
+      : 'receipt'
+    const secId = effectiveScopeSectionId(defaultSec, sel)
+    out.push({
+      id: custom.id,
+      name: custom.name,
+      ref: 'Custom',
+      secId,
+      secTitle: sectionTitleForId(secId),
+      custom: true,
+      sel,
+    })
+    seen.add(custom.id)
+  }
+
+  const sectionOrder = new Map(ITP_LIBRARY.map((section, index) => [section.id, index]))
+  return out.sort((a, b) => {
+    const orderA = sectionOrder.get(a.secId) ?? 999
+    const orderB = sectionOrder.get(b.secId) ?? 999
+    if (orderA !== orderB) return orderA - orderB
+    return a.name.localeCompare(b.name)
+  })
 }
 
 export function execStats(plan: ItpLibraryPlanPayload) {
@@ -365,6 +407,10 @@ function normalizeSel(raw: unknown, fallbackNotes = ''): ItpLibraryItemSel {
     minPhotos: Number.isFinite(minPhotosRaw) && minPhotosRaw > 0 ? Math.floor(minPhotosRaw) : 1,
     measFields: normalizeMeasFields(o.measFields),
     blockNext: Boolean(o.blockNext),
+    sectionId: (() => {
+      const raw = String(o.sectionId ?? '').trim()
+      return isItpLibrarySectionId(raw) ? raw : ''
+    })(),
   }
 }
 

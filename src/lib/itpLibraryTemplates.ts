@@ -7,6 +7,7 @@ import {
 import { supabase } from './supabase'
 import {
   emptyItemSel,
+  isItpLibrarySectionId,
   type ItpLibraryCustomItem,
   type ItpLibraryItemSel,
   type ItpLibraryPlanPayload,
@@ -150,6 +151,10 @@ function normalizeSel(raw: unknown): ItpLibraryItemSel {
     minPhotos: Number.isFinite(minPhotosRaw) && minPhotosRaw > 0 ? Math.floor(minPhotosRaw) : 1,
     measFields: normalizeMeasFields(o.measFields),
     blockNext: Boolean(o.blockNext),
+    sectionId: (() => {
+      const raw = String(o.sectionId ?? '').trim()
+      return isItpLibrarySectionId(raw) ? raw : ''
+    })(),
   }
 }
 
@@ -504,6 +509,7 @@ export function applyScopeToPlan(
             ? templateSel.measFields.map((f) => ({ ...f }))
             : prev.measFields,
         blockNext: templateSel.blockNext || prev.blockNext,
+        sectionId: templateSel.sectionId || prev.sectionId,
         subReqs,
         notes: templateSel.notes.trim() || prev.notes,
       }
