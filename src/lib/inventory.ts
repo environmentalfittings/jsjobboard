@@ -27,6 +27,11 @@ export type InventoryRecord = {
   document_name: string | null
   document_storage_path: string | null
   hf_acid: boolean
+  removed_at: string | null
+  removed_reason: string | null
+  removed_po_number: string | null
+  removed_by_user_id: string | null
+  removed_by_name: string | null
   image_url: string | null
   valve_image_url: string | null
   tag_image_url: string | null
@@ -150,6 +155,9 @@ export const INVENTORY_SELECT =
 const INVENTORY_CONDITION_SELECT =
   'condition,manufacturer_serial_no,repair_tag_number,document_url,document_name,document_storage_path'
 
+const INVENTORY_REMOVAL_SELECT =
+  'removed_at,removed_reason,removed_po_number,removed_by_user_id,removed_by_name'
+
 type InventoryRow = {
   id: string
   customer: string | null
@@ -176,6 +184,11 @@ type InventoryRow = {
   document_url?: string | null
   document_name?: string | null
   document_storage_path?: string | null
+  removed_at?: string | null
+  removed_reason?: string | null
+  removed_po_number?: string | null
+  removed_by_user_id?: string | null
+  removed_by_name?: string | null
   created_at: string
   updated_at: string
   valve_types?: { label: string | null } | { label: string | null }[] | null
@@ -321,6 +334,11 @@ function mapInventoryRow(row: InventoryRow): InventoryRecord {
     document_name: row.document_name?.trim() || null,
     document_storage_path: row.document_storage_path?.trim() || null,
     hf_acid: row.hf_acid === true || packed.hfAcid === true,
+    removed_at: row.removed_at?.trim() || null,
+    removed_reason: row.removed_reason?.trim() || null,
+    removed_po_number: row.removed_po_number?.trim() || null,
+    removed_by_user_id: row.removed_by_user_id ? String(row.removed_by_user_id) : null,
+    removed_by_name: row.removed_by_name?.trim() || null,
     image_url: row.image_url,
     valve_image_url: valveImageUrl,
     tag_image_url: tagImageUrl,
@@ -330,7 +348,24 @@ function mapInventoryRow(row: InventoryRow): InventoryRecord {
   }
 }
 
+export function isInventoryRemoved(row: Pick<InventoryRecord, 'removed_at'>): boolean {
+  return Boolean(row.removed_at?.trim())
+}
+
 export async function loadInventoryRecords(): Promise<{ data: InventoryRecord[]; error: string | null }> {
+  const withRemoval = await supabase
+    .from('inventory')
+    .select(
+      `${INVENTORY_SELECT},valve_image_url,tag_image_url,qr_code_data_url,hf_acid,${INVENTORY_CONDITION_SELECT},${INVENTORY_REMOVAL_SELECT},valve_types(label)`,
+    )
+    .is('removed_at', null)
+    .order('updated_at', { ascending: false })
+    .limit(2000)
+
+  if (!withRemoval.error) {
+    return { data: ((withRemoval.data ?? []) as InventoryRow[]).map(mapInventoryRow), error: null }
+  }
+
   const withCondition = await supabase
     .from('inventory')
     .select(
@@ -380,6 +415,86 @@ export async function loadInventoryRecords(): Promise<{ data: InventoryRecord[];
   }
 
   return { data: ((data ?? []) as InventoryRow[]).map(mapInventoryRow), error: null }
+}
+
+export async function getInventoryRecordById(
+  id: string,
+): Promise<{ data: InventoryRecord | null; error: string | null }> {
+  const full = await supabase
+    .from('inventory')
+    .select(
+      `${INVENTORY_SELECT},valve_image_url,tag_image_url,qr_code_data_url,hf_acid,${INVENTORY_CONDITION_SELECT},${INVENTORY_REMOVAL_SELECT},valve_types(label)`,
+    )
+    .eq('id', id)
+    .maybeSingle()
+
+  if (!full.error && full.data) {
+    return { data: mapInventoryRow(full.data as InventoryRow), error: null }
+  }
+
+  if (full.error && /removed_at|removed_reason|removed_po/i.test(full.error.message)) {
+    const withoutRemoval = await supabase
+      .from('inventory')
+      .select(
+        `${INVENTORY_SELECT},valve_image_url,tag_image_url,qr_code_data_url,hf_acid,${INVENTORY_CONDITION_SELECT},valve_types(label)`,
+      )
+      .eq('id', id)
+      .maybeSingle()
+    if (!withoutRemoval.error && withoutRemoval.data) {
+      return { data: mapInventoryRow(withoutRemoval.data as InventoryRow), error: null }
+    }
+    if (!withoutRemoval.error) return { data: null, error: null }
+    return { data: null, error: withoutRemoval.error.message }
+  }
+
+  if (full.error) return { data: null, error: full.error.message }
+  return { data: null, error: null }
+}
+
+export async function removeInventoryRecord(options: {
+  id: string
+  reason: string
+  poNumber: string
+  removedByUserId: string | null
+  removedByName: string | null
+}): Promise<{ data: InventoryRecord | null; error: string | null }> {
+  const reason = options.reason.trim()
+  const poNumber = options.poNumber.trim()
+  if (!reason) return { data: null, error: 'Enter a reason for removing this item' }
+  if (!poNumber) return { data: null, error: 'Enter the purchase order number' }
+
+  const payload = {
+    removed_at: new Date().toISOString(),
+    removed_reason: reason,
+    removed_po_number: poNumber,
+    removed_by_user_id: options.removedByUserId,
+    removed_by_name: options.removedByName?.trim() || null,
+    updated_at: new Date().toISOString(),
+  }
+
+  const { data, error } = await supabase
+    .from('inventory')
+    .update(payload)
+    .eq('id', options.id)
+    .is('removed_at', null)
+    .select(
+      `${INVENTORY_SELECT},valve_image_url,tag_image_url,qr_code_data_url,hf_acid,${INVENTORY_CONDITION_SELECT},${INVENTORY_REMOVAL_SELECT},valve_types(label)`,
+    )
+    .maybeSingle()
+
+  if (error) {
+    if (/removed_at|removed_reason|removed_po|schema cache|column/i.test(error.message)) {
+      return {
+        data: null,
+        error: 'Run supabase/migration-inventory-removal.sql in Supabase, then try again',
+      }
+    }
+    return { data: null, error: friendlyInventoryError(error.message) }
+  }
+  if (!data) {
+    return { data: null, error: 'Item was already removed or could not be found' }
+  }
+  return { data: mapInventoryRow(data as InventoryRow), error: null }
 }
 
 /** Distinct Customer ID # values already used for a given customer in inventory. */

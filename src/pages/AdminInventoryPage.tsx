@@ -13,18 +13,20 @@ import {
   allocateNextJsInventoryId,
   createInventoryRecord,
   customerIdNosForCustomer,
-  deleteInventoryRecord,
   emptyDocumentDraft,
   emptyInventoryForm,
   emptyPhotoDraft,
+  getInventoryRecordById,
   INVENTORY_CONDITIONS,
   INVENTORY_OPERATORS,
   INVENTORY_ORIGINS,
   inventoryConditionLabel,
   inventoryMatchesSearch,
   inventoryToForm,
+  isInventoryRemoved,
   loadInventoryFormOptions,
   loadInventoryRecords,
+  removeInventoryRecord,
   updateInventoryRecord,
   validateInventoryDocument,
   validateInventoryPhoto,
@@ -426,6 +428,10 @@ export function AdminInventoryPage() {
   const [sendingReport, setSendingReport] = useState(false)
   const [sendingMonthly, setSendingMonthly] = useState(false)
   const [printingBrother, setPrintingBrother] = useState(false)
+  const [removeReason, setRemoveReason] = useState('')
+  const [removePoNumber, setRemovePoNumber] = useState('')
+  const [removing, setRemoving] = useState(false)
+  const [showRemoveForm, setShowRemoveForm] = useState(false)
 
   const reload = useCallback(async () => {
     setLoading(true)
@@ -470,10 +476,39 @@ export function AdminInventoryPage() {
 
   useEffect(() => {
     const itemId = searchParams.get('item')?.trim()
-    if (!itemId || loading || !rows.length) return
+    if (!itemId || loading) return
+
     const match = rows.find((row) => row.id === itemId)
-    if (match) setQrItem(match)
-  }, [searchParams, rows, loading])
+    if (match) {
+      setQrItem(match)
+      setShowRemoveForm(false)
+      setRemoveReason('')
+      setRemovePoNumber('')
+      return
+    }
+
+    let cancelled = false
+    void (async () => {
+      const { data, error } = await getInventoryRecordById(itemId)
+      if (cancelled) return
+      if (error) {
+        showToast(`Could not load scanned inventory item: ${error}`)
+        return
+      }
+      if (!data) {
+        showToast('Inventory item not found')
+        return
+      }
+      setQrItem(data)
+      setShowRemoveForm(false)
+      setRemoveReason('')
+      setRemovePoNumber('')
+    })()
+
+    return () => {
+      cancelled = true
+    }
+  }, [searchParams, rows, loading, showToast])
 
   const periodLabel = useMemo(() => currentInventoryReportPeriod(), [])
 
@@ -803,21 +838,59 @@ export function AdminInventoryPage() {
     await reload()
   }
 
-  const remove = async (row: InventoryRecord) => {
-    const label = row.js_inventory_id || row.customer || 'this item'
-    if (!window.confirm(`Remove ${label} from customer inventory?`)) return
-    const { error } = await deleteInventoryRecord(row.id)
-    if (error) {
-      showToast(error)
+  const openQrItem = (row: InventoryRecord) => {
+    setQrItem(row)
+    setShowRemoveForm(false)
+    setRemoveReason('')
+    setRemovePoNumber('')
+  }
+
+  const remove = (row: InventoryRecord) => {
+    openQrItem(row)
+    setShowRemoveForm(true)
+  }
+
+  const confirmRemoveFromInventory = async () => {
+    if (!qrItem) return
+    if (isInventoryRemoved(qrItem)) {
+      showToast('This item is already removed from inventory')
       return
     }
-    showToast('Customer inventory item removed')
-    if (qrItem?.id === row.id) setQrItem(null)
-    if (expandedRowId === row.id) setExpandedRowId(null)
+    const reason = removeReason.trim()
+    const poNumber = removePoNumber.trim()
+    if (!reason) {
+      showToast('Enter a reason for removing this item')
+      return
+    }
+    if (!poNumber) {
+      showToast('Enter the purchase order number')
+      return
+    }
+
+    setRemoving(true)
+    const { data, error } = await removeInventoryRecord({
+      id: qrItem.id,
+      reason,
+      poNumber,
+      removedByUserId: user?.id ?? null,
+      removedByName: username || null,
+    })
+    setRemoving(false)
+    if (error || !data) {
+      showToast(error || 'Could not remove inventory item')
+      return
+    }
+
+    showToast(`Removed ${data.js_inventory_id || 'inventory item'} from inventory`)
+    setQrItem(data)
+    setShowRemoveForm(false)
+    setRemoveReason('')
+    setRemovePoNumber('')
+    if (expandedRowId === data.id) setExpandedRowId(null)
     setSelectedIds((prev) => {
-      if (!prev.has(row.id)) return prev
+      if (!prev.has(data.id)) return prev
       const next = new Set(prev)
-      next.delete(row.id)
+      next.delete(data.id)
       return next
     })
     await reload()
@@ -991,6 +1064,9 @@ export function AdminInventoryPage() {
 
   const closeQr = () => {
     setQrItem(null)
+    setShowRemoveForm(false)
+    setRemoveReason('')
+    setRemovePoNumber('')
     if (searchParams.get('item')) {
       const next = new URLSearchParams(searchParams)
       next.delete('item')
@@ -1286,7 +1362,7 @@ export function AdminInventoryPage() {
                           <button
                             type="button"
                             className="job-list-quick-action"
-                            onClick={() => setQrItem(row)}
+                            onClick={() => openQrItem(row)}
                             disabled={!row.qr_code_data_url}
                           >
                             QR
@@ -1424,7 +1500,7 @@ export function AdminInventoryPage() {
                                 <button
                                   type="button"
                                   className="button-primary"
-                                  onClick={() => setQrItem(row)}
+                                  onClick={() => openQrItem(row)}
                                   disabled={!row.qr_code_data_url}
                                 >
                                   Open QR
@@ -1755,7 +1831,7 @@ export function AdminInventoryPage() {
         </div>
       ) : null}
 
-      {qrItem?.qr_code_data_url ? (
+      {qrItem ? (
         <div className="modal-overlay" role="presentation" onClick={closeQr}>
           <div
             className="modal-card inventory-qr-modal"
@@ -1766,7 +1842,13 @@ export function AdminInventoryPage() {
           >
             <div className="technician-modal-head">
               <div>
-                <p className="inventory-modal-kicker">QR code ready</p>
+                <p className="inventory-modal-kicker">
+                  {isInventoryRemoved(qrItem)
+                    ? 'Removed from inventory'
+                    : searchParams.get('item') === qrItem.id
+                      ? 'Scanned inventory item'
+                      : 'QR code ready'}
+                </p>
                 <h3 id="inventory-qr-title">{qrItem.js_inventory_id || 'Customer inventory item'}</h3>
               </div>
               <button type="button" className="modal-close-btn" onClick={closeQr} aria-label="Close">
@@ -1774,7 +1856,9 @@ export function AdminInventoryPage() {
               </button>
             </div>
             <div className="technician-modal-body inventory-qr-body">
-              <img src={qrItem.qr_code_data_url} alt="Inventory QR code" className="inventory-qr-image" />
+              {qrItem.qr_code_data_url ? (
+                <img src={qrItem.qr_code_data_url} alt="Inventory QR code" className="inventory-qr-image" />
+              ) : null}
               <p className="inventory-qr-js-id">{qrItem.js_inventory_id || '—'}</p>
               <p className="inventory-qr-customer-id">
                 Customer ID: {qrItem.customer_id_no?.trim() || '—'}
@@ -1785,25 +1869,103 @@ export function AdminInventoryPage() {
                 {qrItem.valve_image_url ? <img src={qrItem.valve_image_url} alt="Valve" /> : null}
                 {qrItem.tag_image_url ? <img src={qrItem.tag_image_url} alt="Tag" /> : null}
               </div>
+
+              {isInventoryRemoved(qrItem) ? (
+                <div className="inventory-removed-banner">
+                  <p>
+                    Removed
+                    {qrItem.removed_at
+                      ? ` on ${new Date(qrItem.removed_at).toLocaleString()}`
+                      : ''}
+                    {qrItem.removed_by_name ? ` by ${qrItem.removed_by_name}` : ''}.
+                  </p>
+                  <p>
+                    <strong>PO:</strong> {qrItem.removed_po_number || '—'}
+                  </p>
+                  <p>
+                    <strong>Reason:</strong> {qrItem.removed_reason || '—'}
+                  </p>
+                </div>
+              ) : showRemoveForm ? (
+                <div className="inventory-remove-form">
+                  <h4>Remove from inventory</h4>
+                  <p>Enter the purchase order and reason before this item leaves inventory.</p>
+                  <label className="inventory-remove-field">
+                    <span>Purchase order #</span>
+                    <input
+                      type="text"
+                      value={removePoNumber}
+                      onChange={(e) => setRemovePoNumber(e.target.value)}
+                      placeholder="PO number"
+                      disabled={removing}
+                      autoFocus
+                    />
+                  </label>
+                  <label className="inventory-remove-field">
+                    <span>Reason</span>
+                    <textarea
+                      rows={3}
+                      value={removeReason}
+                      onChange={(e) => setRemoveReason(e.target.value)}
+                      placeholder="Why is this being removed from inventory?"
+                      disabled={removing}
+                    />
+                  </label>
+                  <div className="inventory-remove-actions">
+                    <button
+                      type="button"
+                      className="button-secondary"
+                      disabled={removing}
+                      onClick={() => {
+                        setShowRemoveForm(false)
+                        setRemoveReason('')
+                        setRemovePoNumber('')
+                      }}
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      type="button"
+                      className="button-primary"
+                      disabled={removing}
+                      onClick={() => void confirmRemoveFromInventory()}
+                    >
+                      {removing ? 'Removing…' : 'Confirm remove'}
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                <button
+                  type="button"
+                  className="button-secondary inventory-remove-trigger"
+                  onClick={() => setShowRemoveForm(true)}
+                >
+                  Remove from inventory
+                </button>
+              )}
             </div>
             <div className="technician-modal-footer modal-footer">
               <button type="button" className="button-secondary" onClick={closeQr}>
                 Close
               </button>
-              <button type="button" className="button-secondary" onClick={downloadQr}>
-                Download QR
-              </button>
-              <button type="button" className="button-secondary" onClick={printQr}>
-                Print sheet
-              </button>
-              <button
-                type="button"
-                className="button-primary"
-                disabled={printingBrother}
-                onClick={printQrOnBrother}
-              >
-                {printingBrother ? 'Printing…' : 'Print on barcode printer'}
-              </button>
+              {qrItem.qr_code_data_url && !isInventoryRemoved(qrItem) ? (
+                <>
+                  <button type="button" className="button-secondary" onClick={downloadQr}>
+                    Download QR
+                  </button>
+                  <button type="button" className="button-secondary" onClick={printQr}>
+                    Print sheet
+                  </button>
+                  <button
+                    type="button"
+                    className="button-primary"
+                    disabled={printingBrother}
+                    onClick={printQrOnBrother}
+                  >
+                    {printingBrother ? 'Printing…' : 'Print on barcode printer'}
+                  </button>
+                </>
+              ) : null}
             </div>
           </div>
         </div>

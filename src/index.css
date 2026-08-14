@@ -17392,6 +17392,75 @@ tbody tr:hover {
   color: #334155;
 }
 
+.inventory-remove-trigger {
+  margin-top: 0.75rem;
+  width: 100%;
+}
+
+.inventory-remove-form,
+.inventory-removed-banner {
+  width: 100%;
+  margin-top: 0.85rem;
+  padding: 0.9rem 1rem;
+  border-radius: 12px;
+  border: 1px solid #e2e8f0;
+  background: #f8fafc;
+  text-align: left;
+}
+
+.inventory-removed-banner {
+  border-color: #fed7aa;
+  background: #fff7ed;
+  color: #9a3412;
+}
+
+.inventory-removed-banner p,
+.inventory-remove-form p {
+  margin: 0 0 0.45rem;
+  font-size: 13px;
+  line-height: 1.4;
+}
+
+.inventory-remove-form h4 {
+  margin: 0 0 0.35rem;
+  font-size: 0.95rem;
+  color: #0f172a;
+}
+
+.inventory-remove-field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  margin: 0.65rem 0 0;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+  color: #64748b;
+}
+
+.inventory-remove-field input,
+.inventory-remove-field textarea {
+  font: inherit;
+  font-size: 14px;
+  font-weight: 400;
+  text-transform: none;
+  letter-spacing: normal;
+  color: #0f172a;
+  border: 1px solid #cbd5e1;
+  border-radius: 8px;
+  padding: 0.55rem 0.75rem;
+  background: #fff;
+}
+
+.inventory-remove-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  justify-content: flex-end;
+  margin-top: 0.85rem;
+}
+
 .inventory-qr-url {
   margin: 0;
   font-size: 11px;
