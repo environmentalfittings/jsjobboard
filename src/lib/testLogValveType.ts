@@ -32,3 +32,30 @@ export function valveTypeSelectOptions(currentValue: string): string[] {
   }
   return options
 }
+
+/** Search terms that map onto a canonical test-log valve type (including job-board aliases). */
+export function valveTypeSearchTerms(canonical: string): string[] {
+  const n = canonicalizeValveType(canonical)
+  if (!n) return []
+  switch (n) {
+    case 'Relief Valve':
+      return ['Relief Valve', 'Relief', 'PRV', 'Pressure Relief']
+    case 'Safety Valve':
+      return ['Safety Valve', 'Safety']
+    default:
+      return [n]
+  }
+}
+
+/** Supabase `.or(...)` filter for a valve_type column. */
+export function valveTypeOrFilter(column: string, canonical: string): string {
+  return valveTypeSearchTerms(canonical)
+    .map((term) => `${column}.ilike.%${term.replace(/,/g, '')}%`)
+    .join(',')
+}
+
+export function valveTypeMatches(raw: string | null | undefined, canonical: string): boolean {
+  const want = canonicalizeValveType(canonical)
+  if (!want) return true
+  return canonicalizeValveType(raw).toLowerCase() === want.toLowerCase()
+}

@@ -3,8 +3,18 @@ import { VALVE_SIZES } from '../constants/jobLookups'
 export const RELIEF_VALVE_MEDIA = ['Air/Gas', 'Liquid', 'Steam', 'Other'] as const
 export type ReliefValveMedia = (typeof RELIEF_VALVE_MEDIA)[number]
 
-export const RELIEF_VALVE_TEST_TYPES = ['Pretest', 'Pretest with Repair'] as const
+export const RELIEF_VALVE_TEST_TYPES = ['Pretest', 'Pretest with Repair', 'Test and Dispose'] as const
 export type ReliefValveTestType = (typeof RELIEF_VALVE_TEST_TYPES)[number]
+
+/** Map job / worked text onto a relief-valve test-type radio. */
+export function inferReliefValveTestType(hint: string | null | undefined): ReliefValveTestType | '' {
+  const text = String(hint ?? '').toLowerCase()
+  if (!text.trim()) return ''
+  if (text.includes('dispose')) return 'Test and Dispose'
+  if (text.includes('repair')) return 'Pretest with Repair'
+  if (text.includes('pretest')) return 'Pretest'
+  return ''
+}
 
 export type ReliefValveTestFields = {
   inletSize: string

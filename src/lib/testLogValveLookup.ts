@@ -1,4 +1,6 @@
+import { TERMINAL_STATUSES } from '../constants/statuses'
 import { supabase } from './supabase'
+import { canonicalizeValveType, valveTypeMatches, valveTypeOrFilter } from './testLogValveType'
 import { normalizeValveId } from './valveId'
 
 export type TestLogValvePrefill = {
@@ -133,4 +135,72 @@ export async function searchValveIdsForTestLog(query: string, limit = 12): Promi
     .limit(limit)
 
   return Array.from(new Set((data ?? []).map((row: { valve_id: string }) => row.valve_id)))
+}
+
+export type TestLogValveCandidate = {
+  valveId: string
+  status: string | null
+  description: string | null
+  source: 'available' | 'tested'
+}
+
+/** Open shop jobs of this type, plus valves that already have a test log of this type. */
+export async function listTestLogValvesByType(
+  valveType: string,
+  limit = 80,
+): Promise<TestLogValveCandidate[]> {
+  const canonical = canonicalizeValveType(valveType)
+  const typeOr = valveTypeOrFilter('valve_type', canonical)
+  if (!canonical || !typeOr) return []
+
+  const [{ data: jobRows }, { data: logRows }] = await Promise.all([
+    supabase
+      .from('valves')
+      .select('valve_id, status, description, valve_type, updated_at')
+      .or(typeOr)
+      .order('updated_at', { ascending: false })
+      .limit(120),
+    supabase
+      .from('test_logs')
+      .select('valve_id, valve_type, tested_on')
+      .or(typeOr)
+      .order('tested_on', { ascending: false })
+      .limit(120),
+  ])
+
+  const byId = new Map<string, TestLogValveCandidate>()
+
+  for (const row of jobRows ?? []) {
+    const valveId = String((row as { valve_id?: string }).valve_id ?? '').trim()
+    if (!valveId) continue
+    if (!valveTypeMatches((row as { valve_type?: string | null }).valve_type, canonical)) continue
+    const status = String((row as { status?: string | null }).status ?? '').trim()
+    if (status && TERMINAL_STATUSES.has(status)) continue
+    byId.set(valveId.toUpperCase(), {
+      valveId,
+      status: status || 'In shop',
+      description: String((row as { description?: string | null }).description ?? '').trim() || null,
+      source: 'available',
+    })
+  }
+
+  for (const row of logRows ?? []) {
+    const valveId = String((row as { valve_id?: string }).valve_id ?? '').trim()
+    if (!valveId) continue
+    const key = valveId.toUpperCase()
+    if (byId.has(key)) continue
+    byId.set(key, {
+      valveId,
+      status: 'Tested',
+      description: null,
+      source: 'tested',
+    })
+  }
+
+  return [...byId.values()]
+    .sort((a, b) => {
+      if (a.source !== b.source) return a.source === 'available' ? -1 : 1
+      return compareValveIdSuffix(a.valveId, b.valveId)
+    })
+    .slice(0, limit)
 }

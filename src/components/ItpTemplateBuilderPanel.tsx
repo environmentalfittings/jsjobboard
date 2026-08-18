@@ -1,17 +1,17 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useToast } from './ToastNotification'
+import { findLibraryItem, type ItpLibraryJobType } from '../constants/itpLibrary'
 import {
-  ITP_LIBRARY,
-  findLibraryItem,
-  type ItpLibraryJobType,
-  type ItpLibrarySectionId,
-} from '../constants/itpLibrary'
+  defaultProcessSections,
+  moveProcessSection,
+  moveProcessSectionTo,
+  processSectionTitle,
+  uniqueProcessSectionId,
+  type ItpProcessSectionDef,
+} from '../constants/itpProcessSections'
 import {
   defaultShopAreas,
   itpShopAreaLabel,
-  moveShopArea,
-  moveShopAreaTo,
-  uniqueShopAreaValue,
   type ItpShopArea,
   type ItpShopAreaDef,
 } from '../constants/itpShopAreas'
@@ -20,7 +20,7 @@ import { loadLookupOptionsMap } from '../lib/lookupValues'
 import {
   emptyMasterCatalogState,
   loadItpMasterCatalog,
-  moveCatalogItemInArea,
+  moveCatalogItemInSection,
   normalizeMasterCatalog,
   reindexCatalog,
   requirementDefaultsFromCatalogItem,
@@ -64,20 +64,62 @@ const JOB_TYPE_OPTIONS: { value: ItpLibraryJobType; label: string }[] = [
 ]
 
 const NEW_TEMPLATE_OPTION = '__new__'
-const MASTER_CATALOG_DRAFT_KEY = 'jsjb-itp-master-catalog-draft-v2'
+const MASTER_CATALOG_DRAFT_KEY = 'jsjb-itp-master-catalog-draft-v3'
+const LEGACY_MASTER_CATALOG_DRAFT_KEY = 'jsjb-itp-master-catalog-draft-v2'
 
 type MasterCatalogDraft = {
   items: ItpMasterCatalogItem[]
   areas: ItpShopAreaDef[]
+  processSections: ItpProcessSectionDef[]
 }
 
-function catalogFingerprint(items: ItpMasterCatalogItem[], areas: ItpShopAreaDef[]) {
+function parseAreaDefs(raw: unknown): ItpShopAreaDef[] {
+  if (!Array.isArray(raw)) return defaultShopAreas()
+  return raw
+    .map((row) => {
+      if (!row || typeof row !== 'object') return null
+      const value = String((row as { value?: unknown }).value ?? '').trim()
+      const label = String((row as { label?: unknown }).label ?? '').trim()
+      if (!value) return null
+      return { value, label: label || itpShopAreaLabel(value) }
+    })
+    .filter((row): row is ItpShopAreaDef => Boolean(row))
+}
+
+function parseProcessSectionDefs(raw: unknown, items: ItpMasterCatalogItem[]): ItpProcessSectionDef[] {
+  if (!Array.isArray(raw)) {
+    return defaultProcessSections()
+  }
+  const parsed = raw
+    .map((row) => {
+      if (!row || typeof row !== 'object') return null
+      const id = String((row as { id?: unknown }).id ?? '').trim()
+      const title = String((row as { title?: unknown }).title ?? '').trim()
+      if (!id) return null
+      return { id, title: title || processSectionTitle(id) }
+    })
+    .filter((row): row is ItpProcessSectionDef => Boolean(row))
+  if (parsed.length === 0) return defaultProcessSections()
+  const seen = new Set(parsed.map((row) => row.id))
+  const extras = items
+    .map((item) => item.secId)
+    .filter((id) => id && !seen.has(id))
+    .map((id) => ({ id, title: processSectionTitle(id) }))
+  return extras.length ? [...parsed, ...extras] : parsed
+}
+
+function catalogFingerprint(
+  items: ItpMasterCatalogItem[],
+  areas: ItpShopAreaDef[],
+  processSections: ItpProcessSectionDef[],
+) {
   return [
+    processSections.map((section) => `${section.id}|${section.title}`).join(','),
     areas.map((area) => `${area.value}|${area.label}`).join(','),
     items
       .map(
         (item) =>
-          `${item.id}|${item.name}|${item.area}|${item.requirePicture ? 1 : 0}|${item.requireMeasurement ? 1 : 0}|${item.holdPoint ? 1 : 0}|${item.blockNext ? 1 : 0}|${(item.measFields ?? []).map((f) => f.label).join(',')}`,
+          `${item.id}|${item.name}|${item.secId}|${item.area}|${item.requirePicture ? 1 : 0}|${item.requireMeasurement ? 1 : 0}|${item.holdPoint ? 1 : 0}|${item.blockNext ? 1 : 0}|${(item.measFields ?? []).map((f) => f.label).join(',')}`,
       )
       .sort()
       .join('\n'),
@@ -86,35 +128,32 @@ function catalogFingerprint(items: ItpMasterCatalogItem[], areas: ItpShopAreaDef
 
 function readMasterCatalogDraft(): MasterCatalogDraft | null {
   try {
-    const raw = window.localStorage.getItem(MASTER_CATALOG_DRAFT_KEY)
+    const raw =
+      window.localStorage.getItem(MASTER_CATALOG_DRAFT_KEY) ??
+      window.localStorage.getItem(LEGACY_MASTER_CATALOG_DRAFT_KEY)
     if (!raw) return null
-    const parsed = JSON.parse(raw) as { items?: unknown; areas?: unknown }
+    const parsed = JSON.parse(raw) as { items?: unknown; areas?: unknown; processSections?: unknown }
     if (!Array.isArray(parsed.items) || parsed.items.length === 0) return null
     const items = normalizeMasterCatalog(parsed.items)
     return {
       items,
-      areas: Array.isArray(parsed.areas)
-        ? parsed.areas
-            .map((row) => {
-              if (!row || typeof row !== 'object') return null
-              const value = String((row as { value?: unknown }).value ?? '').trim()
-              const label = String((row as { label?: unknown }).label ?? '').trim()
-              if (!value) return null
-              return { value, label: label || itpShopAreaLabel(value) }
-            })
-            .filter((row): row is ItpShopAreaDef => Boolean(row))
-        : defaultShopAreas(),
+      areas: parseAreaDefs(parsed.areas),
+      processSections: parseProcessSectionDefs(parsed.processSections, items),
     }
   } catch {
     return null
   }
 }
 
-function writeMasterCatalogDraft(items: ItpMasterCatalogItem[], areas: ItpShopAreaDef[]) {
+function writeMasterCatalogDraft(
+  items: ItpMasterCatalogItem[],
+  areas: ItpShopAreaDef[],
+  processSections: ItpProcessSectionDef[],
+) {
   try {
     window.localStorage.setItem(
       MASTER_CATALOG_DRAFT_KEY,
-      JSON.stringify({ savedAt: new Date().toISOString(), items, areas }),
+      JSON.stringify({ savedAt: new Date().toISOString(), items, areas, processSections }),
     )
   } catch {
     // Quota / private mode — ignore; beforeunload still warns.
@@ -149,6 +188,7 @@ function formatSaveError(error: unknown): string {
 function clearMasterCatalogDraft() {
   try {
     window.localStorage.removeItem(MASTER_CATALOG_DRAFT_KEY)
+    window.localStorage.removeItem(LEGACY_MASTER_CATALOG_DRAFT_KEY)
   } catch {
     // ignore
   }
@@ -209,7 +249,7 @@ function applyCatalogReqToSel(
 type NewMasterDraft = {
   name: string
   area: ItpShopArea
-  secId: ItpLibrarySectionId
+  secId: string
   ref: string
   requirePicture: boolean
   pictureLabel: string
@@ -220,34 +260,10 @@ type NewMasterDraft = {
   blockNext: boolean
 }
 
-function defaultSectionForArea(area: ItpShopArea): ItpLibrarySectionId {
-  switch (area) {
-    case 'teardown':
-      return 'disassembly'
-    case 'machine_shop':
-    case 'welding':
-      return 'repair'
-    case 'assembly':
-      return 'assembly'
-    case 'actuation':
-      return 'actuatorsec'
-    case 'prv':
-      return 'reliefsafety'
-    case 'testing':
-      return 'testing'
-    case 'painting':
-      return 'final'
-    case 'qa_qc':
-      return 'inspection'
-    default:
-      return 'receipt'
-  }
-}
-
 const emptyNewMasterDraft = (): NewMasterDraft => ({
   name: '',
   area: 'teardown',
-  secId: 'disassembly',
+  secId: 'receipt',
   ref: '',
   requirePicture: false,
   pictureLabel: '',
@@ -269,6 +285,7 @@ export function ItpTemplateBuilderPanel() {
   const [scope, setScope] = useState<ItpLibraryTemplateScope>(() => emptyTemplateScope())
   const [catalog, setCatalog] = useState<ItpMasterCatalogItem[]>([])
   const [areas, setAreas] = useState<ItpShopAreaDef[]>(() => defaultShopAreas())
+  const [processSections, setProcessSections] = useState<ItpProcessSectionDef[]>(() => defaultProcessSections())
   const [newSectionName, setNewSectionName] = useState('')
   const [draggingSection, setDraggingSection] = useState<string | null>(null)
   const [dragOverSection, setDragOverSection] = useState<string | null>(null)
@@ -289,8 +306,15 @@ export function ItpTemplateBuilderPanel() {
     if (!areas.length) return
     if (areas.some((area) => area.value === newItem.area)) return
     const first = areas[0]
-    setNewItem((prev) => ({ ...prev, area: first.value, secId: defaultSectionForArea(first.value) }))
+    setNewItem((prev) => ({ ...prev, area: first.value }))
   }, [areas, newItem.area])
+
+  useEffect(() => {
+    if (!processSections.length) return
+    if (processSections.some((section) => section.id === newItem.secId)) return
+    const first = processSections[0]
+    setNewItem((prev) => ({ ...prev, secId: first.id }))
+  }, [processSections, newItem.secId])
 
   const selectedCount = useMemo(() => countIncludedInScope(scope), [scope])
   const holdPointCount = useMemo(
@@ -314,21 +338,25 @@ export function ItpTemplateBuilderPanel() {
   )
   const pickerValue = loadedTemplateName ?? NEW_TEMPLATE_OPTION
 
-  const catalogByArea = useMemo(() => {
+  const catalogBySection = useMemo(() => {
     const sorted = catalog.slice().sort((a, b) => a.sortOrder - b.sortOrder || a.name.localeCompare(b.name))
-    const known = new Set(areas.map((area) => area.value))
-    const extra = [...new Set(sorted.map((item) => item.area).filter((area) => area && !known.has(area)))].map(
-      (area) => ({ area, label: itpShopAreaLabel(area, areas), items: sorted.filter((item) => item.area === area) }),
+    const known = new Set(processSections.map((section) => section.id))
+    const extra = [...new Set(sorted.map((item) => item.secId).filter((secId) => secId && !known.has(secId)))].map(
+      (secId) => ({
+        id: secId,
+        title: processSectionTitle(secId, processSections),
+        items: sorted.filter((item) => item.secId === secId),
+      }),
     )
     return [
-      ...areas.map((area) => ({
-        area: area.value,
-        label: area.label,
-        items: sorted.filter((item) => item.area === area.value),
+      ...processSections.map((section) => ({
+        id: section.id,
+        title: section.title,
+        items: sorted.filter((item) => item.secId === section.id),
       })),
       ...extra,
     ]
-  }, [catalog, areas])
+  }, [catalog, processSections])
 
   const valveTypeOptions = useMemo(() => {
     const fromSaved = savedRows
@@ -377,23 +405,28 @@ export function ItpTemplateBuilderPanel() {
         const fallback = await loadItpMasterCatalog().catch(() => emptyMasterCatalogState())
         setCatalog(fallback.items)
         setAreas(fallback.areas)
+        setProcessSections(fallback.processSections)
         setCatalogLoading(false)
         return
       }
       setSchemaError(null)
       const server = await loadItpMasterCatalog()
       const draft = readMasterCatalogDraft()
-      const draftFingerprint = draft ? catalogFingerprint(draft.items, draft.areas) : ''
-      const serverFingerprint = catalogFingerprint(server.items, server.areas)
+      const draftFingerprint = draft
+        ? catalogFingerprint(draft.items, draft.areas, draft.processSections)
+        : ''
+      const serverFingerprint = catalogFingerprint(server.items, server.areas, server.processSections)
       if (draft && draftFingerprint && draftFingerprint !== serverFingerprint) {
         setCatalog(reindexCatalog(draft.items))
         setAreas(draft.areas.length ? draft.areas : server.areas)
+        setProcessSections(draft.processSections.length ? draft.processSections : server.processSections)
         setMasterDirty(true)
         showToast('Restored unsaved master list draft — click Save master list to keep it')
       } else {
         clearMasterCatalogDraft()
         setCatalog(server.items)
         setAreas(server.areas)
+        setProcessSections(server.processSections)
         setMasterDirty(false)
       }
     } catch (error) {
@@ -409,8 +442,8 @@ export function ItpTemplateBuilderPanel() {
 
   useEffect(() => {
     if (!masterDirty) return
-    writeMasterCatalogDraft(catalog, areas)
-  }, [catalog, areas, masterDirty])
+    writeMasterCatalogDraft(catalog, areas, processSections)
+  }, [catalog, areas, processSections, masterDirty])
 
   useEffect(() => {
     if (!masterDirty) return
@@ -568,16 +601,16 @@ export function ItpTemplateBuilderPanel() {
     setDirty(true)
   }
 
-  const selectAllInArea = (area: ItpShopArea, select: boolean) => {
+  const selectAllInSection = (secId: string, select: boolean) => {
     if (!valveType.trim()) {
       showToast('Select a valve type first, then check items to build its template')
       return
     }
-    const areaItems = catalog.filter((item) => item.area === area)
+    const sectionItems = catalog.filter((item) => item.secId === secId)
     setScope((prev) => {
       let custom = [...prev.custom]
       const sel = { ...prev.sel }
-      for (const item of areaItems) {
+      for (const item of sectionItems) {
         const current = sel[item.id] ?? emptyItemSel()
         let nextSel: ItpLibraryItemSel = { ...current, included: select }
         if (select) {
@@ -634,8 +667,8 @@ export function ItpTemplateBuilderPanel() {
       showToast('Enter the requirement text')
       return
     }
-    const area = newItem.area
-    const id = `master-${area}-${Date.now().toString(36)}`
+    const secId = newItem.secId
+    const id = `master-${secId}-${Date.now().toString(36)}`
     const nextOrder = catalog.reduce((max, item) => Math.max(max, item.sortOrder), -1) + 1
     const measFields = newItem.requireMeasurement
       ? newItem.measFields
@@ -653,8 +686,8 @@ export function ItpTemplateBuilderPanel() {
           id,
           name,
           ref: newItem.ref.trim() || 'Custom',
-          secId: newItem.secId,
-          area,
+          secId,
+          area: newItem.area,
           sortOrder: nextOrder,
           builtIn: false,
           requirePicture: newItem.requirePicture || undefined,
@@ -672,7 +705,7 @@ export function ItpTemplateBuilderPanel() {
     setNewItem(emptyNewMasterDraft())
     setMasterDirty(true)
     showToast(
-      `Staged in ${itpShopAreaLabel(area, areas)} — not saved yet. Click Save master list.`,
+      `Staged in ${processSectionTitle(secId, processSections)} — not saved yet. Click Save master list.`,
     )
   }
 
@@ -680,7 +713,7 @@ export function ItpTemplateBuilderPanel() {
     const item = catalogById.get(itemId)
     if (!item) return
     if (item.builtIn) {
-      showToast('Built-in items stay on the master list — change their area or order instead')
+      showToast('Built-in items stay on the master list — change their section or order instead')
       return
     }
     if (!window.confirm(`Remove “${item.name}” from the master list?`)) return
@@ -699,7 +732,7 @@ export function ItpTemplateBuilderPanel() {
     setMasterDirty(true)
   }
 
-  const changeItemSection = (itemId: string, secId: ItpLibrarySectionId) => {
+  const changeItemSection = (itemId: string, secId: string) => {
     setCatalog((prev) => prev.map((item) => (item.id === itemId ? { ...item, secId } : item)))
     setMasterDirty(true)
   }
@@ -724,7 +757,7 @@ export function ItpTemplateBuilderPanel() {
   }
 
   /** Template-only: move a checklist line between ITP sections without changing the master catalog. */
-  const changeTemplateItemSection = (itemId: string, secId: ItpLibrarySectionId) => {
+  const changeTemplateItemSection = (itemId: string, secId: string) => {
     setScope((prev) => ({
       ...prev,
       sel: {
@@ -737,12 +770,12 @@ export function ItpTemplateBuilderPanel() {
   }
 
   const moveItem = (itemId: string, direction: -1 | 1) => {
-    setCatalog((prev) => moveCatalogItemInArea(prev, itemId, direction))
+    setCatalog((prev) => moveCatalogItemInSection(prev, itemId, direction))
     setMasterDirty(true)
   }
 
-  const scrollMasterSection = (area: string) => {
-    scrollChildIntoView(masterBodyRef.current, `#itp-master-sec-${CSS.escape(area)}`)
+  const scrollMasterSection = (secId: string) => {
+    scrollChildIntoView(masterBodyRef.current, `#itp-master-sec-${CSS.escape(secId)}`)
   }
 
   const scrollChecklistSection = (sectionId: string) => {
@@ -750,68 +783,66 @@ export function ItpTemplateBuilderPanel() {
   }
 
   const addMasterSection = () => {
-    const label = newSectionName.trim()
-    if (!label) {
+    const title = newSectionName.trim()
+    if (!title) {
       showToast('Enter a section name')
       return
     }
-    if (areas.some((area) => area.label.toLowerCase() === label.toLowerCase())) {
-      showToast(`“${label}” is already a section`)
+    if (processSections.some((section) => section.title.toLowerCase() === title.toLowerCase())) {
+      showToast(`“${title}” is already a section`)
       return
     }
-    const value = uniqueShopAreaValue(label, areas)
-    setAreas((prev) => [...prev, { value, label }])
-    setNewItem((prev) => ({ ...prev, area: value, secId: defaultSectionForArea(value) }))
+    const id = uniqueProcessSectionId(title, processSections)
+    setProcessSections((prev) => [...prev, { id, title }])
+    setNewItem((prev) => ({ ...prev, secId: id }))
     setNewSectionName('')
     setMasterDirty(true)
-    showToast(`Added section “${label}” — click Save master list`)
-    window.setTimeout(() => scrollMasterSection(value), 50)
+    showToast(`Added section “${title}” — click Save master list`)
+    window.setTimeout(() => scrollMasterSection(id), 50)
   }
 
-  const moveMasterSection = (area: string, direction: -1 | 1) => {
-    setAreas((prev) => moveShopArea(prev, area, direction))
+  const moveMasterSection = (secId: string, direction: -1 | 1) => {
+    setProcessSections((prev) => moveProcessSection(prev, secId, direction))
     setMasterDirty(true)
   }
 
-  const dropMasterSection = (fromValue: string, toValue: string) => {
-    if (!fromValue || fromValue === toValue) return
-    setAreas((prev) => moveShopAreaTo(prev, fromValue, toValue))
+  const dropMasterSection = (fromId: string, toId: string) => {
+    if (!fromId || fromId === toId) return
+    setProcessSections((prev) => moveProcessSectionTo(prev, fromId, toId))
     setMasterDirty(true)
   }
 
-  const removeMasterSection = (area: string) => {
-    const current = areas.find((row) => row.value === area)
+  const removeMasterSection = (secId: string) => {
+    const current = processSections.find((row) => row.id === secId)
     if (!current) return
-    if (areas.length <= 1) {
+    if (processSections.length <= 1) {
       showToast('Keep at least one section')
       return
     }
-    const itemCount = catalog.filter((item) => item.area === area).length
-    const fallback = areas.find((row) => row.value !== area)
+    const itemCount = catalog.filter((item) => item.secId === secId).length
+    const fallback = processSections.find((row) => row.id !== secId)
     if (!fallback) return
     if (itemCount > 0) {
       if (
         !window.confirm(
-          `Remove “${current.label}” and move ${itemCount} item${itemCount === 1 ? '' : 's'} to “${fallback.label}”?`,
+          `Remove “${current.title}” and move ${itemCount} item${itemCount === 1 ? '' : 's'} to “${fallback.title}”?`,
         )
       ) {
         return
       }
-      setCatalog((prev) => prev.map((item) => (item.area === area ? { ...item, area: fallback.value } : item)))
-    } else if (!window.confirm(`Remove empty section “${current.label}”?`)) {
+      setCatalog((prev) => prev.map((item) => (item.secId === secId ? { ...item, secId: fallback.id } : item)))
+    } else if (!window.confirm(`Remove empty section “${current.title}”?`)) {
       return
     }
-    setAreas((prev) => prev.filter((row) => row.value !== area))
-    setNewItem((prev) =>
-      prev.area === area ? { ...prev, area: fallback.value, secId: defaultSectionForArea(fallback.value) } : prev,
-    )
+    setProcessSections((prev) => prev.filter((row) => row.id !== secId))
+    setNewItem((prev) => (prev.secId === secId ? { ...prev, secId: fallback.id } : prev))
     setMasterDirty(true)
   }
 
   const handleSaveMaster = async () => {
     setSaving(true)
     try {
-      await saveItpMasterCatalog(catalog, areas)
+      await saveItpMasterCatalog(catalog, areas, processSections)
       setMasterDirty(false)
       clearMasterCatalogDraft()
       showToast('Master list saved')
@@ -835,7 +866,7 @@ export function ItpTemplateBuilderPanel() {
     setSaving(true)
     try {
       if (masterDirty) {
-        await saveItpMasterCatalog(catalog, areas)
+        await saveItpMasterCatalog(catalog, areas, processSections)
         setMasterDirty(false)
         clearMasterCatalogDraft()
       }
@@ -846,7 +877,7 @@ export function ItpTemplateBuilderPanel() {
       for (const row of includedCustom) {
         if (!mergedCustom.some((c) => c.id === row.id)) mergedCustom.push(row)
       }
-      const toSave = { ...scope, custom: mergedCustom }
+      const toSave = { ...scope, custom: mergedCustom, processSections }
       const saved = await saveItpLibraryTemplate(jobType, valveType, toSave, {
         name,
         isDefault: isDefaultTemplate || templatesForValve.length === 0,
@@ -930,39 +961,34 @@ export function ItpTemplateBuilderPanel() {
   }
 
   const checklistSections = useMemo(() => {
-    const areaIndex = new Map(areas.map((area, index) => [area.value, index]))
-    return ITP_LIBRARY.map((section) => {
-      const items = catalog
-        .filter((item) => {
-          if (!getSel(scope, item.id).included) return false
-          return effectiveScopeSectionId(item.secId, getSel(scope, item.id)) === section.id
-        })
-        .sort((a, b) => {
-          const ai = areaIndex.get(a.area) ?? 999
-          const bi = areaIndex.get(b.area) ?? 999
-          if (ai !== bi) return ai - bi
-          if (a.sortOrder !== b.sortOrder) return a.sortOrder - b.sortOrder
-          return a.name.localeCompare(b.name)
-        })
-        .map((item) => ({
-          id: item.id,
-          name: item.name,
-          ref: item.ref,
-          area: item.area,
-          catalogSecId: item.secId,
-        }))
-      return { section, items }
-    }).filter((row) => row.items.length > 0)
-  }, [catalog, scope, areas])
+    const sorted = catalog.slice().sort((a, b) => a.sortOrder - b.sortOrder || a.name.localeCompare(b.name))
+    return catalogBySection
+      .map((section) => {
+        const items = sorted
+          .filter((item) => {
+            if (!getSel(scope, item.id).included) return false
+            return effectiveScopeSectionId(item.secId, getSel(scope, item.id)) === section.id
+          })
+          .map((item) => ({
+            id: item.id,
+            name: item.name,
+            ref: item.ref,
+            area: item.area,
+            catalogSecId: item.secId,
+          }))
+        return { section: { id: section.id, title: section.title }, items }
+      })
+      .filter((row) => row.items.length > 0)
+  }, [catalog, catalogBySection, scope])
 
   return (
     <section className="dashboard-panel admin-lists-panel itp-template-builder">
       <h3>ITP template builder</h3>
       <p className="placeholder-copy">
-        Master list is grouped by shop <strong>stations / sections</strong>. Add or remove sections, reorder them with
-        ↑↓, or jump using the buttons at the top of the list. Add items, reorder with ↑↓, and assign stations. Pick a{' '}
-        <strong>valve type</strong>, then name templates for that valve (for example Twinseal, MJ, Nordstrom) and check
-        items into the template on the right.
+        Master list is grouped by <strong>ITP process sections</strong> (Incoming Inspection, Disassembly, Repair,
+        and so on). Shop stations stay as an assignment on each item, so machining can go Machine 1 → Welding →
+        Machine 2. Add or reorder sections, then pick a <strong>valve type</strong> and check items into the
+        template on the right.
       </p>
 
       {schemaError ? (
@@ -1162,41 +1188,47 @@ export function ItpTemplateBuilderPanel() {
           </div>
           <nav className="itp-section-nav" aria-label="Master list sections">
             <div className="itp-section-nav-chips">
-              {catalogByArea.map(({ area, label, items }) => (
-                <button
-                  key={area}
-                  type="button"
+              {catalogBySection.map(({ id, title, items }) => (
+                <div
+                  key={id}
                   draggable
-                  className={`itp-section-nav-chip${draggingSection === area ? ' is-dragging' : ''}${
-                    dragOverSection === area && draggingSection !== area ? ' is-drop-target' : ''
+                  role="button"
+                  tabIndex={0}
+                  className={`itp-section-nav-chip${draggingSection === id ? ' is-dragging' : ''}${
+                    dragOverSection === id && draggingSection !== id ? ' is-drop-target' : ''
                   }`}
                   onClick={() => {
                     if (skipSectionChipClickRef.current) {
                       skipSectionChipClickRef.current = false
                       return
                     }
-                    scrollMasterSection(area)
+                    scrollMasterSection(id)
                   }}
-                  title={`Click to jump to ${label}. Drag to reorder sections.`}
+                  onKeyDown={(event) => {
+                    if (event.key !== 'Enter' && event.key !== ' ') return
+                    event.preventDefault()
+                    scrollMasterSection(id)
+                  }}
+                  title={`Click to jump to ${title}. Drag to reorder. Use × to delete.`}
                   onDragStart={(event) => {
                     skipSectionChipClickRef.current = false
-                    setDraggingSection(area)
+                    setDraggingSection(id)
                     event.dataTransfer.effectAllowed = 'move'
-                    event.dataTransfer.setData('text/plain', area)
+                    event.dataTransfer.setData('text/plain', id)
                   }}
                   onDragOver={(event) => {
                     event.preventDefault()
                     event.dataTransfer.dropEffect = 'move'
-                    if (dragOverSection !== area) setDragOverSection(area)
+                    if (dragOverSection !== id) setDragOverSection(id)
                   }}
                   onDragLeave={() => {
-                    setDragOverSection((current) => (current === area ? null : current))
+                    setDragOverSection((current) => (current === id ? null : current))
                   }}
                   onDrop={(event) => {
                     event.preventDefault()
                     const from = event.dataTransfer.getData('text/plain') || draggingSection
                     skipSectionChipClickRef.current = true
-                    if (from) dropMasterSection(from, area)
+                    if (from) dropMasterSection(from, id)
                     setDraggingSection(null)
                     setDragOverSection(null)
                   }}
@@ -1205,17 +1237,38 @@ export function ItpTemplateBuilderPanel() {
                     setDragOverSection(null)
                   }}
                 >
-                  {label}
-                  <span>{items.length}</span>
-                </button>
+                  {title.replace(/^\d+\.\s*/, '')}
+                  <span className="itp-section-nav-chip-count">{items.length}</span>
+                  <button
+                    type="button"
+                    className="itp-section-nav-chip-remove"
+                    title={`Delete ${title}`}
+                    aria-label={`Delete ${title}`}
+                    onMouseDown={(event) => {
+                      event.stopPropagation()
+                      event.preventDefault()
+                    }}
+                    onClick={(event) => {
+                      event.stopPropagation()
+                      event.preventDefault()
+                      skipSectionChipClickRef.current = true
+                      removeMasterSection(id)
+                    }}
+                  >
+                    ×
+                  </button>
+                </div>
               ))}
             </div>
-            <p className="itp-section-nav-hint">Drag section buttons to reorder. Click a section to jump to it.</p>
+            <p className="itp-section-nav-hint">
+              Sections follow the ITP process. Drag to reorder, click to jump, or use × to delete. Assigned station
+              stays on each item.
+            </p>
             <div className="itp-section-nav-add">
               <input
                 type="text"
                 value={newSectionName}
-                placeholder="New section name…"
+                placeholder="e.g. Machine 1…"
                 aria-label="New section name"
                 onChange={(e) => setNewSectionName(e.target.value)}
                 onKeyDown={(e) => {
@@ -1250,36 +1303,27 @@ export function ItpTemplateBuilderPanel() {
                   />
                 </label>
                 <label className="itp-master-global-field">
-                  <span>Category</span>
+                  <span>ITP section</span>
                   <select
-                    value={newItem.area}
-                    onChange={(e) => {
-                      const area = e.target.value as ItpShopArea
-                      setNewItem((prev) => ({
-                        ...prev,
-                        area,
-                        secId: defaultSectionForArea(area),
-                      }))
-                    }}
+                    value={newItem.secId}
+                    onChange={(e) => setNewItem((prev) => ({ ...prev, secId: e.target.value }))}
                   >
-                    {areas.map((opt) => (
-                      <option key={opt.value} value={opt.value}>
-                        {opt.label}
+                    {catalogBySection.map((section) => (
+                      <option key={section.id} value={section.id}>
+                        {section.title}
                       </option>
                     ))}
                   </select>
                 </label>
                 <label className="itp-master-global-field">
-                  <span>ITP section</span>
+                  <span>Assigned station</span>
                   <select
-                    value={newItem.secId}
-                    onChange={(e) =>
-                      setNewItem((prev) => ({ ...prev, secId: e.target.value as ItpLibrarySectionId }))
-                    }
+                    value={newItem.area}
+                    onChange={(e) => setNewItem((prev) => ({ ...prev, area: e.target.value as ItpShopArea }))}
                   >
-                    {ITP_LIBRARY.map((section) => (
-                      <option key={section.id} value={section.id}>
-                        {section.title}
+                    {areas.map((opt) => (
+                      <option key={opt.value} value={opt.value}>
+                        {opt.label}
                       </option>
                     ))}
                   </select>
@@ -1429,34 +1473,34 @@ export function ItpTemplateBuilderPanel() {
             {catalogLoading ? (
               <p className="placeholder-copy">Loading master list…</p>
             ) : (
-              catalogByArea.map(({ area, label, items }, areaIndex) => {
+              catalogBySection.map(({ id, title, items }, sectionIndex) => {
                 const selCount = items.filter((item) => getSel(scope, item.id).included).length
                 const allSel = items.length > 0 && selCount === items.length
                 return (
-                  <div key={area} id={`itp-master-sec-${area}`} className="itp-library-lib-sec">
+                  <div key={id} id={`itp-master-sec-${id}`} className="itp-library-lib-sec">
                     <div className="itp-library-lib-sec-hdr">
                       <div className="itp-library-lib-sec-hdr-main">
                         <button
                           type="button"
                           className="itp-master-order-btn itp-section-order-btn"
-                          disabled={areaIndex === 0}
-                          onClick={() => moveMasterSection(area, -1)}
+                          disabled={sectionIndex === 0}
+                          onClick={() => moveMasterSection(id, -1)}
                           title="Move section up"
-                          aria-label={`Move ${label} up`}
+                          aria-label={`Move ${title} up`}
                         >
                           ↑
                         </button>
                         <button
                           type="button"
                           className="itp-master-order-btn itp-section-order-btn"
-                          disabled={areaIndex >= catalogByArea.length - 1}
-                          onClick={() => moveMasterSection(area, 1)}
+                          disabled={sectionIndex >= catalogBySection.length - 1}
+                          onClick={() => moveMasterSection(id, 1)}
                           title="Move section down"
-                          aria-label={`Move ${label} down`}
+                          aria-label={`Move ${title} down`}
                         >
                           ↓
                         </button>
-                        <h4>{label}</h4>
+                        <h4>{title}</h4>
                       </div>
                       <div className="itp-library-lshr">
                         <span>
@@ -1465,14 +1509,14 @@ export function ItpTemplateBuilderPanel() {
                         <button
                           type="button"
                           className="itp-library-sel-all"
-                          onClick={() => selectAllInArea(area, !allSel)}
+                          onClick={() => selectAllInSection(id, !allSel)}
                         >
                           {allSel ? 'Deselect All' : 'Select All'}
                         </button>
                         <button
                           type="button"
                           className="itp-library-sel-all itp-section-remove"
-                          onClick={() => removeMasterSection(area)}
+                          onClick={() => removeMasterSection(id)}
                           title="Remove section"
                         >
                           Remove
@@ -1481,10 +1525,10 @@ export function ItpTemplateBuilderPanel() {
                     </div>
 
                     {items.length === 0 ? (
-                      <p className="itp-master-empty-area">No items in {label} yet.</p>
+                      <p className="itp-master-empty-area">No items in {title} yet.</p>
                     ) : null}
 
-                    {items.map((item, indexInArea) => {
+                    {items.map((item, indexInSection) => {
                       const sel = getSel(scope, item.id)
                       return (
                         <div key={item.id} className={`itp-library-lib-item${sel.included ? ' sel' : ''}`}>
@@ -1492,7 +1536,7 @@ export function ItpTemplateBuilderPanel() {
                             <button
                               type="button"
                               className="itp-master-order-btn"
-                              disabled={indexInArea === 0}
+                              disabled={indexInSection === 0}
                               onClick={() => moveItem(item.id, -1)}
                               title="Move up"
                             >
@@ -1501,7 +1545,7 @@ export function ItpTemplateBuilderPanel() {
                             <button
                               type="button"
                               className="itp-master-order-btn"
-                              disabled={indexInArea >= items.length - 1}
+                              disabled={indexInSection >= items.length - 1}
                               onClick={() => moveItem(item.id, 1)}
                               title="Move down"
                             >
@@ -1511,7 +1555,7 @@ export function ItpTemplateBuilderPanel() {
                               className="itp-master-area-select"
                               value={item.area}
                               onChange={(e) => changeItemArea(item.id, e.target.value as ItpShopArea)}
-                              title="Shop area"
+                              title="Assigned station"
                               onClick={(e) => e.stopPropagation()}
                             >
                               {areas.map((opt) => (
@@ -1523,13 +1567,11 @@ export function ItpTemplateBuilderPanel() {
                             <select
                               className="itp-master-section-select"
                               value={item.secId}
-                              onChange={(e) =>
-                                changeItemSection(item.id, e.target.value as ItpLibrarySectionId)
-                              }
+                              onChange={(e) => changeItemSection(item.id, e.target.value)}
                               title="ITP section"
                               onClick={(e) => e.stopPropagation()}
                             >
-                              {ITP_LIBRARY.map((section) => (
+                              {catalogBySection.map((section) => (
                                 <option key={section.id} value={section.id}>
                                   {section.title}
                                 </option>
@@ -1903,15 +1945,10 @@ export function ItpTemplateBuilderPanel() {
                                     <span>ITP section</span>
                                     <select
                                       value={effectiveScopeSectionId(item.catalogSecId, sel)}
-                                      onChange={(e) =>
-                                        changeTemplateItemSection(
-                                          item.id,
-                                          e.target.value as ItpLibrarySectionId,
-                                        )
-                                      }
+                                      onChange={(e) => changeTemplateItemSection(item.id, e.target.value)}
                                       title="Move this item to another ITP section (this template only)"
                                     >
-                                      {ITP_LIBRARY.map((opt) => (
+                                      {catalogBySection.map((opt) => (
                                         <option key={opt.id} value={opt.id}>
                                           {opt.title}
                                         </option>

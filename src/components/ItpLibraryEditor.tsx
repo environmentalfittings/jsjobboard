@@ -12,8 +12,8 @@ import {
   ITP_LIBRARY_JOB_TYPE_COLORS,
   ITP_LIBRARY_JOB_TYPE_LABELS,
   type ItpLibraryJobType,
-  type ItpLibrarySectionId,
 } from '../constants/itpLibrary'
+import { normalizeProcessSections } from '../constants/itpProcessSections'
 import {
   deleteItpLibraryAttachment,
   isItpLibraryAttachmentImage,
@@ -204,6 +204,13 @@ export function ItpLibraryEditor({ valve, onClose, readOnly = false }: ItpLibrar
     prev.sel[itemId] ?? emptyItemSel()
 
   const scopeItems = useMemo(() => (plan ? allScopeItems(plan) : []), [plan])
+  const editorSections = useMemo(() => {
+    const extraIds = [
+      ...(plan?.custom ?? []).map((row) => String(row.secId)),
+      ...scopeItems.map((item) => item.secId),
+    ]
+    return normalizeProcessSections(undefined, extraIds)
+  }, [plan?.custom, scopeItems])
   const travelerReportStats = useMemo(
     () => (plan ? buildItpTravelerReport(plan).stats : { total: 0, captured: 0, pending: 0 }),
     [plan],
@@ -563,13 +570,12 @@ export function ItpLibraryEditor({ valve, onClose, readOnly = false }: ItpLibrar
     })
   }
 
-  const selectAllInSection = (secId: ItpLibrarySectionId, select: boolean) => {
+  const selectAllInSection = (secId: string, select: boolean) => {
     if (!canEditScope) return
     const section = ITP_LIBRARY.find((s) => s.id === secId)
-    if (!section) return
     updatePlan((prev) => {
       const sel = { ...prev.sel }
-      for (const item of section.items) {
+      for (const item of section?.items ?? []) {
         const current = sel[item.id] ?? emptyItemSel()
         let subReqs = current.subReqs
         if (select && subReqs.length === 0 && item.defaultSubReqs?.length) {
@@ -657,7 +663,7 @@ export function ItpLibraryEditor({ valve, onClose, readOnly = false }: ItpLibrar
     }))
   }
 
-  const addCustomItem = (secId: ItpLibrarySectionId) => {
+  const addCustomItem = (secId: string) => {
     if (!canEditScope) return
     const name = (customDrafts[secId] ?? '').trim()
     if (!name) return
@@ -1320,12 +1326,16 @@ export function ItpLibraryEditor({ valve, onClose, readOnly = false }: ItpLibrar
           </div>
           {!scopeMinimized ? (
           <div className="itp-library-panel-body">
-            {ITP_LIBRARY.map((section) => {
+            {editorSections.map((section) => {
+              const libraryItems = ITP_LIBRARY.find((row) => row.id === section.id)?.items ?? []
               const customInSec = plan.custom.filter((c) => c.secId === section.id)
               const selCount =
-                section.items.filter((it) => getSel(plan, it.id).included).length +
+                libraryItems.filter((it) => getSel(plan, it.id).included).length +
                 customInSec.filter((c) => getSel(plan, c.id).included).length
-              const allSel = section.items.length > 0 && section.items.every((it) => getSel(plan, it.id).included)
+              const allSel =
+                libraryItems.length + customInSec.length > 0 &&
+                libraryItems.every((it) => getSel(plan, it.id).included) &&
+                customInSec.every((c) => getSel(plan, c.id).included)
 
               return (
                 <div key={section.id} className="itp-library-lib-sec">
@@ -1333,7 +1343,7 @@ export function ItpLibraryEditor({ valve, onClose, readOnly = false }: ItpLibrar
                     <h4>{section.title}</h4>
                     <div className="itp-library-lshr">
                       <span>
-                        {selCount}/{section.items.length + customInSec.length}
+                        {selCount}/{libraryItems.length + customInSec.length}
                       </span>
                       {canEditScope ? (
                         <button
@@ -1347,7 +1357,7 @@ export function ItpLibraryEditor({ valve, onClose, readOnly = false }: ItpLibrar
                     </div>
                   </div>
 
-                  {section.items.map((item) => {
+                  {libraryItems.map((item) => {
                     const sel = getSel(plan, item.id)
                     return (
                       <div key={item.id} className={`itp-library-lib-item${sel.included ? ' sel' : ''}`}>
@@ -1663,7 +1673,7 @@ export function ItpLibraryEditor({ valve, onClose, readOnly = false }: ItpLibrar
                   ) : null}
                 </div>
 
-                {ITP_LIBRARY.map((section) => {
+                {editorSections.map((section) => {
                   const items = scopeItems.filter((it) => it.secId === section.id)
                   if (!items.length) return null
                   const secDone = items.filter((it) => getExec(plan, it.id).done).length

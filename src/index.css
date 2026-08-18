@@ -1646,6 +1646,10 @@ body {
   min-width: 0;
 }
 
+.test-log-entry-start-field--type {
+  flex: 0 1 180px;
+}
+
 .test-log-entry-start-button {
   flex: 0 0 auto;
   min-height: 42px;
@@ -2424,7 +2428,9 @@ body {
 .test-log-entry-panel select,
 .test-log-entry-panel textarea,
 .test-log-recent-panel .report-filters input,
-.test-log-entry-panel + .dashboard-panel .report-filters input {
+.test-log-recent-panel .report-filters select,
+.test-log-entry-panel + .dashboard-panel .report-filters input,
+.test-log-entry-panel + .dashboard-panel .report-filters select {
   width: 100%;
   border: 1px solid var(--tl-border);
   border-radius: var(--tl-radius);
@@ -2440,7 +2446,9 @@ body {
 .test-log-entry-panel select:focus-visible,
 .test-log-entry-panel textarea:focus-visible,
 .test-log-recent-panel .report-filters input:focus-visible,
-.test-log-entry-panel + .dashboard-panel .report-filters input:focus-visible {
+.test-log-recent-panel .report-filters select:focus-visible,
+.test-log-entry-panel + .dashboard-panel .report-filters input:focus-visible,
+.test-log-entry-panel + .dashboard-panel .report-filters select:focus-visible {
   outline: none;
   border-color: var(--tl-accent);
   box-shadow: 0 0 0 3px rgba(30, 58, 95, 0.12);
@@ -3371,7 +3379,7 @@ a.test-log-reports-item-name:hover {
 .test-log-recent-panel .report-filters,
 .test-log-entry-panel + .dashboard-panel .report-filters {
   display: grid;
-  grid-template-columns: minmax(180px, 1.6fr) minmax(140px, 0.9fr) minmax(140px, 0.9fr) auto;
+  grid-template-columns: minmax(160px, 1.3fr) minmax(150px, 1fr) minmax(140px, 0.9fr) minmax(140px, 0.9fr) auto;
   gap: 0.75rem 1rem;
   align-items: end;
   margin-bottom: 0;
@@ -15654,13 +15662,37 @@ tbody tr:hover {
   background: #fff7ed;
 }
 
-.itp-section-nav-chip span {
+.itp-section-nav-chip-count {
   border-radius: 999px;
   background: #e2e8f0;
   color: #334155;
   padding: 0 6px;
   font-size: 0.66rem;
   font-variant-numeric: tabular-nums;
+}
+
+.itp-section-nav-chip-remove {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.1rem;
+  height: 1.1rem;
+  margin-left: 1px;
+  padding: 0;
+  border: none;
+  border-radius: 999px;
+  background: transparent;
+  color: #94a3b8;
+  font-size: 0.95rem;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.itp-section-nav-chip-remove:hover,
+.itp-section-nav-chip-remove:focus-visible {
+  background: #fee2e2;
+  color: #b91c1c;
+  outline: none;
 }
 
 .itp-section-nav-add {

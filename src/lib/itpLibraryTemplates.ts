@@ -7,7 +7,6 @@ import {
 import { supabase } from './supabase'
 import {
   emptyItemSel,
-  isItpLibrarySectionId,
   type ItpLibraryCustomItem,
   type ItpLibraryItemSel,
   type ItpLibraryPlanPayload,
@@ -92,6 +91,8 @@ export type ItpLibraryTemplateScope = {
   catalog?: unknown
   /** Ordered shop stations for the master list (only used on the __master__ row). */
   areas?: unknown
+  /** Ordered ITP process sections for the master list (only used on the __master__ row). */
+  processSections?: unknown
 }
 
 export type ItpLibraryTemplateRow = {
@@ -153,10 +154,7 @@ function normalizeSel(raw: unknown): ItpLibraryItemSel {
     minPhotos: Number.isFinite(minPhotosRaw) && minPhotosRaw > 0 ? Math.floor(minPhotosRaw) : 1,
     measFields: normalizeMeasFields(o.measFields),
     blockNext: Boolean(o.blockNext),
-    sectionId: (() => {
-      const raw = String(o.sectionId ?? '').trim()
-      return isItpLibrarySectionId(raw) ? raw : ''
-    })(),
+    sectionId: String(o.sectionId ?? '').trim(),
   }
 }
 
@@ -170,6 +168,7 @@ export function normalizeTemplateScope(raw: unknown): ItpLibraryTemplateScope {
     custom?: unknown[]
     catalog?: unknown
     areas?: unknown
+    processSections?: unknown
   }
   const sel: Record<string, ItpLibraryItemSel> = {}
   if (o.sel && typeof o.sel === 'object') {
@@ -188,7 +187,7 @@ export function normalizeTemplateScope(raw: unknown): ItpLibraryTemplateScope {
       if (!id || !secId || !name) continue
       custom.push({
         id,
-        secId: secId as ItpLibraryCustomItem['secId'],
+        secId,
         name,
       })
     }
@@ -198,6 +197,7 @@ export function normalizeTemplateScope(raw: unknown): ItpLibraryTemplateScope {
     custom,
     ...(o.catalog !== undefined ? { catalog: o.catalog } : {}),
     ...(o.areas !== undefined ? { areas: o.areas } : {}),
+    ...(o.processSections !== undefined ? { processSections: o.processSections } : {}),
   }
 }
 
@@ -225,6 +225,7 @@ export function compactTemplateScope(scope: ItpLibraryTemplateScope): ItpLibrary
     custom: scope.custom.filter((c) => c.name.trim()),
     ...(scope.catalog !== undefined ? { catalog: scope.catalog } : {}),
     ...(scope.areas !== undefined ? { areas: scope.areas } : {}),
+    ...(scope.processSections !== undefined ? { processSections: scope.processSections } : {}),
   }
 }
 

@@ -9,6 +9,7 @@ import {
   type ItpLibraryJobType,
   type ItpLibrarySectionId,
 } from '../constants/itpLibrary'
+import { processSectionTitle } from '../constants/itpProcessSections'
 import { normalizeMeasFields, type ItpMeasFieldDef } from './itpMeasFields'
 
 export const ITP_LIBRARY_PLAN_SCHEMA_VERSION = 8 as const
@@ -34,7 +35,7 @@ export type ItpLibraryItemSel = {
    * Optional ITP section override for this template/job scope.
    * Empty string = use the master/library default section.
    */
-  sectionId: ItpLibrarySectionId | ''
+  sectionId: string
 }
 
 export type ItpLibraryItemExec = {
@@ -79,7 +80,7 @@ export type ItpLibraryItemExec = {
 
 export type ItpLibraryCustomItem = {
   id: string
-  secId: ItpLibrarySectionId
+  secId: string
   name: string
 }
 
@@ -260,7 +261,7 @@ export type ItpLibraryScopeItem = {
   id: string
   name: string
   ref: string
-  secId: ItpLibrarySectionId
+  secId: string
   secTitle: string
   custom: boolean
   sel: ItpLibraryItemSel
@@ -270,17 +271,13 @@ export function isItpLibrarySectionId(value: string): value is ItpLibrarySection
   return ITP_LIBRARY.some((section) => section.id === value)
 }
 
-export function effectiveScopeSectionId(
-  defaultSecId: ItpLibrarySectionId,
-  sel: ItpLibraryItemSel,
-): ItpLibrarySectionId {
+export function effectiveScopeSectionId(defaultSecId: string, sel: ItpLibraryItemSel): string {
   const override = String(sel.sectionId ?? '').trim()
-  if (override && isItpLibrarySectionId(override)) return override
-  return defaultSecId
+  return override || defaultSecId
 }
 
-export function sectionTitleForId(secId: ItpLibrarySectionId): string {
-  return ITP_LIBRARY.find((section) => section.id === secId)?.title ?? secId
+export function sectionTitleForId(secId: string): string {
+  return processSectionTitle(secId)
 }
 
 export function allScopeItems(plan: ItpLibraryPlanPayload): ItpLibraryScopeItem[] {
@@ -308,9 +305,7 @@ export function allScopeItems(plan: ItpLibraryPlanPayload): ItpLibraryScopeItem[
   for (const custom of plan.custom) {
     if (!isItemIncluded(plan, custom.id) || seen.has(custom.id)) continue
     const sel = getSel(plan, custom.id)
-    const defaultSec = isItpLibrarySectionId(String(custom.secId))
-      ? (custom.secId as ItpLibrarySectionId)
-      : 'receipt'
+    const defaultSec = String(custom.secId ?? '').trim() || 'receipt'
     const secId = effectiveScopeSectionId(defaultSec, sel)
     out.push({
       id: custom.id,
@@ -324,7 +319,10 @@ export function allScopeItems(plan: ItpLibraryPlanPayload): ItpLibraryScopeItem[
     seen.add(custom.id)
   }
 
-  const sectionOrder = new Map(ITP_LIBRARY.map((section, index) => [section.id, index]))
+  const sectionOrder = new Map<string, number>(ITP_LIBRARY.map((section, index) => [section.id, index]))
+  for (const item of out) {
+    if (!sectionOrder.has(item.secId)) sectionOrder.set(item.secId, 1000 + sectionOrder.size)
+  }
   const libraryIndex = new Map<string, number>()
   let libPos = 0
   for (const section of ITP_LIBRARY) {
@@ -420,10 +418,7 @@ function normalizeSel(raw: unknown, fallbackNotes = ''): ItpLibraryItemSel {
     minPhotos: Number.isFinite(minPhotosRaw) && minPhotosRaw > 0 ? Math.floor(minPhotosRaw) : 1,
     measFields: normalizeMeasFields(o.measFields),
     blockNext: Boolean(o.blockNext),
-    sectionId: (() => {
-      const raw = String(o.sectionId ?? '').trim()
-      return isItpLibrarySectionId(raw) ? raw : ''
-    })(),
+    sectionId: String(o.sectionId ?? '').trim(),
   }
 }
 
@@ -614,14 +609,10 @@ export function normalizeItpLibraryPlan(raw: unknown, valve: Valve): ItpLibraryP
           .filter((c) => c && typeof c === 'object')
           .map((c) => ({
             id: String((c as ItpLibraryCustomItem).id),
-            secId: (c as ItpLibraryCustomItem).secId,
+            secId: String((c as ItpLibraryCustomItem).secId ?? '').trim() || 'receipt',
             name: String((c as ItpLibraryCustomItem).name ?? ''),
           }))
           .filter((c) => c.id && c.name)
-          .map((c) => ({
-            ...c,
-            secId: isItpLibrarySectionId(String(c.secId)) ? c.secId : ('receipt' as ItpLibrarySectionId),
-          }))
       : []
 
     return {

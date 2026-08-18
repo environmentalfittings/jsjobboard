@@ -1,7 +1,9 @@
+import { ITP_LIBRARY } from '../constants/itpLibrary'
 import {
-  ITP_LIBRARY,
-  type ItpLibrarySectionId,
-} from '../constants/itpLibrary'
+  defaultProcessSections,
+  normalizeProcessSections,
+  type ItpProcessSectionDef,
+} from '../constants/itpProcessSections'
 import {
   defaultShopAreas,
   normalizeShopAreas,
@@ -23,7 +25,7 @@ export type ItpMasterCatalogItem = {
   id: string
   name: string
   ref: string
-  secId: ItpLibrarySectionId
+  secId: string
   area: ItpShopArea
   sortOrder: number
   builtIn: boolean
@@ -65,8 +67,8 @@ export function requirementDefaultsFromCatalogItem(
   }
 }
 
-/** Map ITP library sections to a default shop area. */
-export function defaultAreaForSection(secId: ItpLibrarySectionId): ItpShopArea {
+/** Map ITP process sections to a default shop station. */
+export function defaultAreaForSection(secId: string): ItpShopArea {
   switch (secId) {
     case 'receipt':
     case 'disassembly':
@@ -158,7 +160,7 @@ function normalizeCatalogItem(raw: unknown, fallbackOrder: number): ItpMasterCat
   const row = raw as Partial<ItpMasterCatalogItem>
   const id = String(row.id ?? '').trim()
   const name = String(row.name ?? '').trim()
-  const secId = String(row.secId ?? '').trim() as ItpLibrarySectionId
+  const secId = String(row.secId ?? '').trim()
   if (!id || !name || !secId) return null
   const areaRaw = String(row.area ?? '').trim()
   const area = areaRaw || defaultAreaForSection(secId)
@@ -230,17 +232,19 @@ export function reindexCatalog(items: ItpMasterCatalogItem[]): ItpMasterCatalogI
   return items.map((item, index) => ({ ...item, sortOrder: index }))
 }
 
-export function moveCatalogItemInArea(
+function moveCatalogItemInGroup(
   items: ItpMasterCatalogItem[],
   itemId: string,
   direction: -1 | 1,
+  groupOf: (item: ItpMasterCatalogItem) => string,
 ): ItpMasterCatalogItem[] {
   const sorted = items.slice().sort((a, b) => a.sortOrder - b.sortOrder)
   const current = sorted.find((item) => item.id === itemId)
   if (!current) return items
-  const areaItems = sorted.filter((item) => item.area === current.area)
-  const indexInArea = areaItems.findIndex((item) => item.id === itemId)
-  const swapWith = areaItems[indexInArea + direction]
+  const groupKey = groupOf(current)
+  const groupItems = sorted.filter((item) => groupOf(item) === groupKey)
+  const indexInGroup = groupItems.findIndex((item) => item.id === itemId)
+  const swapWith = groupItems[indexInGroup + direction]
   if (!swapWith) return items
   const orderA = current.sortOrder
   const orderB = swapWith.sortOrder
@@ -251,11 +255,32 @@ export function moveCatalogItemInArea(
   })
 }
 
-type MasterScope = ItpLibraryTemplateScope & { catalog?: unknown; areas?: unknown }
+export function moveCatalogItemInArea(
+  items: ItpMasterCatalogItem[],
+  itemId: string,
+  direction: -1 | 1,
+): ItpMasterCatalogItem[] {
+  return moveCatalogItemInGroup(items, itemId, direction, (item) => item.area)
+}
+
+export function moveCatalogItemInSection(
+  items: ItpMasterCatalogItem[],
+  itemId: string,
+  direction: -1 | 1,
+): ItpMasterCatalogItem[] {
+  return moveCatalogItemInGroup(items, itemId, direction, (item) => item.secId)
+}
+
+type MasterScope = ItpLibraryTemplateScope & {
+  catalog?: unknown
+  areas?: unknown
+  processSections?: unknown
+}
 
 export type ItpMasterCatalogState = {
   items: ItpMasterCatalogItem[]
   areas: ItpShopAreaDef[]
+  processSections: ItpProcessSectionDef[]
 }
 
 export function emptyMasterCatalogState(): ItpMasterCatalogState {
@@ -263,6 +288,7 @@ export function emptyMasterCatalogState(): ItpMasterCatalogState {
   return {
     items,
     areas: normalizeShopAreas(undefined, items.map((item) => item.area)),
+    processSections: defaultProcessSections(),
   }
 }
 
@@ -291,6 +317,10 @@ function catalogStateFromScope(scope: MasterScope | null | undefined): ItpMaster
       scope.areas,
       items.map((item) => item.area),
     ),
+    processSections: normalizeProcessSections(
+      scope.processSections,
+      items.map((item) => item.secId),
+    ),
   }
 }
 
@@ -311,6 +341,7 @@ export async function loadItpMasterCatalog(): Promise<ItpMasterCatalogState> {
 export async function saveItpMasterCatalog(
   items: ItpMasterCatalogItem[],
   areas?: ItpShopAreaDef[],
+  processSections?: ItpProcessSectionDef[],
 ): Promise<void> {
   const catalog = reindexCatalog(items)
   const custom = catalog
@@ -320,6 +351,10 @@ export async function saveItpMasterCatalog(
     areas && areas.length > 0 ? areas : defaultShopAreas(),
     catalog.map((item) => item.area),
   )
+  const nextProcessSections = normalizeProcessSections(
+    processSections && processSections.length > 0 ? processSections : defaultProcessSections(),
+    catalog.map((item) => item.secId),
+  )
   await saveItpLibraryTemplate(
     ITP_LIBRARY_MASTER_JOB,
     ITP_LIBRARY_MASTER_VALVE,
@@ -328,7 +363,12 @@ export async function saveItpMasterCatalog(
       custom,
       catalog,
       areas: nextAreas,
-    } as ItpLibraryTemplateScope & { catalog: ItpMasterCatalogItem[]; areas: ItpShopAreaDef[] },
+      processSections: nextProcessSections,
+    } as ItpLibraryTemplateScope & {
+      catalog: ItpMasterCatalogItem[]
+      areas: ItpShopAreaDef[]
+      processSections: ItpProcessSectionDef[]
+    },
     { name: ITP_LIBRARY_DEFAULT_TEMPLATE_NAME, isDefault: false },
   )
 }

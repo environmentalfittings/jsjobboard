@@ -15,14 +15,15 @@ import { isFourHourChartTestSelected, normalizeTestProcedures, mapJobTestTypeToP
 import { parseJobTestTypes } from '../../lib/jobTestTypes'
 import { applyTestMediaPrefill } from '../../lib/testLogMedia'
 import { normalizeTestTimeLabel } from '../../lib/testLogTime'
-import { TEST_PROCEDURE_REQUIREMENTS } from '../../constants/jobLookups'
+import { TEST_LOG_VALVE_TYPES, TEST_PROCEDURE_REQUIREMENTS } from '../../constants/jobLookups'
 import { loadLookupOptionsMap } from '../../lib/lookupValues'
 import { TEST_LOG_PREFILL_KEYS } from '../../lib/testLogEntryPrefill'
-import { fetchValveForTestLog, searchValveIdsForTestLog } from '../../lib/testLogValveLookup'
+import { fetchValveForTestLog, listTestLogValvesByType, searchValveIdsForTestLog, type TestLogValveCandidate } from '../../lib/testLogValveLookup'
 import { formatTesterInitials, parseTesterInitials } from '../../lib/testLogTester'
 import { canonicalizeValveType } from '../../lib/testLogValveType'
 import {
   emptyReliefValveTestFields,
+  inferReliefValveTestType,
   isReliefValveType,
   prefillReliefSizesFromJobSize,
   validateReliefValveFields,
@@ -152,6 +153,9 @@ export function TestLogEntryForm({
   const [pendingReportFiles, setPendingReportFiles] = useState<File[]>([])
   const [saving, setSaving] = useState(false)
   const [valveIdOptions, setValveIdOptions] = useState<string[]>([])
+  const [startTypeFilter, setStartTypeFilter] = useState('')
+  const [typeCandidates, setTypeCandidates] = useState<TestLogValveCandidate[]>([])
+  const [loadingTypeCandidates, setLoadingTypeCandidates] = useState(false)
   const [valveLookupStatus, setValveLookupStatus] = useState<'idle' | 'loading' | 'found' | 'missing'>('idle')
   const [entryStarted, setEntryStarted] = useState(false)
   const [loadingEntry, setLoadingEntry] = useState(false)
@@ -408,9 +412,7 @@ export function TestLogEntryForm({
           })),
         applyReliefPrefill: (jobSize, jobPressure, jobTestType) => {
           const sizes = prefillReliefSizesFromJobSize(jobSize)
-          const testTypeHint = String(jobTestType ?? '').toLowerCase()
-          const pretestWithRepair = testTypeHint.includes('repair')
-          const pretest = pretestWithRepair || testTypeHint.includes('pretest')
+          const inferredType = inferReliefValveTestType(jobTestType)
           setTesting((prev) => ({
             ...prev,
             reliefValve: {
@@ -418,11 +420,7 @@ export function TestLogEntryForm({
               inletSize: sizes.inletSize || prev.reliefValve?.inletSize || '',
               outletSize: sizes.outletSize || prev.reliefValve?.outletSize || '',
               setPressure: jobPressure?.trim() || prev.reliefValve?.setPressure || '',
-              testType: pretestWithRepair
-                ? 'Pretest with Repair'
-                : pretest
-                  ? 'Pretest'
-                  : prev.reliefValve?.testType || '',
+              testType: inferredType || prev.reliefValve?.testType || '',
             },
           }))
         },
@@ -453,6 +451,35 @@ export function TestLogEntryForm({
 
   useEffect(() => {
     if (entryStarted) return
+    if (!startTypeFilter) {
+      setTypeCandidates([])
+      setLoadingTypeCandidates(false)
+      return
+    }
+
+    let cancelled = false
+    setLoadingTypeCandidates(true)
+    void (async () => {
+      try {
+        const rows = await listTestLogValvesByType(startTypeFilter)
+        if (cancelled) return
+        setTypeCandidates(rows)
+      } catch {
+        if (cancelled) return
+        setTypeCandidates([])
+      } finally {
+        if (!cancelled) setLoadingTypeCandidates(false)
+      }
+    })()
+
+    return () => {
+      cancelled = true
+    }
+  }, [startTypeFilter, entryStarted])
+
+  useEffect(() => {
+    if (entryStarted) return
+    if (startTypeFilter) return
     const trimmed = valveId.trim()
     if (!trimmed) {
       setValveIdOptions([])
@@ -471,10 +498,12 @@ export function TestLogEntryForm({
       cancelled = true
       window.clearTimeout(timer)
     }
-  }, [valveId, entryStarted])
+  }, [valveId, entryStarted, startTypeFilter])
 
   const resetForm = async () => {
     setValveId('')
+    setStartTypeFilter('')
+    setTypeCandidates([])
     setSize('')
     setPressure('')
     setBodyMaterial('')
@@ -521,7 +550,7 @@ export function TestLogEntryForm({
         inletSize: existing.inletSize || sizes.inletSize,
         outletSize: existing.outletSize || sizes.outletSize,
         setPressure: existing.setPressure || entry.pressure || '',
-        testType: existing.testType || (entry.worked?.includes('Repair') ? 'Pretest with Repair' : entry.worked?.includes('Pretest') ? 'Pretest' : ''),
+        testType: existing.testType || inferReliefValveTestType(entry.worked),
         media: existing.media || '',
       }
     }
@@ -783,33 +812,94 @@ export function TestLogEntryForm({
           <div className="test-log-entry-start-copy">
             <h3 className="test-log-entry-start-title">Enter test valve</h3>
             <p className="test-log-entry-start-note">
-              Enter the valve ID or work order number, then open the test form.
+              Pick a valve type to list matching jobs, or enter a valve ID / work order number.
             </p>
           </div>
           <div className="test-log-entry-start-row">
-            <label className="test-log-entry-start-field">
-              Valve ID / W.O. #
-              <input
-                type="text"
-                value={valveId}
-                onChange={(e) => setValveId(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter') {
-                    e.preventDefault()
-                    void openEntry()
-                  }
-                }}
-                placeholder="e.g. 5792-1"
-                list="test-log-entry-valve-options"
-                autoComplete="off"
+            <label className="test-log-entry-start-field test-log-entry-start-field--type">
+              Valve type
+              <select
+                value={startTypeFilter}
                 disabled={loadingEntry}
-              />
-              <datalist id="test-log-entry-valve-options">
-                {valveIdOptions.map((value) => (
-                  <option key={value} value={value} />
+                onChange={(e) => {
+                  setStartTypeFilter(e.target.value)
+                  setValveId('')
+                }}
+              >
+                <option value="">All types</option>
+                {TEST_LOG_VALVE_TYPES.map((type) => (
+                  <option key={type} value={type}>
+                    {type}
+                  </option>
                 ))}
-              </datalist>
+              </select>
             </label>
+            {startTypeFilter ? (
+              <label className="test-log-entry-start-field">
+                Valve ID / W.O. #
+                <select
+                  value={valveId}
+                  disabled={loadingEntry || loadingTypeCandidates}
+                  onChange={(e) => setValveId(e.target.value)}
+                >
+                  <option value="">
+                    {loadingTypeCandidates
+                      ? 'Loading valves…'
+                      : typeCandidates.length
+                        ? '— Select valve —'
+                        : `No ${startTypeFilter.toLowerCase()}s found`}
+                  </option>
+                  {typeCandidates.some((row) => row.source === 'available') ? (
+                    <optgroup label="Available to test">
+                      {typeCandidates
+                        .filter((row) => row.source === 'available')
+                        .map((row) => (
+                          <option key={`available-${row.valveId}`} value={row.valveId}>
+                            {row.valveId}
+                            {row.status ? ` · ${row.status}` : ''}
+                          </option>
+                        ))}
+                    </optgroup>
+                  ) : null}
+                  {typeCandidates.some((row) => row.source === 'tested') ? (
+                    <optgroup label="Already tested">
+                      {typeCandidates
+                        .filter((row) => row.source === 'tested')
+                        .map((row) => (
+                          <option key={`tested-${row.valveId}`} value={row.valveId}>
+                            {row.valveId}
+                            {row.status ? ` · ${row.status}` : ''}
+                          </option>
+                        ))}
+                    </optgroup>
+                  ) : null}
+                </select>
+              </label>
+            ) : (
+              <label className="test-log-entry-start-field">
+                Valve ID / W.O. #
+                <input
+                  type="text"
+                  value={valveId}
+                  onChange={(e) => setValveId(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') {
+                      e.preventDefault()
+                      void openEntry()
+                    }
+                  }}
+                  placeholder="e.g. 5792-1"
+                  list="test-log-entry-valve-options"
+                  autoComplete="off"
+                  disabled={loadingEntry}
+                />
+                <datalist id="test-log-entry-valve-options">
+                  {valveIdOptions.map((value) => (
+                    <option key={value} value={value} />
+                  ))}
+                </datalist>
+              </label>
+            )}
             <button
               type="button"
               className="button-primary test-log-entry-start-button"

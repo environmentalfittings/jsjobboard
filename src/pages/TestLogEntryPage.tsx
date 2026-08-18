@@ -7,7 +7,9 @@ import { canWriteShop } from '../lib/roles'
 import { normalizeValveId } from '../lib/valveId'
 import { supabase } from '../lib/supabase'
 import { testLogHasDetailsColumn, testLogSelectColumns } from '../lib/testLogSchema'
+import { TEST_LOG_VALVE_TYPES } from '../constants/jobLookups'
 import { fetchValveDescriptionsByIds } from '../lib/testLogValveLookup'
+import { valveTypeOrFilter } from '../lib/testLogValveType'
 import { formatTestProceduresSummary, parseTestLogTestingDetails, resolveTestMedia } from '../types/testLog'
 import { formatCheckedStandardsSummary, formatTestPressuresSummary } from '../lib/testStandardParams'
 import type { TestLogEntry } from '../types'
@@ -249,6 +251,7 @@ export function TestLogEntryPage() {
   const canWrite = canWriteShop(role)
   const [rows, setRows] = useState<TestLogEntry[]>([])
   const [valveSearch, setValveSearch] = useState('')
+  const [filterValveType, setFilterValveType] = useState('')
   const [filterStartDate, setFilterStartDate] = useState('')
   const [filterEndDate, setFilterEndDate] = useState('')
   const [searchOptions, setSearchOptions] = useState<string[]>([])
@@ -328,6 +331,10 @@ export function TestLogEntryPage() {
     const rawSearch = searchOverride !== undefined ? searchOverride : valveSearch
     const normalizedSearch = normalizeValveId(rawSearch)
     if (normalizedSearch) query = query.ilike('valve_id', `%${normalizedSearch}%`)
+    if (filterValveType) {
+      const typeOr = valveTypeOrFilter('valve_type', filterValveType)
+      if (typeOr) query = query.or(typeOr)
+    }
     if (filterStartDate) query = query.gte('tested_on', filterStartDate)
     if (filterEndDate) query = query.lte('tested_on', filterEndDate)
 
@@ -697,6 +704,17 @@ export function TestLogEntryPage() {
             </datalist>
           </label>
           <label>
+            Valve type
+            <select value={filterValveType} onChange={(e) => setFilterValveType(e.target.value)}>
+              <option value="">All types</option>
+              {TEST_LOG_VALVE_TYPES.map((type) => (
+                <option key={type} value={type}>
+                  {type}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label>
             From date
             <input type="date" value={filterStartDate} onChange={(e) => setFilterStartDate(e.target.value)} />
           </label>
@@ -713,6 +731,7 @@ export function TestLogEntryPage() {
               className="button-secondary"
               onClick={() => {
                 setValveSearch('')
+                setFilterValveType('')
                 setFilterStartDate('')
                 setFilterEndDate('')
                 setTableFilters(EMPTY_TABLE_FILTERS)
