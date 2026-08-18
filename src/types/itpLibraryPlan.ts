@@ -325,11 +325,22 @@ export function allScopeItems(plan: ItpLibraryPlanPayload): ItpLibraryScopeItem[
   }
 
   const sectionOrder = new Map(ITP_LIBRARY.map((section, index) => [section.id, index]))
+  const libraryIndex = new Map<string, number>()
+  let libPos = 0
+  for (const section of ITP_LIBRARY) {
+    for (const item of section.items) {
+      libraryIndex.set(item.id, libPos++)
+    }
+  }
+  const customIndex = new Map(plan.custom.map((row, index) => [row.id, index]))
   return out.sort((a, b) => {
     const orderA = sectionOrder.get(a.secId) ?? 999
     const orderB = sectionOrder.get(b.secId) ?? 999
     if (orderA !== orderB) return orderA - orderB
-    return a.name.localeCompare(b.name)
+    const libA = libraryIndex.get(a.id) ?? Number.POSITIVE_INFINITY
+    const libB = libraryIndex.get(b.id) ?? Number.POSITIVE_INFINITY
+    if (libA !== libB) return libA - libB
+    return (customIndex.get(a.id) ?? 0) - (customIndex.get(b.id) ?? 0)
   })
 }
 

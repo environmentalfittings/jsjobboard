@@ -920,13 +920,20 @@ export function ItpTemplateBuilderPanel() {
   }
 
   const checklistSections = useMemo(() => {
+    const areaIndex = new Map(areas.map((area, index) => [area.value, index]))
     return ITP_LIBRARY.map((section) => {
       const items = catalog
         .filter((item) => {
           if (!getSel(scope, item.id).included) return false
           return effectiveScopeSectionId(item.secId, getSel(scope, item.id)) === section.id
         })
-        .sort((a, b) => a.sortOrder - b.sortOrder)
+        .sort((a, b) => {
+          const ai = areaIndex.get(a.area) ?? 999
+          const bi = areaIndex.get(b.area) ?? 999
+          if (ai !== bi) return ai - bi
+          if (a.sortOrder !== b.sortOrder) return a.sortOrder - b.sortOrder
+          return a.name.localeCompare(b.name)
+        })
         .map((item) => ({
           id: item.id,
           name: item.name,
@@ -936,7 +943,7 @@ export function ItpTemplateBuilderPanel() {
         }))
       return { section, items }
     }).filter((row) => row.items.length > 0)
-  }, [catalog, scope])
+  }, [catalog, scope, areas])
 
   return (
     <section className="dashboard-panel admin-lists-panel itp-template-builder">
