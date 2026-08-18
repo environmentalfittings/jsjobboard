@@ -1,11 +1,13 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from 'react'
 import { Link } from 'react-router-dom'
 import { FinishCellBadge } from '../components/FinishCellBadge'
+import { JobCardItpStatusBar } from '../components/JobCardItpStatusBar'
 import { StatusBadge } from '../components/StatusBadge'
 import { useToast } from '../components/ToastNotification'
 import { useAuth } from '../contexts/AuthContext'
 import { finishCellTone } from '../constants/finishCellColors'
 import { fetchAllValves } from '../lib/fetchAllValves'
+import { loadItpCardSummaries, type ItpCardSummary } from '../lib/itpCardSummaries'
 import { displayJobStatus, isActiveShopWork } from '../lib/jobDisplayStatus'
 import { localTodayBounds } from '../lib/managerDashboardMetrics'
 import {
@@ -295,6 +297,7 @@ export function ShopTvBoardPage() {
   const canWrite = canWriteShop(role)
   const { showToast } = useToast()
   const [valves, setValves] = useState<Valve[]>([])
+  const [itpSummaries, setItpSummaries] = useState<Record<number, ItpCardSummary>>({})
   const [priorityQueueIds, setPriorityQueueIds] = useState<string[]>([])
   const [movesToday, setMovesToday] = useState<ShopTvStatusMove[]>([])
   const [deptLeaderboard, setDeptLeaderboard] = useState<ShopTvDeptMoveRow[]>([])
@@ -328,6 +331,7 @@ export function ShopTvBoardPage() {
     if (error) {
       showToast(`Could not load jobs: ${error.message}`)
       setValves([])
+      setItpSummaries({})
       setPriorityQueueIds([])
       setMovesToday([])
       setDeptLeaderboard([])
@@ -339,13 +343,17 @@ export function ShopTvBoardPage() {
     setPriorityQueueIds(await syncPriorityQueueWithValves(rows))
 
     const { startIso, endIso } = localTodayBounds()
-    const todayRes = await supabase
-      .from('valve_change_log')
-      .select('valve_row_id,changed_at,changed_by_email,old_row,new_row')
-      .eq('action', 'update')
-      .gte('changed_at', startIso)
-      .lt('changed_at', endIso)
-      .order('changed_at', { ascending: true })
+    const [summaries, todayRes] = await Promise.all([
+      loadItpCardSummaries(rows.map((row) => row.id)).catch(() => ({}) as Record<number, ItpCardSummary>),
+      supabase
+        .from('valve_change_log')
+        .select('valve_row_id,changed_at,changed_by_email,old_row,new_row')
+        .eq('action', 'update')
+        .gte('changed_at', startIso)
+        .lt('changed_at', endIso)
+        .order('changed_at', { ascending: true }),
+    ])
+    setItpSummaries(summaries)
 
     if (todayRes.error) {
       setMovesToday([])
@@ -375,6 +383,9 @@ export function ShopTvBoardPage() {
     const channel = supabase
       .channel('shop-tv-valves')
       .on('postgres_changes', { event: '*', schema: 'public', table: 'valves' }, () => {
+        void load()
+      })
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'valve_itp' }, () => {
         void load()
       })
       .subscribe()
@@ -732,6 +743,7 @@ export function ShopTvBoardPage() {
                       key={valve.id}
                       className={`shop-tv-card${onPriority ? ' shop-tv-card--priority' : ''}`}
                     >
+                      <JobCardItpStatusBar summary={itpSummaries[valve.id]} href={`/itp/${valve.id}`} />
                       <div className="shop-tv-card-top">
                         <div className="shop-tv-card-ids">
                           <span

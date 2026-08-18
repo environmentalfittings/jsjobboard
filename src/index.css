@@ -18425,6 +18425,57 @@ body.shop-tv-fullscreen-active .page-content {
   border-radius: 10px;
   background: #fff;
   box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04);
+  overflow: hidden;
+}
+
+.shop-tv-card .job-card-itp-bar {
+  margin: -12px -12px 8px;
+  width: calc(100% + 24px);
+}
+
+.shop-tv-board--fullscreen .shop-tv-card .job-card-itp-bar {
+  margin: -8px -8px 6px;
+  width: calc(100% + 16px);
+  background: #111827;
+  border-bottom-color: #334155;
+}
+
+.shop-tv-board--fullscreen .shop-tv-card .job-card-itp-bar:hover,
+.shop-tv-board--fullscreen .shop-tv-card .job-card-itp-bar:focus-visible {
+  background: #1e293b;
+}
+
+.shop-tv-board--fullscreen .shop-tv-card .job-card-itp-bar-label,
+.shop-tv-board--fullscreen .shop-tv-card .job-card-itp-bar-meta {
+  color: #cbd5e1;
+}
+
+.shop-tv-board--fullscreen .shop-tv-card .job-card-itp-bar-track {
+  background: #1e293b;
+}
+
+.shop-tv-board--fullscreen .shop-tv-card .job-card-itp-bar--progress .job-card-itp-bar-label {
+  color: #fdba74;
+}
+
+.shop-tv-board--fullscreen .shop-tv-card .job-card-itp-bar--complete .job-card-itp-bar-label,
+.shop-tv-board--fullscreen .shop-tv-card .job-card-itp-bar--accepted .job-card-itp-bar-label {
+  color: #86efac;
+}
+
+.shop-tv-board--fullscreen .shop-tv-card .job-card-itp-bar--flagged .job-card-itp-bar-label,
+.shop-tv-board--fullscreen .shop-tv-card .job-card-itp-bar--flagged .job-card-itp-bar-meta {
+  color: #fca5a5;
+}
+
+.shop-tv-board--fullscreen .shop-tv-card .job-card-itp-bar--review .job-card-itp-bar-label,
+.shop-tv-board--fullscreen .shop-tv-card .job-card-itp-bar--review .job-card-itp-bar-meta {
+  color: #c4b5fd;
+}
+
+.shop-tv-board--fullscreen .shop-tv-card .job-card-itp-bar--empty .job-card-itp-bar-label,
+.shop-tv-board--fullscreen .shop-tv-card .job-card-itp-bar--empty .job-card-itp-bar-meta {
+  color: #94a3b8;
 }
 
 .shop-tv-card--priority {
