@@ -90,6 +90,8 @@ export type ItpLibraryTemplateScope = {
   custom: ItpLibraryCustomItem[]
   /** Full editable master catalog (only used on the __master__ row). */
   catalog?: unknown
+  /** Ordered shop stations for the master list (only used on the __master__ row). */
+  areas?: unknown
 }
 
 export type ItpLibraryTemplateRow = {
@@ -167,6 +169,7 @@ export function normalizeTemplateScope(raw: unknown): ItpLibraryTemplateScope {
     sel?: Record<string, unknown>
     custom?: unknown[]
     catalog?: unknown
+    areas?: unknown
   }
   const sel: Record<string, ItpLibraryItemSel> = {}
   if (o.sel && typeof o.sel === 'object') {
@@ -194,6 +197,7 @@ export function normalizeTemplateScope(raw: unknown): ItpLibraryTemplateScope {
     sel,
     custom,
     ...(o.catalog !== undefined ? { catalog: o.catalog } : {}),
+    ...(o.areas !== undefined ? { areas: o.areas } : {}),
   }
 }
 
@@ -220,6 +224,7 @@ export function compactTemplateScope(scope: ItpLibraryTemplateScope): ItpLibrary
     sel,
     custom: scope.custom.filter((c) => c.name.trim()),
     ...(scope.catalog !== undefined ? { catalog: scope.catalog } : {}),
+    ...(scope.areas !== undefined ? { areas: scope.areas } : {}),
   }
 }
 

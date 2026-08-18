@@ -6,6 +6,7 @@ import { TechJobCard } from '../components/TechJobCard'
 import { useToast } from '../components/ToastNotification'
 import { useAuth } from '../contexts/AuthContext'
 import { recordDueDateChange, resolveChangedByName } from '../lib/dueDateChanges'
+import { loadItpCardSummaries, type ItpCardSummary } from '../lib/itpCardSummaries'
 import {
   OTD_PAUSE_STATUS_LABEL,
   requiresDueDateUpdateWhenLeavingOtdPause,
@@ -31,6 +32,7 @@ export function MyWorkPage({ user, onLogout }: MyWorkPageProps) {
   const [profileLinked, setProfileLinked] = useState(true)
   const [assignedJobs, setAssignedJobs] = useState<Valve[]>([])
   const [cellPriorityJobs, setCellPriorityJobs] = useState<Valve[]>([])
+  const [itpSummaries, setItpSummaries] = useState<Record<number, ItpCardSummary>>({})
   const [techById, setTechById] = useState<Map<number, Technician>>(new Map())
   const [pendingRework, setPendingRework] = useState<{ valve: Valve; nextStatus: string } | null>(null)
   const [savingRework, setSavingRework] = useState(false)
@@ -54,6 +56,7 @@ export function MyWorkPage({ user, onLogout }: MyWorkPageProps) {
     if (!resolved.technician) {
       setAssignedJobs([])
       setCellPriorityJobs([])
+      setItpSummaries({})
       setTechById(new Map())
       return
     }
@@ -82,22 +85,30 @@ export function MyWorkPage({ user, onLogout }: MyWorkPageProps) {
     }
 
     const cells = (tech.work_cell_specialties ?? []).filter(Boolean)
+    const assigned = (mine as Valve[]) ?? []
+    let priorityJobs: Valve[] = []
     if (cells.length === 0) {
       setCellPriorityJobs([])
-      return
+    } else {
+      const { data: priorityRows, error: priorityError } = await supabase
+        .from('valves')
+        .select('*')
+        .in('cell', cells)
+        .eq('status', 'In-shop Work')
+        .order('due_date', { ascending: true, nullsFirst: false })
+        .limit(10)
+      if (priorityError) {
+        showToast('Could not load priority jobs')
+      } else {
+        priorityJobs = (priorityRows as Valve[]) ?? []
+        setCellPriorityJobs(priorityJobs)
+      }
     }
-    const { data: priorityRows, error: priorityError } = await supabase
-      .from('valves')
-      .select('*')
-      .in('cell', cells)
-      .eq('status', 'In-shop Work')
-      .order('due_date', { ascending: true, nullsFirst: false })
-      .limit(10)
-    if (priorityError) {
-      showToast('Could not load priority jobs')
-      return
+    try {
+      setItpSummaries(await loadItpCardSummaries([...assigned, ...priorityJobs].map((job) => job.id)))
+    } catch {
+      setItpSummaries({})
     }
-    setCellPriorityJobs((priorityRows as Valve[]) ?? [])
   }
 
   useEffect(() => {
@@ -236,7 +247,12 @@ export function MyWorkPage({ user, onLogout }: MyWorkPageProps) {
             const assignedByName = job.assigned_by ? techById.get(job.assigned_by)?.name ?? '—' : '—'
             return (
               <div key={job.id}>
-                <TechJobCard job={job} readOnly={!canWrite} onStatusChange={updateMyJobStatus} />
+                <TechJobCard
+                  job={job}
+                  readOnly={!canWrite}
+                  itpSummary={itpSummaries[job.id]}
+                  onStatusChange={updateMyJobStatus}
+                />
                 <p className="job-muted">
                   Assigned by: {assignedByName} {job.assigned_at ? `on ${new Date(job.assigned_at).toLocaleString()}` : ''}
                 </p>
@@ -262,7 +278,7 @@ export function MyWorkPage({ user, onLogout }: MyWorkPageProps) {
         <h3>Priority Jobs in My Work Cell</h3>
         <div className="dashboard-grid">
           {cellPriorityJobs.map((job) => (
-            <TechJobCard key={job.id} job={job} readOnly />
+            <TechJobCard key={job.id} job={job} readOnly itpSummary={itpSummaries[job.id]} />
           ))}
           {cellPriorityJobs.length === 0 ? <p className="placeholder-copy">No priority jobs in your work cells.</p> : null}
         </div>

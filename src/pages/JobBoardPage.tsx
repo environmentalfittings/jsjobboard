@@ -6,6 +6,7 @@ import { ReworkReasonModal } from '../components/ReworkReasonModal'
 import { StatusBadge } from '../components/StatusBadge'
 import { FinishCellBadge } from '../components/FinishCellBadge'
 import { TechnicianAvatars } from '../components/TechnicianAvatars'
+import { JobCardItpStatusBar } from '../components/JobCardItpStatusBar'
 import { StatusChangeModal, type JobCardTab } from '../components/StatusChangeModal'
 import { useToast } from '../components/ToastNotification'
 import { normalizeJobType } from '../constants/jobTypes'
@@ -26,6 +27,7 @@ import {
   OTD_PAUSE_STATUS_LABEL,
   requiresDueDateUpdateWhenLeavingOtdPause,
 } from '../lib/onTimeDelivery'
+import { loadItpCardSummaries, type ItpCardSummary } from '../lib/itpCardSummaries'
 import {
   formatOutsourcedExpectedLabel,
   loadOutsourcedCardSummaries,
@@ -205,6 +207,7 @@ interface KanbanJobCardProps {
   priorityIds: Set<string>
   attachmentCounts: Record<number, number>
   outsourcedSummaries: Record<number, OutsourcedCardSummary>
+  itpSummaries: Record<number, ItpCardSummary>
   techniciansById: Map<number, Technician>
   onOpen: (v: Valve, tab?: JobCardTab) => void
   onStatusChange: (v: Valve, nextStatus: string) => void | Promise<void>
@@ -228,6 +231,7 @@ function KanbanJobCard({
   priorityIds,
   attachmentCounts,
   outsourcedSummaries,
+  itpSummaries,
   techniciansById,
   onOpen,
   onStatusChange,
@@ -263,6 +267,10 @@ function KanbanJobCard({
     <div
       className={`job-card${urgencyClass}${isInTesting ? ' job-card-in-testing' : ''}${showTestedBadge ? ' job-card-was-tested' : ''} ${priorityIds.has(valve.valve_id) ? 'priority' : ''}`}
     >
+      <JobCardItpStatusBar
+        summary={itpSummaries[valve.id]}
+        onOpen={() => onOpen(valve, 'itp')}
+      />
       <div className="job-card-reorder-bar" onMouseDown={(e) => e.stopPropagation()}>
         <div className="job-card-reorder-buttons">
           <button
@@ -493,6 +501,7 @@ export function JobBoardPage({ role, username }: { role?: UserRole; username?: s
   const [isSaving, setIsSaving] = useState(false)
   const [attachmentCounts, setAttachmentCounts] = useState<Record<number, number>>({})
   const [outsourcedSummaries, setOutsourcedSummaries] = useState<Record<number, OutsourcedCardSummary>>({})
+  const [itpSummaries, setItpSummaries] = useState<Record<number, ItpCardSummary>>({})
   const [modalInitialTab, setModalInitialTab] = useState<JobCardTab>('summary')
   const [workOrderQuery, setWorkOrderQuery] = useState('')
   const [descriptionQuery, setDescriptionQuery] = useState('')
@@ -650,6 +659,15 @@ export function JobBoardPage({ role, username }: { role?: UserRole; username?: s
     }
   }, [])
 
+  const loadItpSummaries = useCallback(async (valveIds?: number[]) => {
+    try {
+      const next = await loadItpCardSummaries(valveIds)
+      setItpSummaries(next)
+    } catch {
+      setItpSummaries({})
+    }
+  }, [])
+
   const loadJobTechnicianAssignments = useCallback(async () => {
     const { data, error } = await supabase.from('job_technicians').select('valve_row_id,technician_id')
     if (error) return
@@ -674,6 +692,7 @@ export function JobBoardPage({ role, username }: { role?: UserRole; username?: s
     setLoading(false)
     void loadAttachmentCounts()
     void loadOutsourcedSummaries()
+    if (!error) void loadItpSummaries(data.map((valve) => valve.id))
   }
 
   useEffect(() => {
@@ -1710,6 +1729,7 @@ export function JobBoardPage({ role, username }: { role?: UserRole; username?: s
                       priorityIds={priorityIds}
                       attachmentCounts={attachmentCounts}
                       outsourcedSummaries={outsourcedSummaries}
+                      itpSummaries={itpSummaries}
                       techniciansById={techniciansById}
                       onOpen={openModal}
                       onStatusChange={moveValveToStatus}

@@ -1,9 +1,12 @@
+import { JobCardItpStatusBar } from './JobCardItpStatusBar'
 import { STATUS_ORDER } from '../constants/statuses'
+import type { ItpCardSummary } from '../lib/itpCardSummaries'
 import type { Valve } from '../types'
 
 interface TechJobCardProps {
   job: Valve
   readOnly?: boolean
+  itpSummary?: ItpCardSummary | null
   onStatusChange?: (job: Valve, status: string) => void | Promise<void>
 }
 
@@ -16,11 +19,12 @@ function isOverdue(raw: string | null): boolean {
   return raw < `${yyyy}-${mm}-${dd}`
 }
 
-export function TechJobCard({ job, readOnly = false, onStatusChange }: TechJobCardProps) {
+export function TechJobCard({ job, readOnly = false, itpSummary, onStatusChange }: TechJobCardProps) {
   const inTesting = job.status === 'Testing'
   const testedOn = job.date_tested?.trim() || null
   return (
-    <article className={`dashboard-panel${inTesting ? ' tech-job-card-in-testing' : ''}`}>
+    <article className={`dashboard-panel tech-job-card${inTesting ? ' tech-job-card-in-testing' : ''}`}>
+      <JobCardItpStatusBar summary={itpSummary} href={`/itp/${job.id}`} />
       <h4>{job.valve_id}</h4>
       {inTesting || testedOn ? (
         <p className="tech-job-card-test-flags">

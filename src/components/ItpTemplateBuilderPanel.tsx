@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useToast } from './ToastNotification'
 import {
   ITP_LIBRARY,
@@ -6,10 +6,18 @@ import {
   type ItpLibraryJobType,
   type ItpLibrarySectionId,
 } from '../constants/itpLibrary'
-import { ITP_SHOP_AREAS, itpShopAreaLabel, type ItpShopArea } from '../constants/itpShopAreas'
+import {
+  defaultShopAreas,
+  itpShopAreaLabel,
+  moveShopArea,
+  uniqueShopAreaValue,
+  type ItpShopArea,
+  type ItpShopAreaDef,
+} from '../constants/itpShopAreas'
 import { VALVE_TYPES } from '../constants/jobLookups'
 import { loadLookupOptionsMap } from '../lib/lookupValues'
 import {
+  emptyMasterCatalogState,
   loadItpMasterCatalog,
   moveCatalogItemInArea,
   normalizeMasterCatalog,
@@ -55,7 +63,62 @@ const JOB_TYPE_OPTIONS: { value: ItpLibraryJobType; label: string }[] = [
 ]
 
 const NEW_TEMPLATE_OPTION = '__new__'
-const MASTER_CATALOG_DRAFT_KEY = 'jsjb-itp-master-catalog-draft-v1'
+const MASTER_CATALOG_DRAFT_KEY = 'jsjb-itp-master-catalog-draft-v2'
+
+type MasterCatalogDraft = {
+  items: ItpMasterCatalogItem[]
+  areas: ItpShopAreaDef[]
+}
+
+function catalogFingerprint(items: ItpMasterCatalogItem[], areas: ItpShopAreaDef[]) {
+  return [
+    areas.map((area) => `${area.value}|${area.label}`).join(','),
+    items
+      .map(
+        (item) =>
+          `${item.id}|${item.name}|${item.area}|${item.requirePicture ? 1 : 0}|${item.requireMeasurement ? 1 : 0}|${item.holdPoint ? 1 : 0}|${item.blockNext ? 1 : 0}|${(item.measFields ?? []).map((f) => f.label).join(',')}`,
+      )
+      .sort()
+      .join('\n'),
+  ].join('\n---\n')
+}
+
+function readMasterCatalogDraft(): MasterCatalogDraft | null {
+  try {
+    const raw = window.localStorage.getItem(MASTER_CATALOG_DRAFT_KEY)
+    if (!raw) return null
+    const parsed = JSON.parse(raw) as { items?: unknown; areas?: unknown }
+    if (!Array.isArray(parsed.items) || parsed.items.length === 0) return null
+    const items = normalizeMasterCatalog(parsed.items)
+    return {
+      items,
+      areas: Array.isArray(parsed.areas)
+        ? parsed.areas
+            .map((row) => {
+              if (!row || typeof row !== 'object') return null
+              const value = String((row as { value?: unknown }).value ?? '').trim()
+              const label = String((row as { label?: unknown }).label ?? '').trim()
+              if (!value) return null
+              return { value, label: label || itpShopAreaLabel(value) }
+            })
+            .filter((row): row is ItpShopAreaDef => Boolean(row))
+        : defaultShopAreas(),
+    }
+  } catch {
+    return null
+  }
+}
+
+function writeMasterCatalogDraft(items: ItpMasterCatalogItem[], areas: ItpShopAreaDef[]) {
+  try {
+    window.localStorage.setItem(
+      MASTER_CATALOG_DRAFT_KEY,
+      JSON.stringify({ savedAt: new Date().toISOString(), items, areas }),
+    )
+  } catch {
+    // Quota / private mode — ignore; beforeunload still warns.
+  }
+}
 
 function migrationHint(message: string) {
   if (isItpLibraryTemplateSchemaError(message) || /missing columns name/i.test(message)) {
@@ -82,29 +145,6 @@ function formatSaveError(error: unknown): string {
   return migrationHint(parts.join(' ') || 'Could not save')
 }
 
-function readMasterCatalogDraft(): ItpMasterCatalogItem[] | null {
-  try {
-    const raw = window.localStorage.getItem(MASTER_CATALOG_DRAFT_KEY)
-    if (!raw) return null
-    const parsed = JSON.parse(raw) as { items?: unknown }
-    if (!Array.isArray(parsed.items) || parsed.items.length === 0) return null
-    return normalizeMasterCatalog(parsed.items)
-  } catch {
-    return null
-  }
-}
-
-function writeMasterCatalogDraft(items: ItpMasterCatalogItem[]) {
-  try {
-    window.localStorage.setItem(
-      MASTER_CATALOG_DRAFT_KEY,
-      JSON.stringify({ savedAt: new Date().toISOString(), items }),
-    )
-  } catch {
-    // Quota / private mode — ignore; beforeunload still warns.
-  }
-}
-
 function clearMasterCatalogDraft() {
   try {
     window.localStorage.removeItem(MASTER_CATALOG_DRAFT_KEY)
@@ -113,8 +153,56 @@ function clearMasterCatalogDraft() {
   }
 }
 
+function scrollChildIntoView(root: HTMLElement | null, selector: string) {
+  if (!root) return
+  const el = root.querySelector<HTMLElement>(selector)
+  if (!el) return
+  const nextTop = root.scrollTop + (el.getBoundingClientRect().top - root.getBoundingClientRect().top) - 6
+  root.scrollTo({ top: Math.max(0, nextTop), behavior: 'smooth' })
+}
+
 function getSel(scope: ItpLibraryTemplateScope, itemId: string): ItpLibraryItemSel {
   return scope.sel[itemId] ?? emptyItemSel()
+}
+
+function applyCatalogReqToSel(
+  sel: ItpLibraryItemSel,
+  patch: Partial<ItpMasterCatalogItem>,
+): ItpLibraryItemSel {
+  const next: ItpLibraryItemSel = { ...sel }
+  if ('holdPoint' in patch) next.holdPoint = Boolean(patch.holdPoint)
+  if ('blockNext' in patch) next.blockNext = Boolean(patch.blockNext)
+  if ('requirePicture' in patch) {
+    next.requirePicture = Boolean(patch.requirePicture)
+    if (!next.requirePicture) {
+      next.pictureLabel = ''
+      next.minPhotos = 1
+    }
+  }
+  if ('pictureLabel' in patch) next.pictureLabel = String(patch.pictureLabel ?? '')
+  if ('minPhotos' in patch) next.minPhotos = Math.max(1, Number(patch.minPhotos) || 1)
+  if ('requireMeasurement' in patch || 'measFields' in patch) {
+    const requireMeasurement =
+      patch.requireMeasurement ?? Boolean(patch.measFields && patch.measFields.length > 0)
+    if (!requireMeasurement) {
+      next.beforeMeas = false
+      next.afterMeas = false
+      next.measVerify = false
+      next.measFields = []
+    } else {
+      const measFields =
+        patch.measFields && patch.measFields.length > 0
+          ? patch.measFields.map((field) => ({ ...field }))
+          : next.measFields.length > 0
+            ? next.measFields
+            : DEFAULT_ITP_MEAS_FIELDS.map((field) => ({ ...field }))
+      next.beforeMeas = true
+      next.afterMeas = true
+      next.measVerify = true
+      next.measFields = measFields
+    }
+  }
+  return next
 }
 
 type NewMasterDraft = {
@@ -179,6 +267,10 @@ export function ItpTemplateBuilderPanel() {
   const [valveTypes, setValveTypes] = useState<string[]>([...VALVE_TYPES])
   const [scope, setScope] = useState<ItpLibraryTemplateScope>(() => emptyTemplateScope())
   const [catalog, setCatalog] = useState<ItpMasterCatalogItem[]>([])
+  const [areas, setAreas] = useState<ItpShopAreaDef[]>(() => defaultShopAreas())
+  const [newSectionName, setNewSectionName] = useState('')
+  const masterBodyRef = useRef<HTMLDivElement | null>(null)
+  const checklistBodyRef = useRef<HTMLDivElement | null>(null)
   const [savedRows, setSavedRows] = useState<ItpLibraryTemplateRow[]>([])
   const [loading, setLoading] = useState(false)
   const [catalogLoading, setCatalogLoading] = useState(true)
@@ -188,6 +280,13 @@ export function ItpTemplateBuilderPanel() {
   const [schemaError, setSchemaError] = useState<string | null>(null)
   const [subReqDrafts, setSubReqDrafts] = useState<Record<string, string>>({})
   const [newItem, setNewItem] = useState<NewMasterDraft>(() => emptyNewMasterDraft())
+
+  useEffect(() => {
+    if (!areas.length) return
+    if (areas.some((area) => area.value === newItem.area)) return
+    const first = areas[0]
+    setNewItem((prev) => ({ ...prev, area: first.value, secId: defaultSectionForArea(first.value) }))
+  }, [areas, newItem.area])
 
   const selectedCount = useMemo(() => countIncludedInScope(scope), [scope])
   const holdPointCount = useMemo(
@@ -213,12 +312,19 @@ export function ItpTemplateBuilderPanel() {
 
   const catalogByArea = useMemo(() => {
     const sorted = catalog.slice().sort((a, b) => a.sortOrder - b.sortOrder || a.name.localeCompare(b.name))
-    return ITP_SHOP_AREAS.map((area) => ({
-      area: area.value,
-      label: area.label,
-      items: sorted.filter((item) => item.area === area.value),
-    }))
-  }, [catalog])
+    const known = new Set(areas.map((area) => area.value))
+    const extra = [...new Set(sorted.map((item) => item.area).filter((area) => area && !known.has(area)))].map(
+      (area) => ({ area, label: itpShopAreaLabel(area, areas), items: sorted.filter((item) => item.area === area) }),
+    )
+    return [
+      ...areas.map((area) => ({
+        area: area.value,
+        label: area.label,
+        items: sorted.filter((item) => item.area === area.value),
+      })),
+      ...extra,
+    ]
+  }, [catalog, areas])
 
   const valveTypeOptions = useMemo(() => {
     const fromSaved = savedRows
@@ -264,36 +370,26 @@ export function ItpTemplateBuilderPanel() {
       if (!probe.ok) {
         setSchemaError(probe.message)
         // Still seed the in-memory catalog so the UI is usable offline until migration runs.
-        setCatalog(await loadItpMasterCatalog().catch(() => []))
+        const fallback = await loadItpMasterCatalog().catch(() => emptyMasterCatalogState())
+        setCatalog(fallback.items)
+        setAreas(fallback.areas)
         setCatalogLoading(false)
         return
       }
       setSchemaError(null)
       const server = await loadItpMasterCatalog()
       const draft = readMasterCatalogDraft()
-      const draftFingerprint = draft
-        ? draft
-            .map(
-              (item) =>
-                `${item.id}|${item.name}|${item.area}|${item.requirePicture ? 1 : 0}|${item.requireMeasurement ? 1 : 0}|${item.holdPoint ? 1 : 0}|${item.blockNext ? 1 : 0}|${(item.measFields ?? []).map((f) => f.label).join(',')}`,
-            )
-            .sort()
-            .join('\n')
-        : ''
-      const serverFingerprint = server
-        .map(
-          (item) =>
-            `${item.id}|${item.name}|${item.area}|${item.requirePicture ? 1 : 0}|${item.requireMeasurement ? 1 : 0}|${item.holdPoint ? 1 : 0}|${item.blockNext ? 1 : 0}|${(item.measFields ?? []).map((f) => f.label).join(',')}`,
-        )
-        .sort()
-        .join('\n')
+      const draftFingerprint = draft ? catalogFingerprint(draft.items, draft.areas) : ''
+      const serverFingerprint = catalogFingerprint(server.items, server.areas)
       if (draft && draftFingerprint && draftFingerprint !== serverFingerprint) {
-        setCatalog(reindexCatalog(draft))
+        setCatalog(reindexCatalog(draft.items))
+        setAreas(draft.areas.length ? draft.areas : server.areas)
         setMasterDirty(true)
         showToast('Restored unsaved master list draft — click Save master list to keep it')
       } else {
         clearMasterCatalogDraft()
-        setCatalog(server)
+        setCatalog(server.items)
+        setAreas(server.areas)
         setMasterDirty(false)
       }
     } catch (error) {
@@ -309,8 +405,8 @@ export function ItpTemplateBuilderPanel() {
 
   useEffect(() => {
     if (!masterDirty) return
-    writeMasterCatalogDraft(catalog)
-  }, [catalog, masterDirty])
+    writeMasterCatalogDraft(catalog, areas)
+  }, [catalog, areas, masterDirty])
 
   useEffect(() => {
     if (!masterDirty) return
@@ -468,26 +564,6 @@ export function ItpTemplateBuilderPanel() {
     setDirty(true)
   }
 
-  const toggleHoldPoint = (itemId: string) => {
-    const current = getSel(scope, itemId)
-    updateSel(itemId, { holdPoint: !current.holdPoint })
-  }
-
-  const toggleRequiresMeasurements = (itemId: string) => {
-    const current = getSel(scope, itemId)
-    const next = !itemRequiresMeasurements(current)
-    updateSel(itemId, {
-      beforeMeas: next,
-      afterMeas: next,
-      measVerify: next,
-      measFields: next
-        ? current.measFields.length > 0
-          ? current.measFields
-          : DEFAULT_ITP_MEAS_FIELDS.map((f) => ({ ...f }))
-        : [],
-    })
-  }
-
   const selectAllInArea = (area: ItpShopArea, select: boolean) => {
     if (!valveType.trim()) {
       showToast('Select a valve type first, then check items to build its template')
@@ -592,7 +668,7 @@ export function ItpTemplateBuilderPanel() {
     setNewItem(emptyNewMasterDraft())
     setMasterDirty(true)
     showToast(
-      `Staged in ${ITP_SHOP_AREAS.find((a) => a.value === area)?.label ?? area} — not saved yet. Click Save master list.`,
+      `Staged in ${itpShopAreaLabel(area, areas)} — not saved yet. Click Save master list.`,
     )
   }
 
@@ -624,6 +700,25 @@ export function ItpTemplateBuilderPanel() {
     setMasterDirty(true)
   }
 
+  const patchMasterItem = (itemId: string, patch: Partial<ItpMasterCatalogItem>) => {
+    setCatalog((prev) => prev.map((item) => (item.id === itemId ? { ...item, ...patch } : item)))
+    setMasterDirty(true)
+    const included = getSel(scope, itemId).included
+    if (!included) return
+    setScope((prev) => {
+      const current = prev.sel[itemId]
+      if (!current?.included) return prev
+      return {
+        ...prev,
+        sel: {
+          ...prev.sel,
+          [itemId]: applyCatalogReqToSel(current, patch),
+        },
+      }
+    })
+    setDirty(true)
+  }
+
   /** Template-only: move a checklist line between ITP sections without changing the master catalog. */
   const changeTemplateItemSection = (itemId: string, secId: ItpLibrarySectionId) => {
     setScope((prev) => ({
@@ -642,10 +737,71 @@ export function ItpTemplateBuilderPanel() {
     setMasterDirty(true)
   }
 
+  const scrollMasterSection = (area: string) => {
+    scrollChildIntoView(masterBodyRef.current, `#itp-master-sec-${CSS.escape(area)}`)
+  }
+
+  const scrollChecklistSection = (sectionId: string) => {
+    scrollChildIntoView(checklistBodyRef.current, `#itp-check-sec-${CSS.escape(sectionId)}`)
+  }
+
+  const addMasterSection = () => {
+    const label = newSectionName.trim()
+    if (!label) {
+      showToast('Enter a section name')
+      return
+    }
+    if (areas.some((area) => area.label.toLowerCase() === label.toLowerCase())) {
+      showToast(`“${label}” is already a section`)
+      return
+    }
+    const value = uniqueShopAreaValue(label, areas)
+    setAreas((prev) => [...prev, { value, label }])
+    setNewItem((prev) => ({ ...prev, area: value, secId: defaultSectionForArea(value) }))
+    setNewSectionName('')
+    setMasterDirty(true)
+    showToast(`Added section “${label}” — click Save master list`)
+    window.setTimeout(() => scrollMasterSection(value), 50)
+  }
+
+  const moveMasterSection = (area: string, direction: -1 | 1) => {
+    setAreas((prev) => moveShopArea(prev, area, direction))
+    setMasterDirty(true)
+  }
+
+  const removeMasterSection = (area: string) => {
+    const current = areas.find((row) => row.value === area)
+    if (!current) return
+    if (areas.length <= 1) {
+      showToast('Keep at least one section')
+      return
+    }
+    const itemCount = catalog.filter((item) => item.area === area).length
+    const fallback = areas.find((row) => row.value !== area)
+    if (!fallback) return
+    if (itemCount > 0) {
+      if (
+        !window.confirm(
+          `Remove “${current.label}” and move ${itemCount} item${itemCount === 1 ? '' : 's'} to “${fallback.label}”?`,
+        )
+      ) {
+        return
+      }
+      setCatalog((prev) => prev.map((item) => (item.area === area ? { ...item, area: fallback.value } : item)))
+    } else if (!window.confirm(`Remove empty section “${current.label}”?`)) {
+      return
+    }
+    setAreas((prev) => prev.filter((row) => row.value !== area))
+    setNewItem((prev) =>
+      prev.area === area ? { ...prev, area: fallback.value, secId: defaultSectionForArea(fallback.value) } : prev,
+    )
+    setMasterDirty(true)
+  }
+
   const handleSaveMaster = async () => {
     setSaving(true)
     try {
-      await saveItpMasterCatalog(catalog)
+      await saveItpMasterCatalog(catalog, areas)
       setMasterDirty(false)
       clearMasterCatalogDraft()
       showToast('Master list saved')
@@ -669,7 +825,7 @@ export function ItpTemplateBuilderPanel() {
     setSaving(true)
     try {
       if (masterDirty) {
-        await saveItpMasterCatalog(catalog)
+        await saveItpMasterCatalog(catalog, areas)
         setMasterDirty(false)
         clearMasterCatalogDraft()
       }
@@ -786,8 +942,8 @@ export function ItpTemplateBuilderPanel() {
     <section className="dashboard-panel admin-lists-panel itp-template-builder">
       <h3>ITP template builder</h3>
       <p className="placeholder-copy">
-        Master list is grouped by shop <strong>station</strong> (Teardown, Machine Shop, Welding, Assembly, Actuation,
-        PRV, Testing, Painting, QA/QC). Add items, reorder with ↑↓, and assign stations. Pick a{' '}
+        Master list is grouped by shop <strong>stations / sections</strong>. Add or remove sections, reorder them with
+        ↑↓, or jump using the buttons at the top of the list. Add items, reorder with ↑↓, and assign stations. Pick a{' '}
         <strong>valve type</strong>, then name templates for that valve (for example Twinseal, MJ, Nordstrom) and check
         items into the template on the right.
       </p>
@@ -987,7 +1143,41 @@ export function ItpTemplateBuilderPanel() {
               ) : null}
             </div>
           </div>
-          <div className="itp-library-panel-body">
+          <nav className="itp-section-nav" aria-label="Master list sections">
+            <div className="itp-section-nav-chips">
+              {catalogByArea.map(({ area, label, items }) => (
+                <button
+                  key={area}
+                  type="button"
+                  className="itp-section-nav-chip"
+                  onClick={() => scrollMasterSection(area)}
+                  title={`Jump to ${label}`}
+                >
+                  {label}
+                  <span>{items.length}</span>
+                </button>
+              ))}
+            </div>
+            <div className="itp-section-nav-add">
+              <input
+                type="text"
+                value={newSectionName}
+                placeholder="New section name…"
+                aria-label="New section name"
+                onChange={(e) => setNewSectionName(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') {
+                    e.preventDefault()
+                    addMasterSection()
+                  }
+                }}
+              />
+              <button type="button" className="button-secondary" onClick={addMasterSection}>
+                Add section
+              </button>
+            </div>
+          </nav>
+          <div className="itp-library-panel-body" ref={masterBodyRef}>
             <div className="itp-master-global-add">
               <div className="itp-master-global-add-title">Add item to master list</div>
               <div className="itp-master-global-add-row">
@@ -1019,7 +1209,7 @@ export function ItpTemplateBuilderPanel() {
                       }))
                     }}
                   >
-                    {ITP_SHOP_AREAS.map((opt) => (
+                    {areas.map((opt) => (
                       <option key={opt.value} value={opt.value}>
                         {opt.label}
                       </option>
@@ -1186,13 +1376,35 @@ export function ItpTemplateBuilderPanel() {
             {catalogLoading ? (
               <p className="placeholder-copy">Loading master list…</p>
             ) : (
-              catalogByArea.map(({ area, label, items }) => {
+              catalogByArea.map(({ area, label, items }, areaIndex) => {
                 const selCount = items.filter((item) => getSel(scope, item.id).included).length
                 const allSel = items.length > 0 && selCount === items.length
                 return (
-                  <div key={area} className="itp-library-lib-sec">
+                  <div key={area} id={`itp-master-sec-${area}`} className="itp-library-lib-sec">
                     <div className="itp-library-lib-sec-hdr">
-                      <h4>{label}</h4>
+                      <div className="itp-library-lib-sec-hdr-main">
+                        <button
+                          type="button"
+                          className="itp-master-order-btn itp-section-order-btn"
+                          disabled={areaIndex === 0}
+                          onClick={() => moveMasterSection(area, -1)}
+                          title="Move section up"
+                          aria-label={`Move ${label} up`}
+                        >
+                          ↑
+                        </button>
+                        <button
+                          type="button"
+                          className="itp-master-order-btn itp-section-order-btn"
+                          disabled={areaIndex >= catalogByArea.length - 1}
+                          onClick={() => moveMasterSection(area, 1)}
+                          title="Move section down"
+                          aria-label={`Move ${label} down`}
+                        >
+                          ↓
+                        </button>
+                        <h4>{label}</h4>
+                      </div>
                       <div className="itp-library-lshr">
                         <span>
                           {selCount}/{items.length}
@@ -1203,6 +1415,14 @@ export function ItpTemplateBuilderPanel() {
                           onClick={() => selectAllInArea(area, !allSel)}
                         >
                           {allSel ? 'Deselect All' : 'Select All'}
+                        </button>
+                        <button
+                          type="button"
+                          className="itp-library-sel-all itp-section-remove"
+                          onClick={() => removeMasterSection(area)}
+                          title="Remove section"
+                        >
+                          Remove
                         </button>
                       </div>
                     </div>
@@ -1241,7 +1461,7 @@ export function ItpTemplateBuilderPanel() {
                               title="Shop area"
                               onClick={(e) => e.stopPropagation()}
                             >
-                              {ITP_SHOP_AREAS.map((opt) => (
+                              {areas.map((opt) => (
                                 <option key={opt.value} value={opt.value}>
                                   {opt.label}
                                 </option>
@@ -1293,43 +1513,167 @@ export function ItpTemplateBuilderPanel() {
                               <div className="itp-library-lref">
                                 {item.ref}
                                 {!item.builtIn ? ' · custom' : ''}
+                                {item.holdPoint ? ' · hold point' : ''}
+                                {item.requirePicture ? ' · photo' : ''}
+                                {item.requireMeasurement ? ' · measurements' : ''}
+                                {item.blockNext ? ' · blocks next' : ''}
                               </div>
                             </div>
                           </div>
-                          {sel.included ? (
-                            <>
-                              <div className="itp-library-attr-bar">
+                          <div className="itp-master-item-reqs">
+                            <div className="itp-library-attr-bar">
+                              <button
+                                type="button"
+                                className={`itp-library-attr-toggle photo${item.requirePicture ? ' on' : ''}`}
+                                onClick={(e) => {
+                                  e.stopPropagation()
+                                  patchMasterItem(item.id, {
+                                    requirePicture: !item.requirePicture,
+                                    pictureLabel: !item.requirePicture
+                                      ? item.pictureLabel || ''
+                                      : undefined,
+                                    minPhotos: !item.requirePicture ? Math.max(1, item.minPhotos || 1) : undefined,
+                                  })
+                                }}
+                              >
+                                Picture requirement
+                              </button>
+                              <button
+                                type="button"
+                                className={`itp-library-attr-toggle meas${item.requireMeasurement ? ' on' : ''}`}
+                                onClick={(e) => {
+                                  e.stopPropagation()
+                                  const nextOn = !item.requireMeasurement
+                                  patchMasterItem(item.id, {
+                                    requireMeasurement: nextOn,
+                                    measFields: nextOn
+                                      ? item.measFields && item.measFields.length > 0
+                                        ? item.measFields
+                                        : DEFAULT_ITP_MEAS_FIELDS.map((field) => ({ ...field }))
+                                      : [],
+                                  })
+                                }}
+                              >
+                                Measurement requirement
+                              </button>
+                              <button
+                                type="button"
+                                className={`itp-library-attr-toggle hp${item.holdPoint ? ' on' : ''}`}
+                                onClick={(e) => {
+                                  e.stopPropagation()
+                                  patchMasterItem(item.id, { holdPoint: !item.holdPoint })
+                                }}
+                              >
+                                QA/QC hold point
+                              </button>
+                              <button
+                                type="button"
+                                className={`itp-library-attr-toggle${item.blockNext ? ' on' : ''}`}
+                                onClick={(e) => {
+                                  e.stopPropagation()
+                                  patchMasterItem(item.id, { blockNext: !item.blockNext })
+                                }}
+                              >
+                                Block next
+                              </button>
+                            </div>
+                            {item.requirePicture ? (
+                              <div className="itp-master-req-detail-row">
+                                <label className="itp-master-global-field itp-master-global-field--wide">
+                                  <span>Photo label</span>
+                                  <input
+                                    type="text"
+                                    value={item.pictureLabel ?? ''}
+                                    placeholder="e.g. As-received body photo"
+                                    onClick={(e) => e.stopPropagation()}
+                                    onChange={(e) =>
+                                      patchMasterItem(item.id, { pictureLabel: e.target.value })
+                                    }
+                                  />
+                                </label>
+                                <label className="itp-master-global-field">
+                                  <span>Minimum photos</span>
+                                  <input
+                                    type="number"
+                                    min={1}
+                                    max={20}
+                                    value={Math.max(1, item.minPhotos || 1)}
+                                    onClick={(e) => e.stopPropagation()}
+                                    onChange={(e) =>
+                                      patchMasterItem(item.id, {
+                                        minPhotos: Math.max(1, Number(e.target.value) || 1),
+                                      })
+                                    }
+                                  />
+                                </label>
+                              </div>
+                            ) : null}
+                            {item.requireMeasurement ? (
+                              <div className="itp-master-meas-fields">
+                                <div className="itp-master-meas-fields-hdr">Measurement / nameplate fields</div>
+                                <div className="itp-master-meas-fields-list">
+                                  {(item.measFields && item.measFields.length > 0
+                                    ? item.measFields
+                                    : DEFAULT_ITP_MEAS_FIELDS
+                                  ).map((field, idx) => (
+                                    <div key={field.id || `${item.id}-meas-${idx}`} className="itp-master-meas-field-row">
+                                      <input
+                                        type="text"
+                                        value={field.label}
+                                        placeholder="Field label"
+                                        onClick={(e) => e.stopPropagation()}
+                                        onChange={(e) => {
+                                          const current =
+                                            item.measFields && item.measFields.length > 0
+                                              ? item.measFields
+                                              : DEFAULT_ITP_MEAS_FIELDS.map((row) => ({ ...row }))
+                                          patchMasterItem(item.id, {
+                                            measFields: current.map((row, i) =>
+                                              i === idx ? { ...row, label: e.target.value } : row,
+                                            ),
+                                          })
+                                        }}
+                                      />
+                                      <button
+                                        type="button"
+                                        className="itp-library-sr-del"
+                                        title="Remove field"
+                                        disabled={(item.measFields?.length ?? DEFAULT_ITP_MEAS_FIELDS.length) <= 1}
+                                        onClick={() => {
+                                          const current =
+                                            item.measFields && item.measFields.length > 0
+                                              ? item.measFields
+                                              : DEFAULT_ITP_MEAS_FIELDS.map((row) => ({ ...row }))
+                                          patchMasterItem(item.id, {
+                                            measFields: current.filter((_, i) => i !== idx),
+                                          })
+                                        }}
+                                      >
+                                        ✕
+                                      </button>
+                                    </div>
+                                  ))}
+                                </div>
                                 <button
                                   type="button"
-                                  className={`itp-library-attr-toggle hp${sel.holdPoint ? ' on' : ''}`}
-                                  onClick={(e) => {
-                                    e.stopPropagation()
-                                    toggleHoldPoint(item.id)
+                                  className="itp-library-add-sr-btn"
+                                  onClick={() => {
+                                    const current =
+                                      item.measFields && item.measFields.length > 0
+                                        ? item.measFields
+                                        : DEFAULT_ITP_MEAS_FIELDS.map((row) => ({ ...row }))
+                                    patchMasterItem(item.id, {
+                                      measFields: [...current, { id: newMeasFieldId(), label: '' }],
+                                    })
                                   }}
                                 >
-                                  Hold Point
-                                </button>
-                                <button
-                                  type="button"
-                                  className={`itp-library-attr-toggle meas${itemRequiresMeasurements(sel) ? ' on' : ''}`}
-                                  onClick={(e) => {
-                                    e.stopPropagation()
-                                    toggleRequiresMeasurements(item.id)
-                                  }}
-                                >
-                                  Requires Measurements
-                                </button>
-                                <button
-                                  type="button"
-                                  className={`itp-library-attr-toggle${sel.blockNext ? ' on' : ''}`}
-                                  onClick={(e) => {
-                                    e.stopPropagation()
-                                    updateSel(item.id, { blockNext: !sel.blockNext })
-                                  }}
-                                >
-                                  Block next
+                                  + Add field
                                 </button>
                               </div>
+                            ) : null}
+                          </div>
+                          {sel.included ? (
+                            <>
                               <div className="itp-library-sub-reqs-area">
                                 <label className="itp-library-scope-notes">
                                   Notes
@@ -1437,9 +1781,27 @@ export function ItpTemplateBuilderPanel() {
                   <div className="itp-library-sl">In template</div>
                 </div>
               </div>
-              <div className="itp-library-panel-body">
+              {checklistSections.length > 1 ? (
+                <nav className="itp-section-nav itp-section-nav--checklist" aria-label="Template checklist sections">
+                  <div className="itp-section-nav-chips">
+                    {checklistSections.map(({ section, items }) => (
+                      <button
+                        key={section.id}
+                        type="button"
+                        className="itp-section-nav-chip"
+                        onClick={() => scrollChecklistSection(section.id)}
+                        title={`Jump to ${section.title}`}
+                      >
+                        {section.title.replace(/^\d+\.\s*/, '')}
+                        <span>{items.length}</span>
+                      </button>
+                    ))}
+                  </div>
+                </nav>
+              ) : null}
+              <div className="itp-library-panel-body" ref={checklistBodyRef}>
                 {checklistSections.map(({ section, items }) => (
-                  <div key={section.id} className="itp-library-itp-sec">
+                  <div key={section.id} id={`itp-check-sec-${section.id}`} className="itp-library-itp-sec">
                     <div className="itp-library-itp-sec-hdr">
                       <h4>{section.title}</h4>
                       <span className="itp-library-isp">
@@ -1458,7 +1820,7 @@ export function ItpTemplateBuilderPanel() {
                                 <div className="itp-template-preview-meta">
                                   <span className="itp-library-er">[{item.ref}]</span>
                                   <span className="itp-template-station-badge">
-                                    Station: {itpShopAreaLabel(item.area)}
+                                    Station: {itpShopAreaLabel(item.area, areas)}
                                   </span>
                                   {sel.holdPoint ? (
                                     <span className="itp-library-hp-badge">HOLD POINT</span>
@@ -1477,7 +1839,7 @@ export function ItpTemplateBuilderPanel() {
                                       }
                                       title="Change station assignment"
                                     >
-                                      {ITP_SHOP_AREAS.map((opt) => (
+                                      {areas.map((opt) => (
                                         <option key={opt.value} value={opt.value}>
                                           {opt.label}
                                         </option>

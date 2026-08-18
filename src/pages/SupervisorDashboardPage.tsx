@@ -8,6 +8,7 @@ import { TeamJobsTable } from '../components/TeamJobsTable'
 import { TechJobCard } from '../components/TechJobCard'
 import { useToast } from '../components/ToastNotification'
 import { recordDueDateChange, resolveChangedByName } from '../lib/dueDateChanges'
+import { loadItpCardSummaries, type ItpCardSummary } from '../lib/itpCardSummaries'
 import {
   OTD_PAUSE_STATUS_LABEL,
   requiresDueDateUpdateWhenLeavingOtdPause,
@@ -38,6 +39,7 @@ export function SupervisorDashboardPage({ user, appRole, onLogout }: SupervisorD
   const [unassigned, setUnassigned] = useState<Valve[]>([])
   const [teamJobs, setTeamJobs] = useState<Valve[]>([])
   const [myJobs, setMyJobs] = useState<Valve[]>([])
+  const [itpSummaries, setItpSummaries] = useState<Record<number, ItpCardSummary>>({})
   const [activeAssignJob, setActiveAssignJob] = useState<Valve | null>(null)
   const [pendingRework, setPendingRework] = useState<{ valve: Valve; nextStatus: string } | null>(null)
   const [savingRework, setSavingRework] = useState(false)
@@ -86,6 +88,11 @@ export function SupervisorDashboardPage({ user, appRole, onLogout }: SupervisorD
       .not('status', 'in', '(Completed,Waiting/Hold)')
       .order('due_date', { ascending: true, nullsFirst: false })
     setMyJobs((myJobRows as Valve[]) ?? [])
+    try {
+      setItpSummaries(await loadItpCardSummaries(((myJobRows as Valve[]) ?? []).map((job) => job.id)))
+    } catch {
+      setItpSummaries({})
+    }
   }
 
   useEffect(() => {
@@ -256,7 +263,12 @@ export function SupervisorDashboardPage({ user, appRole, onLogout }: SupervisorD
         <h3>My Own Assigned Jobs</h3>
         <div className="dashboard-grid">
           {myJobs.map((job) => (
-            <TechJobCard key={job.id} job={job} onStatusChange={updateMyJobStatus} />
+            <TechJobCard
+              key={job.id}
+              job={job}
+              itpSummary={itpSummaries[job.id]}
+              onStatusChange={updateMyJobStatus}
+            />
           ))}
           {myJobs.length === 0 ? <p className="placeholder-copy">No jobs assigned directly to you.</p> : null}
         </div>

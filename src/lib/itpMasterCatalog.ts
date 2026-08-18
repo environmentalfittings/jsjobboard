@@ -2,7 +2,12 @@ import {
   ITP_LIBRARY,
   type ItpLibrarySectionId,
 } from '../constants/itpLibrary'
-import { isItpShopArea, type ItpShopArea } from '../constants/itpShopAreas'
+import {
+  defaultShopAreas,
+  normalizeShopAreas,
+  type ItpShopArea,
+  type ItpShopAreaDef,
+} from '../constants/itpShopAreas'
 import {
   ITP_LIBRARY_DEFAULT_TEMPLATE_NAME,
   ITP_LIBRARY_MASTER_JOB,
@@ -156,7 +161,7 @@ function normalizeCatalogItem(raw: unknown, fallbackOrder: number): ItpMasterCat
   const secId = String(row.secId ?? '').trim() as ItpLibrarySectionId
   if (!id || !name || !secId) return null
   const areaRaw = String(row.area ?? '').trim()
-  const area = isItpShopArea(areaRaw) ? areaRaw : defaultAreaForSection(secId)
+  const area = areaRaw || defaultAreaForSection(secId)
   const minPhotosRaw = Number(row.minPhotos)
   const measFields = normalizeMeasFields(row.measFields)
   const base: ItpMasterCatalogItem = {
@@ -246,21 +251,27 @@ export function moveCatalogItemInArea(
   })
 }
 
-type MasterScope = ItpLibraryTemplateScope & { catalog?: unknown }
+type MasterScope = ItpLibraryTemplateScope & { catalog?: unknown; areas?: unknown }
 
-export async function loadItpMasterCatalog(): Promise<ItpMasterCatalogItem[]> {
-  try {
-    const row = await loadItpLibraryTemplate(
-      ITP_LIBRARY_MASTER_JOB,
-      ITP_LIBRARY_MASTER_VALVE,
-      ITP_LIBRARY_DEFAULT_TEMPLATE_NAME,
-    )
-    if (!row) return seedMasterCatalogFromLibrary()
-    const scope = row.scope as MasterScope
-    if (Array.isArray(scope.catalog) && scope.catalog.length > 0) {
-      return mergeCatalogWithLibrary(normalizeMasterCatalog(scope.catalog))
-    }
-    // Legacy: only custom extras were stored — seed built-ins and append customs.
+export type ItpMasterCatalogState = {
+  items: ItpMasterCatalogItem[]
+  areas: ItpShopAreaDef[]
+}
+
+export function emptyMasterCatalogState(): ItpMasterCatalogState {
+  const items = seedMasterCatalogFromLibrary()
+  return {
+    items,
+    areas: normalizeShopAreas(undefined, items.map((item) => item.area)),
+  }
+}
+
+function catalogStateFromScope(scope: MasterScope | null | undefined): ItpMasterCatalogState {
+  if (!scope) return emptyMasterCatalogState()
+  let items: ItpMasterCatalogItem[]
+  if (Array.isArray(scope.catalog) && scope.catalog.length > 0) {
+    items = mergeCatalogWithLibrary(normalizeMasterCatalog(scope.catalog))
+  } else {
     const seeded = seedMasterCatalogFromLibrary()
     let order = seeded.length
     const extras = (scope.custom ?? []).map((c) => ({
@@ -272,17 +283,43 @@ export async function loadItpMasterCatalog(): Promise<ItpMasterCatalogItem[]> {
       sortOrder: order++,
       builtIn: false,
     }))
-    return mergeCatalogWithLibrary([...seeded, ...extras])
-  } catch {
-    return seedMasterCatalogFromLibrary()
+    items = mergeCatalogWithLibrary([...seeded, ...extras])
+  }
+  return {
+    items,
+    areas: normalizeShopAreas(
+      scope.areas,
+      items.map((item) => item.area),
+    ),
   }
 }
 
-export async function saveItpMasterCatalog(items: ItpMasterCatalogItem[]): Promise<void> {
+export async function loadItpMasterCatalog(): Promise<ItpMasterCatalogState> {
+  try {
+    const row = await loadItpLibraryTemplate(
+      ITP_LIBRARY_MASTER_JOB,
+      ITP_LIBRARY_MASTER_VALVE,
+      ITP_LIBRARY_DEFAULT_TEMPLATE_NAME,
+    )
+    if (!row) return emptyMasterCatalogState()
+    return catalogStateFromScope(row.scope as MasterScope)
+  } catch {
+    return emptyMasterCatalogState()
+  }
+}
+
+export async function saveItpMasterCatalog(
+  items: ItpMasterCatalogItem[],
+  areas?: ItpShopAreaDef[],
+): Promise<void> {
   const catalog = reindexCatalog(items)
   const custom = catalog
     .filter((item) => !item.builtIn)
     .map((item) => ({ id: item.id, secId: item.secId, name: item.name }))
+  const nextAreas = normalizeShopAreas(
+    areas && areas.length > 0 ? areas : defaultShopAreas(),
+    catalog.map((item) => item.area),
+  )
   await saveItpLibraryTemplate(
     ITP_LIBRARY_MASTER_JOB,
     ITP_LIBRARY_MASTER_VALVE,
@@ -290,7 +327,8 @@ export async function saveItpMasterCatalog(items: ItpMasterCatalogItem[]): Promi
       sel: {},
       custom,
       catalog,
-    } as ItpLibraryTemplateScope & { catalog: ItpMasterCatalogItem[] },
+      areas: nextAreas,
+    } as ItpLibraryTemplateScope & { catalog: ItpMasterCatalogItem[]; areas: ItpShopAreaDef[] },
     { name: ITP_LIBRARY_DEFAULT_TEMPLATE_NAME, isDefault: false },
   )
 }
