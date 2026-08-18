@@ -10,6 +10,7 @@ import {
   defaultShopAreas,
   itpShopAreaLabel,
   moveShopArea,
+  moveShopAreaTo,
   uniqueShopAreaValue,
   type ItpShopArea,
   type ItpShopAreaDef,
@@ -269,6 +270,9 @@ export function ItpTemplateBuilderPanel() {
   const [catalog, setCatalog] = useState<ItpMasterCatalogItem[]>([])
   const [areas, setAreas] = useState<ItpShopAreaDef[]>(() => defaultShopAreas())
   const [newSectionName, setNewSectionName] = useState('')
+  const [draggingSection, setDraggingSection] = useState<string | null>(null)
+  const [dragOverSection, setDragOverSection] = useState<string | null>(null)
+  const skipSectionChipClickRef = useRef(false)
   const masterBodyRef = useRef<HTMLDivElement | null>(null)
   const checklistBodyRef = useRef<HTMLDivElement | null>(null)
   const [savedRows, setSavedRows] = useState<ItpLibraryTemplateRow[]>([])
@@ -769,6 +773,12 @@ export function ItpTemplateBuilderPanel() {
     setMasterDirty(true)
   }
 
+  const dropMasterSection = (fromValue: string, toValue: string) => {
+    if (!fromValue || fromValue === toValue) return
+    setAreas((prev) => moveShopAreaTo(prev, fromValue, toValue))
+    setMasterDirty(true)
+  }
+
   const removeMasterSection = (area: string) => {
     const current = areas.find((row) => row.value === area)
     if (!current) return
@@ -1156,15 +1166,51 @@ export function ItpTemplateBuilderPanel() {
                 <button
                   key={area}
                   type="button"
-                  className="itp-section-nav-chip"
-                  onClick={() => scrollMasterSection(area)}
-                  title={`Jump to ${label}`}
+                  draggable
+                  className={`itp-section-nav-chip${draggingSection === area ? ' is-dragging' : ''}${
+                    dragOverSection === area && draggingSection !== area ? ' is-drop-target' : ''
+                  }`}
+                  onClick={() => {
+                    if (skipSectionChipClickRef.current) {
+                      skipSectionChipClickRef.current = false
+                      return
+                    }
+                    scrollMasterSection(area)
+                  }}
+                  title={`Click to jump to ${label}. Drag to reorder sections.`}
+                  onDragStart={(event) => {
+                    skipSectionChipClickRef.current = false
+                    setDraggingSection(area)
+                    event.dataTransfer.effectAllowed = 'move'
+                    event.dataTransfer.setData('text/plain', area)
+                  }}
+                  onDragOver={(event) => {
+                    event.preventDefault()
+                    event.dataTransfer.dropEffect = 'move'
+                    if (dragOverSection !== area) setDragOverSection(area)
+                  }}
+                  onDragLeave={() => {
+                    setDragOverSection((current) => (current === area ? null : current))
+                  }}
+                  onDrop={(event) => {
+                    event.preventDefault()
+                    const from = event.dataTransfer.getData('text/plain') || draggingSection
+                    skipSectionChipClickRef.current = true
+                    if (from) dropMasterSection(from, area)
+                    setDraggingSection(null)
+                    setDragOverSection(null)
+                  }}
+                  onDragEnd={() => {
+                    setDraggingSection(null)
+                    setDragOverSection(null)
+                  }}
                 >
                   {label}
                   <span>{items.length}</span>
                 </button>
               ))}
             </div>
+            <p className="itp-section-nav-hint">Drag section buttons to reorder. Click a section to jump to it.</p>
             <div className="itp-section-nav-add">
               <input
                 type="text"

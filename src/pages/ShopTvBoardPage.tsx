@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from 'react'
 import { Link } from 'react-router-dom'
 import { FinishCellBadge } from '../components/FinishCellBadge'
+import { StatusBadge } from '../components/StatusBadge'
 import { useToast } from '../components/ToastNotification'
 import { useAuth } from '../contexts/AuthContext'
 import { finishCellTone } from '../constants/finishCellColors'
@@ -748,15 +749,18 @@ export function ShopTvBoardPage() {
                         <FinishCellBadge cell={valve.cell} />
                       </div>
                       <div className="shop-tv-customer">{valve.customer?.trim() || '—'}</div>
-                      <div className="shop-tv-meta">
-                        <span className="shop-tv-status">{displayJobStatus(valve)}</span>
-                        {due ? (
+                      <div className="shop-tv-status-row">
+                        <span className="shop-tv-status-label">Status</span>
+                        <StatusBadge status={displayJobStatus(valve)} />
+                      </div>
+                      {due ? (
+                        <div className="shop-tv-meta">
                           <span className={overdue ? 'shop-tv-due shop-tv-due--overdue' : 'shop-tv-due'}>
                             {overdue ? 'Overdue ' : 'Due '}
                             {due}
                           </span>
-                        ) : null}
-                      </div>
+                        </div>
+                      ) : null}
                       {valve.description?.trim() ? (
                         <p className="shop-tv-description">{valve.description.trim()}</p>
                       ) : null}

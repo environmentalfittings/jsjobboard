@@ -105,6 +105,25 @@ export function normalizeShopAreas(raw: unknown, itemAreas: string[] = []): ItpS
   return out
 }
 
+export function moveShopAreaTo(
+  areas: ItpShopAreaDef[],
+  fromValue: string,
+  toValue: string,
+): ItpShopAreaDef[] {
+  if (!fromValue || fromValue === toValue) return areas
+  const from = areas.findIndex((area) => area.value === fromValue)
+  if (from < 0) return areas
+  const next = areas.slice()
+  const [moved] = next.splice(from, 1)
+  const insertAt = next.findIndex((area) => area.value === toValue)
+  if (insertAt < 0) {
+    next.push(moved)
+    return next
+  }
+  next.splice(insertAt, 0, moved)
+  return next
+}
+
 export function moveShopArea(
   areas: ItpShopAreaDef[],
   value: string,

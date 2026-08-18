@@ -15615,6 +15615,12 @@ tbody tr:hover {
   gap: 6px;
 }
 
+.itp-section-nav-hint {
+  margin: 0;
+  font-size: 0.72rem;
+  color: #64748b;
+}
+
 .itp-section-nav-chip {
   display: inline-flex;
   align-items: center;
@@ -15627,7 +15633,7 @@ tbody tr:hover {
   padding: 4px 8px 4px 10px;
   font-size: 0.72rem;
   font-weight: 700;
-  cursor: pointer;
+  cursor: grab;
 }
 
 .itp-section-nav-chip:hover,
@@ -15635,6 +15641,17 @@ tbody tr:hover {
   border-color: #2c527a;
   color: #1a3a5c;
   outline: none;
+}
+
+.itp-section-nav-chip.is-dragging {
+  opacity: 0.45;
+  cursor: grabbing;
+}
+
+.itp-section-nav-chip.is-drop-target {
+  border-color: #e8740a;
+  box-shadow: inset 0 0 0 1px #e8740a;
+  background: #fff7ed;
 }
 
 .itp-section-nav-chip span {
@@ -18454,6 +18471,35 @@ body.shop-tv-fullscreen-active .page-content {
   font-size: clamp(0.72rem, 0.95vw, 0.92rem);
   color: #cbd5e1;
   margin-bottom: 4px;
+}
+
+.shop-tv-status-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 8px;
+  margin-bottom: 4px;
+}
+
+.shop-tv-status-label {
+  font-size: 0.68rem;
+  font-weight: 800;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: #64748b;
+}
+
+.shop-tv-status-row .status-badge {
+  font-size: 0.78rem;
+}
+
+.shop-tv-board--fullscreen .shop-tv-status-label {
+  color: #94a3b8;
+}
+
+.shop-tv-board--fullscreen .shop-tv-status-row .status-badge {
+  font-size: 0.88rem;
+  padding: 3px 10px;
 }
 
 .shop-tv-meta {
