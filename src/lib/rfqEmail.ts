@@ -1,6 +1,11 @@
 /** RFQ inbox for receiving-log emails. Override with VITE_RFQ_EMAIL. */
 export const DEFAULT_RFQ_EMAIL = 'RFQ@jsvalve.com'
 
+export type RfqEmailImage = {
+  url: string
+  file_name: string
+}
+
 export function getRfqEmail() {
   return String(import.meta.env.VITE_RFQ_EMAIL ?? DEFAULT_RFQ_EMAIL).trim() || DEFAULT_RFQ_EMAIL
 }
@@ -19,6 +24,8 @@ export type RfqEmailDetails = {
   imageName?: string | null
   /** Public https URL preferred — included in the email so Outlook can open the photo. */
   imageUrl?: string | null
+  /** Up to 4 pictures for this received valve. */
+  images?: RfqEmailImage[] | null
 }
 
 export function buildRfqEmailSubject(details: RfqEmailDetails) {
@@ -53,15 +60,32 @@ export function buildRfqEmailBody(details: RfqEmailDetails, toEmail?: string) {
     `Notes: ${details.notes?.trim() || '—'}`,
   ]
 
-  const imageUrl = publicImageUrl(details.imageUrl)
-  if (imageUrl) {
-    lines.push(`Picture: ${details.imageName?.trim() || 'attached / linked'}`)
-    lines.push(`Picture link: ${imageUrl}`)
-  } else if (details.imageName?.trim()) {
-    lines.push(`Picture: ${details.imageName.trim()} (attach the downloaded file before sending)`)
+  const pictureLines: string[] = []
+  const images = (details.images ?? [])
+    .map((image) => ({
+      url: publicImageUrl(image.url),
+      file_name: image.file_name?.trim() || 'Photo',
+    }))
+    .filter((image): image is { url: string; file_name: string } => Boolean(image.url))
+
+  if (images.length) {
+    images.forEach((image, index) => {
+      pictureLines.push(`Picture ${index + 1}: ${image.file_name}`)
+      pictureLines.push(`Picture ${index + 1} link: ${image.url}`)
+    })
   } else {
-    lines.push('Picture: none')
+    const imageUrl = publicImageUrl(details.imageUrl)
+    if (imageUrl) {
+      pictureLines.push(`Picture: ${details.imageName?.trim() || 'attached / linked'}`)
+      pictureLines.push(`Picture link: ${imageUrl}`)
+    } else if (details.imageName?.trim()) {
+      pictureLines.push(`Picture: ${details.imageName.trim()} (attach the downloaded file before sending)`)
+    } else {
+      pictureLines.push('Picture: none')
+    }
   }
+
+  lines.push(...pictureLines)
 
   lines.push('', '— JS Job Board Receiving Log')
   return lines.join('\n')
@@ -140,6 +164,7 @@ export async function composeRfqEmail(options: {
   to?: string
   details: RfqEmailDetails
   imageFile?: File | null
+  imageFiles?: File[] | null
   imageDataUrl?: string | null
 }): Promise<ComposeRfqEmailResult> {
   const to = (options.to ?? getRfqEmail()).trim()
@@ -156,29 +181,43 @@ export async function composeRfqEmail(options: {
   const subject = buildRfqEmailSubject(details)
   const body = buildRfqEmailBody(details, to)
 
-  let file = options.imageFile ?? null
-  if (!file && options.imageDataUrl) {
-    file = await imageSourceToFile(options.imageDataUrl, details.imageName ?? 'received-valve.jpg')
+  const files: File[] = []
+  if (options.imageFiles?.length) {
+    files.push(...options.imageFiles)
+  } else if (options.imageFile) {
+    files.push(options.imageFile)
+  } else if (options.imageDataUrl) {
+    const file = await imageSourceToFile(options.imageDataUrl, details.imageName ?? 'received-valve.jpg')
+    if (file) files.push(file)
+  } else if (details.images?.length) {
+    for (const [index, image] of details.images.entries()) {
+      const file = await imageSourceToFile(image.url, image.file_name || `received-valve-${index + 1}.jpg`)
+      if (file) files.push(file)
+    }
   }
 
+  const firstFile = files[0] ?? null
   const canShareWithPhoto =
     shouldUseNativeShareForPhoto() &&
-    Boolean(file) &&
+    Boolean(firstFile) &&
     typeof navigator.share === 'function' &&
     typeof navigator.canShare === 'function' &&
-    navigator.canShare({ files: [file as File] })
+    navigator.canShare({ files: [firstFile as File] })
 
-  if (canShareWithPhoto && file) {
+  if (canShareWithPhoto && firstFile) {
     try {
       await navigator.share({
         title: subject,
         text: `To: ${to}\n\n${subject}\n\n${body}`,
-        files: [file],
+        files: [firstFile],
       })
       return {
         ok: true,
         method: 'share',
-        message: `Share sheet opened — choose Mail to send to ${to} with the photo attached.`,
+        message:
+          files.length > 1
+            ? `Share sheet opened — choose Mail to send to ${to}. The first photo is attached; ${files.length - 1} more were downloaded for manual attach.`
+            : `Share sheet opened — choose Mail to send to ${to} with the photo attached.`,
       }
     } catch (error) {
       if (error instanceof DOMException && error.name === 'AbortError') {
@@ -188,23 +227,27 @@ export async function composeRfqEmail(options: {
     }
   }
 
-  if (file) {
-    try {
-      downloadFile(file)
-    } catch {
-      // Download is best-effort; link in body still helps.
+  if (files.length) {
+    for (const file of files) {
+      try {
+        downloadFile(file)
+      } catch {
+        // Download is best-effort; links in body still help.
+      }
     }
   }
 
-  const mailtoBody = file
-    ? `${body}\n\nNote: Outlook cannot auto-attach from the browser. The photo was downloaded — attach that file before sending${
-        imageUrl ? `, or open the picture link above.` : '.'
-      }`
-    : body
+  const mailtoBody =
+    files.length > 0
+      ? `${body}\n\nNote: Outlook cannot auto-attach from the browser. ${files.length} photo file(s) were downloaded — attach them before sending${
+          details.images?.length || imageUrl ? ', or open the picture link(s) above.' : '.'
+        }`
+      : body
 
   openMailto(to, subject, mailtoBody)
 
-  if (!file && !imageUrl) {
+  const hasLinks = Boolean(details.images?.length || imageUrl)
+  if (!files.length && !hasLinks) {
     return {
       ok: true,
       method: 'mailto',
@@ -215,8 +258,8 @@ export async function composeRfqEmail(options: {
   return {
     ok: true,
     method: 'mailto',
-    message: file
-      ? `Email opened for ${to}. Photo downloaded — attach it in Outlook (picture link is also in the email).`
-      : `Email opened for ${to}. Picture link is included in the email.`,
+    message: files.length
+      ? `Email opened for ${to}. ${files.length} photo file(s) downloaded — attach them in Outlook (picture link(s) are also in the email).`
+      : `Email opened for ${to}. Picture link(s) are included in the email.`,
   }
 }

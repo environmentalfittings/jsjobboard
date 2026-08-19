@@ -9,10 +9,12 @@ import type { Valve } from '../types'
 interface WorkOrderFilterBarProps {
   valves: Valve[]
   query: string
+  customerQuery: string
   descriptionQuery: string
   selectedValveId: string
   sort: ValveListSort
   onQueryChange: (value: string) => void
+  onCustomerQueryChange: (value: string) => void
   onDescriptionQueryChange: (value: string) => void
   onSelect: (valve: Valve) => void
   onClear: () => void
@@ -24,10 +26,12 @@ interface WorkOrderFilterBarProps {
 export function WorkOrderFilterBar({
   valves,
   query,
+  customerQuery,
   descriptionQuery,
   selectedValveId,
   sort,
   onQueryChange,
+  onCustomerQueryChange,
   onDescriptionQueryChange,
   onSelect,
   onClear,
@@ -129,6 +133,28 @@ export function WorkOrderFilterBar({
                 No jobs match “{query.trim()}”. If New Job says it already exists, try List → Closed
                 valves.
               </div>
+            ) : null}
+          </div>
+        </label>
+
+        <label className="job-board-wo-filter-field job-board-wo-filter-field--customer">
+          <span>Customer</span>
+          <div className="job-board-wo-combobox">
+            <input
+              type="search"
+              placeholder="Search customer name…"
+              value={customerQuery}
+              onChange={(event) => onCustomerQueryChange(event.target.value)}
+            />
+            {customerQuery.trim() ? (
+              <button
+                type="button"
+                className="job-board-wo-clear"
+                onClick={() => onCustomerQueryChange('')}
+                aria-label="Clear customer filter"
+              >
+                ×
+              </button>
             ) : null}
           </div>
         </label>

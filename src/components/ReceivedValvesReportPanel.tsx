@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
+import { ReceivedValvePhotosCell } from './ReceivedValvePhotosCell'
 import { ReceivedValveRfqBadge } from './ReceivedValveRfqBadge'
 import {
   isReceivedValveStatus,
@@ -86,7 +87,7 @@ export function ReceivedValvesReportPanel() {
         <table className="dashboard-table">
           <thead>
             <tr>
-              <th>Picture</th>
+              <th>Pictures</th>
               <th>Date</th>
               <th>Customer</th>
               <th>Description</th>
@@ -103,18 +104,7 @@ export function ReceivedValvesReportPanel() {
               filteredRows.map((row) => (
                 <tr key={row.id}>
                   <td>
-                    {row.imageDataUrl ? (
-                      <a
-                        href={row.imageDataUrl}
-                        target="_blank"
-                        rel="noreferrer"
-                        className="received-valves-image-link"
-                      >
-                        <img src={row.imageDataUrl} alt={row.imageName ?? 'Received valve'} />
-                      </a>
-                    ) : (
-                      '—'
-                    )}
+                    <ReceivedValvePhotosCell images={row.images} />
                   </td>
                   <td>{row.receivedDate || '—'}</td>
                   <td>{row.customer}</td>

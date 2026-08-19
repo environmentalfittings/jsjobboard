@@ -9,6 +9,13 @@ export type ValveListSort =
   | 'customer-asc'
   | 'customer-desc'
 
+/** Case-insensitive substring match on customer name. */
+export function valveMatchesCustomerSearch(valve: Valve, rawQuery: string): boolean {
+  const q = rawQuery.trim().toLowerCase()
+  if (!q) return true
+  return (valve.customer ?? '').toLowerCase().includes(q)
+}
+
 /** Case-insensitive substring match on job description. */
 export function valveMatchesDescriptionSearch(valve: Valve, rawQuery: string): boolean {
   const q = rawQuery.trim().toLowerCase()

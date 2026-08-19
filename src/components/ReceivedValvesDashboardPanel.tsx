@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { ReceivedValveEditModal } from './ReceivedValveEditModal'
+import { ReceivedValvePhotosCell } from './ReceivedValvePhotosCell'
 import { ReceivedValveRfqBadge } from './ReceivedValveRfqBadge'
 import { useToast } from './ToastNotification'
 import {
@@ -34,6 +35,7 @@ function rfqDetailsFromRecord(record: ReceivedValveRecord) {
     notes: record.notes,
     imageName: record.imageName,
     imageUrl: record.imageDataUrl,
+    images: record.images.map((image) => ({ url: image.url, file_name: image.file_name })),
   }
 }
 
@@ -119,7 +121,6 @@ export function ReceivedValvesDashboardPanel() {
     try {
       const result = await composeRfqEmail({
         details: rfqDetailsFromRecord(row),
-        imageDataUrl: row.imageDataUrl,
       })
       if (!result.ok) {
         showToast(result.message)
@@ -158,14 +159,14 @@ export function ReceivedValvesDashboardPanel() {
       </div>
       <p className="status-breakdown-note">
         Open received valves{rows.length ? ` · ${rows.length} active` : ''}. Use <strong>Send to RFQ</strong> on the
-        row, or open <strong>Edit</strong> to add a picture then use <strong>Save &amp; send to RFQ</strong>. Converted
+        row, or open <strong>Edit</strong> to add pictures then use <strong>Save &amp; send to RFQ</strong>. Converted
         and Lost leave this list and stay in Reports.
       </p>
       <div className="dashboard-table-wrap manager-dashboard-scroll">
         <table className="dashboard-table">
           <thead>
             <tr>
-              <th>Picture</th>
+              <th>Pictures</th>
               <th>Date</th>
               <th>Customer</th>
               <th>Description</th>
@@ -183,18 +184,7 @@ export function ReceivedValvesDashboardPanel() {
               sortedRows.map((row) => (
                 <tr key={row.id}>
                   <td>
-                    {row.imageDataUrl ? (
-                      <a
-                        href={row.imageDataUrl}
-                        target="_blank"
-                        rel="noreferrer"
-                        className="received-valves-image-link"
-                      >
-                        <img src={row.imageDataUrl} alt={row.imageName ?? 'Received valve'} />
-                      </a>
-                    ) : (
-                      '—'
-                    )}
+                    <ReceivedValvePhotosCell images={row.images} />
                   </td>
                   <td>{row.receivedDate || '—'}</td>
                   <td>{row.customer}</td>

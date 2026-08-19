@@ -1,18 +1,20 @@
-import { useEffect, useState, type ChangeEvent, type FormEvent } from 'react'
+import { useEffect, useState, type FormEvent } from 'react'
 import {
+  draftsFromReceivedValveImages,
   isReceivedValveStatus,
-  prepareReceivedValveImage,
+  finalizeReceivedValvePhotoDrafts,
   RECEIVED_VALVE_STATUSES,
   RECEIVED_VALVE_STATUS_LABELS,
+  receivedValveRecordWithImages,
   receivedValveStatusLabel,
   updateReceivedValve,
-  uploadReceivedValveImage,
+  type ReceivedValvePhotoDraft,
   type ReceivedValveRecord,
   type ReceivedValveStatus,
 } from '../lib/receivedValves'
 import { composeRfqEmail, getRfqEmail } from '../lib/rfqEmail'
 import { supabase } from '../lib/supabase'
-import { VALVE_ATTACHMENTS_BUCKET } from '../lib/valveAttachments'
+import { ReceivedValvePhotosEditor } from './ReceivedValvePhotosEditor'
 import { ReceivedValveRfqBadge } from './ReceivedValveRfqBadge'
 
 type CustomerRow = { id: number; name: string }
@@ -28,9 +30,6 @@ type EditForm = {
   workOrderPrinted: 'yes' | 'no'
   status: ReceivedValveStatus
   notes: string
-  imageDataUrl: string | null
-  imageName: string | null
-  imageStoragePath: string | null
 }
 
 function formFromRow(row: ReceivedValveRecord): EditForm {
@@ -45,9 +44,6 @@ function formFromRow(row: ReceivedValveRecord): EditForm {
     workOrderPrinted: row.workOrderPrinted ? 'yes' : 'no',
     status: row.status,
     notes: row.notes,
-    imageDataUrl: row.imageDataUrl,
-    imageName: row.imageName,
-    imageStoragePath: row.imageStoragePath,
   }
 }
 
@@ -65,6 +61,7 @@ function rfqDetailsFromRecord(record: ReceivedValveRecord) {
     notes: record.notes,
     imageName: record.imageName,
     imageUrl: record.imageDataUrl,
+    images: record.images.map((image) => ({ url: image.url, file_name: image.file_name })),
   }
 }
 
@@ -84,20 +81,21 @@ export function ReceivedValveEditModal({
   onMessage,
 }: ReceivedValveEditModalProps) {
   const [form, setForm] = useState<EditForm>(() => formFromRow(row))
+  const [photoDrafts, setPhotoDrafts] = useState<ReceivedValvePhotoDraft[]>(() =>
+    draftsFromReceivedValveImages(row.images),
+  )
+  const [removedStoragePaths, setRemovedStoragePaths] = useState<string[]>([])
   const [customers, setCustomers] = useState<CustomerRow[]>([])
   const [loadingCustomers, setLoadingCustomers] = useState(true)
   const [saving, setSaving] = useState(false)
   const [sendingRfq, setSendingRfq] = useState(false)
-  const [imageFile, setImageFile] = useState<File | null>(null)
-  const [removeExistingImage, setRemoveExistingImage] = useState(false)
-  const [preparingImage, setPreparingImage] = useState(false)
   const rfqEmail = getRfqEmail()
-  const busy = saving || sendingRfq || preparingImage
+  const busy = saving || sendingRfq
 
   useEffect(() => {
     setForm(formFromRow(row))
-    setImageFile(null)
-    setRemoveExistingImage(false)
+    setPhotoDrafts(draftsFromReceivedValveImages(row.images))
+    setRemovedStoragePaths([])
   }, [row])
 
   useEffect(() => {
@@ -119,42 +117,7 @@ export function ReceivedValveEditModal({
     }
   }, [onError])
 
-  const onImageChange = async (event: ChangeEvent<HTMLInputElement>) => {
-    const file = event.target.files?.[0]
-    if (!file) return
-    setPreparingImage(true)
-    try {
-      const prepared = await prepareReceivedValveImage(file)
-      if (!prepared.ok) {
-        onError(prepared.error)
-        return
-      }
-      setImageFile(prepared.file)
-      setRemoveExistingImage(false)
-      setForm((prev) => ({
-        ...prev,
-        imageDataUrl: prepared.dataUrl,
-        imageName: prepared.file.name,
-      }))
-    } catch (error) {
-      onError(error instanceof Error ? error.message : 'Could not read image')
-    } finally {
-      setPreparingImage(false)
-      event.target.value = ''
-    }
-  }
-
-  const clearImage = () => {
-    setImageFile(null)
-    setRemoveExistingImage(true)
-    setForm((prev) => ({
-      ...prev,
-      imageDataUrl: null,
-      imageName: null,
-    }))
-  }
-
-  const saveRecord = async (): Promise<{ record: ReceivedValveRecord; fileForRfq: File | null } | null> => {
+  const saveRecord = async (): Promise<{ record: ReceivedValveRecord; newFiles: File[] } | null> => {
     if (!form.customer.trim()) {
       onError('Customer is required')
       return null
@@ -164,25 +127,10 @@ export function ReceivedValveEditModal({
       return null
     }
 
-    let imageDataUrl = form.imageDataUrl
-    let imageStoragePath = form.imageStoragePath
-    let imageName = form.imageName
-    const previousStoragePath = row.imageStoragePath
-    const fileForRfq = imageFile
-
-    if (imageFile) {
-      const uploaded = await uploadReceivedValveImage(row.id, imageFile)
-      if (!uploaded.ok) {
-        onError(uploaded.error)
-        return null
-      }
-      imageDataUrl = uploaded.url
-      imageStoragePath = uploaded.storagePath
-      imageName = imageFile.name
-    } else if (removeExistingImage) {
-      imageDataUrl = null
-      imageStoragePath = null
-      imageName = null
+    const finalized = await finalizeReceivedValvePhotoDrafts(row.id, photoDrafts, removedStoragePaths)
+    if (finalized.error) {
+      onError(finalized.error)
+      return null
     }
 
     const patch = {
@@ -196,9 +144,10 @@ export function ReceivedValveEditModal({
       workOrderPrinted: form.workOrderPrinted === 'yes',
       status: form.status,
       notes: form.notes.trim(),
-      imageDataUrl,
-      imageStoragePath,
-      imageName,
+      images: finalized.images,
+      imageDataUrl: finalized.images[0]?.url ?? null,
+      imageStoragePath: finalized.images[0]?.storage_path ?? null,
+      imageName: finalized.images[0]?.file_name ?? null,
     }
     const result = await updateReceivedValve(row.id, patch)
     if (!result.ok) {
@@ -206,17 +155,9 @@ export function ReceivedValveEditModal({
       return null
     }
 
-    if (
-      previousStoragePath &&
-      (imageFile || removeExistingImage) &&
-      previousStoragePath !== imageStoragePath
-    ) {
-      await supabase.storage.from(VALVE_ATTACHMENTS_BUCKET).remove([previousStoragePath])
-    }
-
     return {
-      record: { ...row, ...patch },
-      fileForRfq,
+      record: receivedValveRecordWithImages({ ...row, ...patch }, finalized.images),
+      newFiles: photoDrafts.map((draft) => draft.file).filter((file): file is File => Boolean(file)),
     }
   }
 
@@ -240,8 +181,7 @@ export function ReceivedValveEditModal({
 
     const rfqResult = await composeRfqEmail({
       details: rfqDetailsFromRecord(saved.record),
-      imageFile: saved.fileForRfq,
-      imageDataUrl: saved.record.imageDataUrl,
+      imageFiles: saved.newFiles,
     })
 
     if (!rfqResult.ok) {
@@ -372,35 +312,13 @@ export function ReceivedValveEditModal({
             </select>
           </label>
 
-          <div className="received-valves-image-wrap received-valves-span-full">
-            <label>
-              Picture
-              <input
-                type="file"
-                accept="image/*"
-                onChange={onImageChange}
-                disabled={busy}
-              />
-            </label>
-            <p className="status-breakdown-note">
-              {preparingImage
-                ? 'Preparing photo…'
-                : 'Take a photo or choose one from the library. Large photos are compressed automatically.'}
-            </p>
-            {form.imageDataUrl ? (
-              <div className="received-valves-image-preview">
-                <img src={form.imageDataUrl} alt={form.imageName ?? 'Valve photo'} />
-                <div className="received-valves-image-meta">
-                  <span>{form.imageName ?? 'Image attached'}</span>
-                  <button type="button" className="button-secondary" onClick={clearImage} disabled={busy}>
-                    Remove image
-                  </button>
-                </div>
-              </div>
-            ) : (
-              <p className="status-breakdown-note">No picture on this entry yet.</p>
-            )}
-          </div>
+          <ReceivedValvePhotosEditor
+            drafts={photoDrafts}
+            onChange={setPhotoDrafts}
+            removedStoragePaths={removedStoragePaths}
+            onRemovedStoragePathsChange={setRemovedStoragePaths}
+            busy={busy}
+          />
 
           <label className="received-valves-span-full">
             Notes
@@ -429,7 +347,7 @@ export function ReceivedValveEditModal({
           </div>
           <p className="status-breakdown-note received-valves-span-full">
             <strong>Save &amp; send/resend RFQ</strong> saves this record first, then opens an email to {rfqEmail} with
-            the details and picture.
+            the details and pictures.
             {row.sentToRfqAt ? ' This entry was emailed to RFQ before — resend is available anytime.' : ''}
           </p>
         </form>

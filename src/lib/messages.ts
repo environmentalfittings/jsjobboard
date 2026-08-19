@@ -1,3 +1,4 @@
+import { TEST_AND_DISPOSE_NOTIFY_RECIPIENT_NAMES } from '../constants/testLogDisposeNotifyRecipients'
 import { isFeedbackEnabled } from './feedbackEnabled'
 import { loadUnseenFeedbackResolutions, markFeedbackResolutionSeen } from './feedbackNotifications'
 import {
@@ -484,6 +485,92 @@ async function loadQualityTeamRecipientAuthIds(options?: {
   return { recipientIds, memberCount: qualityMembers.length, error: null }
 }
 
+function normalizeEmployeeFullName(name: string) {
+  return name.trim().replace(/\s+/g, ' ').toLowerCase()
+}
+
+/**
+ * Auth user ids for named active employees who can receive Messages.
+ * Uses employees.auth_user_id, with technicians.user_id as fallback when the roster link is missing.
+ */
+async function loadNamedEmployeeRecipientAuthIds(fullNames: readonly string[]): Promise<{
+  recipientIds: string[]
+  unmatchedNames: string[]
+  error: string | null
+}> {
+  const wanted = [...new Set(fullNames.map((name) => name.trim()).filter(Boolean))]
+  if (wanted.length === 0) {
+    return { recipientIds: [], unmatchedNames: [], error: null }
+  }
+
+  const wantedKeys = new Map(wanted.map((name) => [normalizeEmployeeFullName(name), name]))
+
+  const { data: employees, error: loadError } = await supabase
+    .from('employees')
+    .select('id,employee_no,username,full_name,is_active,auth_user_id')
+
+  if (loadError) {
+    if (isMissingMessagesTable(loadError.message)) {
+      return { recipientIds: [], unmatchedNames: wanted, error: null }
+    }
+    return { recipientIds: [], unmatchedNames: wanted, error: loadError.message }
+  }
+
+  const technicians = await loadTechniciansForMessages()
+  const techByEmployeeId = new Map<string, string>()
+  const techByEmployeeNo = new Map<string, string>()
+  const techByUsername = new Map<string, string>()
+  for (const tech of technicians) {
+    if (!tech.user_id) continue
+    const employeeKey = tech.employee_id?.trim()
+    if (employeeKey) {
+      techByEmployeeId.set(employeeKey, tech.user_id)
+      techByEmployeeNo.set(employeeKey, tech.user_id)
+    }
+    const login = tech.login_username?.trim()
+    if (login) techByUsername.set(normalizeEmployeeUsername(login), tech.user_id)
+  }
+
+  const recipientIds: string[] = []
+  const unmatchedNames: string[] = []
+
+  for (const [key, displayName] of wantedKeys) {
+    const employee = ((employees as Record<string, unknown>[] | null) ?? []).find((row) => {
+      if (!Boolean(row.is_active)) return false
+      return normalizeEmployeeFullName(String(row.full_name ?? '')) === key
+    })
+
+    if (!employee) {
+      unmatchedNames.push(displayName)
+      continue
+    }
+
+    const direct = employee.auth_user_id == null ? null : String(employee.auth_user_id)
+    const employeeId = String(employee.id ?? '').trim()
+    const employeeNo = String(employee.employee_no ?? '').trim()
+    const username = normalizeEmployeeUsername(String(employee.username ?? ''))
+    const authUserId =
+      direct ??
+      techByEmployeeId.get(employeeId) ??
+      techByEmployeeNo.get(employeeNo) ??
+      techByUsername.get(username) ??
+      null
+
+    if (!authUserId) {
+      unmatchedNames.push(displayName)
+      continue
+    }
+
+    recipientIds.push(authUserId)
+  }
+
+  return {
+    recipientIds: [...new Set(recipientIds)],
+    unmatchedNames,
+    error: null,
+  }
+}
+
 async function insertAppNotifications(options: {
   recipientIds: string[]
   senderUserId: string
@@ -714,6 +801,75 @@ export async function notifyFlaggerItpResolution(options: {
   if (error) return error
   if (notified === 0) return 'Could not send resolution message'
   return null
+}
+
+/** Notify warehouse staff that a relief/safety valve Test and Dispose log passed and is ready to invoice. */
+export async function notifyWarehouseTestAndDispose(options: {
+  valveId: string
+  valveType: string | null
+  testedOn: string
+  tester: string
+  testLogId: number | null
+  senderUserId: string
+  senderName: string
+}): Promise<{ notified: number; error: string | null }> {
+  const { recipientIds, unmatchedNames, error: loadError } = await loadNamedEmployeeRecipientAuthIds(
+    TEST_AND_DISPOSE_NOTIFY_RECIPIENT_NAMES,
+  )
+  if (loadError) return { notified: 0, error: loadError }
+
+  if (recipientIds.length === 0) {
+    if (unmatchedNames.length > 0) {
+      return {
+        notified: 0,
+        error: `Could not find Messages logins for: ${unmatchedNames.join(', ')}`,
+      }
+    }
+    return { notified: 0, error: 'No warehouse alert recipients are configured' }
+  }
+
+  const valveId = options.valveId.trim()
+  const valveType = options.valveType?.trim() || 'Relief / Safety Valve'
+  const subject = `Test and Dispose ready to invoice — ${valveId}`
+  const body = [
+    `A relief/safety valve Test and Dispose log passed and is ready for invoicing.`,
+    ``,
+    `Valve: ${valveId}`,
+    `Valve type: ${valveType}`,
+    `Test date: ${options.testedOn}`,
+    `Tester: ${options.tester.trim() || '—'}`,
+    ``,
+    `The job card was moved to Painting after the passing test log was saved.`,
+    `Open test log: /test-log-entry`,
+  ].join('\n')
+
+  const { notified, error } = await insertAppNotifications({
+    recipientIds,
+    senderUserId: options.senderUserId,
+    senderName: options.senderName,
+    subject,
+    body,
+    notificationKind: 'test_and_dispose_ready',
+    metadata: {
+      valve_id: valveId,
+      valve_type: valveType,
+      tested_on: options.testedOn,
+      tester: options.tester.trim() || null,
+      test_log_id: options.testLogId,
+    },
+  })
+
+  if (error) return { notified, error }
+  if (notified === 0) {
+    return { notified: 0, error: 'Could not send warehouse alert' }
+  }
+  if (unmatchedNames.length > 0) {
+    return {
+      notified,
+      error: `Alert sent, but could not find Messages logins for: ${unmatchedNames.join(', ')}`,
+    }
+  }
+  return { notified, error: null }
 }
 
 /** Resolve an employee's Messages login (auth user id), with technician user_id fallback. */

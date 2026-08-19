@@ -1,4 +1,11 @@
 import { attachmentPublicUrl, VALVE_ATTACHMENTS_BUCKET } from './valveAttachments'
+import {
+  legacyFieldsFromReceivedValveImages,
+  mergeReceivedValveImages,
+  receivedValveImagesToJson,
+  type ReceivedValveImage,
+  type ReceivedValvePhotoDraft,
+} from './receivedValveImages'
 import { supabase } from './supabase'
 
 export const RECEIVED_VALVE_STATUSES = [
@@ -33,6 +40,9 @@ export function receivedValveStatusLabel(status: ReceivedValveStatus) {
   return RECEIVED_VALVE_STATUS_LABELS[status]
 }
 
+export type { ReceivedValveImage, ReceivedValvePhotoDraft } from './receivedValveImages'
+export { MAX_RECEIVED_VALVE_PHOTOS, draftsFromReceivedValveImages } from './receivedValveImages'
+
 export type ReceivedValveRecord = {
   id: string
   receivedDate: string
@@ -45,7 +55,8 @@ export type ReceivedValveRecord = {
   workOrderPrinted: boolean
   status: ReceivedValveStatus
   notes: string
-  /** Public image URL (or legacy local data URL during migration). */
+  images: ReceivedValveImage[]
+  /** First picture URL (legacy column kept in sync). */
   imageDataUrl: string | null
   imageStoragePath: string | null
   imageName: string | null
@@ -75,8 +86,6 @@ export type ReceivedValveFormState = {
   workOrderPrinted: 'yes' | 'no'
   status: ReceivedValveStatus
   notes: string
-  imageDataUrl: string | null
-  imageName: string | null
 }
 
 export const RECEIVED_VALVES_STORAGE_KEY = 'js-job-board-received-valves-v1'
@@ -102,6 +111,7 @@ type ReceivedValveDbRow = {
   image_url: string | null
   image_storage_path: string | null
   image_name: string | null
+  images: unknown
   sent_to_rfq_at: string | null
   created_at: string | null
 }
@@ -122,8 +132,6 @@ export function emptyReceivedValveForm(): ReceivedValveFormState {
     workOrderPrinted: 'no',
     status: DEFAULT_RECEIVED_VALVE_STATUS,
     notes: '',
-    imageDataUrl: null,
-    imageName: null,
   }
 }
 
@@ -133,6 +141,8 @@ function emptyToNullDate(value: string) {
 }
 
 function dbRowToRecord(row: ReceivedValveDbRow): ReceivedValveRecord {
+  const images = mergeReceivedValveImages(row.images, row)
+  const legacy = legacyFieldsFromReceivedValveImages(images)
   return {
     id: row.id,
     receivedDate: row.received_date ?? '',
@@ -145,9 +155,10 @@ function dbRowToRecord(row: ReceivedValveDbRow): ReceivedValveRecord {
     workOrderPrinted: Boolean(row.work_order_printed),
     status: normalizeReceivedValveStatus(row.status),
     notes: row.notes ?? '',
-    imageDataUrl: row.image_url,
-    imageStoragePath: row.image_storage_path,
-    imageName: row.image_name,
+    images,
+    imageDataUrl: legacy.imageDataUrl,
+    imageStoragePath: legacy.imageStoragePath,
+    imageName: legacy.imageName,
     sentToRfqAt: row.sent_to_rfq_at,
     createdAt: row.created_at ?? '',
   }
@@ -166,6 +177,7 @@ function recordToDbInsert(row: ReceivedValveRecord, userId: string | null) {
     work_order_printed: row.workOrderPrinted,
     status: row.status,
     notes: row.notes,
+    images: receivedValveImagesToJson(row.images),
     image_url: row.imageDataUrl,
     image_storage_path: row.imageStoragePath,
     image_name: row.imageName,
@@ -180,6 +192,18 @@ function normalizeLocalRow(row: unknown): ReceivedValveRecord | null {
   if (!row || typeof row !== 'object') return null
   const r = row as Partial<ReceivedValveRecord>
   if (typeof r.id !== 'string' || !r.id) return null
+  const images = Array.isArray(r.images)
+    ? mergeReceivedValveImages(r.images, {
+        image_url: typeof r.imageDataUrl === 'string' ? r.imageDataUrl : null,
+        image_storage_path: typeof r.imageStoragePath === 'string' ? r.imageStoragePath : null,
+        image_name: typeof r.imageName === 'string' ? r.imageName : null,
+      })
+    : mergeReceivedValveImages([], {
+        image_url: typeof r.imageDataUrl === 'string' ? r.imageDataUrl : null,
+        image_storage_path: typeof r.imageStoragePath === 'string' ? r.imageStoragePath : null,
+        image_name: typeof r.imageName === 'string' ? r.imageName : null,
+      })
+  const legacy = legacyFieldsFromReceivedValveImages(images)
   return {
     id: r.id,
     receivedDate: typeof r.receivedDate === 'string' ? r.receivedDate : '',
@@ -192,9 +216,10 @@ function normalizeLocalRow(row: unknown): ReceivedValveRecord | null {
     workOrderPrinted: Boolean(r.workOrderPrinted),
     status: normalizeReceivedValveStatus(r.status),
     notes: typeof r.notes === 'string' ? r.notes : '',
-    imageDataUrl: typeof r.imageDataUrl === 'string' ? r.imageDataUrl : null,
-    imageStoragePath: typeof r.imageStoragePath === 'string' ? r.imageStoragePath : null,
-    imageName: typeof r.imageName === 'string' ? r.imageName : null,
+    images,
+    imageDataUrl: legacy.imageDataUrl,
+    imageStoragePath: legacy.imageStoragePath,
+    imageName: legacy.imageName,
     sentToRfqAt: typeof r.sentToRfqAt === 'string' ? r.sentToRfqAt : null,
     createdAt: typeof r.createdAt === 'string' ? r.createdAt : '',
   }
@@ -454,15 +479,68 @@ export async function uploadReceivedValveImageFromDataUrl(
   return uploadReceivedValveImage(entryId, file)
 }
 
-async function removeStoragePath(path: string | null | undefined) {
-  if (!path) return
-  await supabase.storage.from(VALVE_ATTACHMENTS_BUCKET).remove([path])
+async function removeStoragePaths(paths: string[]) {
+  const unique = [...new Set(paths.map((path) => path.trim()).filter(Boolean))]
+  if (!unique.length) return
+  await supabase.storage.from(VALVE_ATTACHMENTS_BUCKET).remove(unique)
+}
+
+export async function finalizeReceivedValvePhotoDrafts(
+  entryId: string,
+  drafts: ReceivedValvePhotoDraft[],
+  pathsToDelete: string[],
+): Promise<{ images: ReceivedValveImage[]; error: string | null }> {
+  const images: ReceivedValveImage[] = []
+
+  for (const draft of drafts) {
+    if (draft.file) {
+      const uploaded = await uploadReceivedValveImage(entryId, draft.file)
+      if (!uploaded.ok) return { images: [], error: uploaded.error }
+      images.push({
+        storage_path: uploaded.storagePath,
+        url: uploaded.url,
+        file_name: draft.name,
+      })
+      continue
+    }
+
+    if (draft.url.trim()) {
+      images.push({
+        storage_path: draft.storagePath?.trim() || '',
+        url: draft.url,
+        file_name: draft.name,
+      })
+    }
+  }
+
+  await removeStoragePaths(pathsToDelete)
+  return { images, error: null }
+}
+
+export function receivedValveRecordWithImages(
+  row: ReceivedValveRecord,
+  images: ReceivedValveImage[],
+): ReceivedValveRecord {
+  const legacy = legacyFieldsFromReceivedValveImages(images)
+  return {
+    ...row,
+    images,
+    imageDataUrl: legacy.imageDataUrl,
+    imageStoragePath: legacy.imageStoragePath,
+    imageName: legacy.imageName,
+  }
 }
 
 const RECEIVED_VALVE_SELECT =
+  'id,received_date,customer,description,teardown_inspection_date,warehouse_check_in_date,estimate_number,sales_order_number,work_order_printed,status,notes,images,image_url,image_storage_path,image_name,sent_to_rfq_at,created_at'
+
+const RECEIVED_VALVE_SELECT_NO_IMAGES =
   'id,received_date,customer,description,teardown_inspection_date,warehouse_check_in_date,estimate_number,sales_order_number,work_order_printed,status,notes,image_url,image_storage_path,image_name,sent_to_rfq_at,created_at'
 
 const RECEIVED_VALVE_SELECT_NO_NOTES =
+  'id,received_date,customer,description,teardown_inspection_date,warehouse_check_in_date,estimate_number,sales_order_number,work_order_printed,status,images,image_url,image_storage_path,image_name,sent_to_rfq_at,created_at'
+
+const RECEIVED_VALVE_SELECT_NO_NOTES_NO_IMAGES =
   'id,received_date,customer,description,teardown_inspection_date,warehouse_check_in_date,estimate_number,sales_order_number,work_order_printed,status,image_url,image_storage_path,image_name,sent_to_rfq_at,created_at'
 
 const RECEIVED_VALVE_SELECT_LEGACY =
@@ -470,7 +548,12 @@ const RECEIVED_VALVE_SELECT_LEGACY =
 
 function isMissingColumnError(error: { message?: string; code?: string } | null) {
   if (!error) return false
-  return /column .*(status|notes).* does not exist/i.test(error.message ?? '') || error.code === '42703'
+  return /column .*(status|notes|images).* does not exist/i.test(error.message ?? '') || error.code === '42703'
+}
+
+function isMissingImagesColumnError(error: { message?: string; code?: string } | null) {
+  if (!error) return false
+  return /column .*images.* does not exist/i.test(error.message ?? '')
 }
 
 function isMissingTableError(error: { message?: string; code?: string } | null) {
@@ -498,6 +581,23 @@ export async function fetchReceivedValveRows(): Promise<
     }
   }
 
+  if (isMissingImagesColumnError(primary.error)) {
+    const withoutImages = await supabase
+      .from('received_valves')
+      .select(RECEIVED_VALVE_SELECT_NO_IMAGES)
+      .order('received_date', { ascending: false })
+      .order('created_at', { ascending: false })
+
+    if (!withoutImages.error) {
+      return {
+        ok: true,
+        rows: ((withoutImages.data ?? []) as ReceivedValveDbRow[]).map((row) =>
+          dbRowToRecord({ ...row, images: [] }),
+        ),
+      }
+    }
+  }
+
   // Notes column missing — keep status so Converted/Lost still persist in the UI.
   if (isMissingColumnError(primary.error)) {
     const withStatus = await supabase
@@ -512,6 +612,23 @@ export async function fetchReceivedValveRows(): Promise<
         rows: ((withStatus.data ?? []) as ReceivedValveDbRow[]).map((row) =>
           dbRowToRecord({ ...row, notes: row.notes ?? '' }),
         ),
+      }
+    }
+
+    if (isMissingImagesColumnError(withStatus.error)) {
+      const withoutImages = await supabase
+        .from('received_valves')
+        .select(RECEIVED_VALVE_SELECT_NO_NOTES_NO_IMAGES)
+        .order('received_date', { ascending: false })
+        .order('created_at', { ascending: false })
+
+      if (!withoutImages.error) {
+        return {
+          ok: true,
+          rows: ((withoutImages.data ?? []) as ReceivedValveDbRow[]).map((row) =>
+            dbRowToRecord({ ...row, notes: '', images: [] }),
+          ),
+        }
       }
     }
 
@@ -567,7 +684,13 @@ export async function insertReceivedValve(
   row: ReceivedValveRecord,
 ): Promise<{ ok: true } | { ok: false; error: string }> {
   const userId = await currentUserId()
-  const { error } = await supabase.from('received_valves').insert(recordToDbInsert(row, userId))
+  let payload: Record<string, unknown> = recordToDbInsert(row, userId)
+  let { error } = await supabase.from('received_valves').insert(payload)
+  if (error && isMissingImagesColumnError(error)) {
+    const legacyPayload = { ...payload }
+    delete legacyPayload.images
+    ;({ error } = await supabase.from('received_valves').insert(legacyPayload))
+  }
   if (error) return { ok: false, error: error.message || 'Could not save received valve' }
   return { ok: true }
 }
@@ -586,6 +709,7 @@ export type ReceivedValveUpdatePatch = Partial<
     | 'status'
     | 'notes'
     | 'sentToRfqAt'
+    | 'images'
     | 'imageDataUrl'
     | 'imageStoragePath'
     | 'imageName'
@@ -612,11 +736,17 @@ export async function updateReceivedValve(
   if ('status' in patch && patch.status) payload.status = patch.status
   if ('notes' in patch) payload.notes = patch.notes ?? ''
   if ('sentToRfqAt' in patch) payload.sent_to_rfq_at = patch.sentToRfqAt
+  if ('images' in patch) payload.images = receivedValveImagesToJson(patch.images ?? [])
   if ('imageDataUrl' in patch) payload.image_url = patch.imageDataUrl
   if ('imageStoragePath' in patch) payload.image_storage_path = patch.imageStoragePath
   if ('imageName' in patch) payload.image_name = patch.imageName
 
-  const { error } = await supabase.from('received_valves').update(payload).eq('id', id)
+  let { error } = await supabase.from('received_valves').update(payload).eq('id', id)
+  if (error && 'images' in payload && isMissingImagesColumnError(error)) {
+    const legacyPayload = { ...payload }
+    delete legacyPayload.images
+    ;({ error } = await supabase.from('received_valves').update(legacyPayload).eq('id', id))
+  }
   if (error) return { ok: false, error: error.message || 'Could not update received valve' }
   return { ok: true }
 }
@@ -626,7 +756,7 @@ export async function deleteReceivedValve(
 ): Promise<{ ok: true } | { ok: false; error: string }> {
   const { error } = await supabase.from('received_valves').delete().eq('id', row.id)
   if (error) return { ok: false, error: error.message || 'Could not delete received valve' }
-  await removeStoragePath(row.imageStoragePath)
+  await removeStoragePaths(row.images.map((image) => image.storage_path))
   return { ok: true }
 }
 
@@ -663,25 +793,36 @@ export async function migrateLocalReceivedValvesToSupabase(): Promise<{
 
     let imageUrl = local.imageDataUrl
     let imageStoragePath = local.imageStoragePath
+    let images = local.images
     if (imageUrl && imageUrl.startsWith('data:')) {
       const uploaded = await uploadReceivedValveImageFromDataUrl(local.id, imageUrl, local.imageName)
       if (uploaded.ok) {
         imageUrl = uploaded.url
         imageStoragePath = uploaded.storagePath
+        images = [
+          {
+            storage_path: uploaded.storagePath,
+            url: uploaded.url,
+            file_name: local.imageName?.trim() || 'Photo',
+          },
+        ]
       } else {
         // Keep the data URL in image_url as a last resort so the row is not lost.
         imageStoragePath = null
       }
     }
 
-    const payload = recordToDbInsert(
+    const migratedRow = receivedValveRecordWithImages(
       {
         ...local,
         imageDataUrl: imageUrl,
         imageStoragePath,
+        images: images.length ? images : local.images,
       },
-      userId,
+      images.length ? images : local.images,
     )
+
+    const payload = recordToDbInsert(migratedRow, userId)
 
     const { error } = await supabase.from('received_valves').upsert(payload, { onConflict: 'id' })
     if (error) {

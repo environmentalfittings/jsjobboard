@@ -1,25 +1,28 @@
-import { useCallback, useEffect, useMemo, useState, type ChangeEvent, type FormEvent } from 'react'
+import { useCallback, useEffect, useMemo, useState, type FormEvent } from 'react'
 import { Link } from 'react-router-dom'
 import { ReceivedValveEditModal } from '../components/ReceivedValveEditModal'
+import { ReceivedValvePhotosCell } from '../components/ReceivedValvePhotosCell'
+import { ReceivedValvePhotosEditor } from '../components/ReceivedValvePhotosEditor'
 import { ReceivedValveRfqBadge } from '../components/ReceivedValveRfqBadge'
 import { TestLogColumnHeader } from '../components/testLog/TestLogColumnHeader'
 import { useToast } from '../components/ToastNotification'
 import {
   deleteReceivedValve,
   emptyReceivedValveForm,
+  finalizeReceivedValvePhotoDrafts,
   insertReceivedValve,
   isArchivedReceivedValveStatus,
   isReceivedValveStatus,
   loadReceivedValveRowsShared,
-  prepareReceivedValveImage,
   RECEIVED_VALVE_STATUSES,
   RECEIVED_VALVE_STATUS_LABELS,
+  receivedValveRecordWithImages,
   receivedValveStatusLabel,
   sortReceivedValveRowsBy,
   todayIsoDate,
   updateReceivedValve,
-  uploadReceivedValveImage,
   type ReceivedValveFormState,
+  type ReceivedValvePhotoDraft,
   type ReceivedValveRecord,
   type ReceivedValveSortKey,
   type ReceivedValveStatus,
@@ -72,21 +75,7 @@ function matchesColumnFilter(selected: string[], value: string) {
   return selected.includes(value)
 }
 
-function detailsFromRow(row: Pick<
-  ReceivedValveRecord,
-  | 'receivedDate'
-  | 'customer'
-  | 'description'
-  | 'teardownInspectionDate'
-  | 'warehouseCheckInDate'
-  | 'estimateNumber'
-  | 'salesOrderNumber'
-  | 'workOrderPrinted'
-  | 'status'
-  | 'notes'
-  | 'imageName'
-  | 'imageDataUrl'
->) {
+function detailsFromRow(row: ReceivedValveRecord) {
   return {
     receivedDate: row.receivedDate,
     customer: row.customer,
@@ -100,13 +89,14 @@ function detailsFromRow(row: Pick<
     notes: row.notes,
     imageName: row.imageName,
     imageUrl: row.imageDataUrl,
+    images: row.images.map((image) => ({ url: image.url, file_name: image.file_name })),
   }
 }
 
 export function ReceivedValvesPage() {
   const { showToast } = useToast()
   const [form, setForm] = useState<ReceivedValveFormState>(() => emptyReceivedValveForm())
-  const [imageFile, setImageFile] = useState<File | null>(null)
+  const [photoDrafts, setPhotoDrafts] = useState<ReceivedValvePhotoDraft[]>([])
   const [rows, setRows] = useState<ReceivedValveRecord[]>([])
   const [customers, setCustomers] = useState<CustomerRow[]>([])
   const [loading, setLoading] = useState(true)
@@ -214,38 +204,6 @@ export function ReceivedValvesPage() {
     setSortDirection(key === 'receivedDate' ? 'desc' : 'asc')
   }
 
-  const onImageChange = async (event: ChangeEvent<HTMLInputElement>) => {
-    const file = event.target.files?.[0]
-    if (!file) return
-    try {
-      const prepared = await prepareReceivedValveImage(file)
-      if (!prepared.ok) {
-        showToast(prepared.error)
-        return
-      }
-      setImageFile(prepared.file)
-      setForm((prev) => ({
-        ...prev,
-        imageDataUrl: prepared.dataUrl,
-        imageName: prepared.file.name,
-      }))
-    } catch (error) {
-      const msg = error instanceof Error ? error.message : 'Unknown upload error'
-      showToast(msg)
-    } finally {
-      event.target.value = ''
-    }
-  }
-
-  const clearImage = () => {
-    setImageFile(null)
-    setForm((prev) => ({
-      ...prev,
-      imageDataUrl: null,
-      imageName: null,
-    }))
-  }
-
   const markSentToRfq = async (id: string) => {
     const sentToRfqAt = new Date().toISOString()
     const result = await updateReceivedValve(id, { sentToRfqAt })
@@ -256,13 +214,11 @@ export function ReceivedValvesPage() {
     setRows((prev) => prev.map((row) => (row.id === id ? { ...row, sentToRfqAt } : row)))
   }
 
-  const sendRowToRfq = async (row: ReceivedValveRecord, file?: File | null) => {
+  const sendRowToRfq = async (row: ReceivedValveRecord) => {
     setSendingRfqId(row.id)
     try {
       const result = await composeRfqEmail({
         details: detailsFromRow(row),
-        imageFile: file ?? null,
-        imageDataUrl: row.imageDataUrl,
       })
       if (result.ok) {
         await markSentToRfq(row.id)
@@ -294,39 +250,37 @@ export function ReceivedValvesPage() {
     const id = crypto.randomUUID()
     const createdAt = new Date().toISOString()
 
-    let imageDataUrl: string | null = null
-    let imageStoragePath: string | null = null
-    let imageName: string | null = form.imageName
-
-    if (imageFile) {
-      const uploaded = await uploadReceivedValveImage(id, imageFile)
-      if (!uploaded.ok) {
-        setSaving(false)
-        showToast(uploaded.error)
-        return
-      }
-      imageDataUrl = uploaded.url
-      imageStoragePath = uploaded.storagePath
+    const finalized = await finalizeReceivedValvePhotoDrafts(id, photoDrafts, [])
+    if (finalized.error) {
+      setSaving(false)
+      showToast(finalized.error)
+      return
     }
 
-    const nextRow: ReceivedValveRecord = {
-      id,
-      receivedDate: form.receivedDate || todayIsoDate(),
-      customer: form.customer.trim(),
-      description: form.description.trim(),
-      teardownInspectionDate: form.teardownInspectionDate || '',
-      warehouseCheckInDate: form.warehouseCheckInDate || '',
-      estimateNumber: form.estimateNumber.trim(),
-      salesOrderNumber: form.salesOrderNumber.trim(),
-      workOrderPrinted: form.workOrderPrinted === 'yes',
-      status: form.status,
-      notes: form.notes.trim(),
-      imageDataUrl,
-      imageStoragePath,
-      imageName,
-      sentToRfqAt: null,
-      createdAt,
-    }
+    const imageFields = receivedValveRecordWithImages(
+      {
+        id,
+        receivedDate: form.receivedDate || todayIsoDate(),
+        customer: form.customer.trim(),
+        description: form.description.trim(),
+        teardownInspectionDate: form.teardownInspectionDate || '',
+        warehouseCheckInDate: form.warehouseCheckInDate || '',
+        estimateNumber: form.estimateNumber.trim(),
+        salesOrderNumber: form.salesOrderNumber.trim(),
+        workOrderPrinted: form.workOrderPrinted === 'yes',
+        status: form.status,
+        notes: form.notes.trim(),
+        images: finalized.images,
+        imageDataUrl: null,
+        imageStoragePath: null,
+        imageName: null,
+        sentToRfqAt: null,
+        createdAt,
+      },
+      finalized.images,
+    )
+
+    const nextRow: ReceivedValveRecord = imageFields
 
     const insertResult = await insertReceivedValve(nextRow)
     if (!insertResult.ok) {
@@ -336,7 +290,7 @@ export function ReceivedValvesPage() {
     }
 
     setForm(emptyReceivedValveForm())
-    setImageFile(null)
+    setPhotoDrafts([])
     setRows((prev) => [nextRow, ...prev])
     setLastSavedId(nextRow.id)
     setSaving(false)
@@ -408,7 +362,7 @@ export function ReceivedValvesPage() {
       <section className="dashboard-panel">
         <h3>Log received valve</h3>
         <p className="placeholder-copy">
-          Track incoming valves with key dates, order references, and an optional photo. Entries are shared for all
+          Track incoming valves with key dates, order references, and up to 4 optional photos. Entries are shared for all
           users. Open statuses stay on the Dashboard; Converted and Lost drop off the Dashboard but stay in Reports.
           Save first, then use <strong>Send to RFQ</strong> on the saved entry to email {rfqEmail}.
         </p>
@@ -503,27 +457,14 @@ export function ReceivedValvesPage() {
               <option value="yes">Yes</option>
             </select>
           </label>
-          <div className="received-valves-image-wrap received-valves-span-full">
-            <label>
-              Picture
-              <input type="file" accept="image/*" onChange={onImageChange} />
-            </label>
-            <p className="status-breakdown-note">
-              On iPad, choose Take Photo or Photo Library. Large photos are compressed automatically (up to 20 MB
-              original).
-            </p>
-            {form.imageDataUrl ? (
-              <div className="received-valves-image-preview">
-                <img src={form.imageDataUrl} alt={form.imageName ?? 'Valve upload preview'} />
-                <div className="received-valves-image-meta">
-                  <span>{form.imageName ?? 'Image attached'}</span>
-                  <button type="button" className="button-secondary" onClick={clearImage}>
-                    Remove image
-                  </button>
-                </div>
-              </div>
-            ) : null}
-          </div>
+          <ReceivedValvePhotosEditor
+            drafts={photoDrafts}
+            onChange={setPhotoDrafts}
+            removedStoragePaths={[]}
+            onRemovedStoragePathsChange={() => {}}
+            busy={saving}
+            emptyHint="No pictures added yet."
+          />
 
           <label className="received-valves-span-full">
             Status
@@ -613,7 +554,7 @@ export function ReceivedValvesPage() {
           <table className="dashboard-table received-valves-log-table">
             <thead>
               <tr>
-                <th>Picture</th>
+                <th>Pictures</th>
                 <th>
                   <TestLogColumnHeader
                     label="Date"
@@ -751,18 +692,7 @@ export function ReceivedValvesPage() {
                       .join(' ') || undefined}
                   >
                     <td>
-                      {row.imageDataUrl ? (
-                        <a
-                          href={row.imageDataUrl}
-                          target="_blank"
-                          rel="noreferrer"
-                          className="received-valves-image-link"
-                        >
-                          <img src={row.imageDataUrl} alt={row.imageName ?? 'Received valve'} />
-                        </a>
-                      ) : (
-                        '-'
-                      )}
+                      <ReceivedValvePhotosCell images={row.images} />
                     </td>
                     <td>{row.receivedDate || '-'}</td>
                     <td>{row.customer}</td>

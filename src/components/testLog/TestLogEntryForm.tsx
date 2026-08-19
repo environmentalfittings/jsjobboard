@@ -9,7 +9,9 @@ import { ValveTypeSelect } from './ValveTypeSelect'
 import { RequiredTestParametersPanel } from './RequiredTestParametersPanel'
 import { ReliefValveFields } from './ReliefValveFields'
 import { useToast } from '../ToastNotification'
+import { useAuth } from '../../contexts/AuthContext'
 import { useEmployees } from '../../hooks/useEmployees'
+import { notifyWarehouseTestAndDispose } from '../../lib/messages'
 import { loadActiveTestGauges, filterChartRecorderGauges, filterPressureTestGauges } from '../../lib/testGaugeRegistry'
 import { isFourHourChartTestSelected, normalizeTestProcedures, mapJobTestTypeToProcedures, jobTestTypeLooksLikeMedia } from '../../lib/testLogProcedure'
 import { parseJobTestTypes } from '../../lib/jobTestTypes'
@@ -165,6 +167,7 @@ export function TestLogEntryForm({
   const skipStandardsSyncRef = useRef(false)
   const formTopRef = useRef<HTMLElement | null>(null)
   const { showToast } = useToast()
+  const { user, username } = useAuth()
   const { employees, loading: employeesLoading } = useEmployees()
   const isEditing = editingId != null
 
@@ -702,7 +705,7 @@ export function TestLogEntryForm({
     }
 
     // Always stamp shop date_tested from the log date so closed cards still show "Tested …".
-    // Passing tests also move open jobs to Warehouse RTS (Completed stays Completed).
+    // Passing tests also move open jobs to Painting (Completed stays Completed).
     {
       const { data: valve } = await supabase
         .from('valves')
@@ -715,9 +718,33 @@ export function TestLogEntryForm({
       if (valve?.id) {
         const patch: { date_tested: string; status?: string } = { date_tested: testedOn }
         if (passFail && isPassing(passFail) && valve.status !== 'Completed') {
-          patch.status = 'Warehouse RTS'
+          patch.status = 'Painting'
         }
         await supabase.from('valves').update(patch).eq('id', valve.id)
+      }
+    }
+
+    const shouldNotifyWarehouse =
+      isReliefValveType(valveType) &&
+      testingWithStamp.reliefValve?.testType?.trim() === 'Test and Dispose' &&
+      passFail &&
+      isPassing(passFail)
+
+    let warehouseNotifyError: string | null = null
+    if (shouldNotifyWarehouse) {
+      if (!user?.id) {
+        warehouseNotifyError = 'Sign in is required to send warehouse alerts'
+      } else {
+        const notifyResult = await notifyWarehouseTestAndDispose({
+          valveId: normalizedValveId,
+          valveType: valveType || null,
+          testedOn,
+          tester: testerValue,
+          testLogId: savedId ?? null,
+          senderUserId: user.id,
+          senderName: username || testerValue || 'Test Log',
+        })
+        warehouseNotifyError = notifyResult.error
       }
     }
 
@@ -731,6 +758,9 @@ export function TestLogEntryForm({
         ? `Test log updated for ${normalizedValveId} · ${savedLabel}`
         : `Test log saved for ${normalizedValveId} · ${savedLabel}`,
     )
+    if (warehouseNotifyError) {
+      showToast(`Warehouse alert failed: ${warehouseNotifyError}`)
+    }
     onSaved(normalizedValveId)
   }
 

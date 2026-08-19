@@ -36,6 +36,7 @@ import {
 import { valveStatusPatch } from '../lib/valveStatusPatch'
 import {
   compareValvesBySort,
+  valveMatchesCustomerSearch,
   valveMatchesDescriptionSearch,
   valveMatchesWorkOrderFilter,
   type ValveListSort,
@@ -504,6 +505,7 @@ export function JobBoardPage({ role, username }: { role?: UserRole; username?: s
   const [itpSummaries, setItpSummaries] = useState<Record<number, ItpCardSummary>>({})
   const [modalInitialTab, setModalInitialTab] = useState<JobCardTab>('summary')
   const [workOrderQuery, setWorkOrderQuery] = useState('')
+  const [customerQuery, setCustomerQuery] = useState('')
   const [descriptionQuery, setDescriptionQuery] = useState('')
   const [selectedWorkOrder, setSelectedWorkOrder] = useState('')
   const [listSort, setListSort] = useState<ValveListSort>('default')
@@ -574,8 +576,8 @@ export function JobBoardPage({ role, username }: { role?: UserRole; username?: s
     [technicianIdsForValve, techniciansById],
   )
   const listColumnContext = useMemo<ListColumnContext>(
-    () => ({ technicianLabelForValve }),
-    [technicianLabelForValve],
+    () => ({ technicianLabelForValve, viewingClosed: viewingCompletedValves }),
+    [technicianLabelForValve, viewingCompletedValves],
   )
   const setColumnFilter = useCallback((key: ListColumnKey, next: ColumnFilterState) => {
     setColumnFilters((prev) => ({ ...prev, [key]: next }))
@@ -859,13 +861,17 @@ export function JobBoardPage({ role, username }: { role?: UserRole; username?: s
       return matchesScope
     })
 
-    // When searching by WO # or Valve ID, include matching closed jobs so older WOs remain findable.
+    // When searching, include matching closed jobs so older work remains findable from the active list.
     if (scopeFilter === 'closed') return scoped
 
     const woColumn = columnFilters.valve_id
     const hasWoColumnSearch = Boolean(woColumn.selected || woColumn.query.trim())
     const hasTopWoSearch = Boolean(selectedWorkOrder || workOrderQuery.trim())
-    if (!hasWoColumnSearch && !hasTopWoSearch) return scoped
+    const hasCustomerSearch = Boolean(customerQuery.trim())
+    const hasDescriptionSearch = Boolean(descriptionQuery.trim())
+    if (!hasWoColumnSearch && !hasTopWoSearch && !hasCustomerSearch && !hasDescriptionSearch) {
+      return scoped
+    }
 
     const known = new Set(scoped.map((v) => v.id))
     const closedMatches = closedWorkOrders.filter((v) => {
@@ -874,6 +880,12 @@ export function JobBoardPage({ role, username }: { role?: UserRole; username?: s
         return true
       }
       if (hasWoColumnSearch && valveMatchesWorkOrderFilter(v, woColumn.query, woColumn.selected)) {
+        return true
+      }
+      if (hasCustomerSearch && valveMatchesCustomerSearch(v, customerQuery)) {
+        return true
+      }
+      if (hasDescriptionSearch && valveMatchesDescriptionSearch(v, descriptionQuery)) {
         return true
       }
       return false
@@ -886,6 +898,8 @@ export function JobBoardPage({ role, username }: { role?: UserRole; username?: s
     columnFilters.valve_id,
     selectedWorkOrder,
     workOrderQuery,
+    customerQuery,
+    descriptionQuery,
   ])
 
   const sortValves = useCallback(
@@ -902,6 +916,7 @@ export function JobBoardPage({ role, username }: { role?: UserRole; username?: s
     const filtered = scopeBaseValves
       .filter((v) => valveMatchesAllColumnFilters(v, columnFilters, listColumnContext))
       .filter((v) => valveMatchesWorkOrderFilter(v, workOrderQuery, selectedWorkOrder))
+      .filter((v) => valveMatchesCustomerSearch(v, customerQuery))
       .filter((v) => valveMatchesDescriptionSearch(v, descriptionQuery))
 
     const usingCustomOrder =
@@ -924,6 +939,7 @@ export function JobBoardPage({ role, username }: { role?: UserRole; username?: s
     compareValvesForDisplay,
     workOrderQuery,
     selectedWorkOrder,
+    customerQuery,
     listSort,
     descriptionQuery,
     priorityQueueIds,
@@ -1303,6 +1319,7 @@ export function JobBoardPage({ role, username }: { role?: UserRole; username?: s
       'Customer',
       'Cell',
       'Size',
+      'Class',
       'Turnaround',
       'Status',
       'Techs',
@@ -1323,6 +1340,7 @@ export function JobBoardPage({ role, username }: { role?: UserRole; username?: s
         valve.customer ?? '',
         valve.cell ?? '',
         valve.size ?? '',
+        valve.pressure_class ?? '',
         isTurnaroundValve(valve) ? 'Yes' : '',
         displayJobStatus(valve) || valve.status || '',
         technicianLabelForValve(valve),
@@ -1468,6 +1486,9 @@ export function JobBoardPage({ role, username }: { role?: UserRole; username?: s
   }
 
   const hasWorkOrderSearch = Boolean(selectedWorkOrder || workOrderQuery.trim())
+  const hasListTopSearch = Boolean(
+    selectedWorkOrder || workOrderQuery.trim() || customerQuery.trim() || descriptionQuery.trim(),
+  )
 
   const workOrderSearchMatches = useMemo(() => {
     if (!hasWorkOrderSearch) return [] as Valve[]
@@ -1497,13 +1518,13 @@ export function JobBoardPage({ role, username }: { role?: UserRole; username?: s
       if (phaseKey !== 'done') {
         return activeNonTerminal.filter((valve) => isValveInPhase(valve, phaseKey))
       }
-      // WO search: include older closed jobs, not only the recent Done slice.
-      if (hasWorkOrderSearch) {
+      // Top-bar search: include older closed jobs, not only the recent Done slice.
+      if (hasListTopSearch) {
         return valves.filter((v) => isClosedWorkOrder(v) || DONE_STATUSES.has(v.status))
       }
       return doneLimited
     },
-    [activeNonTerminal, doneLimited, hasWorkOrderSearch, valves],
+    [activeNonTerminal, doneLimited, hasListTopSearch, valves],
   )
 
   const itemsForPhase = useCallback(
@@ -1511,6 +1532,9 @@ export function JobBoardPage({ role, username }: { role?: UserRole; username?: s
       let base = baseItemsForPhase(phaseKey).filter((valve) =>
         valveMatchesWorkOrderFilter(valve, workOrderQuery, selectedWorkOrder),
       )
+      if (customerQuery.trim()) {
+        base = base.filter((valve) => valveMatchesCustomerSearch(valve, customerQuery))
+      }
       if (descriptionQuery.trim()) {
         base = base.filter((valve) => valveMatchesDescriptionSearch(valve, descriptionQuery))
       }
@@ -1536,7 +1560,7 @@ export function JobBoardPage({ role, username }: { role?: UserRole; username?: s
       const rest = sortValves([...byId.values()])
       return [...ordered, ...rest]
     },
-    [baseItemsForPhase, phaseOrder, workOrderQuery, selectedWorkOrder, listSort, sortValves, descriptionQuery],
+    [baseItemsForPhase, phaseOrder, workOrderQuery, selectedWorkOrder, customerQuery, listSort, sortValves, descriptionQuery],
   )
 
   const placeInPhaseOrder = useCallback(
@@ -1685,11 +1709,13 @@ export function JobBoardPage({ role, username }: { role?: UserRole; username?: s
         <WorkOrderFilterBar
           valves={valves}
           query={workOrderQuery}
+          customerQuery={customerQuery}
           descriptionQuery={descriptionQuery}
           selectedValveId={selectedWorkOrder}
           sort={listSort}
           statusMessage={tab === 'kanban' ? workOrderSearchStatus : null}
           onQueryChange={setWorkOrderQuery}
+          onCustomerQueryChange={setCustomerQuery}
           onDescriptionQueryChange={setDescriptionQuery}
           onSelect={(valve) => {
             setSelectedWorkOrder(valve.valve_id)
@@ -1774,6 +1800,9 @@ export function JobBoardPage({ role, username }: { role?: UserRole; username?: s
               onClick={() => {
                 setColumnFilters(emptyColumnFilters())
                 setListColumnSort({ column: 'default', direction: 'asc' })
+                setWorkOrderQuery('')
+                setSelectedWorkOrder('')
+                setCustomerQuery('')
                 setDescriptionQuery('')
                 setSearchParams((prev) => {
                   const next = new URLSearchParams(prev)
@@ -1784,7 +1813,10 @@ export function JobBoardPage({ role, username }: { role?: UserRole; username?: s
               disabled={
                 activeColumnFilterCount === 0 &&
                 listColumnSort.column === 'default' &&
-                !descriptionQuery.trim()
+                !descriptionQuery.trim() &&
+                !customerQuery.trim() &&
+                !workOrderQuery.trim() &&
+                !selectedWorkOrder
               }
             >
               {activeColumnFilterCount > 0
@@ -1813,13 +1845,15 @@ export function JobBoardPage({ role, username }: { role?: UserRole; username?: s
           </div>
           {viewingCompletedValves ? (
             <p className="list-view-completed-hint">
-              Includes Completed, Junked, and Replaced. Open a card to change status if one was marked by mistake.
+              Includes Completed, Junked, and Replaced. Search by customer above, or use the filter icon on any column
+              (Customer, Size, Class, Status, etc.). Open a card to change status if one was marked by mistake.
             </p>
           ) : (
             <p className="list-view-priority-hint">
-              Sort by <strong>Default (priority)</strong> to reorder. Priority jobs stay on top — use ⇈ ↑ ↓ on any
-              row. Non-priority jobs cannot move above the priority list (you&apos;ll be asked to add them first). Your
-              list order is saved until you change it.
+              Search by work order, customer, or description above — matching closed jobs are included automatically.
+              Use the filter icon on any column for exact filters. Sort by <strong>Default (priority)</strong> to
+              reorder. Priority jobs stay on top — use ⇈ ↑ ↓ on any row. Non-priority jobs cannot move above the
+              priority list (you&apos;ll be asked to add them first). Your list order is saved until you change it.
             </p>
           )}
           <div className="table-wrap list-table-wrap">
@@ -1894,6 +1928,7 @@ export function JobBoardPage({ role, username }: { role?: UserRole; username?: s
                     <td>{valve.customer ?? '-'}</td>
                     <td><FinishCellBadge cell={valve.cell} /></td>
                     <td>{valve.size ?? '-'}</td>
+                    <td>{valve.pressure_class ?? '—'}</td>
                     <td>{isTurnaroundValve(valve) ? 'Yes' : '—'}</td>
                     <td>
                       <div className="list-status-cell">

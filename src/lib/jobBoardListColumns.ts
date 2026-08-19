@@ -11,6 +11,7 @@ export type ListColumnKey =
   | 'customer'
   | 'cell'
   | 'size'
+  | 'pressure_class'
   | 'turnaround'
   | 'status'
   | 'technician'
@@ -32,6 +33,8 @@ export type ListSortState = {
 
 export type ListColumnContext = {
   technicianLabelForValve: (valve: Valve) => string
+  /** When true, due_date column uses date_closed instead. */
+  viewingClosed?: boolean
 }
 
 export const LIST_FILTER_COLUMNS: { key: ListColumnKey; label: string }[] = [
@@ -39,6 +42,7 @@ export const LIST_FILTER_COLUMNS: { key: ListColumnKey; label: string }[] = [
   { key: 'customer', label: 'Customer' },
   { key: 'cell', label: 'Cell' },
   { key: 'size', label: 'Size' },
+  { key: 'pressure_class', label: 'Class' },
   { key: 'turnaround', label: 'Turnaround' },
   { key: 'status', label: 'Status' },
   { key: 'technician', label: 'Techs' },
@@ -53,6 +57,7 @@ export function emptyColumnFilters(): Record<ListColumnKey, ColumnFilterState> {
     customer: { query: '', selected: '' },
     cell: { query: '', selected: '' },
     size: { query: '', selected: '' },
+    pressure_class: { query: '', selected: '' },
     turnaround: { query: '', selected: '' },
     status: { query: '', selected: '', checked: [] },
     technician: { query: '', selected: '' },
@@ -72,6 +77,8 @@ export function getColumnValue(valve: Valve, column: ListColumnKey, context: Lis
       return valve.cell ?? ''
     case 'size':
       return valve.size ?? ''
+    case 'pressure_class':
+      return valve.pressure_class ?? ''
     case 'turnaround':
       return valve.is_turnaround ? 'Yes' : 'No'
     case 'status':
@@ -79,7 +86,7 @@ export function getColumnValue(valve: Valve, column: ListColumnKey, context: Lis
     case 'technician':
       return context.technicianLabelForValve(valve)
     case 'due_date':
-      return valve.due_date ?? ''
+      return context.viewingClosed ? valve.date_closed ?? '' : valve.due_date ?? ''
     case 'description':
       return valve.description ?? ''
     case 'notes':
@@ -198,17 +205,14 @@ export function compareValvesByListColumn(
       cmp = compareValveIdSequential(a.valve_id, b.valve_id)
       break
     case 'due_date': {
-      const ad = a.due_date ?? ''
-      const bd = b.due_date ?? ''
+      const ad = context.viewingClosed ? a.date_closed ?? '' : a.due_date ?? ''
+      const bd = context.viewingClosed ? b.date_closed ?? '' : b.due_date ?? ''
       if (!ad && !bd) cmp = 0
       else if (!ad) cmp = 1
       else if (!bd) cmp = -1
       else cmp = ad.localeCompare(bd)
       break
     }
-    case 'turnaround':
-      cmp = Number(Boolean(a.is_turnaround)) - Number(Boolean(b.is_turnaround))
-      break
     case 'size': {
       const as = Number.parseFloat(a.size ?? '')
       const bs = Number.parseFloat(b.size ?? '')
@@ -216,6 +220,9 @@ export function compareValvesByListColumn(
       else cmp = (a.size ?? '').localeCompare(b.size ?? '', undefined, { numeric: true })
       break
     }
+    case 'turnaround':
+      cmp = Number(Boolean(a.is_turnaround)) - Number(Boolean(b.is_turnaround))
+      break
     default:
       cmp = getColumnValue(a, sort.column, context).localeCompare(
         getColumnValue(b, sort.column, context),
