@@ -1313,7 +1313,7 @@ export function JobBoardPage({ role, username }: { role?: UserRole; username?: s
 
   const exportListCsv = () => {
     if (!tableRows.length) return
-    const dueOrClosedHeader = viewingCompletedValves ? 'Date closed' : 'Due date'
+    const dueOrClosedHeader = viewingCompletedValves ? 'Date completed' : 'Due date'
     const header = [
       'Valve ID',
       'Customer',
@@ -1872,7 +1872,7 @@ export function JobBoardPage({ role, username }: { role?: UserRole; username?: s
                           aria-label={`Sort by ${label}`}
                         >
                           <span className="list-col-label">
-                            {key === 'due_date' && viewingCompletedValves ? 'Date closed' : label}
+                            {key === 'due_date' && viewingCompletedValves ? 'Date completed' : label}
                           </span>
                           <span className="list-col-sort-indicator" aria-hidden="true">
                             {listColumnSort.column === key
@@ -1950,8 +1950,10 @@ export function JobBoardPage({ role, username }: { role?: UserRole; username?: s
                       )}
                     </td>
                     <td>
-                      {viewingCompletedValves ? (
-                        valve.date_closed ?? '—'
+                      {viewingCompletedValves || isClosedWorkOrder(valve) ? (
+                        <span title={valve.status === 'Completed' ? 'Date completed' : 'Date closed'}>
+                          {valve.date_closed ?? '—'}
+                        </span>
                       ) : canWrite ? (
                         <button
                           type="button"

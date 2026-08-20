@@ -84,6 +84,14 @@ function jobCardMetaParts(valve: Valve, descriptionDraft: string): string[] {
   if (jt) parts.push(jt)
   const cust = (valve.customer ?? '').trim()
   if (cust) parts.push(cust)
+  const closed = (valve.date_closed ?? '').trim()
+  if (closed) {
+    parts.push(
+      valve.status === 'Completed' || valve.order_type === 'Completed'
+        ? `Completed ${closed}`
+        : `Closed ${closed}`,
+    )
+  }
   return parts
 }
 
@@ -644,6 +652,19 @@ export function StatusChangeModal({
           Shop “date tested” on this card: <strong>{valve.date_tested}</strong> (set when status is Testing).
         </p>
       ) : null}
+      {valve.date_closed ? (
+        <p className="modal-save-hint-subtle modal-test-log-shop-date">
+          {valve.status === 'Completed' || valve.order_type === 'Completed' ? (
+            <>
+              Date completed (shipped): <strong>{valve.date_closed}</strong>
+            </>
+          ) : (
+            <>
+              Date closed: <strong>{valve.date_closed}</strong>
+            </>
+          )}
+        </p>
+      ) : null}
       {testLogLoading ? (
         <p className="job-card-muted">Loading test log…</p>
       ) : testLogRows.length === 0 ? (
@@ -1117,6 +1138,30 @@ export function StatusChangeModal({
                     onChange={(e) => setDueDateDraft(e.target.value)}
                     disabled={isSaving}
                   />
+
+                  {(valve.date_closed ?? '').trim() ? (
+                    <>
+                      <label className="modal-label" htmlFor="modal-date-completed">
+                        {valve.status === 'Completed' || valve.order_type === 'Completed'
+                          ? 'Date completed'
+                          : 'Date closed'}
+                      </label>
+                      <input
+                        id="modal-date-completed"
+                        type="date"
+                        className="modal-status-select"
+                        value={(valve.date_closed ?? '').trim()}
+                        readOnly
+                        disabled
+                        title="Set automatically when the card moves to Warehouse RTS, Completed, Junked, or Replaced"
+                      />
+                      <p className="job-card-muted">
+                        {valve.status === 'Completed' || valve.order_type === 'Completed'
+                          ? 'Date this job was moved to Completed (shipped).'
+                          : 'Date this job was closed (Warehouse RTS, Junked, or Replaced).'}
+                      </p>
+                    </>
+                  ) : null}
 
                   {valveRelatedJob ? (
                     <>

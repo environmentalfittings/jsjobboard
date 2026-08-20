@@ -120,7 +120,11 @@ export function WorkOrderFilterBar({
                         <strong>{valve.valve_id}</strong>
                         <span>{valve.customer ?? 'Unknown customer'}</span>
                         <span className="job-board-wo-suggestion-status">
-                          {closed ? `Closed · ${valve.status}` : valve.status}
+                          {closed
+                            ? valve.date_closed
+                              ? `Closed · ${valve.status} · ${valve.date_closed}`
+                              : `Closed · ${valve.status}`
+                            : valve.status}
                         </span>
                       </button>
                     </li>
