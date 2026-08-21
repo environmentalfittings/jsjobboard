@@ -82,20 +82,26 @@ export function QualityTeamPage() {
   const [rtsUnsignedLookback, setRtsUnsignedLookback] = useState<WarehouseRtsUnsignedLookback>(
     DEFAULT_WAREHOUSE_RTS_UNSIGNED_LOOKBACK,
   )
+  const [rtsIncludeAccepted, setRtsIncludeAccepted] = useState(false)
 
   // Same roster source as Admin → Employees (Coy / Colten levels show up there).
   const members = useMemo(() => qualityTeamMembersFromEmployees(employees), [employees])
   const flagOwners = useMemo(() => qualityTeamFlagOwnersFromEmployees(employees), [employees])
 
   const reloadRtsUnsigned = useCallback(
-    async (lookback: WarehouseRtsUnsignedLookback = rtsUnsignedLookback) => {
+    async (options?: {
+      lookback?: WarehouseRtsUnsignedLookback
+      includeAccepted?: boolean
+    }) => {
+      const lookback = options?.lookback ?? rtsUnsignedLookback
+      const includeAccepted = options?.includeAccepted ?? rtsIncludeAccepted
       setRtsUnsignedLoading(true)
-      const rtsResult = await loadWarehouseRtsUnsignedItps({ lookback })
+      const rtsResult = await loadWarehouseRtsUnsignedItps({ lookback, includeAccepted })
       if (rtsResult.error) showToast(rtsResult.error)
       setRtsUnsignedRows(rtsResult.rows)
       setRtsUnsignedLoading(false)
     },
-    [rtsUnsignedLookback, showToast],
+    [rtsIncludeAccepted, rtsUnsignedLookback, showToast],
   )
 
   const reload = useCallback(async () => {
@@ -105,7 +111,10 @@ export function QualityTeamPage() {
     const [itpResult, incrResult, rtsResult] = await Promise.all([
       loadActiveQualityTeamItps(),
       listQualityIncrs(),
-      loadWarehouseRtsUnsignedItps({ lookback: rtsUnsignedLookback }),
+      loadWarehouseRtsUnsignedItps({
+        lookback: rtsUnsignedLookback,
+        includeAccepted: rtsIncludeAccepted,
+      }),
     ])
     await reloadEmployees()
     if (itpResult.error) showToast(itpResult.error)
@@ -117,7 +126,7 @@ export function QualityTeamPage() {
     setLoading(false)
     setIncrLoading(false)
     setRtsUnsignedLoading(false)
-  }, [reloadEmployees, rtsUnsignedLookback, showToast])
+  }, [reloadEmployees, rtsIncludeAccepted, rtsUnsignedLookback, showToast])
 
   useEffect(() => {
     let cancelled = false
@@ -817,7 +826,7 @@ export function QualityTeamPage() {
 
       <section className="dashboard-panel">
         <div className="dashboard-title-row">
-          <h3>Warehouse RTS — ITP not signed off</h3>
+          <h3>Warehouse RTS — ITP sign-off</h3>
           {!rtsUnsignedLoading ? (
             <span className="status-breakdown-note">
               {rtsUnsignedRows.length} job{rtsUnsignedRows.length === 1 ? '' : 's'}
@@ -827,7 +836,7 @@ export function QualityTeamPage() {
         <p className="status-breakdown-note">
           Recent Warehouse RTS jobs whose ITP is missing, still a draft, or waiting for Quality Team Accept.
           Checklist progress alone does not count as signed off. Older RTS jobs without a close date are hidden unless
-          you choose All dates.
+          you choose All dates. Check the box below to also include accepted ITPs in this date range.
         </p>
         <div className="quality-team-filters">
           <label>
@@ -838,7 +847,7 @@ export function QualityTeamPage() {
               onChange={(e) => {
                 const next = e.target.value as WarehouseRtsUnsignedLookback
                 setRtsUnsignedLookback(next)
-                void reloadRtsUnsigned(next)
+                void reloadRtsUnsigned({ lookback: next })
               }}
             >
               {WAREHOUSE_RTS_UNSIGNED_LOOKBACK_OPTIONS.map((option) => (
@@ -848,12 +857,27 @@ export function QualityTeamPage() {
               ))}
             </select>
           </label>
+          <label className="quality-team-inline-check">
+            <input
+              type="checkbox"
+              checked={rtsIncludeAccepted}
+              disabled={rtsUnsignedLoading}
+              onChange={(e) => {
+                const next = e.target.checked
+                setRtsIncludeAccepted(next)
+                void reloadRtsUnsigned({ includeAccepted: next })
+              }}
+            />
+            Include accepted ITPs
+          </label>
         </div>
         {rtsUnsignedLoading ? (
           <p className="placeholder-copy">Loading…</p>
         ) : rtsUnsignedRows.length === 0 ? (
           <p className="placeholder-copy">
-            No unsigned Warehouse RTS jobs in this date range. Try a wider Show option, or choose All dates.
+            {rtsIncludeAccepted
+              ? 'No Warehouse RTS jobs in this date range. Try a wider Show option, or choose All dates.'
+              : 'No unsigned Warehouse RTS jobs in this date range. Try a wider Show option, choose All dates, or include accepted ITPs.'}
           </p>
         ) : (
           <div className="dashboard-table-wrap">

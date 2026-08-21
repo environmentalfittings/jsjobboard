@@ -15374,6 +15374,22 @@ tbody tr:hover {
   font-weight: 500;
 }
 
+.quality-team-filters label.quality-team-inline-check {
+  flex-direction: row;
+  align-items: center;
+  gap: 8px;
+  align-self: flex-end;
+  min-height: 34px;
+  font-weight: 500;
+}
+
+.quality-team-filters label.quality-team-inline-check input {
+  min-width: 0;
+  width: auto;
+  padding: 0;
+  border: none;
+}
+
 .quality-team-flag-list {
   display: flex;
   flex-direction: column;

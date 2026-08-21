@@ -601,17 +601,19 @@ async function fetchWarehouseRtsValves(): Promise<{ valves: Valve[]; error: stri
 }
 
 /**
- * Warehouse RTS jobs whose ITP is not Quality Team–accepted yet
- * (no ITP, draft, or pending review). Checklist % alone does not count as signed off.
+ * Warehouse RTS jobs in the selected date range whose ITP is not Quality Team–accepted
+ * (no ITP, draft, or pending review). Optionally include accepted ITPs too.
  * Defaults to the last 12 months so old/legacy RTS backlog does not flood the list.
  */
 export async function loadWarehouseRtsUnsignedItps(options?: {
   lookback?: WarehouseRtsUnsignedLookback
+  includeAccepted?: boolean
 }): Promise<{
   rows: WarehouseRtsUnsignedItpRow[]
   error: string | null
 }> {
   const lookback = options?.lookback ?? DEFAULT_WAREHOUSE_RTS_UNSIGNED_LOOKBACK
+  const includeAccepted = Boolean(options?.includeAccepted)
   const { valves, error } = await fetchWarehouseRtsValves()
   if (error) return { rows: [], error }
 
@@ -624,7 +626,7 @@ export async function loadWarehouseRtsUnsignedItps(options?: {
   for (const valve of recentValves) {
     const summary = summaries[valve.id]
     const qcStatus: ItpQcReviewStatus | 'none' = summary ? summary.qcStatus : 'none'
-    if (qcStatus === 'accepted') continue
+    if (qcStatus === 'accepted' && !includeAccepted) continue
 
     rows.push({
       valveRowId: valve.id,
@@ -646,7 +648,8 @@ export async function loadWarehouseRtsUnsignedItps(options?: {
     const rank = (status: WarehouseRtsUnsignedItpRow['qcStatus']) => {
       if (status === 'pending_review') return 0
       if (status === 'draft') return 1
-      return 2
+      if (status === 'none') return 2
+      return 3 // accepted last when included
     }
     const byStatus = rank(a.qcStatus) - rank(b.qcStatus)
     if (byStatus !== 0) return byStatus
