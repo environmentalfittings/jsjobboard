@@ -538,6 +538,48 @@ export type WarehouseRtsUnsignedItpRow = {
   checklistPct: number
 }
 
+/** How far back to look for Warehouse RTS jobs missing ITP Accept. */
+export type WarehouseRtsUnsignedLookback = '90d' | '365d' | 'ytd' | 'all'
+
+export const WAREHOUSE_RTS_UNSIGNED_LOOKBACK_OPTIONS: {
+  value: WarehouseRtsUnsignedLookback
+  label: string
+}[] = [
+  { value: '90d', label: 'Last 90 days' },
+  { value: '365d', label: 'Last 12 months' },
+  { value: 'ytd', label: 'This year' },
+  { value: 'all', label: 'All dates (includes older)' },
+]
+
+export const DEFAULT_WAREHOUSE_RTS_UNSIGNED_LOOKBACK: WarehouseRtsUnsignedLookback = '365d'
+
+function isoDateDaysAgo(days: number, now = new Date()) {
+  const d = new Date(now)
+  d.setHours(0, 0, 0, 0)
+  d.setDate(d.getDate() - days)
+  return d.toISOString().slice(0, 10)
+}
+
+function lookbackCutoffIso(lookback: WarehouseRtsUnsignedLookback, now = new Date()): string | null {
+  if (lookback === 'all') return null
+  if (lookback === '90d') return isoDateDaysAgo(90, now)
+  if (lookback === '365d') return isoDateDaysAgo(365, now)
+  return `${now.getFullYear()}-01-01`
+}
+
+function matchesWarehouseRtsLookback(
+  dateClosed: string | null | undefined,
+  lookback: WarehouseRtsUnsignedLookback,
+  now = new Date(),
+): boolean {
+  const cutoff = lookbackCutoffIso(lookback, now)
+  if (!cutoff) return true
+  const closed = String(dateClosed ?? '').trim()
+  // Legacy RTS rows often have no close date — hide them unless "All dates".
+  if (!closed) return false
+  return closed >= cutoff
+}
+
 async function fetchWarehouseRtsValves(): Promise<{ valves: Valve[]; error: string | null }> {
   const pageSize = 1000
   const valves: Valve[] = []
@@ -561,20 +603,25 @@ async function fetchWarehouseRtsValves(): Promise<{ valves: Valve[]; error: stri
 /**
  * Warehouse RTS jobs whose ITP is not Quality Team–accepted yet
  * (no ITP, draft, or pending review). Checklist % alone does not count as signed off.
+ * Defaults to the last 12 months so old/legacy RTS backlog does not flood the list.
  */
-export async function loadWarehouseRtsUnsignedItps(): Promise<{
+export async function loadWarehouseRtsUnsignedItps(options?: {
+  lookback?: WarehouseRtsUnsignedLookback
+}): Promise<{
   rows: WarehouseRtsUnsignedItpRow[]
   error: string | null
 }> {
+  const lookback = options?.lookback ?? DEFAULT_WAREHOUSE_RTS_UNSIGNED_LOOKBACK
   const { valves, error } = await fetchWarehouseRtsValves()
   if (error) return { rows: [], error }
 
-  if (valves.length === 0) return { rows: [], error: null }
+  const recentValves = valves.filter((valve) => matchesWarehouseRtsLookback(valve.date_closed, lookback))
+  if (recentValves.length === 0) return { rows: [], error: null }
 
-  const summaries = await loadItpCardSummaries(valves.map((valve) => valve.id))
+  const summaries = await loadItpCardSummaries(recentValves.map((valve) => valve.id))
   const rows: WarehouseRtsUnsignedItpRow[] = []
 
-  for (const valve of valves) {
+  for (const valve of recentValves) {
     const summary = summaries[valve.id]
     const qcStatus: ItpQcReviewStatus | 'none' = summary ? summary.qcStatus : 'none'
     if (qcStatus === 'accepted') continue

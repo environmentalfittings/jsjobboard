@@ -14,9 +14,12 @@ import {
   loadWarehouseRtsUnsignedItps,
   qualityTeamMembersFromEmployees,
   qualityTeamFlagOwnersFromEmployees,
+  DEFAULT_WAREHOUSE_RTS_UNSIGNED_LOOKBACK,
+  WAREHOUSE_RTS_UNSIGNED_LOOKBACK_OPTIONS,
   type QualityTeamFlaggedItem,
   type QualityTeamItpRow,
   type WarehouseRtsUnsignedItpRow,
+  type WarehouseRtsUnsignedLookback,
 } from '../lib/qualityTeam'
 import { hasAdminAccess } from '../lib/roles'
 import {
@@ -76,10 +79,24 @@ export function QualityTeamPage() {
   const [incrStatusFilter, setIncrStatusFilter] = useState<'all' | 'open' | 'closed' | 'void' | 'corporate'>('open')
   const [rtsUnsignedRows, setRtsUnsignedRows] = useState<WarehouseRtsUnsignedItpRow[]>([])
   const [rtsUnsignedLoading, setRtsUnsignedLoading] = useState(true)
+  const [rtsUnsignedLookback, setRtsUnsignedLookback] = useState<WarehouseRtsUnsignedLookback>(
+    DEFAULT_WAREHOUSE_RTS_UNSIGNED_LOOKBACK,
+  )
 
   // Same roster source as Admin → Employees (Coy / Colten levels show up there).
   const members = useMemo(() => qualityTeamMembersFromEmployees(employees), [employees])
   const flagOwners = useMemo(() => qualityTeamFlagOwnersFromEmployees(employees), [employees])
+
+  const reloadRtsUnsigned = useCallback(
+    async (lookback: WarehouseRtsUnsignedLookback = rtsUnsignedLookback) => {
+      setRtsUnsignedLoading(true)
+      const rtsResult = await loadWarehouseRtsUnsignedItps({ lookback })
+      if (rtsResult.error) showToast(rtsResult.error)
+      setRtsUnsignedRows(rtsResult.rows)
+      setRtsUnsignedLoading(false)
+    },
+    [rtsUnsignedLookback, showToast],
+  )
 
   const reload = useCallback(async () => {
     setLoading(true)
@@ -88,7 +105,7 @@ export function QualityTeamPage() {
     const [itpResult, incrResult, rtsResult] = await Promise.all([
       loadActiveQualityTeamItps(),
       listQualityIncrs(),
-      loadWarehouseRtsUnsignedItps(),
+      loadWarehouseRtsUnsignedItps({ lookback: rtsUnsignedLookback }),
     ])
     await reloadEmployees()
     if (itpResult.error) showToast(itpResult.error)
@@ -100,7 +117,7 @@ export function QualityTeamPage() {
     setLoading(false)
     setIncrLoading(false)
     setRtsUnsignedLoading(false)
-  }, [reloadEmployees, showToast])
+  }, [reloadEmployees, rtsUnsignedLookback, showToast])
 
   useEffect(() => {
     let cancelled = false
@@ -111,7 +128,7 @@ export function QualityTeamPage() {
       const [itpResult, incrResult, rtsResult] = await Promise.all([
         loadActiveQualityTeamItps(),
         listQualityIncrs(),
-        loadWarehouseRtsUnsignedItps(),
+        loadWarehouseRtsUnsignedItps({ lookback: DEFAULT_WAREHOUSE_RTS_UNSIGNED_LOOKBACK }),
       ])
       if (cancelled) return
       if (itpResult.error) showToast(itpResult.error)
@@ -808,13 +825,36 @@ export function QualityTeamPage() {
           ) : null}
         </div>
         <p className="status-breakdown-note">
-          Jobs already in Warehouse RTS whose ITP is missing, still a draft, or waiting for Quality Team Accept.
-          Checklist progress alone does not count as signed off.
+          Recent Warehouse RTS jobs whose ITP is missing, still a draft, or waiting for Quality Team Accept.
+          Checklist progress alone does not count as signed off. Older RTS jobs without a close date are hidden unless
+          you choose All dates.
         </p>
+        <div className="quality-team-filters">
+          <label>
+            Show
+            <select
+              value={rtsUnsignedLookback}
+              disabled={rtsUnsignedLoading}
+              onChange={(e) => {
+                const next = e.target.value as WarehouseRtsUnsignedLookback
+                setRtsUnsignedLookback(next)
+                void reloadRtsUnsigned(next)
+              }}
+            >
+              {WAREHOUSE_RTS_UNSIGNED_LOOKBACK_OPTIONS.map((option) => (
+                <option key={option.value} value={option.value}>
+                  {option.label}
+                </option>
+              ))}
+            </select>
+          </label>
+        </div>
         {rtsUnsignedLoading ? (
           <p className="placeholder-copy">Loading…</p>
         ) : rtsUnsignedRows.length === 0 ? (
-          <p className="placeholder-copy">All Warehouse RTS jobs have an accepted ITP — or none are in RTS.</p>
+          <p className="placeholder-copy">
+            No unsigned Warehouse RTS jobs in this date range. Try a wider Show option, or choose All dates.
+          </p>
         ) : (
           <div className="dashboard-table-wrap">
             <table className="dashboard-table">
