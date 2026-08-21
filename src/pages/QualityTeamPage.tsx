@@ -11,10 +11,12 @@ import {
   isQualityTeamMember,
   loadActiveQualityTeamItps,
   loadCurrentUserQualityTeamLevel,
+  loadWarehouseRtsUnsignedItps,
   qualityTeamMembersFromEmployees,
   qualityTeamFlagOwnersFromEmployees,
   type QualityTeamFlaggedItem,
   type QualityTeamItpRow,
+  type WarehouseRtsUnsignedItpRow,
 } from '../lib/qualityTeam'
 import { hasAdminAccess } from '../lib/roles'
 import {
@@ -72,6 +74,8 @@ export function QualityTeamPage() {
   const [incrLoading, setIncrLoading] = useState(true)
   const [incrError, setIncrError] = useState<string | null>(null)
   const [incrStatusFilter, setIncrStatusFilter] = useState<'all' | 'open' | 'closed' | 'void' | 'corporate'>('open')
+  const [rtsUnsignedRows, setRtsUnsignedRows] = useState<WarehouseRtsUnsignedItpRow[]>([])
+  const [rtsUnsignedLoading, setRtsUnsignedLoading] = useState(true)
 
   // Same roster source as Admin → Employees (Coy / Colten levels show up there).
   const members = useMemo(() => qualityTeamMembersFromEmployees(employees), [employees])
@@ -80,14 +84,22 @@ export function QualityTeamPage() {
   const reload = useCallback(async () => {
     setLoading(true)
     setIncrLoading(true)
-    const [itpResult, incrResult] = await Promise.all([loadActiveQualityTeamItps(), listQualityIncrs()])
+    setRtsUnsignedLoading(true)
+    const [itpResult, incrResult, rtsResult] = await Promise.all([
+      loadActiveQualityTeamItps(),
+      listQualityIncrs(),
+      loadWarehouseRtsUnsignedItps(),
+    ])
     await reloadEmployees()
     if (itpResult.error) showToast(itpResult.error)
+    if (rtsResult.error) showToast(rtsResult.error)
     setRows(itpResult.rows)
     setIncrRows(incrResult.data)
     setIncrError(incrResult.error)
+    setRtsUnsignedRows(rtsResult.rows)
     setLoading(false)
     setIncrLoading(false)
+    setRtsUnsignedLoading(false)
   }, [reloadEmployees, showToast])
 
   useEffect(() => {
@@ -95,14 +107,22 @@ export function QualityTeamPage() {
     void (async () => {
       setLoading(true)
       setIncrLoading(true)
-      const [itpResult, incrResult] = await Promise.all([loadActiveQualityTeamItps(), listQualityIncrs()])
+      setRtsUnsignedLoading(true)
+      const [itpResult, incrResult, rtsResult] = await Promise.all([
+        loadActiveQualityTeamItps(),
+        listQualityIncrs(),
+        loadWarehouseRtsUnsignedItps(),
+      ])
       if (cancelled) return
       if (itpResult.error) showToast(itpResult.error)
+      if (rtsResult.error) showToast(rtsResult.error)
       setRows(itpResult.rows)
       setIncrRows(incrResult.data)
       setIncrError(incrResult.error)
+      setRtsUnsignedRows(rtsResult.rows)
       setLoading(false)
       setIncrLoading(false)
+      setRtsUnsignedLoading(false)
     })()
     return () => {
       cancelled = true
@@ -409,8 +429,8 @@ export function QualityTeamPage() {
         </button>
       </div>
       <p className="placeholder-copy">
-        Review ITPs, work flagged checklist tickets, manage INCRs (non-conformance reports), browse active ITPs, and see
-        who is on the Quality Team.
+        Review ITPs, work flagged checklist tickets, catch Warehouse RTS jobs that still need ITP sign-off, manage
+        INCRs (non-conformance reports), browse active ITPs, and see who is on the Quality Team.
       </p>
 
       <section className="dashboard-panel">
@@ -768,6 +788,65 @@ export function QualityTeamPage() {
                     <td>
                       <Link className="link-button" to={`/itp/${row.valveRowId}`}>
                         Open ITP
+                      </Link>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </section>
+
+      <section className="dashboard-panel">
+        <div className="dashboard-title-row">
+          <h3>Warehouse RTS — ITP not signed off</h3>
+          {!rtsUnsignedLoading ? (
+            <span className="status-breakdown-note">
+              {rtsUnsignedRows.length} job{rtsUnsignedRows.length === 1 ? '' : 's'}
+            </span>
+          ) : null}
+        </div>
+        <p className="status-breakdown-note">
+          Jobs already in Warehouse RTS whose ITP is missing, still a draft, or waiting for Quality Team Accept.
+          Checklist progress alone does not count as signed off.
+        </p>
+        {rtsUnsignedLoading ? (
+          <p className="placeholder-copy">Loading…</p>
+        ) : rtsUnsignedRows.length === 0 ? (
+          <p className="placeholder-copy">All Warehouse RTS jobs have an accepted ITP — or none are in RTS.</p>
+        ) : (
+          <div className="dashboard-table-wrap">
+            <table className="dashboard-table">
+              <thead>
+                <tr>
+                  <th>Valve</th>
+                  <th>Customer</th>
+                  <th>Cell</th>
+                  <th>ITP status</th>
+                  <th>Checklist</th>
+                  <th>Date closed</th>
+                  <th />
+                </tr>
+              </thead>
+              <tbody>
+                {rtsUnsignedRows.map((row) => (
+                  <tr key={`rts-unsigned-${row.valveRowId}`}>
+                    <td>{row.valveId}</td>
+                    <td>{row.customer ?? '—'}</td>
+                    <td>{row.cell ?? '—'}</td>
+                    <td>{row.qcStatusLabel}</td>
+                    <td>
+                      {row.hasItp
+                        ? row.checklistTotal > 0
+                          ? `${row.checklistDone}/${row.checklistTotal} (${row.checklistPct}%)`
+                          : 'No scope'
+                        : '—'}
+                    </td>
+                    <td>{row.dateClosed || '—'}</td>
+                    <td>
+                      <Link className="link-button" to={`/itp/${row.valveRowId}`}>
+                        {row.hasItp ? 'Open ITP' : 'Start ITP'}
                       </Link>
                     </td>
                   </tr>

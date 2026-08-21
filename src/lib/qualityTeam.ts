@@ -1,4 +1,5 @@
 import { isClosedWorkOrder } from './jobDisplayStatus'
+import { loadItpCardSummaries } from './itpCardSummaries'
 import { normalizeEmployeeUsername } from './employeeAuth'
 import { supabase } from './supabase'
 import { extractLibraryPlanFromItpData } from './valveItpStorage'
@@ -520,4 +521,90 @@ export function collectFlaggedItemsFromItps(rows: QualityTeamItpRow[]): QualityT
     return String(b.flaggedAt ?? '').localeCompare(String(a.flaggedAt ?? ''))
   })
   return out
+}
+
+export type WarehouseRtsUnsignedItpRow = {
+  valveRowId: number
+  valveId: string
+  customer: string | null
+  cell: string | null
+  jobType: string | null
+  dateClosed: string | null
+  hasItp: boolean
+  qcStatus: ItpQcReviewStatus | 'none'
+  qcStatusLabel: string
+  checklistDone: number
+  checklistTotal: number
+  checklistPct: number
+}
+
+async function fetchWarehouseRtsValves(): Promise<{ valves: Valve[]; error: string | null }> {
+  const pageSize = 1000
+  const valves: Valve[] = []
+  for (let from = 0; ; from += pageSize) {
+    const to = from + pageSize - 1
+    const { data, error } = await supabase
+      .from('valves')
+      .select(VALVE_LIST_SELECT)
+      .eq('status', 'Warehouse RTS')
+      .order('date_closed', { ascending: false, nullsFirst: false })
+      .order('id', { ascending: false })
+      .range(from, to)
+    if (error) return { valves: [], error: error.message }
+    const batch = (data as Valve[] | null) ?? []
+    valves.push(...batch)
+    if (batch.length < pageSize) break
+  }
+  return { valves, error: null }
+}
+
+/**
+ * Warehouse RTS jobs whose ITP is not Quality Team–accepted yet
+ * (no ITP, draft, or pending review). Checklist % alone does not count as signed off.
+ */
+export async function loadWarehouseRtsUnsignedItps(): Promise<{
+  rows: WarehouseRtsUnsignedItpRow[]
+  error: string | null
+}> {
+  const { valves, error } = await fetchWarehouseRtsValves()
+  if (error) return { rows: [], error }
+
+  if (valves.length === 0) return { rows: [], error: null }
+
+  const summaries = await loadItpCardSummaries(valves.map((valve) => valve.id))
+  const rows: WarehouseRtsUnsignedItpRow[] = []
+
+  for (const valve of valves) {
+    const summary = summaries[valve.id]
+    const qcStatus: ItpQcReviewStatus | 'none' = summary ? summary.qcStatus : 'none'
+    if (qcStatus === 'accepted') continue
+
+    rows.push({
+      valveRowId: valve.id,
+      valveId: valve.valve_id,
+      customer: valve.customer ?? null,
+      cell: valve.cell ?? null,
+      jobType: valve.job_type ?? null,
+      dateClosed: valve.date_closed ?? null,
+      hasItp: Boolean(summary),
+      qcStatus,
+      qcStatusLabel: qcStatus === 'none' ? 'No ITP' : qcReviewStatusLabel(qcStatus),
+      checklistDone: summary?.done ?? 0,
+      checklistTotal: summary?.total ?? 0,
+      checklistPct: summary?.pct ?? 0,
+    })
+  }
+
+  rows.sort((a, b) => {
+    const rank = (status: WarehouseRtsUnsignedItpRow['qcStatus']) => {
+      if (status === 'pending_review') return 0
+      if (status === 'draft') return 1
+      return 2
+    }
+    const byStatus = rank(a.qcStatus) - rank(b.qcStatus)
+    if (byStatus !== 0) return byStatus
+    return String(b.dateClosed ?? '').localeCompare(String(a.dateClosed ?? '')) || a.valveId.localeCompare(b.valveId)
+  })
+
+  return { rows, error: null }
 }
