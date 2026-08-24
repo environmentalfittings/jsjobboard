@@ -181,8 +181,17 @@ export async function sendEscPosOverWebUsb(data: Uint8Array): Promise<void> {
 }
 
 type SerialPortLike = {
-  open: (options: { baudRate: number; bufferSize?: number }) => Promise<void>
+  open: (options: {
+    baudRate: number
+    bufferSize?: number
+    dataBits?: number
+    stopBits?: number
+    parity?: string
+    flowControl?: string
+  }) => Promise<void>
   close: () => Promise<void>
+  setSignals?: (signals: { dataTerminalReady?: boolean; requestToSend?: boolean }) => Promise<void>
+  readable: ReadableStream<Uint8Array> | null
   writable: WritableStream<Uint8Array> | null
   getInfo?: () => { bluetoothServiceClassId?: number | string; usbVendorId?: number }
 }
@@ -211,19 +220,75 @@ export type SerialSendOptions = {
 /** Bluetooth Classic Serial Port Profile (SPP) service class. */
 const BLUETOOTH_SPP_SERVICE = 0x1101
 
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => {
+    window.setTimeout(resolve, ms)
+  })
+}
+
+/**
+ * Discard inbound bytes so the writable side does not stall (common on Bluetooth COM).
+ */
+function startDiscardingReadable(port: SerialPortLike): () => Promise<void> {
+  const readable = port.readable
+  if (!readable) return async () => undefined
+
+  let reader: ReadableStreamDefaultReader<Uint8Array> | null = null
+  try {
+    reader = readable.getReader()
+  } catch {
+    return async () => undefined
+  }
+
+  const loop = (async () => {
+    try {
+      while (true) {
+        const { done } = await reader.read()
+        if (done) break
+      }
+    } catch {
+      /* port closed / cancelled */
+    }
+  })()
+
+  return async () => {
+    try {
+      await reader.cancel()
+    } catch {
+      /* ignore */
+    }
+    try {
+      reader.releaseLock()
+    } catch {
+      /* ignore */
+    }
+    await loop.catch(() => undefined)
+  }
+}
+
 async function writeSerialChunks(
   writable: WritableStream<Uint8Array>,
   data: Uint8Array,
   chunkSize: number,
+  gapMs: number,
 ) {
   const writer = writable.getWriter()
   try {
     for (let offset = 0; offset < data.length; offset += chunkSize) {
       const chunk = data.subarray(offset, Math.min(offset + chunkSize, data.length))
+      await writer.ready
       await writer.write(chunk)
+      if (gapMs > 0 && offset + chunkSize < data.length) {
+        await sleep(gapMs)
+      }
     }
+    await writer.ready
   } finally {
-    writer.releaseLock()
+    try {
+      writer.releaseLock()
+    } catch {
+      /* ignore */
+    }
   }
 }
 
@@ -263,6 +328,9 @@ async function requestSerialPort(
  * Use `bluetoothOnly: true` for a paired Bixolon SPP-R200III over Bluetooth Classic (Chrome desktop).
  *
  * Must be called from the main page (not an about:blank popup) so Chrome shows the port picker.
+ *
+ * On Windows Bluetooth, pick the outgoing COM (real device address), not the incoming
+ * “000000000000” port — those often show as COM3 (out) and COM4 (in).
  */
 export async function sendEscPosOverWebSerial(
   data: Uint8Array,
@@ -297,13 +365,46 @@ export async function sendEscPosOverWebSerial(
     port = await serial.requestPort()
   }
 
-  // Baud is ignored for Bluetooth RFCOMM but required by the API.
-  await port.open({ baudRate: 115200, bufferSize: 16 * 1024 })
+  try {
+    await port.open({
+      baudRate: 115200,
+      dataBits: 8,
+      stopBits: 1,
+      parity: 'none',
+      flowControl: 'none',
+      bufferSize: 16 * 1024,
+    })
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error)
+    throw new Error(
+      `Could not open the COM port (${message}). Close other apps using the printer, then try the other Bluetooth COM port (use the outgoing link, usually COM3 — not the incoming COM4).`,
+    )
+  }
+
+  const stopDiscard = startDiscardingReadable(port)
   try {
     if (!port.writable) throw new Error('Serial port is not writable')
-    // Smaller chunks are more reliable over Bluetooth RFCOMM.
-    await writeSerialChunks(port.writable, data, bluetoothOnly ? 128 : 512)
+
+    // Bixolon defaults to DTR/DSR handshaking — assert DTR when the API allows it.
+    if (typeof port.setSignals === 'function') {
+      try {
+        await port.setSignals({ dataTerminalReady: true, requestToSend: true })
+      } catch {
+        /* Bluetooth virtual COM may not support signals */
+      }
+    }
+
+    // Small chunks + short gaps are more reliable over Windows Bluetooth RFCOMM.
+    await writeSerialChunks(port.writable, data, bluetoothOnly ? 64 : 512, bluetoothOnly ? 20 : 0)
+    // Give the Bluetooth stack time to flush before closing the port.
+    await sleep(bluetoothOnly ? 900 : 150)
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error)
+    throw new Error(
+      `Print send failed (${message}). Try the other Bluetooth COM port — use outgoing (often COM3), not incoming (often COM4).`,
+    )
   } finally {
+    await stopDiscard()
     try {
       await port.close()
     } catch {

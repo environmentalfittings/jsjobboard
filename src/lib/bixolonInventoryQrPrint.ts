@@ -594,7 +594,7 @@ export async function printInventoryQrToBixolon(
       const message = error instanceof Error ? error.message : String(error)
       if (/cancel|denied|No port selected/i.test(message)) {
         throw new Error(
-          'No port selected. Choose Standard Serial over Bluetooth link (COM3/COM4) or SPP-R200III in the Chrome list.',
+          'No port selected. Choose Standard Serial over Bluetooth link (COM3) — the outgoing port. COM4 is usually incoming and will not print.',
         )
       }
       console.warn('Bixolon Bluetooth/COM print failed, opening helper:', error)
