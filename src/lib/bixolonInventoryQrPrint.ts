@@ -7,7 +7,7 @@ import {
   resolveBixolonLabelSettings,
   type BixolonLabelPrintOverrides,
 } from '../constants/bixolonSppR200III'
-import { buildBixolonLabelEscPos, sendEscPosOverWebSerial, sendEscPosOverWebUsb } from './bixolonEscPos'
+import { buildBixolonLabelEscPos } from './bixolonEscPos'
 
 export type InventoryBixolonLabelItem = Pick<
   InventoryRecord,
