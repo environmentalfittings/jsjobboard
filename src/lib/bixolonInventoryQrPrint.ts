@@ -249,26 +249,29 @@ function openBixolonPrintHelper(canvases: HTMLCanvasElement[]): void {
 <body>
   <div class="wrap">
     <div class="warn no-print">
-      <strong>Installed in Windows “Printers &amp; scanners” is not a serial port.</strong>
-      Chrome’s <em>Send via Serial/USB</em> list only shows COM / Bluetooth serial ports —
-      it will not list <span class="mono">BIXOLON SPP-R200III</span> from Printers &amp; scanners.
+      <strong>Use the Windows printer (same path as Print Test Page).</strong>
+      Your Bixolon is installed as a Windows printer, so Chrome Serial/USB will not see it.
       <ol>
-        <li><strong>USB cable:</strong> use <strong>Print via USB</strong> below (WebUSB). If Windows blocks it, the printer driver owns the cable.</li>
-        <li><strong>Bluetooth:</strong> pair in Windows Bluetooth settings, then <strong>Print via Bluetooth</strong> and pick
-          <span class="mono">Standard Serial over Bluetooth link (COMx)</span>.</li>
-        <li>Or <strong>Download .prn</strong> and send with a Bixolon utility.</li>
+        <li>One-time setup: Windows → Printers &amp; scanners → <span class="mono">BIXOLON SPP-R200III</span> →
+          Printing preferences → <strong>Paper</strong> → Paper type <strong>Receipt</strong>
+          (feeds only as long as the label). Optional: click <span class="mono">…</span> and add a custom size
+          like <span class="mono">58 × 50 mm</span>.</li>
+        <li>Tap <strong>Print to Windows Bixolon</strong> below.</li>
+        <li>In the Chrome dialog pick <strong>BIXOLON SPP-R200III</strong>, margins <strong>None</strong>,
+          scale <strong>100%</strong>, paper = your short custom size or <span class="mono">58 × 297</span>.</li>
       </ol>
-      <p style="margin:0.75rem 0 0">Avoid Chrome Print (<span class="mono">58×3276</span> / <span class="mono">297</span>) — it feeds too much paper.</p>
     </div>
     <div class="actions no-print">
-      <button type="button" class="primary" id="usb-btn">Print via USB</button>
-      <button type="button" id="bluetooth-btn">Print via Bluetooth</button>
+      <button type="button" class="primary" id="print-btn">Print to Windows Bixolon</button>
+      <button type="button" id="bluetooth-btn">Print via Bluetooth (COM)</button>
+      <button type="button" id="usb-btn">Print via USB (WebUSB)</button>
       <button type="button" id="download-btn">Download .prn (one label)</button>
       <button type="button" id="serial-btn">Show all COM ports</button>
-      <button type="button" id="print-btn">Print via Chrome (58×297)</button>
       <button type="button" id="close-btn">Close</button>
     </div>
-    <p class="no-print" id="status" style="color:#475569;min-height:1.25rem;margin:0 0 0.75rem"></p>
+    <p class="no-print" id="status" style="color:#475569;min-height:1.25rem;margin:0 0 0.75rem">
+      Ready — Print to Windows Bixolon uses the same driver as the Windows test page.
+    </p>
     <div class="preview">${previews}</div>
   </div>
   <script>
@@ -283,7 +286,10 @@ function openBixolonPrintHelper(canvases: HTMLCanvasElement[]): void {
       for (var i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
       return bytes;
     }
-    document.getElementById('print-btn').onclick = function () { window.print(); };
+    document.getElementById('print-btn').onclick = function () {
+      setStatus('Chrome print dialog — choose BIXOLON SPP-R200III, Receipt / short paper, 100% scale, no margins.');
+      window.print();
+    };
     document.getElementById('close-btn').onclick = function () { window.close(); };
     document.getElementById('download-btn').onclick = function () {
       var bytes = escPosBytes();
@@ -420,8 +426,9 @@ function openBixolonPrintHelper(canvases: HTMLCanvasElement[]): void {
 /**
  * Print inventory QR label(s) for Bixolon SPP-R200III.
  *
- * Prefer WebUSB ESC/POS (exact raster + receipt mode, no 3276 mm driver page).
- * Falls back to a helper window that warns about the 58×3276 mm paper size.
+ * With the Windows printer driver installed (test page works), open the helper so
+ * the user can Print to Windows Bixolon. Auto WebUSB/Serial usually fails because
+ * that driver owns the USB device and there is no COM port.
  */
 export async function printInventoryQrToBixolon(
   items: InventoryBixolonLabelItem[],
@@ -437,61 +444,10 @@ export async function printInventoryQrToBixolon(
     canvases.push(await renderLabelCanvas(item, overrides))
   }
 
-  if ('usb' in navigator) {
-    try {
-      const jobs = canvases.map((canvas) => buildBixolonLabelEscPos(canvas))
-      const combined = new Uint8Array(jobs.reduce((sum, job) => sum + job.length, 0))
-      let offset = 0
-      for (const job of jobs) {
-        combined.set(job, offset)
-        offset += job.length
-      }
-      await sendEscPosOverWebUsb(combined)
-      return {
-        method: 'usb',
-        message:
-          items.length === 1
-            ? 'Sent label to Bixolon (USB / receipt mode)'
-            : `Sent ${items.length} labels to Bixolon (USB / receipt mode)`,
-      }
-    } catch (error) {
-      const message = error instanceof Error ? error.message : String(error)
-      if (!/cancel|denied|No device selected/i.test(message)) {
-        console.warn('Bixolon WebUSB print failed:', error)
-      }
-    }
-  }
-
-  if ('serial' in navigator) {
-    try {
-      const jobs = canvases.map((canvas) => buildBixolonLabelEscPos(canvas))
-      const combined = new Uint8Array(jobs.reduce((sum, job) => sum + job.length, 0))
-      let offset = 0
-      for (const job of jobs) {
-        combined.set(job, offset)
-        offset += job.length
-      }
-      // Prefer Bluetooth Classic SPP when the printer is already paired.
-      await sendEscPosOverWebSerial(combined, { bluetoothOnly: true })
-      return {
-        method: 'usb',
-        message:
-          items.length === 1
-            ? 'Sent label to Bixolon over Bluetooth'
-            : `Sent ${items.length} labels to Bixolon over Bluetooth`,
-      }
-    } catch (error) {
-      const message = error instanceof Error ? error.message : String(error)
-      if (!/cancel|denied|No port selected/i.test(message)) {
-        console.warn('Bixolon Bluetooth/serial print failed, opening helper:', error)
-      }
-    }
-  }
-
   openBixolonPrintHelper(canvases)
   return {
     method: 'html',
     message:
-      'Print helper opened — use Print via Bluetooth (pair first), or Download .prn.',
+      'Print helper opened — use Print to Windows Bixolon (same driver as the Windows test page). Set Paper type to Receipt in printer preferences to avoid long feeds.',
   }
 }
