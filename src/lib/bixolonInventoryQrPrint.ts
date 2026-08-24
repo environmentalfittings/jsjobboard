@@ -249,28 +249,22 @@ function openBixolonPrintHelper(canvases: HTMLCanvasElement[]): void {
 <body>
   <div class="wrap">
     <div class="warn no-print">
-      <strong>Chrome cannot use a short label size with this Bixolon driver.</strong>
-      Your only driver sizes are usually <span class="mono">58 × 3276</span>,
-      <span class="mono">58 × 297</span>, or <span class="mono">A4</span> —
-      all feed far more paper than one QR label.
-      <p style="margin:0.75rem 0 0"><strong>Recommended:</strong>
-        pair the SPP-R200III in Windows Bluetooth settings (standard BT mode, not only as a
-        “printer”), then use <strong>Print via Bluetooth</strong> below for a one-label feed.
-      </p>
+      <strong>Installed in Windows “Printers &amp; scanners” is not a serial port.</strong>
+      Chrome’s <em>Send via Serial/USB</em> list only shows COM / Bluetooth serial ports —
+      it will not list <span class="mono">BIXOLON SPP-R200III</span> from Printers &amp; scanners.
       <ol>
-        <li>Windows Settings → Bluetooth → pair <span class="mono">SPP-R200III</span>.</li>
-        <li>Click <strong>Print via Bluetooth</strong> and pick the Bixolon / Bluetooth serial port.</li>
-        <li>If no port appears, try <strong>Download .prn</strong> or wired Serial/USB.</li>
+        <li><strong>USB cable:</strong> use <strong>Print via USB</strong> below (WebUSB). If Windows blocks it, the printer driver owns the cable.</li>
+        <li><strong>Bluetooth:</strong> pair in Windows Bluetooth settings, then <strong>Print via Bluetooth</strong> and pick
+          <span class="mono">Standard Serial over Bluetooth link (COMx)</span>.</li>
+        <li>Or <strong>Download .prn</strong> and send with a Bixolon utility.</li>
       </ol>
-      <p style="margin:0.75rem 0 0">Avoid Chrome’s Print dialog paper sizes
-        (<span class="mono">3276</span> / <span class="mono">297</span> / A4) — they waste roll.
-        If you must use Print, pick <span class="mono">58 × 297</span> at 100% scale.
-      </p>
+      <p style="margin:0.75rem 0 0">Avoid Chrome Print (<span class="mono">58×3276</span> / <span class="mono">297</span>) — it feeds too much paper.</p>
     </div>
     <div class="actions no-print">
-      <button type="button" class="primary" id="bluetooth-btn">Print via Bluetooth</button>
+      <button type="button" class="primary" id="usb-btn">Print via USB</button>
+      <button type="button" id="bluetooth-btn">Print via Bluetooth</button>
       <button type="button" id="download-btn">Download .prn (one label)</button>
-      <button type="button" id="serial-btn">Send via Serial/USB port</button>
+      <button type="button" id="serial-btn">Show all COM ports</button>
       <button type="button" id="print-btn">Print via Chrome (58×297)</button>
       <button type="button" id="close-btn">Close</button>
     </div>
@@ -302,23 +296,84 @@ function openBixolonPrintHelper(canvases: HTMLCanvasElement[]): void {
       setTimeout(function () { URL.revokeObjectURL(url); }, 30000);
       setStatus('Downloaded inventory-label-bixolon.prn — send with Bixolon utility or copy to the printer COM port.');
     };
-    async function sendOverSerial(bluetoothOnly) {
-      setStatus(bluetoothOnly ? 'Select the paired Bixolon Bluetooth port…' : 'Select the Bixolon port…');
+    async function sendOverUsb() {
+      setStatus('Select the BIXOLON USB device…');
       try {
-        if (!('serial' in navigator)) {
-          setStatus('Web Serial not available in this browser (use Chrome on desktop). Try Download .prn.');
+        if (!('usb' in navigator)) {
+          setStatus('WebUSB not available. Use Chrome, or Print via Bluetooth / Download .prn.');
+          alert('WebUSB not available in this browser. Use Google Chrome.');
           return;
         }
-        var filters = bluetoothOnly
-          ? [{ bluetoothServiceClassId: 0x1101 }]
-          : [
-              { usbVendorId: 0x1504 },
-              { usbVendorId: 0x0419 },
-              { bluetoothServiceClassId: 0x1101 },
-            ];
+        var device = await navigator.usb.requestDevice({
+          filters: [{ vendorId: 0x1504 }, { vendorId: 0x0419 }],
+        });
+        await device.open();
+        if (device.configuration === null) await device.selectConfiguration(1);
+        var claimed = -1;
+        var outEp = -1;
+        var ifaces = (device.configuration && device.configuration.interfaces) || [];
+        for (var i = 0; i < ifaces.length; i++) {
+          var iface = ifaces[i];
+          for (var a = 0; a < iface.alternates.length; a++) {
+            var alt = iface.alternates[a];
+            var bulkOut = alt.endpoints.find(function (ep) {
+              return ep.direction === 'out' && ep.type === 'bulk';
+            });
+            if (!bulkOut) continue;
+            try {
+              await device.claimInterface(iface.interfaceNumber);
+              if (alt.alternateSetting !== 0) {
+                await device.selectAlternateInterface(iface.interfaceNumber, alt.alternateSetting);
+              }
+              claimed = iface.interfaceNumber;
+              outEp = bulkOut.endpointNumber;
+              break;
+            } catch (e) { /* try next */ }
+          }
+          if (outEp >= 0) break;
+        }
+        if (claimed < 0 || outEp < 0) {
+          try { await device.close(); } catch (e) {}
+          var blocked =
+            'USB is plugged in, but the Windows printer driver is blocking raw access. ' +
+            'Use Print via Bluetooth (pair SPP-R200III, pick the Bluetooth COM port), or Download .prn. ' +
+            'Seeing the printer under Printers & scanners does not make it appear in Serial.';
+          setStatus(blocked);
+          alert(blocked);
+          return;
+        }
+        var bytes = escPosBytes();
+        for (var offset = 0; offset < bytes.length; offset += 512) {
+          await device.transferOut(outEp, bytes.subarray(offset, Math.min(offset + 512, bytes.length)));
+        }
+        await device.close();
+        setStatus('Sent one-label job over USB.');
+      } catch (err) {
+        var msg = (err && err.message) ? err.message : 'Could not send over USB';
+        if (/cancel|denied|No device selected/i.test(msg)) {
+          msg = 'No USB device selected.';
+        }
+        setStatus(msg);
+      }
+    }
+    async function sendOverSerial(bluetoothOnly) {
+      setStatus(bluetoothOnly
+        ? 'Select the Bluetooth COM port (not the Windows printer name)…'
+        : 'Select any COM / serial port…');
+      try {
+        if (!('serial' in navigator)) {
+          setStatus('Web Serial not available in this browser (use Chrome on desktop). Try Print via USB or Download .prn.');
+          return;
+        }
         var port;
         try {
-          port = await navigator.serial.requestPort({ filters: filters });
+          // No USB-vendor filters — a Windows “printer” install is not a serial device.
+          // Show Bluetooth COM ports and any real serial ports.
+          port = await navigator.serial.requestPort(
+            bluetoothOnly
+              ? { allowedBluetoothServiceClassIds: [0x1101], filters: [{ bluetoothServiceClassId: 0x1101 }] }
+              : { allowedBluetoothServiceClassIds: [0x1101] }
+          );
         } catch (filterErr) {
           if (filterErr && /cancel|denied|No port selected/i.test(String(filterErr.message || filterErr))) {
             throw filterErr;
@@ -336,11 +391,19 @@ function openBixolonPrintHelper(canvases: HTMLCanvasElement[]): void {
         await port.close();
         setStatus(bluetoothOnly
           ? 'Sent one-label job over Bluetooth.'
-          : 'Sent one-label ESC/POS job over serial/USB.');
+          : 'Sent one-label ESC/POS job over serial.');
       } catch (err) {
-        setStatus((err && err.message) ? err.message : 'Could not send to printer');
+        var msg = (err && err.message) ? err.message : 'Could not send to printer';
+        if (/cancel|denied|No port selected|compatible devices/i.test(msg)) {
+          msg =
+            'No serial/COM port found. The Bixolon under Printers & scanners is a Windows printer driver, not a COM port. ' +
+            'Use Print via USB, or pair Bluetooth and use Print via Bluetooth, or Download .prn.';
+        }
+        setStatus(msg);
+        alert(msg);
       }
     }
+    document.getElementById('usb-btn').onclick = function () { void sendOverUsb(); };
     document.getElementById('bluetooth-btn').onclick = function () { void sendOverSerial(true); };
     document.getElementById('serial-btn').onclick = function () { void sendOverSerial(false); };
   </script>
