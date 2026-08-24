@@ -1199,6 +1199,12 @@ export function AdminInventoryPage() {
       items: group.items,
       periodLabel,
       salesmanName: resolved.fullName,
+      stats: buildInventoryCustomerReportStats({
+        items: group.items,
+        events,
+        customer: group.customer,
+        periodLabel,
+      }),
     })
 
     const result = await notifySalesRepCustomerInventoryReport({
@@ -1233,16 +1239,17 @@ export function AdminInventoryPage() {
     showToast(`Monthly inventory report sent to ${result.salesmanName} in Messages`)
   }
 
-  const printSelectedCustomerReport = () => {
+  const printSelectedCustomerReport = async () => {
     if (!selectedCustomerGroup) {
       showToast('Choose a customer to print the report')
       return
     }
-    const { error } = printInventoryCustomerReport({
+    const { error } = await printInventoryCustomerReport({
       customer: selectedCustomerGroup.customer,
       items: selectedCustomerGroup.items,
       periodLabel,
       salesmanName: selectedSalesmanName,
+      events,
     })
     if (error) showToast(error)
   }
