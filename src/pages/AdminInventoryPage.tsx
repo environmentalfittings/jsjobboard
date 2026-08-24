@@ -1478,7 +1478,7 @@ export function AdminInventoryPage() {
                     disabled={printingLabel}
                     onClick={printSelectedOnBarcodePrinter}
                   >
-                    {printingLabel ? 'Printing…' : 'Print on barcode printer'}
+                    {printingLabel ? 'Printing…' : 'Print via Bluetooth'}
                   </button>
                 </div>
               ) : null}
@@ -2430,7 +2430,7 @@ export function AdminInventoryPage() {
                       disabled={printingLabel}
                       onClick={printQrOnBarcodePrinter}
                     >
-                      {printingLabel ? 'Printing…' : 'Print on barcode printer'}
+                      {printingLabel ? 'Printing…' : 'Print via Bluetooth'}
                     </button>
                   ) : null}
                 </>

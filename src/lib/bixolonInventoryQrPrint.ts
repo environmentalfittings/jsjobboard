@@ -7,7 +7,7 @@ import {
   resolveBixolonLabelSettings,
   type BixolonLabelPrintOverrides,
 } from '../constants/bixolonSppR200III'
-import { buildBixolonLabelEscPos } from './bixolonEscPos'
+import { buildBixolonLabelEscPos, sendEscPosOverWebSerial } from './bixolonEscPos'
 import {
   BIXOLON_LOCAL_SDK_BASES,
   BIXOLON_MPRINT_DEFAULT_PRINTER,
@@ -501,12 +501,15 @@ function openBixolonPrintHelper(canvases: HTMLCanvasElement[]): void {
           alert(iosMsg);
           return;
         }
+        var serialApi = (window.opener && window.opener.navigator && window.opener.navigator.serial)
+          ? window.opener.navigator.serial
+          : navigator.serial;
         var port;
         try {
-          // No USB/BT-only filters for Bluetooth path — Windows COM ports must appear.
+          // Request from opener when possible — Chrome often hides ports in about:blank popups.
           port = bluetoothOnly
-            ? await navigator.serial.requestPort({ allowedBluetoothServiceClassIds: [0x1101] })
-            : await navigator.serial.requestPort({
+            ? await serialApi.requestPort({ allowedBluetoothServiceClassIds: [0x1101] })
+            : await serialApi.requestPort({
                 allowedBluetoothServiceClassIds: [0x1101],
                 filters: [
                   { usbVendorId: 0x1504 },
@@ -518,7 +521,7 @@ function openBixolonPrintHelper(canvases: HTMLCanvasElement[]): void {
           if (filterErr && /cancel|denied|No port selected/i.test(String(filterErr.message || filterErr))) {
             throw filterErr;
           }
-          port = await navigator.serial.requestPort();
+          port = await serialApi.requestPort();
         }
         await port.open({ baudRate: 115200, bufferSize: 16384 });
         var writer = port.writable.getWriter();
@@ -552,8 +555,9 @@ function openBixolonPrintHelper(canvases: HTMLCanvasElement[]): void {
 /**
  * Print inventory QR label(s) for Bixolon SPP-R200III.
  *
- * Prefer WebUSB ESC/POS (exact raster + receipt mode, no 3276 mm driver page).
- * Falls back to a helper window that warns about the 58×3276 mm paper size.
+ * Primary path: Web Serial from this window (Bluetooth / COM). Chrome’s port
+ * picker often does not appear correctly from a popup, so we prompt here first.
+ * Helper window is only a fallback.
  */
 export async function printInventoryQrToBixolon(
   items: InventoryBixolonLabelItem[],
@@ -569,13 +573,38 @@ export async function printInventoryQrToBixolon(
     canvases.push(await renderLabelCanvas(item, overrides))
   }
 
-  // Open the helper immediately so the user can pick Print via Bluetooth / COM.
-  // Auto-prompting WebUSB / filtered Bluetooth often shows an empty Chrome list first
-  // and looks like Bluetooth “isn’t offered.”
+  if ('serial' in navigator) {
+    try {
+      const jobs = canvases.map((canvas) => buildBixolonLabelEscPos(canvas))
+      const combined = new Uint8Array(jobs.reduce((sum, job) => sum + job.length, 0))
+      let offset = 0
+      for (const job of jobs) {
+        combined.set(job, offset)
+        offset += job.length
+      }
+      await sendEscPosOverWebSerial(combined, { bluetoothOnly: true })
+      return {
+        method: 'usb',
+        message:
+          items.length === 1
+            ? 'Sent label to Bixolon over Bluetooth / COM'
+            : `Sent ${items.length} labels to Bixolon over Bluetooth / COM`,
+      }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error)
+      if (/cancel|denied|No port selected/i.test(message)) {
+        throw new Error(
+          'No port selected. Choose Standard Serial over Bluetooth link (COM3/COM4) or SPP-R200III in the Chrome list.',
+        )
+      }
+      console.warn('Bixolon Bluetooth/COM print failed, opening helper:', error)
+    }
+  }
+
   openBixolonPrintHelper(canvases)
   return {
     method: 'html',
     message:
-      'Print helper opened — use Print via Bluetooth / COM port (pair the SPP-R200III first).',
+      'Print helper opened — tap Print via Bluetooth / COM port, or use Chrome on Windows with the printer paired.',
   }
 }

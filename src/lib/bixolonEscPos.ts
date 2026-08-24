@@ -261,18 +261,41 @@ async function requestSerialPort(
 /**
  * Send ESC/POS over Web Serial.
  * Use `bluetoothOnly: true` for a paired Bixolon SPP-R200III over Bluetooth Classic (Chrome desktop).
+ *
+ * Must be called from the main page (not an about:blank popup) so Chrome shows the port picker.
  */
 export async function sendEscPosOverWebSerial(
   data: Uint8Array,
   options: SerialSendOptions = {},
 ): Promise<void> {
   if (!('serial' in navigator)) {
-    throw new Error('Web Serial is not available in this browser')
+    throw new Error('Web Serial is not available in this browser — use Google Chrome on Windows/Mac')
   }
 
   const serial = (navigator as SerialNavigator).serial
   const bluetoothOnly = Boolean(options.bluetoothOnly)
-  const port = await requestSerialPort(serial, bluetoothOnly)
+
+  // Prefer a completely unfiltered picker so Windows COM3/COM4 Bluetooth links always appear.
+  let port: SerialPortLike
+  try {
+    if (bluetoothOnly) {
+      try {
+        port = await serial.requestPort({
+          allowedBluetoothServiceClassIds: [BLUETOOTH_SPP_SERVICE],
+        })
+      } catch (firstErr) {
+        const message = firstErr instanceof Error ? firstErr.message : String(firstErr)
+        if (/cancel|denied|No port selected/i.test(message)) throw firstErr
+        port = await serial.requestPort()
+      }
+    } else {
+      port = await requestSerialPort(serial, false)
+    }
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error)
+    if (/cancel|denied|No port selected/i.test(message)) throw error
+    port = await serial.requestPort()
+  }
 
   // Baud is ignored for Bluetooth RFCOMM but required by the API.
   await port.open({ baudRate: 115200, bufferSize: 16 * 1024 })
