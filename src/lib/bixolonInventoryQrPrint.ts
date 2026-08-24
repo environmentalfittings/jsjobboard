@@ -351,9 +351,14 @@ function openBixolonPrintHelper(canvases: HTMLCanvasElement[]): void {
       } catch (err) {
         var msg = (err && err.message) ? err.message : 'Could not send over USB';
         if (/cancel|denied|No device selected/i.test(msg)) {
-          msg = 'No USB device selected.';
+          msg =
+            'Chrome did not get a USB device (list was empty or cancelled). ' +
+            'The Windows printer driver usually hides the Bixolon from WebUSB. ' +
+            'Fix: pair SPP-R200III in Windows Bluetooth, then Print via Bluetooth and pick the COM port — ' +
+            'or Download .prn and send with a Bixolon utility.';
         }
         setStatus(msg);
+        alert(msg);
       }
     }
     async function sendOverSerial(bluetoothOnly) {
