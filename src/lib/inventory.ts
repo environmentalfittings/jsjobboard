@@ -26,6 +26,7 @@ export type InventoryRecord = {
   document_url: string | null
   document_name: string | null
   document_storage_path: string | null
+  traveler_link: string | null
   hf_acid: boolean
   removed_at: string | null
   removed_reason: string | null
@@ -56,6 +57,7 @@ export type InventoryFormState = {
   condition: InventoryCondition | ''
   manufacturerSerialNo: string
   repairTagNumber: string
+  travelerLink: string
   notes: string
   hfAcid: boolean
   /** Required when adding (or restoring) an item — logged in inventory_events. */
@@ -119,6 +121,14 @@ export function inventoryConditionLabel(condition: string | null | undefined): s
   return ''
 }
 
+/** Normalize a pasted traveler / SharePoint link for storage and opening. */
+export function normalizeTravelerLink(raw: string): string | null {
+  const trimmed = raw.trim()
+  if (!trimmed) return null
+  if (/^[a-z][a-z0-9+.-]*:/i.test(trimmed)) return trimmed
+  return `https://${trimmed}`
+}
+
 export function formatJsInventoryId(sequence: number): string {
   return `${JS_INVENTORY_ID_PREFIX}${sequence}`
 }
@@ -171,7 +181,7 @@ export const INVENTORY_SELECT =
   'id,customer,manufacturer_id,manufacturer_name,valve_type_id,body_material,api_trim,size,pressure,operator,customer_id_no,notes,js_inventory_id,origin,image_url,created_at,updated_at'
 
 const INVENTORY_CONDITION_SELECT =
-  'condition,manufacturer_serial_no,repair_tag_number,document_url,document_name,document_storage_path'
+  'condition,manufacturer_serial_no,repair_tag_number,document_url,document_name,document_storage_path,traveler_link'
 
 const INVENTORY_REMOVAL_SELECT =
   'removed_at,removed_reason,removed_po_number,removed_by_user_id,removed_by_name'
@@ -202,6 +212,7 @@ type InventoryRow = {
   document_url?: string | null
   document_name?: string | null
   document_storage_path?: string | null
+  traveler_link?: string | null
   removed_at?: string | null
   removed_reason?: string | null
   removed_po_number?: string | null
@@ -236,6 +247,7 @@ export function emptyInventoryForm(): InventoryFormState {
     condition: '',
     manufacturerSerialNo: '',
     repairTagNumber: '',
+    travelerLink: '',
     notes: '',
     hfAcid: false,
     changeReason: '',
@@ -318,6 +330,7 @@ export function inventoryToForm(row: InventoryRecord): InventoryFormState {
     condition: row.condition ?? '',
     manufacturerSerialNo: row.manufacturer_serial_no ?? '',
     repairTagNumber: row.repair_tag_number ?? '',
+    travelerLink: row.traveler_link ?? '',
     notes: row.notes ?? '',
     hfAcid: Boolean(row.hf_acid),
     changeReason: '',
@@ -353,6 +366,7 @@ function mapInventoryRow(row: InventoryRow): InventoryRecord {
     document_url: row.document_url?.trim() || null,
     document_name: row.document_name?.trim() || null,
     document_storage_path: row.document_storage_path?.trim() || null,
+    traveler_link: row.traveler_link?.trim() || null,
     hf_acid: row.hf_acid === true || packed.hfAcid === true,
     removed_at: row.removed_at?.trim() || null,
     removed_reason: row.removed_reason?.trim() || null,
@@ -780,6 +794,7 @@ function formToPayload(form: InventoryFormState, manufacturerId: string | null, 
       condition === 'new' ? form.manufacturerSerialNo.trim() || null : null,
     repair_tag_number:
       condition === 'reconditioned' ? form.repairTagNumber.trim() || null : null,
+    traveler_link: normalizeTravelerLink(form.travelerLink),
     notes: form.notes.trim() || null,
     hf_acid: Boolean(form.hfAcid),
   }
@@ -791,11 +806,14 @@ function friendlyInventoryError(message: string | undefined): string {
     return 'That JS inventory ID is already in use'
   }
   if (
-    /condition|manufacturer_serial_no|repair_tag_number|document_url|document_name|document_storage_path/i.test(
+    /condition|manufacturer_serial_no|repair_tag_number|document_url|document_name|document_storage_path|traveler_link/i.test(
       message,
     ) &&
     /column|schema|does not exist/i.test(message)
   ) {
+    if (/traveler_link/i.test(message)) {
+      return 'Run supabase/migration-inventory-traveler-link.sql in Supabase, then try again'
+    }
     return 'Run supabase/migration-inventory-condition-document.sql in Supabase, then try again'
   }
   if (message.includes('permission') || message.includes('policy') || message.includes('RLS')) {
@@ -920,7 +938,7 @@ async function writeInventoryRow(
 
   if (
     lastError &&
-    /condition|manufacturer_serial_no|repair_tag_number|document_url|document_name|document_storage_path/i.test(
+    /condition|manufacturer_serial_no|repair_tag_number|document_url|document_name|document_storage_path|traveler_link/i.test(
       lastError,
     )
   ) {
@@ -931,11 +949,25 @@ async function writeInventoryRow(
     delete withoutCondition.document_url
     delete withoutCondition.document_name
     delete withoutCondition.document_storage_path
+    delete withoutCondition.traveler_link
     const retry = await run(withoutCondition)
     if (!retry.error && retry.data) {
       return {
         data: mapInventoryRow(retry.data as InventoryRow),
-        error: 'Saved, but run supabase/migration-inventory-condition-document.sql for condition/PDF fields.',
+        error: 'Saved, but run supabase/migration-inventory-condition-document.sql (and traveler-link migration) for document fields.',
+      }
+    }
+    lastError = retry.error?.message || lastError
+  }
+
+  if (lastError && /traveler_link/i.test(lastError)) {
+    const withoutLink: Record<string, unknown> = { ...withExtras }
+    delete withoutLink.traveler_link
+    const retry = await run(withoutLink)
+    if (!retry.error && retry.data) {
+      return {
+        data: mapInventoryRow(retry.data as InventoryRow),
+        error: 'Saved, but run supabase/migration-inventory-traveler-link.sql for traveler links.',
       }
     }
     lastError = retry.error?.message || lastError
@@ -961,6 +993,7 @@ async function writeInventoryRow(
     delete packedOnly.document_url
     delete packedOnly.document_name
     delete packedOnly.document_storage_path
+    delete packedOnly.traveler_link
     const fallback = await run(packedOnly)
     if (!fallback.error && fallback.data) return { data: mapInventoryRow(fallback.data as InventoryRow), error: null }
     lastError = fallback.error?.message || lastError
@@ -1207,6 +1240,7 @@ export function inventoryMatchesSearch(row: InventoryRecord, rawQuery: string): 
     row.manufacturer_serial_no,
     row.repair_tag_number,
     row.document_name,
+    row.traveler_link,
     row.notes,
     row.hf_acid ? 'hf acid' : '',
   ]

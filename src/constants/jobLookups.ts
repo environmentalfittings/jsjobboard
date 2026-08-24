@@ -133,8 +133,12 @@ export const BODY_MATERIALS = [
   'Monel', 'Hastelloy', 'Alloy 400', 'Alloy C276',
 ] as const
 
+/** Always shown first in API trim dropdowns (inventory + Manage lists fallback). */
+export const PRIORITY_API_TRIMS = ['UOP', 'Phillips Spec'] as const
+
 /** API trim numbers (API 600 / common shop trim chart) used as fallback when DB lookup_values is empty. */
 export const API_TRIMS = [
+  ...PRIORITY_API_TRIMS,
   '1',
   '2',
   '3',

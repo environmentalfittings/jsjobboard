@@ -1,6 +1,24 @@
 import type { LookupCategory } from '../constants/lookupCategories'
 import { LOOKUP_CATEGORY_DEFS } from '../constants/lookupCategories'
+import { PRIORITY_API_TRIMS } from '../constants/jobLookups'
 import { supabase } from './supabase'
+
+function pinValuesFirst(values: string[], pinned: readonly string[]): string[] {
+  const seen = new Set<string>()
+  const out: string[] = []
+  for (const pin of pinned) {
+    const match = values.find((value) => value.toLowerCase() === pin.toLowerCase())
+    out.push(match ?? pin)
+    seen.add(pin.toLowerCase())
+  }
+  for (const value of values) {
+    const key = value.toLowerCase()
+    if (seen.has(key)) continue
+    seen.add(key)
+    out.push(value)
+  }
+  return out
+}
 
 export type LookupValueRow = {
   id: number
@@ -56,7 +74,7 @@ export async function loadLookupOptionsMap(): Promise<Record<LookupCategory, str
         merged.push(v)
       }
     }
-    out[d.key] = merged
+    out[d.key] = d.key === 'api_trim' ? pinValuesFirst(merged, PRIORITY_API_TRIMS) : merged
   }
   return out
 }

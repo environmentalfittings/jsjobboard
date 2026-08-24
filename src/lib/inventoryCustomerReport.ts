@@ -55,6 +55,7 @@ function lineForItem(item: InventoryRecord): string {
         ? `Reconditioned · Tag ${item.repair_tag_number?.trim() || '—'}`
         : null,
     item.document_url ? `PDF: ${item.document_name?.trim() || 'attached'}` : null,
+    item.traveler_link?.trim() ? `Traveler link: ${item.traveler_link.trim()}` : null,
     item.hf_acid ? 'HF Acid' : null,
   ].filter(Boolean)
   return parts.join(' | ')

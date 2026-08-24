@@ -29,6 +29,7 @@ import {
   loadInventoryFormOptions,
   loadInventoryRecords,
   loadRemovedInventoryRecords,
+  normalizeTravelerLink,
   removeInventoryRecord,
   restoreInventoryRecord,
   updateInventoryRecord,
@@ -48,7 +49,7 @@ import {
   printInventoryCustomerReport,
 } from '../lib/inventoryCustomerReport'
 import { clearInventoryMonthlyReportAlert } from '../lib/inventoryMonthlyAlert'
-import { printInventoryQrToBrotherUsb } from '../lib/brotherQlInventoryQr'
+import { printInventoryQrToBixolon } from '../lib/bixolonInventoryQrPrint'
 import { printInventoryQrSheet } from '../lib/inventoryQrPrint'
 import {
   notifySalesRepCustomerInventoryReport,
@@ -70,91 +71,62 @@ function Field({
   className?: string
 }) {
   return (
-    <label className={`inventory-field ${className}`.trim()}>
-      <span>
+    <div className={`inventory-field ${className}`.trim()}>
+      <span className="inventory-field-label">
         {label}
         {required ? <span className="inventory-required"> *</span> : null}
       </span>
       {children}
-    </label>
+    </div>
   )
 }
 
-function DatalistInput({
-  listId,
-  options,
+/** Portal dropdown — native <select> often fails inside overflow scroll + modal overlays. */
+function ModalSelect({
   value,
   onChange,
-  placeholder,
-}: {
-  listId: string
-  options: string[]
-  value: string
-  onChange: (value: string) => void
-  placeholder?: string
-}) {
-  return (
-    <>
-      <input
-        type="text"
-        list={listId}
-        value={value}
-        placeholder={placeholder}
-        onChange={(e) => onChange(e.target.value)}
-      />
-      <datalist id={listId}>
-        {options.map((option) => (
-          <option key={option} value={option} />
-        ))}
-      </datalist>
-    </>
-  )
-}
-
-/** Type freely; pick from suggestions filtered by the current list. */
-function FreeTextCombobox({
   options,
-  value,
-  onChange,
-  placeholder,
+  placeholder = '— Select —',
   disabled,
-  emptyHint,
+  'aria-label': ariaLabel,
 }: {
-  options: string[]
   value: string
   onChange: (value: string) => void
+  options: { value: string; label: string }[]
   placeholder?: string
   disabled?: boolean
-  emptyHint?: string
+  'aria-label'?: string
 }) {
   const listId = useId()
   const rootRef = useRef<HTMLDivElement>(null)
-  const inputRef = useRef<HTMLInputElement>(null)
+  const triggerRef = useRef<HTMLButtonElement>(null)
   const [open, setOpen] = useState(false)
   const [menuPos, setMenuPos] = useState({ top: 0, left: 0, width: 0 })
 
-  const suggestions = useMemo(() => {
-    const q = value.trim().toLowerCase()
-    const list = q
-      ? options.filter((option) => option.toLowerCase().includes(q))
-      : options
-    return list.slice(0, 40)
-  }, [options, value])
+  const selectedLabel =
+    options.find((option) => option.value === value)?.label ?? (value.trim() ? value : placeholder)
 
   const updateMenuPos = useCallback(() => {
-    const el = inputRef.current
+    const el = triggerRef.current
     if (!el) return
     const rect = el.getBoundingClientRect()
-    setMenuPos({ top: rect.bottom + 4, left: rect.left, width: rect.width })
+    const maxHeight = 260
+    const spaceBelow = window.innerHeight - rect.bottom - 8
+    const openUp = spaceBelow < Math.min(maxHeight, 160) && rect.top > spaceBelow
+    setMenuPos({
+      top: openUp ? Math.max(8, rect.top - Math.min(maxHeight, spaceBelow > 80 ? spaceBelow : maxHeight) - 4) : rect.bottom + 4,
+      left: rect.left,
+      width: rect.width,
+    })
   }, [])
 
   useEffect(() => {
     if (!open) return
     updateMenuPos()
     const onPointerDown = (event: MouseEvent) => {
-      if (rootRef.current?.contains(event.target as Node)) return
       const target = event.target as HTMLElement | null
-      if (target?.closest(`[data-inventory-id-menu="${listId}"]`)) return
+      if (rootRef.current?.contains(target as Node)) return
+      if (target?.closest(`[data-inventory-select-menu="${listId}"]`)) return
       setOpen(false)
     }
     const onReposition = () => updateMenuPos()
@@ -173,6 +145,148 @@ function FreeTextCombobox({
     setOpen(false)
   }
 
+  return (
+    <div className="inventory-modal-select" ref={rootRef}>
+      <button
+        ref={triggerRef}
+        type="button"
+        className="inventory-modal-select-trigger"
+        aria-label={ariaLabel}
+        aria-expanded={open}
+        aria-controls={listId}
+        disabled={disabled}
+        onClick={() => {
+          if (disabled) return
+          setOpen((prev) => !prev)
+        }}
+      >
+        <span className={value.trim() ? undefined : 'inventory-modal-select-placeholder'}>{selectedLabel}</span>
+        <span className="inventory-modal-select-chevron" aria-hidden>
+          ▾
+        </span>
+      </button>
+      {open && !disabled
+        ? createPortal(
+            <ul
+              className="inventory-modal-select-menu"
+              id={listId}
+              role="listbox"
+              data-inventory-select-menu={listId}
+              style={{
+                position: 'fixed',
+                top: menuPos.top,
+                left: menuPos.left,
+                width: menuPos.width,
+                zIndex: 220,
+              }}
+            >
+              <li role="none">
+                <button
+                  type="button"
+                  role="option"
+                  className={`inventory-modal-select-option${!value ? ' is-selected' : ''}`}
+                  aria-selected={!value}
+                  onMouseDown={(event) => event.preventDefault()}
+                  onClick={() => pick('')}
+                >
+                  {placeholder}
+                </button>
+              </li>
+              {options.map((option) => (
+                <li key={option.value} role="none">
+                  <button
+                    type="button"
+                    role="option"
+                    className={`inventory-modal-select-option${option.value === value ? ' is-selected' : ''}`}
+                    aria-selected={option.value === value}
+                    onMouseDown={(event) => event.preventDefault()}
+                    onClick={() => pick(option.value)}
+                  >
+                    {option.label}
+                  </button>
+                </li>
+              ))}
+            </ul>,
+            document.body,
+          )
+        : null}
+    </div>
+  )
+}
+
+/** Type freely; pick from suggestions filtered by the current list. */
+function FreeTextCombobox({
+  options,
+  value,
+  onChange,
+  placeholder,
+  disabled,
+  emptyHint,
+  /** When open and the input still matches the committed value, list every option (not only matches). */
+  showAllUntilTyped = false,
+  maxSuggestions = 40,
+  clearAriaLabel = 'Clear customer ID',
+}: {
+  options: string[]
+  value: string
+  onChange: (value: string) => void
+  placeholder?: string
+  disabled?: boolean
+  emptyHint?: string
+  showAllUntilTyped?: boolean
+  maxSuggestions?: number
+  clearAriaLabel?: string
+}) {
+  const listId = useId()
+  const rootRef = useRef<HTMLDivElement>(null)
+  const inputRef = useRef<HTMLInputElement>(null)
+  const [open, setOpen] = useState(false)
+  const [menuPos, setMenuPos] = useState({ top: 0, left: 0, width: 0 })
+  const [typedAway, setTypedAway] = useState(false)
+
+  const suggestions = useMemo(() => {
+    const q = value.trim().toLowerCase()
+    const listAll = showAllUntilTyped && open && !typedAway
+    const list = listAll || !q
+      ? options
+      : options.filter((option) => option.toLowerCase().includes(q))
+    return list.slice(0, maxSuggestions)
+  }, [options, value, showAllUntilTyped, open, typedAway, maxSuggestions])
+
+  const updateMenuPos = useCallback(() => {
+    const el = inputRef.current
+    if (!el) return
+    const rect = el.getBoundingClientRect()
+    setMenuPos({ top: rect.bottom + 4, left: rect.left, width: rect.width })
+  }, [])
+
+  useEffect(() => {
+    if (!open) return
+    updateMenuPos()
+    const onPointerDown = (event: MouseEvent) => {
+      if (rootRef.current?.contains(event.target as Node)) return
+      const target = event.target as HTMLElement | null
+      if (target?.closest(`[data-inventory-id-menu="${listId}"]`)) return
+      setOpen(false)
+      setTypedAway(false)
+    }
+    const onReposition = () => updateMenuPos()
+    document.addEventListener('mousedown', onPointerDown)
+    window.addEventListener('resize', onReposition)
+    window.addEventListener('scroll', onReposition, true)
+    return () => {
+      document.removeEventListener('mousedown', onPointerDown)
+      window.removeEventListener('resize', onReposition)
+      window.removeEventListener('scroll', onReposition, true)
+    }
+  }, [open, listId, updateMenuPos])
+
+  const pick = (next: string) => {
+    onChange(next)
+    setTypedAway(false)
+    setOpen(false)
+  }
+
   const showMenu = open && !disabled && (suggestions.length > 0 || Boolean(emptyHint))
 
   return (
@@ -187,14 +301,21 @@ function FreeTextCombobox({
         value={value}
         disabled={disabled}
         placeholder={placeholder}
+        autoComplete="off"
         onChange={(e) => {
+          setTypedAway(true)
           onChange(e.target.value)
           setOpen(true)
         }}
-        onFocus={() => setOpen(true)}
+        onFocus={() => {
+          setTypedAway(false)
+          setOpen(true)
+          queueMicrotask(() => inputRef.current?.select())
+        }}
         onKeyDown={(e) => {
           if (e.key === 'Escape') {
             setOpen(false)
+            setTypedAway(false)
             return
           }
           if (e.key === 'Enter' && open && suggestions[0]) {
@@ -209,9 +330,11 @@ function FreeTextCombobox({
           className="job-board-wo-clear"
           onClick={() => {
             onChange('')
+            setTypedAway(true)
             setOpen(true)
+            inputRef.current?.focus()
           }}
-          aria-label="Clear customer ID"
+          aria-label={clearAriaLabel}
         >
           ×
         </button>
@@ -229,7 +352,7 @@ function FreeTextCombobox({
                 left: menuPos.left,
                 width: menuPos.width,
                 right: 'auto',
-                zIndex: 80,
+                zIndex: 220,
               }}
             >
               {suggestions.length > 0 ? (
@@ -438,7 +561,7 @@ export function AdminInventoryPage() {
   const [expandedRowId, setExpandedRowId] = useState<string | null>(null)
   const [sendingReport, setSendingReport] = useState(false)
   const [sendingMonthly, setSendingMonthly] = useState(false)
-  const [printingBrother, setPrintingBrother] = useState(false)
+  const [printingLabel, setPrintingLabel] = useState(false)
   const [removeReason, setRemoveReason] = useState('')
   const [removePoNumber, setRemovePoNumber] = useState('')
   const [removing, setRemoving] = useState(false)
@@ -1007,35 +1130,32 @@ export function AdminInventoryPage() {
     if (error) showToast(error)
   }
 
-  const printQr = () => {
-    if (!qrItem) return
-    const { error } = printInventoryQrSheet([qrItem])
-    if (error) showToast(error)
-  }
-
-  const printBrotherLabels = async (items: InventoryRecord[]) => {
-    setPrintingBrother(true)
+  const printBarcodeLabels = async (items: InventoryRecord[]) => {
+    setPrintingLabel(true)
     try {
-      await printInventoryQrToBrotherUsb(items)
-      showToast(
-        items.length === 1
-          ? 'Sent label to barcode printer'
-          : `Sent ${items.length} labels to barcode printer`,
-      )
+      const result = await printInventoryQrToBixolon(items)
+      showToast(result.message)
     } catch (error) {
       showToast(error instanceof Error ? error.message : 'Could not print on barcode printer')
     } finally {
-      setPrintingBrother(false)
+      setPrintingLabel(false)
     }
   }
 
-  const printQrOnBrother = () => {
+  const printQrOnBarcodePrinter = () => {
     if (!qrItem) return
-    void printBrotherLabels([qrItem])
+    void printBarcodeLabels([qrItem])
   }
 
-  const printSelectedOnBrother = () => {
-    void printBrotherLabels(selectedPrintable)
+  const editFromQr = () => {
+    if (!qrItem || isInventoryRemoved(qrItem)) return
+    const row = qrItem
+    closeQr()
+    openEdit(row)
+  }
+
+  const printSelectedOnBarcodePrinter = () => {
+    void printBarcodeLabels(selectedPrintable)
   }
 
   const setCustomerFilterValue = (value: string) => {
@@ -1355,10 +1475,10 @@ export function AdminInventoryPage() {
                   <button
                     type="button"
                     className="button-primary"
-                    disabled={printingBrother}
-                    onClick={printSelectedOnBrother}
+                    disabled={printingLabel}
+                    onClick={printSelectedOnBarcodePrinter}
                   >
-                    {printingBrother ? 'Printing…' : 'Print on barcode printer'}
+                    {printingLabel ? 'Printing…' : 'Print on barcode printer'}
                   </button>
                 </div>
               ) : null}
@@ -1688,6 +1808,18 @@ export function AdminInventoryPage() {
                                   </span>
                                 </div>
                                 <div className="inventory-detail-item">
+                                  <span className="inventory-detail-label">Traveler / MTR link</span>
+                                  <span className="inventory-detail-value">
+                                    {row.traveler_link ? (
+                                      <a href={row.traveler_link} target="_blank" rel="noreferrer">
+                                        Open link
+                                      </a>
+                                    ) : (
+                                      '—'
+                                    )}
+                                  </span>
+                                </div>
+                                <div className="inventory-detail-item">
                                   <span className="inventory-detail-label">Manufacturer</span>
                                   <span className="inventory-detail-value">{display(row.manufacturer_name)}</span>
                                 </div>
@@ -1759,13 +1891,19 @@ export function AdminInventoryPage() {
       </section>
 
       {modalOpen ? (
-        <div className="modal-overlay" role="presentation" onClick={closeModal}>
+        <div
+          className="modal-overlay"
+          role="presentation"
+          onMouseDown={(e) => {
+            if (e.target === e.currentTarget) closeModal()
+          }}
+        >
           <div
             className="modal-card modal-card-wide inventory-modal"
             role="dialog"
             aria-modal="true"
             aria-labelledby="inventory-modal-title"
-            onClick={(e) => e.stopPropagation()}
+            onMouseDown={(e) => e.stopPropagation()}
           >
             <div className="technician-modal-head">
               <div>
@@ -1808,12 +1946,15 @@ export function AdminInventoryPage() {
                     </span>
                   </Field>
                   <Field label="Customer" required>
-                    <DatalistInput
-                      listId="inventory-customer-list"
+                    <FreeTextCombobox
                       options={customers}
                       value={form.customer}
                       onChange={(customer) => patchForm({ customer })}
-                      placeholder="Customer name"
+                      placeholder="Select or type a customer"
+                      showAllUntilTyped
+                      maxSuggestions={500}
+                      clearAriaLabel="Clear customer"
+                      emptyHint="No customers found — type a new name"
                     />
                   </Field>
                   <Field label="Customer ID #">
@@ -1837,22 +1978,20 @@ export function AdminInventoryPage() {
                     />
                   </Field>
                   <Field label="Origin / location">
-                    <select
+                    <ModalSelect
+                      aria-label="Origin / location"
                       value={form.origin}
-                      onChange={(e) =>
+                      onChange={(origin) =>
                         patchForm({
-                          origin: e.target.value,
-                          originOther: e.target.value === 'other' ? form.originOther : '',
+                          origin,
+                          originOther: origin === 'other' ? form.originOther : '',
                         })
                       }
-                    >
-                      <option value="">— Select —</option>
-                      {INVENTORY_ORIGINS.map((option) => (
-                        <option key={option} value={option}>
-                          {option === 'other' ? 'Other' : option}
-                        </option>
-                      ))}
-                    </select>
+                      options={INVENTORY_ORIGINS.map((option) => ({
+                        value: option,
+                        label: option === 'other' ? 'Other' : option,
+                      }))}
+                    />
                   </Field>
                   {form.origin === 'other' ? (
                     <Field label="Other location" required>
@@ -1865,25 +2004,23 @@ export function AdminInventoryPage() {
                     </Field>
                   ) : null}
                   <Field label="New or reconditioned" required>
-                    <select
+                    <ModalSelect
+                      aria-label="New or reconditioned"
                       value={form.condition}
-                      onChange={(e) =>
+                      onChange={(condition) =>
                         patchForm({
-                          condition: e.target.value as InventoryCondition | '',
+                          condition: condition as InventoryCondition | '',
                           manufacturerSerialNo:
-                            e.target.value === 'new' ? form.manufacturerSerialNo : '',
+                            condition === 'new' ? form.manufacturerSerialNo : '',
                           repairTagNumber:
-                            e.target.value === 'reconditioned' ? form.repairTagNumber : '',
+                            condition === 'reconditioned' ? form.repairTagNumber : '',
                         })
                       }
-                    >
-                      <option value="">— Select —</option>
-                      {INVENTORY_CONDITIONS.map((option) => (
-                        <option key={option.value} value={option.value}>
-                          {option.label}
-                        </option>
-                      ))}
-                    </select>
+                      options={INVENTORY_CONDITIONS.map((option) => ({
+                        value: option.value,
+                        label: option.label,
+                      }))}
+                    />
                   </Field>
                   {form.condition === 'new' ? (
                     <Field label="Manufacturer serial number" required>
@@ -1957,11 +2094,30 @@ export function AdminInventoryPage() {
                   <h4>MTR / traveler document</h4>
                   <p>
                     {modalMode === 'duplicate'
-                      ? 'PDF is not copied — upload the MTR or traveler for this duplicate if needed.'
-                      : 'Optional PDF attachment for the MTR or traveler.'}
+                      ? 'PDF is not copied — add a PDF and/or traveler link for this duplicate if needed.'
+                      : 'Optional PDF upload and/or link to the traveler or MTR.'}
                   </p>
                 </div>
                 <DocumentCard draft={documentDraft} onPick={pickDocument} onClear={clearDocument} />
+                <Field label="Traveler / MTR link" className="inventory-field-wide">
+                  <input
+                    type="url"
+                    inputMode="url"
+                    value={form.travelerLink}
+                    onChange={(e) => patchForm({ travelerLink: e.target.value })}
+                    placeholder="https://… (SharePoint, OneDrive, etc.)"
+                  />
+                  {normalizeTravelerLink(form.travelerLink) ? (
+                    <a
+                      className="inventory-traveler-link-open"
+                      href={normalizeTravelerLink(form.travelerLink) ?? undefined}
+                      target="_blank"
+                      rel="noreferrer"
+                    >
+                      Open link
+                    </a>
+                  ) : null}
+                </Field>
               </section>
 
               <section className="inventory-form-section">
@@ -1971,74 +2127,88 @@ export function AdminInventoryPage() {
                 </div>
                 <div className="inventory-form-grid">
                   <Field label="Manufacturer">
-                    <DatalistInput
-                      listId="inventory-manufacturer-list"
+                    <FreeTextCombobox
                       options={manufacturers}
                       value={form.manufacturerName}
                       onChange={(manufacturerName) => patchForm({ manufacturerName })}
+                      placeholder="Select or type a manufacturer"
+                      showAllUntilTyped
+                      maxSuggestions={500}
+                      clearAriaLabel="Clear manufacturer"
+                      emptyHint="No manufacturers found — type a new name"
                     />
                   </Field>
                   <Field label="Valve type">
-                    <DatalistInput
-                      listId="inventory-valve-type-list"
+                    <FreeTextCombobox
                       options={valveTypes}
                       value={form.valveType}
                       onChange={(valveType) => patchForm({ valveType })}
+                      placeholder="Select or type a valve type"
+                      showAllUntilTyped
+                      maxSuggestions={500}
+                      clearAriaLabel="Clear valve type"
+                      emptyHint="No valve types found — type a new name"
                     />
                   </Field>
                   <Field label="Size">
-                    <DatalistInput
-                      listId="inventory-size-list"
+                    <FreeTextCombobox
                       options={sizes}
                       value={form.size}
                       onChange={(size) => patchForm({ size })}
+                      placeholder="Select or type a size"
+                      showAllUntilTyped
+                      maxSuggestions={500}
+                      clearAriaLabel="Clear size"
+                      emptyHint="No sizes found — type a new size"
                     />
                   </Field>
                   <Field label="Pressure">
-                    <select value={form.pressure} onChange={(e) => patchForm({ pressure: e.target.value })}>
-                      <option value="">— Select —</option>
-                      {pressureClasses.map((option) => (
-                        <option key={option} value={option}>
-                          {option}
-                        </option>
-                      ))}
-                      {form.pressure &&
-                      !pressureClasses.some((option) => option.toLowerCase() === form.pressure.toLowerCase()) ? (
-                        <option value={form.pressure}>{form.pressure}</option>
-                      ) : null}
-                    </select>
+                    <ModalSelect
+                      aria-label="Pressure"
+                      value={form.pressure}
+                      onChange={(pressure) => patchForm({ pressure })}
+                      options={[
+                        ...pressureClasses.map((option) => ({ value: option, label: option })),
+                        ...(form.pressure &&
+                        !pressureClasses.some((option) => option.toLowerCase() === form.pressure.toLowerCase())
+                          ? [{ value: form.pressure, label: form.pressure }]
+                          : []),
+                      ]}
+                    />
                   </Field>
                   <Field label="Body material">
-                    <DatalistInput
-                      listId="inventory-body-material-list"
+                    <FreeTextCombobox
                       options={bodyMaterials}
                       value={form.bodyMaterial}
                       onChange={(bodyMaterial) => patchForm({ bodyMaterial })}
+                      placeholder="Select or type a body material"
+                      showAllUntilTyped
+                      maxSuggestions={500}
+                      clearAriaLabel="Clear body material"
+                      emptyHint="No materials found — type a new material"
                     />
                   </Field>
                   <Field label="API trim">
-                    <select value={form.apiTrim} onChange={(e) => patchForm({ apiTrim: e.target.value })}>
-                      <option value="">— Select —</option>
-                      {apiTrims.map((option) => (
-                        <option key={option} value={option}>
-                          {option}
-                        </option>
-                      ))}
-                      {form.apiTrim &&
-                      !apiTrims.some((option) => option.toLowerCase() === form.apiTrim.toLowerCase()) ? (
-                        <option value={form.apiTrim}>{form.apiTrim}</option>
-                      ) : null}
-                    </select>
+                    <ModalSelect
+                      aria-label="API trim"
+                      value={form.apiTrim}
+                      onChange={(apiTrim) => patchForm({ apiTrim })}
+                      options={[
+                        ...apiTrims.map((option) => ({ value: option, label: option })),
+                        ...(form.apiTrim &&
+                        !apiTrims.some((option) => option.toLowerCase() === form.apiTrim.toLowerCase())
+                          ? [{ value: form.apiTrim, label: form.apiTrim }]
+                          : []),
+                      ]}
+                    />
                   </Field>
                   <Field label="Operator">
-                    <select value={form.operator} onChange={(e) => patchForm({ operator: e.target.value })}>
-                      <option value="">— Select —</option>
-                      {INVENTORY_OPERATORS.map((option) => (
-                        <option key={option} value={option}>
-                          {option}
-                        </option>
-                      ))}
-                    </select>
+                    <ModalSelect
+                      aria-label="Operator"
+                      value={form.operator}
+                      onChange={(operator) => patchForm({ operator })}
+                      options={INVENTORY_OPERATORS.map((option) => ({ value: option, label: option }))}
+                    />
                   </Field>
                   <label className="inventory-checkbox-field">
                     <input
@@ -2243,22 +2413,26 @@ export function AdminInventoryPage() {
               <button type="button" className="button-secondary" onClick={closeQr}>
                 Close
               </button>
-              {qrItem.qr_code_data_url && !isInventoryRemoved(qrItem) ? (
+              {!isInventoryRemoved(qrItem) ? (
                 <>
-                  <button type="button" className="button-secondary" onClick={downloadQr}>
-                    Download QR
+                  {qrItem.qr_code_data_url ? (
+                    <button type="button" className="button-secondary" onClick={downloadQr}>
+                      Download QR
+                    </button>
+                  ) : null}
+                  <button type="button" className="button-secondary" onClick={editFromQr}>
+                    Edit
                   </button>
-                  <button type="button" className="button-secondary" onClick={printQr}>
-                    Print sheet
-                  </button>
-                  <button
-                    type="button"
-                    className="button-primary"
-                    disabled={printingBrother}
-                    onClick={printQrOnBrother}
-                  >
-                    {printingBrother ? 'Printing…' : 'Print on barcode printer'}
-                  </button>
+                  {qrItem.qr_code_data_url ? (
+                    <button
+                      type="button"
+                      className="button-primary"
+                      disabled={printingLabel}
+                      onClick={printQrOnBarcodePrinter}
+                    >
+                      {printingLabel ? 'Printing…' : 'Print on barcode printer'}
+                    </button>
+                  ) : null}
                 </>
               ) : null}
             </div>
