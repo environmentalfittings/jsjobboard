@@ -187,16 +187,24 @@ type SerialPortLike = {
   getInfo?: () => { bluetoothServiceClassId?: number | string; usbVendorId?: number }
 }
 
+type SerialRequestOptions = {
+  filters?: Array<{ usbVendorId?: number; bluetoothServiceClassId?: number | string }>
+  allowedBluetoothServiceClassIds?: Array<number | string>
+}
+
 type SerialNavigator = Navigator & {
   serial: {
-    requestPort: (options?: {
-      filters?: Array<{ usbVendorId?: number; bluetoothServiceClassId?: number | string }>
-    }) => Promise<SerialPortLike>
+    requestPort: (options?: SerialRequestOptions) => Promise<SerialPortLike>
+    getPorts?: () => Promise<SerialPortLike[]>
   }
 }
 
 export type SerialSendOptions = {
-  /** Prefer paired Bluetooth Classic SPP (RFCOMM) — Chrome 117+ desktop. */
+  /**
+   * Prefer Bluetooth / wireless serial.
+   * On Windows, open the picker with no USB-only filters so mapped COM ports
+   * (Standard Serial over Bluetooth link) appear — strict BT filters often show nothing.
+   */
   bluetoothOnly?: boolean
 }
 
@@ -219,6 +227,37 @@ async function writeSerialChunks(
   }
 }
 
+async function requestSerialPort(
+  serial: SerialNavigator['serial'],
+  bluetoothOnly: boolean,
+): Promise<SerialPortLike> {
+  // No filters: Windows often exposes the paired Bixolon as a COM port
+  // ("Standard Serial over Bluetooth link"). Filtering to bluetoothServiceClassId
+  // alone frequently shows an empty Chrome picker.
+  const openPicker = () =>
+    serial.requestPort(
+      bluetoothOnly
+        ? { allowedBluetoothServiceClassIds: [BLUETOOTH_SPP_SERVICE] }
+        : {
+            allowedBluetoothServiceClassIds: [BLUETOOTH_SPP_SERVICE],
+            filters: [
+              { usbVendorId: 0x1504 },
+              { usbVendorId: 0x0419 },
+              { bluetoothServiceClassId: BLUETOOTH_SPP_SERVICE },
+            ],
+          },
+    )
+
+  try {
+    return await openPicker()
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error)
+    if (/cancel|denied|No port selected/i.test(message)) throw error
+    // Last resort: every serial port Chrome can see
+    return serial.requestPort()
+  }
+}
+
 /**
  * Send ESC/POS over Web Serial.
  * Use `bluetoothOnly: true` for a paired Bixolon SPP-R200III over Bluetooth Classic (Chrome desktop).
@@ -233,24 +272,7 @@ export async function sendEscPosOverWebSerial(
 
   const serial = (navigator as SerialNavigator).serial
   const bluetoothOnly = Boolean(options.bluetoothOnly)
-
-  let port: SerialPortLike
-  try {
-    port = await serial.requestPort({
-      filters: bluetoothOnly
-        ? [{ bluetoothServiceClassId: BLUETOOTH_SPP_SERVICE }]
-        : [
-            { usbVendorId: 0x1504 },
-            { usbVendorId: 0x0419 },
-            { bluetoothServiceClassId: BLUETOOTH_SPP_SERVICE },
-          ],
-    })
-  } catch (error) {
-    // Filters can reject if the OS lists the port differently — let the user pick any port.
-    const message = error instanceof Error ? error.message : String(error)
-    if (/cancel|denied|No port selected/i.test(message)) throw error
-    port = await serial.requestPort()
-  }
+  const port = await requestSerialPort(serial, bluetoothOnly)
 
   // Baud is ignored for Bluetooth RFCOMM but required by the API.
   await port.open({ baudRate: 115200, bufferSize: 16 * 1024 })

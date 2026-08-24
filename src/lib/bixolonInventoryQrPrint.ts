@@ -7,7 +7,7 @@ import {
   resolveBixolonLabelSettings,
   type BixolonLabelPrintOverrides,
 } from '../constants/bixolonSppR200III'
-import { buildBixolonLabelEscPos, sendEscPosOverWebSerial, sendEscPosOverWebUsb } from './bixolonEscPos'
+import { buildBixolonLabelEscPos } from './bixolonEscPos'
 import {
   BIXOLON_LOCAL_SDK_BASES,
   BIXOLON_MPRINT_DEFAULT_PRINTER,
@@ -256,13 +256,16 @@ function openBixolonPrintHelper(canvases: HTMLCanvasElement[]): void {
 <body>
   <div class="wrap">
     <div class="warn no-print" id="warn-desktop">
-      <strong>On Windows: use Print via Bluetooth</strong> when the SPP-R200III is paired.
-      That sends one label straight over Bluetooth — pairing alone is enough (no mPrint app required).
+      <strong>On Windows Chrome: tap Print via Bluetooth / COM port</strong>
+      Pair the SPP-R200III in Windows Bluetooth settings first.
+      Chrome will list ports — pick <span class="mono">SPP-R200III</span> or
+      <span class="mono">Standard Serial over Bluetooth link (COMx)</span>.
       <p style="margin:0.75rem 0 0">
-        <strong>Print with mPrint</strong> only works if Bixolon <strong>Web Print SDK</strong> (Windows)
-        is installed, running in the tray, and listening on port <span class="mono">18080</span>
-        with the printer registered as <span class="mono">Printer1</span>.
-        Chrome also needs the SDK’s <strong>Use Certificate (SSL)</strong> setting on for this HTTPS site.
+        If the list is empty: Device Manager → Ports (COM &amp; LPT) should show a Bluetooth COM port.
+        If you only installed a Windows “printer” driver, remove it and pair again as a Bluetooth device.
+      </p>
+      <p style="margin:0.75rem 0 0">
+        <strong>mPrint / Web Print SDK</strong> is separate and usually not needed on Windows.
       </p>
     </div>
     <div class="warn no-print" id="warn-ios" style="display:none">
@@ -283,7 +286,7 @@ function openBixolonPrintHelper(canvases: HTMLCanvasElement[]): void {
         style="width:100%;padding:0.5rem 0.65rem;border:1px solid #cbd5e1;border-radius:8px;font:14px/1.2 system-ui,sans-serif" />
     </div>
     <div class="actions no-print" id="actions-desktop">
-      <button type="button" class="primary" id="bluetooth-btn">Print via Bluetooth</button>
+      <button type="button" class="primary" id="bluetooth-btn">Print via Bluetooth / COM port</button>
       <button type="button" id="mprint-send-btn">Print with mPrint / Web Print SDK</button>
       <button type="button" id="sdk-check-btn">Check if SDK is running</button>
       <button type="button" id="download-btn">Download .prn (one label)</button>
@@ -488,24 +491,29 @@ function openBixolonPrintHelper(canvases: HTMLCanvasElement[]): void {
       setStatus('Downloaded inventory-label-bixolon.prn — send with Bixolon utility or copy to the printer COM port.');
     };
     async function sendOverSerial(bluetoothOnly) {
-      setStatus(bluetoothOnly ? 'Select the paired Bixolon Bluetooth port…' : 'Select the Bixolon port…');
+      setStatus(bluetoothOnly
+        ? 'Select SPP-R200III or a Bluetooth COM port…'
+        : 'Select the Bixolon port…');
       try {
         if (!('serial' in navigator)) {
-          var iosMsg = 'This iPad browser cannot print via Bluetooth from the website. Use Share / Save label image + Bixolon mPrint, or print from a Windows/Mac Chrome PC.';
+          var iosMsg = 'This browser cannot print via Bluetooth/serial from the website. Use Chrome on Windows/Mac, or Share / Save on iPad with mPrint.';
           setStatus(iosMsg);
           alert(iosMsg);
           return;
         }
-        var filters = bluetoothOnly
-          ? [{ bluetoothServiceClassId: 0x1101 }]
-          : [
-              { usbVendorId: 0x1504 },
-              { usbVendorId: 0x0419 },
-              { bluetoothServiceClassId: 0x1101 },
-            ];
         var port;
         try {
-          port = await navigator.serial.requestPort({ filters: filters });
+          // No USB/BT-only filters for Bluetooth path — Windows COM ports must appear.
+          port = bluetoothOnly
+            ? await navigator.serial.requestPort({ allowedBluetoothServiceClassIds: [0x1101] })
+            : await navigator.serial.requestPort({
+                allowedBluetoothServiceClassIds: [0x1101],
+                filters: [
+                  { usbVendorId: 0x1504 },
+                  { usbVendorId: 0x0419 },
+                  { bluetoothServiceClassId: 0x1101 },
+                ],
+              });
         } catch (filterErr) {
           if (filterErr && /cancel|denied|No port selected/i.test(String(filterErr.message || filterErr))) {
             throw filterErr;
@@ -522,10 +530,15 @@ function openBixolonPrintHelper(canvases: HTMLCanvasElement[]): void {
         writer.releaseLock();
         await port.close();
         setStatus(bluetoothOnly
-          ? 'Sent one-label job over Bluetooth.'
+          ? 'Sent one-label job over Bluetooth/COM.'
           : 'Sent one-label ESC/POS job over serial/USB.');
       } catch (err) {
-        setStatus((err && err.message) ? err.message : 'Could not send to printer');
+        var msg = (err && err.message) ? err.message : 'Could not send to printer';
+        if (/cancel|denied|No port selected/i.test(msg)) {
+          msg = 'No port selected. If the list was empty: pair the SPP-R200III in Windows Bluetooth, then check Device Manager for a COM port (Standard Serial over Bluetooth link). Use Google Chrome (not Edge/Safari).';
+        }
+        setStatus(msg);
+        alert(msg);
       }
     }
     document.getElementById('bluetooth-btn').onclick = function () { void sendOverSerial(true); };
@@ -556,61 +569,13 @@ export async function printInventoryQrToBixolon(
     canvases.push(await renderLabelCanvas(item, overrides))
   }
 
-  if ('usb' in navigator) {
-    try {
-      const jobs = canvases.map((canvas) => buildBixolonLabelEscPos(canvas))
-      const combined = new Uint8Array(jobs.reduce((sum, job) => sum + job.length, 0))
-      let offset = 0
-      for (const job of jobs) {
-        combined.set(job, offset)
-        offset += job.length
-      }
-      await sendEscPosOverWebUsb(combined)
-      return {
-        method: 'usb',
-        message:
-          items.length === 1
-            ? 'Sent label to Bixolon (USB / receipt mode)'
-            : `Sent ${items.length} labels to Bixolon (USB / receipt mode)`,
-      }
-    } catch (error) {
-      const message = error instanceof Error ? error.message : String(error)
-      if (!/cancel|denied|No device selected/i.test(message)) {
-        console.warn('Bixolon WebUSB print failed:', error)
-      }
-    }
-  }
-
-  if ('serial' in navigator) {
-    try {
-      const jobs = canvases.map((canvas) => buildBixolonLabelEscPos(canvas))
-      const combined = new Uint8Array(jobs.reduce((sum, job) => sum + job.length, 0))
-      let offset = 0
-      for (const job of jobs) {
-        combined.set(job, offset)
-        offset += job.length
-      }
-      // Prefer Bluetooth Classic SPP when the printer is already paired.
-      await sendEscPosOverWebSerial(combined, { bluetoothOnly: true })
-      return {
-        method: 'usb',
-        message:
-          items.length === 1
-            ? 'Sent label to Bixolon over Bluetooth'
-            : `Sent ${items.length} labels to Bixolon over Bluetooth`,
-      }
-    } catch (error) {
-      const message = error instanceof Error ? error.message : String(error)
-      if (!/cancel|denied|No port selected/i.test(message)) {
-        console.warn('Bixolon Bluetooth/serial print failed, opening helper:', error)
-      }
-    }
-  }
-
+  // Open the helper immediately so the user can pick Print via Bluetooth / COM.
+  // Auto-prompting WebUSB / filtered Bluetooth often shows an empty Chrome list first
+  // and looks like Bluetooth “isn’t offered.”
   openBixolonPrintHelper(canvases)
   return {
     method: 'html',
     message:
-      'Print helper opened — use Print via Bluetooth (pair first), or Download .prn.',
+      'Print helper opened — use Print via Bluetooth / COM port (pair the SPP-R200III first).',
   }
 }
