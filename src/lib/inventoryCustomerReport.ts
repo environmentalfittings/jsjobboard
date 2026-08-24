@@ -124,24 +124,89 @@ export function groupInventoryByCustomer(
     .sort((a, b) => a.customer.localeCompare(b.customer, undefined, { sensitivity: 'base' }))
 }
 
-function lineForItem(item: InventoryRecord): string {
-  const parts = [
-    item.js_inventory_id?.trim() || item.id.slice(0, 8),
-    item.valve_type_label?.trim() || item.valve_type_id?.trim() || null,
-    item.size?.trim() || null,
-    item.pressure?.trim() || null,
-    item.body_material?.trim() || null,
-    item.origin?.trim() ? `Origin: ${item.origin.trim()}` : null,
-    item.condition === 'new'
-      ? `New · S/N ${item.manufacturer_serial_no?.trim() || '—'}`
-      : item.condition === 'reconditioned'
-        ? `Reconditioned · Tag ${item.repair_tag_number?.trim() || '—'}`
-        : null,
-    item.document_url ? `PDF: ${item.document_name?.trim() || 'attached'}` : null,
-    item.traveler_link?.trim() ? `Traveler link: ${item.traveler_link.trim()}` : null,
-    item.hf_acid ? 'HF Acid' : null,
-  ].filter(Boolean)
-  return parts.join(' | ')
+export type InventoryCustomerIdGroup = {
+  customerIdNo: string
+  items: InventoryRecord[]
+  qty: number
+  manufacturer: string
+  valveType: string
+  size: string
+  pressure: string
+  bodyMaterial: string
+  operator: string
+  apiTrim: string
+  origin: string
+  conditionSummary: string
+  hfAcid: boolean
+  jsInventoryIds: string[]
+}
+
+function uniqueJoined(
+  items: InventoryRecord[],
+  pick: (item: InventoryRecord) => string | null | undefined,
+): string {
+  const values = [
+    ...new Set(
+      items
+        .map((item) => pick(item)?.trim())
+        .filter((value): value is string => Boolean(value)),
+    ),
+  ]
+  return values.length ? values.join(', ') : '—'
+}
+
+export function groupInventoryByCustomerIdNo(items: InventoryRecord[]): InventoryCustomerIdGroup[] {
+  const map = new Map<string, InventoryRecord[]>()
+  for (const item of items) {
+    const key = item.customer_id_no?.trim() || 'No customer ID'
+    const list = map.get(key)
+    if (list) list.push(item)
+    else map.set(key, [item])
+  }
+
+  return [...map.entries()]
+    .map(([customerIdNo, groupItems]) => {
+      const sorted = [...groupItems].sort((a, b) =>
+        String(a.js_inventory_id ?? '').localeCompare(String(b.js_inventory_id ?? ''), undefined, {
+          numeric: true,
+          sensitivity: 'base',
+        }),
+      )
+      const newCount = sorted.filter((item) => item.condition === 'new').length
+      const recondCount = sorted.filter((item) => item.condition === 'reconditioned').length
+      const conditionParts: string[] = []
+      if (newCount) conditionParts.push(`New ×${newCount}`)
+      if (recondCount) conditionParts.push(`Recond. ×${recondCount}`)
+      const unmarked = sorted.length - newCount - recondCount
+      if (unmarked > 0) conditionParts.push(`Other ×${unmarked}`)
+
+      return {
+        customerIdNo,
+        items: sorted,
+        qty: sorted.length,
+        manufacturer: uniqueJoined(sorted, (item) => item.manufacturer_name),
+        valveType: uniqueJoined(sorted, (item) => item.valve_type_label || item.valve_type_id),
+        size: uniqueJoined(sorted, (item) => item.size),
+        pressure: uniqueJoined(sorted, (item) => item.pressure),
+        bodyMaterial: uniqueJoined(sorted, (item) => item.body_material),
+        operator: uniqueJoined(sorted, (item) => item.operator),
+        apiTrim: uniqueJoined(sorted, (item) => item.api_trim),
+        origin: uniqueJoined(sorted, (item) => item.origin),
+        conditionSummary: conditionParts.join(' · ') || '—',
+        hfAcid: sorted.some((item) => item.hf_acid),
+        jsInventoryIds: sorted
+          .map((item) => item.js_inventory_id?.trim())
+          .filter((value): value is string => Boolean(value)),
+      }
+    })
+    .sort((a, b) => {
+      if (a.customerIdNo === 'No customer ID') return 1
+      if (b.customerIdNo === 'No customer ID') return -1
+      return a.customerIdNo.localeCompare(b.customerIdNo, undefined, {
+        numeric: true,
+        sensitivity: 'base',
+      })
+    })
 }
 
 export function formatInventoryCustomerReportMessage(options: {
@@ -154,7 +219,20 @@ export function formatInventoryCustomerReportMessage(options: {
   const customer = options.customer.trim() || 'Unassigned customer'
   const period = options.periodLabel.trim() || currentInventoryReportPeriod()
   const subject = `Monthly inventory report — ${customer} (${period})`
-  const lines = options.items.map(lineForItem)
+  const groups = groupInventoryByCustomerIdNo(options.items)
+  const lines = groups.map((group) => {
+    const desc = [
+      group.manufacturer !== '—' ? group.manufacturer : null,
+      group.valveType !== '—' ? group.valveType : null,
+      group.size !== '—' ? group.size : null,
+      group.pressure !== '—' ? group.pressure : null,
+      group.bodyMaterial !== '—' ? group.bodyMaterial : null,
+    ]
+      .filter(Boolean)
+      .join(' · ')
+    const ids = group.jsInventoryIds.length ? ` [${group.jsInventoryIds.join(', ')}]` : ''
+    return `Customer ID ${group.customerIdNo} · Qty ${group.qty} · ${desc || 'Inventory'}${ids}`
+  })
   const salesmanLine = options.salesmanName?.trim()
     ? `Salesman: ${options.salesmanName.trim()}`
     : null
@@ -166,6 +244,7 @@ export function formatInventoryCustomerReportMessage(options: {
     `Period: ${period}`,
     salesmanLine,
     `Items on hand: ${options.items.length}`,
+    `Customer ID groups: ${groups.length}`,
     stats
       ? `This period — Added: ${stats.added} · Removed: ${stats.removed} · Restored: ${stats.restored}`
       : null,
@@ -204,21 +283,26 @@ export async function printInventoryCustomerReport(options: {
   const { subject } = formatInventoryCustomerReportMessage({ ...options, stats })
   const logoDataUrl = await getLogoDataUrl()
   const generatedAt = new Date().toLocaleString()
+  const idGroups = groupInventoryByCustomerIdNo(options.items)
 
-  const rows = options.items
-    .map((item) => {
-      const condition =
-        item.condition === 'new' ? 'New' : item.condition === 'reconditioned' ? 'Recond.' : '—'
+  const rows = idGroups
+    .map((group) => {
+      const ids =
+        group.jsInventoryIds.length > 0
+          ? escape(group.jsInventoryIds.join(', '))
+          : '—'
       return `<tr>
-        <td>${escape(item.js_inventory_id || '—')}</td>
-        <td>${escape(item.valve_type_label || item.valve_type_id || '—')}</td>
-        <td>${escape(item.size || '—')}</td>
-        <td>${escape(item.pressure || '—')}</td>
-        <td>${escape(item.body_material || '—')}</td>
-        <td>${escape(item.origin || '—')}</td>
-        <td>${escape(condition)}</td>
-        <td>${item.hf_acid ? 'Yes' : '—'}</td>
-        <td>${escape(item.notes || '—')}</td>
+        <td class="id-cell">${escape(group.customerIdNo)}</td>
+        <td class="qty-cell">${group.qty}</td>
+        <td>${escape(group.manufacturer)}</td>
+        <td>${escape(group.valveType)}</td>
+        <td>${escape(group.size)}</td>
+        <td>${escape(group.pressure)}</td>
+        <td>${escape(group.bodyMaterial)}</td>
+        <td>${escape(group.origin)}</td>
+        <td>${escape(group.conditionSummary)}</td>
+        <td>${group.hfAcid ? 'Yes' : '—'}</td>
+        <td class="ids-cell">${ids}</td>
       </tr>`
     })
     .join('')
@@ -376,6 +460,11 @@ export async function printInventoryCustomerReport(options: {
       font-size: 11pt;
       color: var(--brand-deep);
     }
+    .section-note {
+      margin: -0.2rem 0 0.55rem;
+      color: var(--muted);
+      font-size: 9pt;
+    }
     table {
       width: 100%;
       border-collapse: collapse;
@@ -396,6 +485,9 @@ export async function printInventoryCustomerReport(options: {
       text-transform: uppercase;
     }
     tbody tr:nth-child(even) td { background: #f8fafb; }
+    td.id-cell { font-weight: 700; white-space: nowrap; }
+    td.qty-cell { font-weight: 700; text-align: center; color: var(--brand-deep); }
+    td.ids-cell { font-size: 7.5pt; color: var(--muted); word-break: break-word; }
     .footer {
       margin-top: 0.85rem;
       padding-top: 0.55rem;
@@ -460,6 +552,7 @@ export async function printInventoryCustomerReport(options: {
     </div>
 
     <div class="substats">
+      <span><strong>Customer ID groups:</strong> ${idGroups.length}</span>
       <span><strong>HF Acid:</strong> ${stats.hfAcid}</span>
       <span><strong>New:</strong> ${stats.newCount}</span>
       <span><strong>Reconditioned:</strong> ${stats.reconditionedCount}</span>
@@ -468,11 +561,17 @@ export async function printInventoryCustomerReport(options: {
       }</span>
     </div>
 
-    <h2 class="section-title">Active inventory</h2>
+    <h2 class="section-title">Inventory by customer ID</h2>
+    <p class="section-note">
+      Valves that share the same customer ID (for example all ½″ Durcos under one ID) are grouped with a quantity.
+      Individual JS inventory IDs are listed in the last column.
+    </p>
     <table>
       <thead>
         <tr>
-          <th>JS inventory ID</th>
+          <th>Customer ID</th>
+          <th>Qty</th>
+          <th>Manufacturer</th>
           <th>Type</th>
           <th>Size</th>
           <th>Pressure</th>
@@ -480,15 +579,20 @@ export async function printInventoryCustomerReport(options: {
           <th>Origin</th>
           <th>Condition</th>
           <th>HF Acid</th>
-          <th>Notes</th>
+          <th>JS inventory IDs</th>
         </tr>
       </thead>
-      <tbody>${rows || `<tr><td colspan="9">No active inventory items for this customer.</td></tr>`}</tbody>
+      <tbody>${
+        rows ||
+        `<tr><td colspan="11">No active inventory items for this customer.</td></tr>`
+      }</tbody>
     </table>
 
     <div class="footer">
       <span>JS Valve Customer Inventory · ${escape(options.periodLabel)}</span>
-      <span>${stats.onHand} on hand · ${stats.added} added · ${stats.removed} removed</span>
+      <span>${stats.onHand} on hand · ${idGroups.length} customer ID group${
+        idGroups.length === 1 ? '' : 's'
+      } · ${stats.added} added · ${stats.removed} removed</span>
     </div>
   </div>
 </body>
