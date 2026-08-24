@@ -7,10 +7,16 @@
  * Works best when mPrint / Web Print SDK is open with the SPP-R200III
  * registered (often "Printer1"). On iPad Safari, if localhost is blocked,
  * open the job board inside the mPrint / Web Print SDK in-app browser.
+ *
+ * On Windows Chrome with a Bluetooth-paired printer, prefer Web Serial
+ * ("Print via Bluetooth") — the local SDK is often not installed, and
+ * HTTPS→localhost requests hang without a short timeout.
  */
 
 export const BIXOLON_MPRINT_PRINTER_STORAGE_KEY = 'bixolon-mprint-printer-name'
 export const BIXOLON_MPRINT_DEFAULT_PRINTER = 'Printer1'
+/** Fail each localhost attempt quickly so the UI does not hang on “Sending…”. */
+export const BIXOLON_MPRINT_FETCH_TIMEOUT_MS = 2500
 
 /** Candidate local SDK base URLs (path is case-sensitive). */
 export const BIXOLON_LOCAL_SDK_BASES = [
@@ -45,18 +51,37 @@ function buildPosPrintBitmapPayload(imageDataUrls: string[], widthDots: number):
   return JSON.stringify({ id: 1, functions })
 }
 
+async function fetchWithTimeout(
+  url: string,
+  init: RequestInit,
+  timeoutMs: number,
+): Promise<Response> {
+  const controller = new AbortController()
+  const timer = window.setTimeout(() => controller.abort(), timeoutMs)
+  try {
+    return await fetch(url, { ...init, signal: controller.signal })
+  } finally {
+    window.clearTimeout(timer)
+  }
+}
+
 async function postPrintRequest(
   baseUrl: string,
   printerName: string,
   strSubmit: string,
+  timeoutMs: number = BIXOLON_MPRINT_FETCH_TIMEOUT_MS,
 ): Promise<{ ok: true; result: string } | { ok: false; error: string }> {
   const url = `${baseUrl}${encodeURIComponent(printerName)}.bxl`
   try {
-    const res = await fetch(url, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-      body: strSubmit,
-    })
+    const res = await fetchWithTimeout(
+      url,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: strSubmit,
+      },
+      timeoutMs,
+    )
     if (res.status === 404) {
       return { ok: false, error: `No printers (404) at ${url}` }
     }
@@ -88,6 +113,9 @@ async function postPrintRequest(
     if (!result.trim()) return { ok: true, result: 'ok' }
     return { ok: true, result }
   } catch (err) {
+    if (err instanceof DOMException && err.name === 'AbortError') {
+      return { ok: false, error: `Timed out after ${timeoutMs}ms` }
+    }
     const message = err instanceof Error ? err.message : String(err)
     return { ok: false, error: message }
   }
@@ -120,6 +148,7 @@ export async function printLabelPngsViaMPrint(
     printerName?: string
     widthDots?: number
     bases?: readonly string[]
+    timeoutMs?: number
   } = {},
 ): Promise<BixolonMPrintResult> {
   if (!imageDataUrls.length) {
@@ -131,11 +160,12 @@ export async function printLabelPngsViaMPrint(
 
   const widthDots = options.widthDots ?? 384
   const bases = options.bases ?? BIXOLON_LOCAL_SDK_BASES
+  const timeoutMs = options.timeoutMs ?? BIXOLON_MPRINT_FETCH_TIMEOUT_MS
   const payload = buildPosPrintBitmapPayload(imageDataUrls, widthDots)
 
   const errors: string[] = []
   for (const baseUrl of bases) {
-    const attempt = await postPrintRequest(baseUrl, printerName, payload)
+    const attempt = await postPrintRequest(baseUrl, printerName, payload, timeoutMs)
     if (attempt.ok) {
       return { baseUrl, printerName, result: attempt.result }
     }
@@ -145,8 +175,8 @@ export async function printLabelPngsViaMPrint(
   throw new Error(
     [
       `Could not reach Bixolon mPrint / Web Print SDK for printer "${printerName}".`,
-      'Open mPrint (or Web Print SDK), register the SPP-R200III with that logical name, leave the app running, then try again.',
-      'If Safari blocks localhost, open this site inside the mPrint / Web Print SDK browser.',
+      'On Windows with a paired printer, use Print via Bluetooth instead.',
+      'Or install Web Print SDK, register the printer, enable Use Certificate (SSL), leave it running.',
       errors.slice(0, 3).join(' · '),
     ].join(' '),
   )

@@ -11,6 +11,7 @@ import { buildBixolonLabelEscPos, sendEscPosOverWebSerial, sendEscPosOverWebUsb 
 import {
   BIXOLON_LOCAL_SDK_BASES,
   BIXOLON_MPRINT_DEFAULT_PRINTER,
+  BIXOLON_MPRINT_FETCH_TIMEOUT_MS,
   BIXOLON_MPRINT_PRINTER_STORAGE_KEY,
   getStoredMPrintPrinterName,
 } from './bixolonMPrint'
@@ -255,13 +256,13 @@ function openBixolonPrintHelper(canvases: HTMLCanvasElement[]): void {
 <body>
   <div class="wrap">
     <div class="warn no-print" id="warn-desktop">
-      <strong>Chrome cannot use a short label size with this Bixolon driver.</strong>
-      Your only driver sizes are usually <span class="mono">58 × 3276</span>,
-      <span class="mono">58 × 297</span>, or <span class="mono">A4</span> —
-      all feed far more paper than one QR label.
-      <p style="margin:0.75rem 0 0"><strong>Recommended on Windows/Mac Chrome:</strong>
-        pair the SPP-R200III in Bluetooth settings, then use <strong>Print via Bluetooth</strong>
-        for a one-label feed.
+      <strong>On Windows: use Print via Bluetooth</strong> when the SPP-R200III is paired.
+      That sends one label straight over Bluetooth — pairing alone is enough (no mPrint app required).
+      <p style="margin:0.75rem 0 0">
+        <strong>Print with mPrint</strong> only works if Bixolon <strong>Web Print SDK</strong> (Windows)
+        is installed, running in the tray, and listening on port <span class="mono">18080</span>
+        with the printer registered as <span class="mono">Printer1</span>.
+        Chrome also needs the SDK’s <strong>Use Certificate (SSL)</strong> setting on for this HTTPS site.
       </p>
     </div>
     <div class="warn no-print" id="warn-ios" style="display:none">
@@ -276,14 +277,15 @@ function openBixolonPrintHelper(canvases: HTMLCanvasElement[]): void {
         <li>If it fails, open this site <em>inside</em> the mPrint / Web Print SDK browser (Safari may block localhost).</li>
       </ol>
     </div>
-    <div class="no-print" style="margin:0 0 0.75rem">
-      <label for="printer-name" style="display:block;font-size:12px;font-weight:600;margin-bottom:0.25rem">mPrint printer name</label>
+    <div class="no-print" id="mprint-name-row" style="margin:0 0 0.75rem">
+      <label for="printer-name" style="display:block;font-size:12px;font-weight:600;margin-bottom:0.25rem">mPrint / Web Print SDK printer name</label>
       <input id="printer-name" type="text" value="${getStoredMPrintPrinterName().replace(/"/g, '&quot;')}"
         style="width:100%;padding:0.5rem 0.65rem;border:1px solid #cbd5e1;border-radius:8px;font:14px/1.2 system-ui,sans-serif" />
     </div>
     <div class="actions no-print" id="actions-desktop">
-      <button type="button" class="primary" id="mprint-send-btn">Print with mPrint</button>
-      <button type="button" id="bluetooth-btn">Print via Bluetooth</button>
+      <button type="button" class="primary" id="bluetooth-btn">Print via Bluetooth</button>
+      <button type="button" id="mprint-send-btn">Print with mPrint / Web Print SDK</button>
+      <button type="button" id="sdk-check-btn">Check if SDK is running</button>
       <button type="button" id="download-btn">Download .prn (one label)</button>
       <button type="button" id="serial-btn">Send via Serial/USB port</button>
       <button type="button" id="print-btn">Print via Chrome (58×297)</button>
@@ -307,6 +309,7 @@ function openBixolonPrintHelper(canvases: HTMLCanvasElement[]): void {
     var mprintBases = ${JSON.stringify([...BIXOLON_LOCAL_SDK_BASES])};
     var mprintStorageKey = ${JSON.stringify(BIXOLON_MPRINT_PRINTER_STORAGE_KEY)};
     var mprintDefaultPrinter = ${JSON.stringify(BIXOLON_MPRINT_DEFAULT_PRINTER)};
+    var mprintTimeoutMs = ${BIXOLON_MPRINT_FETCH_TIMEOUT_MS};
     var printableWidthDots = ${BIXOLON_SPP_R200III.printableWidthDots};
     function isIos() {
       return /iPad|iPhone|iPod/.test(navigator.userAgent) ||
@@ -346,41 +349,68 @@ function openBixolonPrintHelper(canvases: HTMLCanvasElement[]): void {
         setStatus('No label image available.');
         return;
       }
-      setStatus('Sending label to mPrint…');
+      var sendBtns = [
+        document.getElementById('mprint-send-btn'),
+        document.getElementById('mprint-send-ios-btn'),
+      ];
+      sendBtns.forEach(function (btn) { if (btn) btn.disabled = true; });
+      setStatus('Trying local mPrint / Web Print SDK…');
       var payload = buildMPrintPayload(labelPngDataUrls, printableWidthDots);
       var errors = [];
-      for (var b = 0; b < mprintBases.length; b++) {
-        var baseUrl = mprintBases[b];
-        var url = baseUrl + encodeURIComponent(printerName) + '.bxl';
-        try {
-          var res = await fetch(url, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-            body: payload,
-          });
-          if (res.status === 404) {
-            errors.push(baseUrl + ': No printers (404)');
-            continue;
-          }
-          if (!res.ok) {
-            errors.push(baseUrl + ': HTTP ' + res.status);
-            continue;
-          }
-          var text = await res.text();
-          var result = text;
+      try {
+        for (var b = 0; b < mprintBases.length; b++) {
+          var baseUrl = mprintBases[b];
+          var url = baseUrl + encodeURIComponent(printerName) + '.bxl';
+          setStatus('Trying ' + (b + 1) + '/' + mprintBases.length + ': ' + baseUrl);
+          var controller = new AbortController();
+          var timer = setTimeout(function () { controller.abort(); }, mprintTimeoutMs);
           try {
-            var parsed = JSON.parse(text);
-            if (parsed && typeof parsed.Result === 'string') result = parsed.Result;
-          } catch (e) {}
-          setStatus('Sent to mPrint (' + printerName + ') via ' + baseUrl + ' — ' + (result || 'ok') + '. Print from the app if it asks.');
-          return;
-        } catch (err) {
-          errors.push(baseUrl + ': ' + ((err && err.message) ? err.message : String(err)));
+            var res = await fetch(url, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+              body: payload,
+              signal: controller.signal,
+            });
+            clearTimeout(timer);
+            if (res.status === 404) {
+              errors.push(baseUrl + ': No printers (404)');
+              continue;
+            }
+            if (!res.ok) {
+              errors.push(baseUrl + ': HTTP ' + res.status);
+              continue;
+            }
+            var text = await res.text();
+            var result = text;
+            try {
+              var parsed = JSON.parse(text);
+              if (parsed && typeof parsed.Result === 'string') result = parsed.Result;
+            } catch (e) {}
+            setStatus('Sent to mPrint (' + printerName + ') via ' + baseUrl + ' — ' + (result || 'ok') + '. Print from the app if it asks.');
+            return;
+          } catch (err) {
+            clearTimeout(timer);
+            var errMsg = (err && err.name === 'AbortError')
+              ? ('Timed out after ' + mprintTimeoutMs + 'ms')
+              : ((err && err.message) ? err.message : String(err));
+            errors.push(baseUrl + ': ' + errMsg);
+          }
         }
+        var msg =
+          'Could not reach mPrint / Web Print SDK for "' + printerName + '". ' +
+          'On Windows: use Print via Bluetooth — that prints to your paired SPP-R200III without mPrint. ' +
+          'mPrint only works if Web Print SDK is installed, running on port 18080, and SSL certificate is enabled. ' +
+          errors.slice(0, 2).join(' · ');
+        setStatus(msg);
+        alert(msg);
+      } finally {
+        sendBtns.forEach(function (btn) { if (btn) btn.disabled = false; });
       }
-      var msg = 'Could not reach mPrint for "' + printerName + '". Open mPrint / Web Print SDK with that printer registered and leave it running. If this site is in Safari, try opening the job board inside the mPrint browser. ' + errors.slice(0, 2).join(' · ');
-      setStatus(msg);
-      alert(msg);
+    }
+    function checkSdkRunning() {
+      setStatus('Opening local SDK URLs — if the page fails to load, Web Print SDK / mPrint is not running on port 18080.');
+      window.open('https://127.0.0.1:18080/WebPrintSDK/', '_blank');
+      window.open('http://127.0.0.1:18080/WebPrintSDK/', '_blank');
     }
     function escPosBytes() {
       var binary = atob(escPosBase64);
@@ -405,6 +435,7 @@ function openBixolonPrintHelper(canvases: HTMLCanvasElement[]): void {
     }
     document.getElementById('mprint-send-btn').onclick = function () { void sendViaMPrint(); };
     document.getElementById('mprint-send-ios-btn').onclick = function () { void sendViaMPrint(); };
+    document.getElementById('sdk-check-btn').onclick = function () { checkSdkRunning(); };
     document.getElementById('print-btn').onclick = function () { window.print(); };
     document.getElementById('print-ios-btn').onclick = function () { window.print(); };
     document.getElementById('close-btn').onclick = function () { window.close(); };
