@@ -7,7 +7,11 @@ import {
   resolveBixolonLabelSettings,
   type BixolonLabelPrintOverrides,
 } from '../constants/bixolonSppR200III'
-import { buildBixolonLabelEscPos, sendEscPosOverWebSerial, sendEscPosOverWebUsb } from './bixolonEscPos'
+import {
+  buildBixolonLabelEscPos,
+  requestBixolonSerialPort,
+  writeEscPosToSerialPort,
+} from './bixolonEscPos'
 import {
   BIXOLON_LOCAL_SDK_BASES,
   BIXOLON_MPRINT_DEFAULT_PRINTER,
@@ -495,21 +499,14 @@ function openBixolonPrintHelper(canvases: HTMLCanvasElement[]): void {
           alert(iosMsg);
           return;
         }
-        var serialApi = (window.opener && window.opener.navigator && window.opener.navigator.serial)
-          ? window.opener.navigator.serial
-          : navigator.serial;
+        // Use this window's serial API — opener.serial loses the click gesture and Chrome blocks it.
+        var serialApi = navigator.serial;
         var port;
         try {
-          // Request from opener when possible — Chrome often hides ports in about:blank popups.
           port = bluetoothOnly
             ? await serialApi.requestPort({ allowedBluetoothServiceClassIds: [0x1101] })
             : await serialApi.requestPort({
                 allowedBluetoothServiceClassIds: [0x1101],
-                filters: [
-                  { usbVendorId: 0x1504 },
-                  { usbVendorId: 0x0419 },
-                  { bluetoothServiceClassId: 0x1101 },
-                ],
               });
         } catch (filterErr) {
           if (filterErr && /cancel|denied|No port selected/i.test(String(filterErr.message || filterErr))) {
@@ -549,9 +546,9 @@ function openBixolonPrintHelper(canvases: HTMLCanvasElement[]): void {
 /**
  * Print inventory QR label(s) for Bixolon SPP-R200III.
  *
- * Order: WebUSB (cable) → Web Serial (USB/Bluetooth COM) → helper window.
- * On Windows, a USB cable often installs a printer driver that blocks WebUSB;
- * then pick Bluetooth COM3 (outgoing), not COM4.
+ * Chrome requires requestPort() during the click gesture. We open the COM picker
+ * first, then render the label, then send — so USB image load cannot steal the gesture.
+ * Prefer COM3 (Bluetooth outgoing). Windows USB printer driver usually blocks WebUSB.
  */
 export async function printInventoryQrToBixolon(
   items: InventoryBixolonLabelItem[],
@@ -562,11 +559,34 @@ export async function printInventoryQrToBixolon(
     throw new Error('Select at least one item with a QR code')
   }
 
+  const labelWord = items.length === 1 ? 'label' : `${items.length} labels`
+
+  // 1) Keep user gesture: ask for the port immediately (before canvas/QR work).
+  let port: Awaited<ReturnType<typeof requestBixolonSerialPort>> | null = null
+  if ('serial' in navigator) {
+    try {
+      port = await requestBixolonSerialPort({ bluetoothOnly: true })
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error)
+      if (/cancel|denied|No port selected/i.test(message)) {
+        throw new Error(
+          'No port selected. Choose Standard Serial over Bluetooth link (COM3). COM4 is incoming and will not print. USB cable alone usually cannot send raw labels while the Windows printer driver owns the device.',
+        )
+      }
+      if (/user gesture|User activation/i.test(message)) {
+        throw new Error(
+          'Click Print label again — Chrome must open the port list from that click. Then choose COM3.',
+        )
+      }
+      console.warn('Bixolon serial port request failed, opening helper:', error)
+    }
+  }
+
+  // 2) Build label bytes (safe to await now — port already chosen).
   const canvases: HTMLCanvasElement[] = []
   for (const item of printable) {
     canvases.push(await renderLabelCanvas(item, overrides))
   }
-
   const jobs = canvases.map((canvas) => buildBixolonLabelEscPos(canvas))
   const combined = new Uint8Array(jobs.reduce((sum, job) => sum + job.length, 0))
   let offset = 0
@@ -575,42 +595,11 @@ export async function printInventoryQrToBixolon(
     offset += job.length
   }
 
-  const labelWord =
-    items.length === 1 ? 'label' : `${items.length} labels`
-
-  if ('usb' in navigator) {
-    try {
-      await sendEscPosOverWebUsb(combined)
-      return {
-        method: 'usb',
-        message: `Sent ${labelWord} to Bixolon over USB`,
-      }
-    } catch (error) {
-      const message = error instanceof Error ? error.message : String(error)
-      if (/cancel|denied|No device selected/i.test(message)) {
-        // User dismissed USB picker — fall through to serial / helper
-      } else {
-        console.warn('Bixolon WebUSB print failed:', error)
-      }
-    }
-  }
-
-  if ('serial' in navigator) {
-    try {
-      // Include USB serial + Bluetooth COM (not bluetooth-only).
-      await sendEscPosOverWebSerial(combined, { bluetoothOnly: false })
-      return {
-        method: 'usb',
-        message: `Sent ${labelWord} to Bixolon over serial / COM`,
-      }
-    } catch (error) {
-      const message = error instanceof Error ? error.message : String(error)
-      if (/cancel|denied|No port selected/i.test(message)) {
-        throw new Error(
-          'No port selected. For USB: pick BIXOLON in the device list if shown. If Windows owns the USB printer driver, use Bluetooth COM3 (outgoing) instead of COM4.',
-        )
-      }
-      console.warn('Bixolon serial print failed, opening helper:', error)
+  if (port) {
+    await writeEscPosToSerialPort(port, combined, { bluetoothOnly: true })
+    return {
+      method: 'usb',
+      message: `Sent ${labelWord} to Bixolon (COM / Bluetooth)`,
     }
   }
 
@@ -618,6 +607,6 @@ export async function printInventoryQrToBixolon(
   return {
     method: 'html',
     message:
-      'Print helper opened. USB cable with the Windows printer driver often blocks raw USB — use Send via Serial/USB, or Bluetooth COM3.',
+      'Print helper opened. Tap Print via Bluetooth / COM port and choose COM3 (not COM4).',
   }
 }

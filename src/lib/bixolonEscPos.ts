@@ -324,18 +324,12 @@ async function requestSerialPort(
 }
 
 /**
- * Send ESC/POS over Web Serial.
- * Use `bluetoothOnly: true` for a paired Bixolon SPP-R200III over Bluetooth Classic (Chrome desktop).
- *
- * Must be called from the main page (not an about:blank popup) so Chrome shows the port picker.
- *
- * On Windows Bluetooth, pick the outgoing COM (real device address), not the incoming
- * “000000000000” port — those often show as COM3 (out) and COM4 (in).
+ * Prompt for a serial/COM port while the click gesture is still valid.
+ * Call this BEFORE any slow work (image load / canvas) or Chrome will reject requestPort.
  */
-export async function sendEscPosOverWebSerial(
-  data: Uint8Array,
+export async function requestBixolonSerialPort(
   options: SerialSendOptions = {},
-): Promise<void> {
+): Promise<SerialPortLike> {
   if (!('serial' in navigator)) {
     throw new Error('Web Serial is not available in this browser — use Google Chrome on Windows/Mac')
   }
@@ -343,27 +337,40 @@ export async function sendEscPosOverWebSerial(
   const serial = (navigator as SerialNavigator).serial
   const bluetoothOnly = Boolean(options.bluetoothOnly)
 
-  // Prefer a completely unfiltered picker so Windows COM3/COM4 Bluetooth links always appear.
-  let port: SerialPortLike
   try {
     if (bluetoothOnly) {
       try {
-        port = await serial.requestPort({
+        return await serial.requestPort({
           allowedBluetoothServiceClassIds: [BLUETOOTH_SPP_SERVICE],
         })
       } catch (firstErr) {
         const message = firstErr instanceof Error ? firstErr.message : String(firstErr)
         if (/cancel|denied|No port selected/i.test(message)) throw firstErr
-        port = await serial.requestPort()
+        return await serial.requestPort()
       }
-    } else {
-      port = await requestSerialPort(serial, false)
     }
+    return await requestSerialPort(serial, false)
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error)
     if (/cancel|denied|No port selected/i.test(message)) throw error
-    port = await serial.requestPort()
+    if (/user gesture|User activation/i.test(message)) {
+      throw new Error(
+        'Chrome needs a direct click to open the port list. Click Print label again and choose COM3.',
+      )
+    }
+    return serial.requestPort()
   }
+}
+
+/**
+ * Write ESC/POS to an already-chosen serial port (opened here, closed when done).
+ */
+export async function writeEscPosToSerialPort(
+  port: SerialPortLike,
+  data: Uint8Array,
+  options: SerialSendOptions = {},
+): Promise<void> {
+  const bluetoothOnly = Boolean(options.bluetoothOnly)
 
   try {
     await port.open({
@@ -377,7 +384,7 @@ export async function sendEscPosOverWebSerial(
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error)
     throw new Error(
-      `Could not open the COM port (${message}). Close other apps using the printer, then try the other Bluetooth COM port (use the outgoing link, usually COM3 — not the incoming COM4).`,
+      `Could not open the COM port (${message}). Close other apps using the printer, then try COM3 (outgoing), not COM4.`,
     )
   }
 
@@ -385,7 +392,6 @@ export async function sendEscPosOverWebSerial(
   try {
     if (!port.writable) throw new Error('Serial port is not writable')
 
-    // Bixolon defaults to DTR/DSR handshaking — assert DTR when the API allows it.
     if (typeof port.setSignals === 'function') {
       try {
         await port.setSignals({ dataTerminalReady: true, requestToSend: true })
@@ -394,14 +400,12 @@ export async function sendEscPosOverWebSerial(
       }
     }
 
-    // Small chunks + short gaps are more reliable over Windows Bluetooth RFCOMM.
-    await writeSerialChunks(port.writable, data, bluetoothOnly ? 64 : 512, bluetoothOnly ? 20 : 0)
-    // Give the Bluetooth stack time to flush before closing the port.
-    await sleep(bluetoothOnly ? 900 : 150)
+    await writeSerialChunks(port.writable, data, bluetoothOnly ? 64 : 64, bluetoothOnly ? 20 : 10)
+    await sleep(bluetoothOnly ? 900 : 400)
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error)
     throw new Error(
-      `Print send failed (${message}). Try the other Bluetooth COM port — use outgoing (often COM3), not incoming (often COM4).`,
+      `Print send failed (${message}). Try COM3 (outgoing Bluetooth link), not COM4.`,
     )
   } finally {
     await stopDiscard()
@@ -411,6 +415,21 @@ export async function sendEscPosOverWebSerial(
       /* ignore */
     }
   }
+}
+
+/**
+ * Send ESC/POS over Web Serial.
+ * Use `bluetoothOnly: true` for a paired Bixolon SPP-R200III over Bluetooth Classic (Chrome desktop).
+ *
+ * Prefer {@link requestBixolonSerialPort} + {@link writeEscPosToSerialPort} when you must
+ * keep the user-gesture window (request port before rendering labels).
+ */
+export async function sendEscPosOverWebSerial(
+  data: Uint8Array,
+  options: SerialSendOptions = {},
+): Promise<void> {
+  const port = await requestBixolonSerialPort(options)
+  await writeEscPosToSerialPort(port, data, options)
 }
 
 /** Alias: print one-label ESC/POS job to a paired Bluetooth Classic printer via Web Serial. */
