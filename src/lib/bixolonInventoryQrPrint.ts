@@ -249,33 +249,32 @@ function openBixolonPrintHelper(canvases: HTMLCanvasElement[]): void {
 <body>
   <div class="wrap">
     <div class="warn no-print">
-      <strong>Long feed (several feet) = driver paper size 58×3276.</strong>
-      Windows Print Test Page can work while still using that huge page size for app prints.
+      <strong>Windows driver sizes (58×297 / A4) always feed ~1 ft or more — not one QR label.</strong>
+      The app cannot override those fixed driver sizes from Chrome.
       <ol>
-        <li>Windows → Printers &amp; scanners → <span class="mono">BIXOLON SPP-R200III</span> →
-          <strong>Printing preferences</strong> → <strong>Paper</strong>.</li>
-        <li>Paper type: <strong>Receipt</strong> (not Ticket).</li>
-        <li>Click <span class="mono">…</span> next to paper size → add
-          <span class="mono">58 × 50 mm</span> (name it <span class="mono">JS-INV Label</span>) → Save.</li>
-        <li>Select <span class="mono">JS-INV Label</span> as the paper size → OK / Apply.</li>
-        <li>Then tap <strong>Print to Windows Bixolon</strong> and choose that paper size in Chrome
-          (margins None, scale 100%).</li>
+        <li><strong>Best (one-label):</strong> pair <span class="mono">SPP-R200III</span> in Windows Bluetooth,
+          then <strong>Print via Bluetooth (COM)</strong> and pick
+          <span class="mono">Standard Serial over Bluetooth link (COMx)</span>.</li>
+        <li><strong>Or</strong> <strong>Download .prn</strong> and send with Bixolon utility.</li>
+        <li>Optional Windows form (sometimes works when the driver has no custom size):
+          Control Panel → Devices and Printers → select any printer → Print server properties →
+          <strong>Forms</strong> → create <span class="mono">JS-INV Label</span> at
+          <span class="mono">2.28 in × 2.00 in</span> (≈58×50 mm), then try selecting it under Bixolon preferences.</li>
       </ol>
       <p style="margin:0.75rem 0 0">
-        For a true one-label feed without driver setup, pair Bluetooth and use
-        <strong>Print via Bluetooth (COM)</strong>, or <strong>Download .prn</strong>.
+        <strong>Print to Windows Bixolon</strong> only if you accept ~58×297 feed (about one foot of paper).
       </p>
     </div>
     <div class="actions no-print">
-      <button type="button" class="primary" id="print-btn">Print to Windows Bixolon</button>
-      <button type="button" id="bluetooth-btn">Print via Bluetooth (COM)</button>
-      <button type="button" id="usb-btn">Print via USB (WebUSB)</button>
+      <button type="button" class="primary" id="bluetooth-btn">Print via Bluetooth (COM)</button>
       <button type="button" id="download-btn">Download .prn (one label)</button>
+      <button type="button" id="print-btn">Print to Windows (58×297 — long feed)</button>
+      <button type="button" id="usb-btn">Print via USB (WebUSB)</button>
       <button type="button" id="serial-btn">Show all COM ports</button>
       <button type="button" id="close-btn">Close</button>
     </div>
     <p class="no-print" id="status" style="color:#475569;min-height:1.25rem;margin:0 0 0.75rem">
-      Do not print until paper size is a short custom size (not 58×3276).
+      For one label: use Bluetooth COM or Download .prn — not Windows 58×297.
     </p>
     <div class="preview">${previews}</div>
   </div>
@@ -293,18 +292,15 @@ function openBixolonPrintHelper(canvases: HTMLCanvasElement[]): void {
     }
     document.getElementById('print-btn').onclick = function () {
       var ok = window.confirm(
-        'Stop — this will feed several feet if the Bixolon paper size is still 58×3276.\\n\\n' +
-        'First set Printing preferences → Paper:\\n' +
-        '• Type: Receipt\\n' +
-        '• Add custom size 58 × 50 mm (JS-INV Label)\\n' +
-        '• Select that size\\n\\n' +
-        'Have you already set a short paper size?'
+        'Windows paper sizes 58×297 / A4 feed about a foot (or more) of paper per label.\\n\\n' +
+        'For a single short label, cancel and use Print via Bluetooth (COM) or Download .prn.\\n\\n' +
+        'Continue with long Windows feed anyway?'
       );
       if (!ok) {
-        setStatus('Set short paper size in Bixolon Printing preferences first (not 58×3276).');
+        setStatus('Cancelled — use Print via Bluetooth (COM) or Download .prn for one label.');
         return;
       }
-      setStatus('Chrome print — pick BIXOLON, paper JS-INV Label (or 58×50), 100% scale, no margins.');
+      setStatus('Chrome print — BIXOLON, 58×297, 100% scale, no margins (expect ~1 ft feed).');
       window.print();
     };
     document.getElementById('close-btn').onclick = function () { window.close(); };
@@ -465,6 +461,6 @@ export async function printInventoryQrToBixolon(
   return {
     method: 'html',
     message:
-      'Print helper opened. Windows print feeds ~5 ft if paper is still 58×3276 — add custom 58×50 mm (Receipt) in Bixolon Printing preferences first, or use Bluetooth / .prn for one label.',
+      'Print helper opened. Driver only offers long sizes (58×297) — use Print via Bluetooth (COM) or Download .prn for one label.',
   }
 }
