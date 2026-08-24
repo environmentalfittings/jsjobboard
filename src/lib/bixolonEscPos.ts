@@ -180,34 +180,84 @@ export async function sendEscPosOverWebUsb(data: Uint8Array): Promise<void> {
   }
 }
 
+type SerialPortLike = {
+  open: (options: { baudRate: number; bufferSize?: number }) => Promise<void>
+  close: () => Promise<void>
+  writable: WritableStream<Uint8Array> | null
+  getInfo?: () => { bluetoothServiceClassId?: number | string; usbVendorId?: number }
+}
+
 type SerialNavigator = Navigator & {
   serial: {
-    requestPort: (options?: { filters?: Array<{ usbVendorId?: number }> }) => Promise<{
-      open: (options: { baudRate: number }) => Promise<void>
-      close: () => Promise<void>
-      writable: WritableStream<Uint8Array> | null
-    }>
+    requestPort: (options?: {
+      filters?: Array<{ usbVendorId?: number; bluetoothServiceClassId?: number | string }>
+    }) => Promise<SerialPortLike>
   }
 }
 
-export async function sendEscPosOverWebSerial(data: Uint8Array): Promise<void> {
+export type SerialSendOptions = {
+  /** Prefer paired Bluetooth Classic SPP (RFCOMM) — Chrome 117+ desktop. */
+  bluetoothOnly?: boolean
+}
+
+/** Bluetooth Classic Serial Port Profile (SPP) service class. */
+const BLUETOOTH_SPP_SERVICE = 0x1101
+
+async function writeSerialChunks(
+  writable: WritableStream<Uint8Array>,
+  data: Uint8Array,
+  chunkSize: number,
+) {
+  const writer = writable.getWriter()
+  try {
+    for (let offset = 0; offset < data.length; offset += chunkSize) {
+      const chunk = data.subarray(offset, Math.min(offset + chunkSize, data.length))
+      await writer.write(chunk)
+    }
+  } finally {
+    writer.releaseLock()
+  }
+}
+
+/**
+ * Send ESC/POS over Web Serial.
+ * Use `bluetoothOnly: true` for a paired Bixolon SPP-R200III over Bluetooth Classic (Chrome desktop).
+ */
+export async function sendEscPosOverWebSerial(
+  data: Uint8Array,
+  options: SerialSendOptions = {},
+): Promise<void> {
   if (!('serial' in navigator)) {
     throw new Error('Web Serial is not available in this browser')
   }
 
   const serial = (navigator as SerialNavigator).serial
-  const port = await serial.requestPort({
-    filters: [{ usbVendorId: 0x1504 }, { usbVendorId: 0x0419 }],
-  })
-  await port.open({ baudRate: 115200 })
+  const bluetoothOnly = Boolean(options.bluetoothOnly)
+
+  let port: SerialPortLike
+  try {
+    port = await serial.requestPort({
+      filters: bluetoothOnly
+        ? [{ bluetoothServiceClassId: BLUETOOTH_SPP_SERVICE }]
+        : [
+            { usbVendorId: 0x1504 },
+            { usbVendorId: 0x0419 },
+            { bluetoothServiceClassId: BLUETOOTH_SPP_SERVICE },
+          ],
+    })
+  } catch (error) {
+    // Filters can reject if the OS lists the port differently — let the user pick any port.
+    const message = error instanceof Error ? error.message : String(error)
+    if (/cancel|denied|No port selected/i.test(message)) throw error
+    port = await serial.requestPort()
+  }
+
+  // Baud is ignored for Bluetooth RFCOMM but required by the API.
+  await port.open({ baudRate: 115200, bufferSize: 16 * 1024 })
   try {
     if (!port.writable) throw new Error('Serial port is not writable')
-    const writer = port.writable.getWriter()
-    try {
-      await writer.write(data)
-    } finally {
-      writer.releaseLock()
-    }
+    // Smaller chunks are more reliable over Bluetooth RFCOMM.
+    await writeSerialChunks(port.writable, data, bluetoothOnly ? 128 : 512)
   } finally {
     try {
       await port.close()
@@ -215,4 +265,9 @@ export async function sendEscPosOverWebSerial(data: Uint8Array): Promise<void> {
       /* ignore */
     }
   }
+}
+
+/** Alias: print one-label ESC/POS job to a paired Bluetooth Classic printer via Web Serial. */
+export async function sendEscPosOverBluetooth(data: Uint8Array): Promise<void> {
+  return sendEscPosOverWebSerial(data, { bluetoothOnly: true })
 }

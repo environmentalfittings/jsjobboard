@@ -155,7 +155,6 @@ function openBixolonPrintHelper(canvases: HTMLCanvasElement[]): void {
   const mediaWidthIn = formatInches(BIXOLON_SPP_R200III.mediaWidthMm)
   const pageHeightMm = Math.max(...canvases.map((canvas) => dotsToMm(canvas.height)))
   const pageHeightIn = formatInches(pageHeightMm)
-  const pageHeightMmRounded = Math.ceil(pageHeightMm)
 
   const previews = canvases
     .map((canvas, index) => {
@@ -254,18 +253,23 @@ function openBixolonPrintHelper(canvases: HTMLCanvasElement[]): void {
       Your only driver sizes are usually <span class="mono">58 × 3276</span>,
       <span class="mono">58 × 297</span>, or <span class="mono">A4</span> —
       all feed far more paper than one QR label.
-      <p style="margin:0.75rem 0 0"><strong>Recommended:</strong> use
-      <strong>Download .prn</strong> or <strong>Send via USB/Serial</strong> below
-      (one-label feed). Skip the browser Print dialog if you can.</p>
-      <p style="margin:0.75rem 0 0">If you must use Print:
-        choose <span class="mono">58 × 297</span> (not A4 / not 3276),
-        Scale <strong>100%</strong>. Expect ~1 foot of feed per label until a
-        custom paper size is added in Windows printer settings
-        (Bixolon preferences → Paper → User defined ≈ 58 × ${pageHeightMmRounded} mm).
+      <p style="margin:0.75rem 0 0"><strong>Recommended:</strong>
+        pair the SPP-R200III in Windows Bluetooth settings (standard BT mode, not only as a
+        “printer”), then use <strong>Print via Bluetooth</strong> below for a one-label feed.
+      </p>
+      <ol>
+        <li>Windows Settings → Bluetooth → pair <span class="mono">SPP-R200III</span>.</li>
+        <li>Click <strong>Print via Bluetooth</strong> and pick the Bixolon / Bluetooth serial port.</li>
+        <li>If no port appears, try <strong>Download .prn</strong> or wired Serial/USB.</li>
+      </ol>
+      <p style="margin:0.75rem 0 0">Avoid Chrome’s Print dialog paper sizes
+        (<span class="mono">3276</span> / <span class="mono">297</span> / A4) — they waste roll.
+        If you must use Print, pick <span class="mono">58 × 297</span> at 100% scale.
       </p>
     </div>
     <div class="actions no-print">
-      <button type="button" class="primary" id="download-btn">Download .prn (one label)</button>
+      <button type="button" class="primary" id="bluetooth-btn">Print via Bluetooth</button>
+      <button type="button" id="download-btn">Download .prn (one label)</button>
       <button type="button" id="serial-btn">Send via Serial/USB port</button>
       <button type="button" id="print-btn">Print via Chrome (58×297)</button>
       <button type="button" id="close-btn">Close</button>
@@ -298,24 +302,47 @@ function openBixolonPrintHelper(canvases: HTMLCanvasElement[]): void {
       setTimeout(function () { URL.revokeObjectURL(url); }, 30000);
       setStatus('Downloaded inventory-label-bixolon.prn — send with Bixolon utility or copy to the printer COM port.');
     };
-    document.getElementById('serial-btn').onclick = async function () {
-      setStatus('Select the Bixolon port…');
+    async function sendOverSerial(bluetoothOnly) {
+      setStatus(bluetoothOnly ? 'Select the paired Bixolon Bluetooth port…' : 'Select the Bixolon port…');
       try {
         if (!('serial' in navigator)) {
-          setStatus('Web Serial not available. Use Download .prn instead.');
+          setStatus('Web Serial not available in this browser (use Chrome on desktop). Try Download .prn.');
           return;
         }
-        var port = await navigator.serial.requestPort();
-        await port.open({ baudRate: 115200 });
+        var filters = bluetoothOnly
+          ? [{ bluetoothServiceClassId: 0x1101 }]
+          : [
+              { usbVendorId: 0x1504 },
+              { usbVendorId: 0x0419 },
+              { bluetoothServiceClassId: 0x1101 },
+            ];
+        var port;
+        try {
+          port = await navigator.serial.requestPort({ filters: filters });
+        } catch (filterErr) {
+          if (filterErr && /cancel|denied|No port selected/i.test(String(filterErr.message || filterErr))) {
+            throw filterErr;
+          }
+          port = await navigator.serial.requestPort();
+        }
+        await port.open({ baudRate: 115200, bufferSize: 16384 });
         var writer = port.writable.getWriter();
-        await writer.write(escPosBytes());
+        var bytes = escPosBytes();
+        var chunkSize = bluetoothOnly ? 128 : 512;
+        for (var offset = 0; offset < bytes.length; offset += chunkSize) {
+          await writer.write(bytes.subarray(offset, Math.min(offset + chunkSize, bytes.length)));
+        }
         writer.releaseLock();
         await port.close();
-        setStatus('Sent one-label ESC/POS job over serial.');
+        setStatus(bluetoothOnly
+          ? 'Sent one-label job over Bluetooth.'
+          : 'Sent one-label ESC/POS job over serial/USB.');
       } catch (err) {
-        setStatus((err && err.message) ? err.message : 'Could not send over serial');
+        setStatus((err && err.message) ? err.message : 'Could not send to printer');
       }
-    };
+    }
+    document.getElementById('bluetooth-btn').onclick = function () { void sendOverSerial(true); };
+    document.getElementById('serial-btn').onclick = function () { void sendOverSerial(false); };
   </script>
 </body>
 </html>`)
@@ -376,18 +403,19 @@ export async function printInventoryQrToBixolon(
         combined.set(job, offset)
         offset += job.length
       }
-      await sendEscPosOverWebSerial(combined)
+      // Prefer Bluetooth Classic SPP when the printer is already paired.
+      await sendEscPosOverWebSerial(combined, { bluetoothOnly: true })
       return {
         method: 'usb',
         message:
           items.length === 1
-            ? 'Sent label to Bixolon (serial / one-label feed)'
-            : `Sent ${items.length} labels to Bixolon (serial)`,
+            ? 'Sent label to Bixolon over Bluetooth'
+            : `Sent ${items.length} labels to Bixolon over Bluetooth`,
       }
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error)
       if (!/cancel|denied|No port selected/i.test(message)) {
-        console.warn('Bixolon Web Serial print failed, opening helper:', error)
+        console.warn('Bixolon Bluetooth/serial print failed, opening helper:', error)
       }
     }
   }
@@ -396,6 +424,6 @@ export async function printInventoryQrToBixolon(
   return {
     method: 'html',
     message:
-      'Print helper opened — use Download .prn or Serial (avoid Chrome paper sizes 3276 / 297 / A4 if you can).',
+      'Print helper opened — use Print via Bluetooth (pair first), or Download .prn.',
   }
 }
