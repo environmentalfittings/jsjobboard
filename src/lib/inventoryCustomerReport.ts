@@ -99,8 +99,9 @@ export function printInventoryCustomerReport(options: {
   periodLabel: string
   salesmanName?: string | null
 }): { error: string | null } {
-  const { subject, body } = formatInventoryCustomerReportMessage(options)
-  const popup = window.open('', '_blank', 'noopener,noreferrer,width=900,height=1100')
+  // Do not use noopener/noreferrer — Chrome then returns null (or a window we cannot
+  // document.write into), which shows up as a blank tab.
+  const popup = window.open('about:blank', '_blank', 'width=900,height=1100')
   if (!popup) return { error: 'Allow pop-ups to print the inventory report' }
 
   const escape = (s: string) =>
@@ -121,11 +122,11 @@ export function printInventoryCustomerReport(options: {
     })
     .join('')
 
-  popup.document.write(`<!doctype html>
+  const html = `<!doctype html>
 <html lang="en">
 <head>
   <meta charset="utf-8" />
-  <title>${escape(subject)}</title>
+  <title>${escape(formatInventoryCustomerReportMessage(options).subject)}</title>
   <style>
     body { font-family: Georgia, "Times New Roman", serif; color: #0f172a; margin: 0; padding: 0.6in; }
     h1 { font-size: 18pt; margin: 0 0 0.2in; }
@@ -168,13 +169,12 @@ export function printInventoryCustomerReport(options: {
     </thead>
     <tbody>${rows}</tbody>
   </table>
-  <script>
-    window.onload = function () { setTimeout(function () { window.focus(); }, 50); };
-  </script>
 </body>
-</html>`)
+</html>`
+
+  popup.document.open()
+  popup.document.write(html)
   popup.document.close()
-  // Keep body available for debugging copy if needed
-  void body
+  popup.focus()
   return { error: null }
 }
