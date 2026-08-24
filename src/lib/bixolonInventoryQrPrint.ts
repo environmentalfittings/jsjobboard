@@ -8,6 +8,12 @@ import {
   type BixolonLabelPrintOverrides,
 } from '../constants/bixolonSppR200III'
 import { buildBixolonLabelEscPos, sendEscPosOverWebSerial, sendEscPosOverWebUsb } from './bixolonEscPos'
+import {
+  BIXOLON_LOCAL_SDK_BASES,
+  BIXOLON_MPRINT_DEFAULT_PRINTER,
+  BIXOLON_MPRINT_PRINTER_STORAGE_KEY,
+  getStoredMPrintPrinterName,
+} from './bixolonMPrint'
 
 export type InventoryBixolonLabelItem = Pick<
   InventoryRecord,
@@ -259,25 +265,33 @@ function openBixolonPrintHelper(canvases: HTMLCanvasElement[]): void {
       </p>
     </div>
     <div class="warn no-print" id="warn-ios" style="display:none">
-      <strong>iPad cannot print raw Bluetooth jobs from this website.</strong>
-      Safari and iPad Chrome do not support the Web Serial API that sends ESC/POS over Bluetooth.
-      Pairing the printer in Settings is not enough for this button.
+      <strong>Print with mPrint in one tap</strong>
+      Keep Bixolon <strong>mPrint</strong> (or Web Print SDK) open with the SPP-R200III paired and registered
+      (logical name usually <span class="mono">Printer1</span>). Tap <strong>Print with mPrint</strong> —
+      the label is sent to the app so you can print.
       <ol>
-        <li>Put the SPP-R200III in <strong>iOS / MFi mode</strong> (power + feed with cover open — see Bixolon quick guide).</li>
-        <li>Install Bixolon <strong>mPrint</strong> or <strong>Web Print SDK</strong> from the App Store.</li>
-        <li>Or tap <strong>Share / Save label image</strong> below and print that image from mPrint / Photos.</li>
-        <li>Or use a Windows/Mac Chrome computer for <strong>Print via Bluetooth</strong> (one-label feed).</li>
+        <li>Printer in <strong>iOS / MFi mode</strong>; pair in iPad Settings if needed.</li>
+        <li>In mPrint, add the printer and note the logical name (default <span class="mono">Printer1</span>).</li>
+        <li>Leave mPrint running, then tap <strong>Print with mPrint</strong> below.</li>
+        <li>If it fails, open this site <em>inside</em> the mPrint / Web Print SDK browser (Safari may block localhost).</li>
       </ol>
     </div>
+    <div class="no-print" style="margin:0 0 0.75rem">
+      <label for="printer-name" style="display:block;font-size:12px;font-weight:600;margin-bottom:0.25rem">mPrint printer name</label>
+      <input id="printer-name" type="text" value="${getStoredMPrintPrinterName().replace(/"/g, '&quot;')}"
+        style="width:100%;padding:0.5rem 0.65rem;border:1px solid #cbd5e1;border-radius:8px;font:14px/1.2 system-ui,sans-serif" />
+    </div>
     <div class="actions no-print" id="actions-desktop">
-      <button type="button" class="primary" id="bluetooth-btn">Print via Bluetooth</button>
+      <button type="button" class="primary" id="mprint-send-btn">Print with mPrint</button>
+      <button type="button" id="bluetooth-btn">Print via Bluetooth</button>
       <button type="button" id="download-btn">Download .prn (one label)</button>
       <button type="button" id="serial-btn">Send via Serial/USB port</button>
       <button type="button" id="print-btn">Print via Chrome (58×297)</button>
       <button type="button" id="close-btn">Close</button>
     </div>
     <div class="actions no-print" id="actions-ios" style="display:none">
-      <button type="button" class="primary" id="share-btn">Share / Save label image</button>
+      <button type="button" class="primary" id="mprint-send-ios-btn">Print with mPrint</button>
+      <button type="button" id="share-btn">Share / Save label image</button>
       <button type="button" id="print-ios-btn">Open iPad print sheet</button>
       <button type="button" id="mprint-btn">Get Bixolon mPrint</button>
       <button type="button" id="bluetooth-ios-btn">Why Bluetooth won’t work</button>
@@ -288,7 +302,12 @@ function openBixolonPrintHelper(canvases: HTMLCanvasElement[]): void {
   </div>
   <script>
     var escPosBase64 = ${JSON.stringify(escPosBase64)};
-    var labelPngDataUrl = ${JSON.stringify(canvases[0] ? canvases[0].toDataURL('image/png') : '')};
+    var labelPngDataUrls = ${JSON.stringify(canvases.map((c) => c.toDataURL('image/png')))};
+    var labelPngDataUrl = labelPngDataUrls[0] || '';
+    var mprintBases = ${JSON.stringify([...BIXOLON_LOCAL_SDK_BASES])};
+    var mprintStorageKey = ${JSON.stringify(BIXOLON_MPRINT_PRINTER_STORAGE_KEY)};
+    var mprintDefaultPrinter = ${JSON.stringify(BIXOLON_MPRINT_DEFAULT_PRINTER)};
+    var printableWidthDots = ${BIXOLON_SPP_R200III.printableWidthDots};
     function isIos() {
       return /iPad|iPhone|iPod/.test(navigator.userAgent) ||
         (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
@@ -296,6 +315,72 @@ function openBixolonPrintHelper(canvases: HTMLCanvasElement[]): void {
     function setStatus(text) {
       var el = document.getElementById('status');
       if (el) el.textContent = text || '';
+    }
+    function getPrinterName() {
+      var input = document.getElementById('printer-name');
+      var name = (input && input.value ? String(input.value) : '').trim();
+      return name || mprintDefaultPrinter;
+    }
+    function savePrinterName(name) {
+      try { localStorage.setItem(mprintStorageKey, name); } catch (e) {}
+    }
+    function buildMPrintPayload(dataUrls, widthDots) {
+      var functions = {};
+      var n = 0;
+      function add(fn, args) {
+        var o = {};
+        o[fn] = args;
+        functions['func' + n] = o;
+        n += 1;
+      }
+      add('checkPrinterStatus', []);
+      for (var i = 0; i < dataUrls.length; i++) {
+        add('printBitmap', [dataUrls[i], widthDots, 1, 1]);
+      }
+      return JSON.stringify({ id: 1, functions: functions });
+    }
+    async function sendViaMPrint() {
+      var printerName = getPrinterName();
+      savePrinterName(printerName);
+      if (!labelPngDataUrls.length) {
+        setStatus('No label image available.');
+        return;
+      }
+      setStatus('Sending label to mPrint…');
+      var payload = buildMPrintPayload(labelPngDataUrls, printableWidthDots);
+      var errors = [];
+      for (var b = 0; b < mprintBases.length; b++) {
+        var baseUrl = mprintBases[b];
+        var url = baseUrl + encodeURIComponent(printerName) + '.bxl';
+        try {
+          var res = await fetch(url, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+            body: payload,
+          });
+          if (res.status === 404) {
+            errors.push(baseUrl + ': No printers (404)');
+            continue;
+          }
+          if (!res.ok) {
+            errors.push(baseUrl + ': HTTP ' + res.status);
+            continue;
+          }
+          var text = await res.text();
+          var result = text;
+          try {
+            var parsed = JSON.parse(text);
+            if (parsed && typeof parsed.Result === 'string') result = parsed.Result;
+          } catch (e) {}
+          setStatus('Sent to mPrint (' + printerName + ') via ' + baseUrl + ' — ' + (result || 'ok') + '. Print from the app if it asks.');
+          return;
+        } catch (err) {
+          errors.push(baseUrl + ': ' + ((err && err.message) ? err.message : String(err)));
+        }
+      }
+      var msg = 'Could not reach mPrint for "' + printerName + '". Open mPrint / Web Print SDK with that printer registered and leave it running. If this site is in Safari, try opening the job board inside the mPrint browser. ' + errors.slice(0, 2).join(' · ');
+      setStatus(msg);
+      alert(msg);
     }
     function escPosBytes() {
       var binary = atob(escPosBase64);
@@ -316,8 +401,10 @@ function openBixolonPrintHelper(canvases: HTMLCanvasElement[]): void {
       document.getElementById('actions-desktop').style.display = 'none';
       document.getElementById('warn-ios').style.display = 'block';
       document.getElementById('actions-ios').style.display = 'flex';
-      setStatus('iPad detected — use Share / Save label image or Bixolon mPrint. Direct Bluetooth print from the website is not supported.');
+      setStatus('iPad — keep mPrint open, then tap Print with mPrint.');
     }
+    document.getElementById('mprint-send-btn').onclick = function () { void sendViaMPrint(); };
+    document.getElementById('mprint-send-ios-btn').onclick = function () { void sendViaMPrint(); };
     document.getElementById('print-btn').onclick = function () { window.print(); };
     document.getElementById('print-ios-btn').onclick = function () { window.print(); };
     document.getElementById('close-btn').onclick = function () { window.close(); };
@@ -326,7 +413,7 @@ function openBixolonPrintHelper(canvases: HTMLCanvasElement[]): void {
       window.open('https://apps.apple.com/app/mprint/id1439539765', '_blank');
     };
     document.getElementById('bluetooth-ios-btn').onclick = function () {
-      var msg = 'iPad Safari/Chrome cannot send Bluetooth print commands from a website. Apple only allows that through Bixolon MFi apps (mPrint / Web Print SDK). Use Share / Save label image, then print from mPrint — or print from a Windows/Mac Chrome PC.';
+      var msg = 'This iPad browser cannot send raw Bluetooth print commands. Use Print with mPrint (local bridge), or Share / Save label image. For one-label ESC/POS over Bluetooth, use Windows/Mac Chrome.';
       setStatus(msg);
       alert(msg);
     };
