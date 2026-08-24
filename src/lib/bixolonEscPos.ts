@@ -162,7 +162,7 @@ export async function sendEscPosOverWebUsb(data: Uint8Array): Promise<void> {
 
     if (claimedInterface < 0 || outEndpoint < 0) {
       throw new Error(
-        'USB is connected but Windows printer driver is blocking raw access. Cancel the USB picker and choose Bluetooth COM3 (outgoing), or close anything using the Bixolon printer and try USB again.',
+        'Could not claim the Bixolon USB interface. Close other apps using the printer, or use Download .prn / Web Serial.',
       )
     }
 
@@ -181,255 +181,90 @@ export async function sendEscPosOverWebUsb(data: Uint8Array): Promise<void> {
 }
 
 type SerialPortLike = {
-  open: (options: {
-    baudRate: number
-    bufferSize?: number
-    dataBits?: number
-    stopBits?: number
-    parity?: string
-    flowControl?: string
-  }) => Promise<void>
+  open: (options: { baudRate: number; bufferSize?: number }) => Promise<void>
   close: () => Promise<void>
-  setSignals?: (signals: { dataTerminalReady?: boolean; requestToSend?: boolean }) => Promise<void>
-  readable: ReadableStream<Uint8Array> | null
   writable: WritableStream<Uint8Array> | null
   getInfo?: () => { bluetoothServiceClassId?: number | string; usbVendorId?: number }
 }
 
-type SerialRequestOptions = {
-  filters?: Array<{ usbVendorId?: number; bluetoothServiceClassId?: number | string }>
-  allowedBluetoothServiceClassIds?: Array<number | string>
-}
-
 type SerialNavigator = Navigator & {
   serial: {
-    requestPort: (options?: SerialRequestOptions) => Promise<SerialPortLike>
-    getPorts?: () => Promise<SerialPortLike[]>
+    requestPort: (options?: {
+      filters?: Array<{ usbVendorId?: number; bluetoothServiceClassId?: number | string }>
+    }) => Promise<SerialPortLike>
   }
 }
 
 export type SerialSendOptions = {
-  /**
-   * Prefer Bluetooth / wireless serial.
-   * On Windows, open the picker with no USB-only filters so mapped COM ports
-   * (Standard Serial over Bluetooth link) appear — strict BT filters often show nothing.
-   */
+  /** Prefer paired Bluetooth Classic SPP (RFCOMM) — Chrome 117+ desktop. */
   bluetoothOnly?: boolean
 }
 
 /** Bluetooth Classic Serial Port Profile (SPP) service class. */
 const BLUETOOTH_SPP_SERVICE = 0x1101
 
-function sleep(ms: number): Promise<void> {
-  return new Promise((resolve) => {
-    window.setTimeout(resolve, ms)
-  })
-}
-
-/**
- * Discard inbound bytes so the writable side does not stall (common on Bluetooth COM).
- */
-function startDiscardingReadable(port: SerialPortLike): () => Promise<void> {
-  const readable = port.readable
-  if (!readable) return async () => undefined
-
-  let reader: ReadableStreamDefaultReader<Uint8Array> | null = null
-  try {
-    reader = readable.getReader()
-  } catch {
-    return async () => undefined
-  }
-
-  const loop = (async () => {
-    try {
-      while (true) {
-        const { done } = await reader.read()
-        if (done) break
-      }
-    } catch {
-      /* port closed / cancelled */
-    }
-  })()
-
-  return async () => {
-    try {
-      await reader.cancel()
-    } catch {
-      /* ignore */
-    }
-    try {
-      reader.releaseLock()
-    } catch {
-      /* ignore */
-    }
-    await loop.catch(() => undefined)
-  }
-}
-
 async function writeSerialChunks(
   writable: WritableStream<Uint8Array>,
   data: Uint8Array,
   chunkSize: number,
-  gapMs: number,
 ) {
   const writer = writable.getWriter()
   try {
     for (let offset = 0; offset < data.length; offset += chunkSize) {
       const chunk = data.subarray(offset, Math.min(offset + chunkSize, data.length))
-      await writer.ready
       await writer.write(chunk)
-      if (gapMs > 0 && offset + chunkSize < data.length) {
-        await sleep(gapMs)
-      }
     }
-    await writer.ready
   } finally {
-    try {
-      writer.releaseLock()
-    } catch {
-      /* ignore */
-    }
-  }
-}
-
-async function requestSerialPort(
-  serial: SerialNavigator['serial'],
-  bluetoothOnly: boolean,
-): Promise<SerialPortLike> {
-  // No filters: Windows often exposes the paired Bixolon as a COM port
-  // ("Standard Serial over Bluetooth link"). Filtering to bluetoothServiceClassId
-  // alone frequently shows an empty Chrome picker.
-  const openPicker = () =>
-    serial.requestPort(
-      bluetoothOnly
-        ? { allowedBluetoothServiceClassIds: [BLUETOOTH_SPP_SERVICE] }
-        : {
-            allowedBluetoothServiceClassIds: [BLUETOOTH_SPP_SERVICE],
-            filters: [
-              { usbVendorId: 0x1504 },
-              { usbVendorId: 0x0419 },
-              { bluetoothServiceClassId: BLUETOOTH_SPP_SERVICE },
-            ],
-          },
-    )
-
-  try {
-    return await openPicker()
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error)
-    if (/cancel|denied|No port selected/i.test(message)) throw error
-    // Last resort: every serial port Chrome can see
-    return serial.requestPort()
-  }
-}
-
-/**
- * Prompt for a serial/COM port while the click gesture is still valid.
- * Call this BEFORE any slow work (image load / canvas) or Chrome will reject requestPort.
- */
-export async function requestBixolonSerialPort(
-  options: SerialSendOptions = {},
-): Promise<SerialPortLike> {
-  if (!('serial' in navigator)) {
-    throw new Error('Web Serial is not available in this browser — use Google Chrome on Windows/Mac')
-  }
-
-  const serial = (navigator as SerialNavigator).serial
-  const bluetoothOnly = Boolean(options.bluetoothOnly)
-
-  try {
-    if (bluetoothOnly) {
-      try {
-        return await serial.requestPort({
-          allowedBluetoothServiceClassIds: [BLUETOOTH_SPP_SERVICE],
-        })
-      } catch (firstErr) {
-        const message = firstErr instanceof Error ? firstErr.message : String(firstErr)
-        if (/cancel|denied|No port selected/i.test(message)) throw firstErr
-        return await serial.requestPort()
-      }
-    }
-    return await requestSerialPort(serial, false)
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error)
-    if (/cancel|denied|No port selected/i.test(message)) throw error
-    if (/user gesture|User activation/i.test(message)) {
-      throw new Error(
-        'Chrome needs a direct click to open the port list. Click Print label again and choose COM3.',
-      )
-    }
-    return serial.requestPort()
-  }
-}
-
-/**
- * Write ESC/POS to an already-chosen serial port (opened here, closed when done).
- */
-export async function writeEscPosToSerialPort(
-  port: SerialPortLike,
-  data: Uint8Array,
-  options: SerialSendOptions = {},
-): Promise<void> {
-  const bluetoothOnly = Boolean(options.bluetoothOnly)
-
-  try {
-    await port.open({
-      baudRate: 115200,
-      dataBits: 8,
-      stopBits: 1,
-      parity: 'none',
-      flowControl: 'none',
-      bufferSize: 16 * 1024,
-    })
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error)
-    throw new Error(
-      `Could not open the COM port (${message}). Close other apps using the printer, then try COM3 (outgoing), not COM4.`,
-    )
-  }
-
-  const stopDiscard = startDiscardingReadable(port)
-  try {
-    if (!port.writable) throw new Error('Serial port is not writable')
-
-    if (typeof port.setSignals === 'function') {
-      try {
-        await port.setSignals({ dataTerminalReady: true, requestToSend: true })
-      } catch {
-        /* Bluetooth virtual COM may not support signals */
-      }
-    }
-
-    await writeSerialChunks(port.writable, data, bluetoothOnly ? 64 : 64, bluetoothOnly ? 20 : 10)
-    await sleep(bluetoothOnly ? 900 : 400)
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error)
-    throw new Error(
-      `Print send failed (${message}). Try COM3 (outgoing Bluetooth link), not COM4.`,
-    )
-  } finally {
-    await stopDiscard()
-    try {
-      await port.close()
-    } catch {
-      /* ignore */
-    }
+    writer.releaseLock()
   }
 }
 
 /**
  * Send ESC/POS over Web Serial.
  * Use `bluetoothOnly: true` for a paired Bixolon SPP-R200III over Bluetooth Classic (Chrome desktop).
- *
- * Prefer {@link requestBixolonSerialPort} + {@link writeEscPosToSerialPort} when you must
- * keep the user-gesture window (request port before rendering labels).
  */
 export async function sendEscPosOverWebSerial(
   data: Uint8Array,
   options: SerialSendOptions = {},
 ): Promise<void> {
-  const port = await requestBixolonSerialPort(options)
-  await writeEscPosToSerialPort(port, data, options)
+  if (!('serial' in navigator)) {
+    throw new Error('Web Serial is not available in this browser')
+  }
+
+  const serial = (navigator as SerialNavigator).serial
+  const bluetoothOnly = Boolean(options.bluetoothOnly)
+
+  let port: SerialPortLike
+  try {
+    port = await serial.requestPort({
+      filters: bluetoothOnly
+        ? [{ bluetoothServiceClassId: BLUETOOTH_SPP_SERVICE }]
+        : [
+            { usbVendorId: 0x1504 },
+            { usbVendorId: 0x0419 },
+            { bluetoothServiceClassId: BLUETOOTH_SPP_SERVICE },
+          ],
+    })
+  } catch (error) {
+    // Filters can reject if the OS lists the port differently — let the user pick any port.
+    const message = error instanceof Error ? error.message : String(error)
+    if (/cancel|denied|No port selected/i.test(message)) throw error
+    port = await serial.requestPort()
+  }
+
+  // Baud is ignored for Bluetooth RFCOMM but required by the API.
+  await port.open({ baudRate: 115200, bufferSize: 16 * 1024 })
+  try {
+    if (!port.writable) throw new Error('Serial port is not writable')
+    // Smaller chunks are more reliable over Bluetooth RFCOMM.
+    await writeSerialChunks(port.writable, data, bluetoothOnly ? 128 : 512)
+  } finally {
+    try {
+      await port.close()
+    } catch {
+      /* ignore */
+    }
+  }
 }
 
 /** Alias: print one-label ESC/POS job to a paired Bluetooth Classic printer via Web Serial. */
