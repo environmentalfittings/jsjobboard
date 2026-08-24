@@ -162,7 +162,7 @@ export async function sendEscPosOverWebUsb(data: Uint8Array): Promise<void> {
 
     if (claimedInterface < 0 || outEndpoint < 0) {
       throw new Error(
-        'Could not claim the Bixolon USB interface. Close other apps using the printer, or use Download .prn / Web Serial.',
+        'USB is connected but Windows printer driver is blocking raw access. Cancel the USB picker and choose Bluetooth COM3 (outgoing), or close anything using the Bixolon printer and try USB again.',
       )
     }
 
