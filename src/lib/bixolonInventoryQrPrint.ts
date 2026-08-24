@@ -249,17 +249,22 @@ function openBixolonPrintHelper(canvases: HTMLCanvasElement[]): void {
 <body>
   <div class="wrap">
     <div class="warn no-print">
-      <strong>Use the Windows printer (same path as Print Test Page).</strong>
-      Your Bixolon is installed as a Windows printer, so Chrome Serial/USB will not see it.
+      <strong>Long feed (several feet) = driver paper size 58×3276.</strong>
+      Windows Print Test Page can work while still using that huge page size for app prints.
       <ol>
-        <li>One-time setup: Windows → Printers &amp; scanners → <span class="mono">BIXOLON SPP-R200III</span> →
-          Printing preferences → <strong>Paper</strong> → Paper type <strong>Receipt</strong>
-          (feeds only as long as the label). Optional: click <span class="mono">…</span> and add a custom size
-          like <span class="mono">58 × 50 mm</span>.</li>
-        <li>Tap <strong>Print to Windows Bixolon</strong> below.</li>
-        <li>In the Chrome dialog pick <strong>BIXOLON SPP-R200III</strong>, margins <strong>None</strong>,
-          scale <strong>100%</strong>, paper = your short custom size or <span class="mono">58 × 297</span>.</li>
+        <li>Windows → Printers &amp; scanners → <span class="mono">BIXOLON SPP-R200III</span> →
+          <strong>Printing preferences</strong> → <strong>Paper</strong>.</li>
+        <li>Paper type: <strong>Receipt</strong> (not Ticket).</li>
+        <li>Click <span class="mono">…</span> next to paper size → add
+          <span class="mono">58 × 50 mm</span> (name it <span class="mono">JS-INV Label</span>) → Save.</li>
+        <li>Select <span class="mono">JS-INV Label</span> as the paper size → OK / Apply.</li>
+        <li>Then tap <strong>Print to Windows Bixolon</strong> and choose that paper size in Chrome
+          (margins None, scale 100%).</li>
       </ol>
+      <p style="margin:0.75rem 0 0">
+        For a true one-label feed without driver setup, pair Bluetooth and use
+        <strong>Print via Bluetooth (COM)</strong>, or <strong>Download .prn</strong>.
+      </p>
     </div>
     <div class="actions no-print">
       <button type="button" class="primary" id="print-btn">Print to Windows Bixolon</button>
@@ -270,7 +275,7 @@ function openBixolonPrintHelper(canvases: HTMLCanvasElement[]): void {
       <button type="button" id="close-btn">Close</button>
     </div>
     <p class="no-print" id="status" style="color:#475569;min-height:1.25rem;margin:0 0 0.75rem">
-      Ready — Print to Windows Bixolon uses the same driver as the Windows test page.
+      Do not print until paper size is a short custom size (not 58×3276).
     </p>
     <div class="preview">${previews}</div>
   </div>
@@ -287,7 +292,19 @@ function openBixolonPrintHelper(canvases: HTMLCanvasElement[]): void {
       return bytes;
     }
     document.getElementById('print-btn').onclick = function () {
-      setStatus('Chrome print dialog — choose BIXOLON SPP-R200III, Receipt / short paper, 100% scale, no margins.');
+      var ok = window.confirm(
+        'Stop — this will feed several feet if the Bixolon paper size is still 58×3276.\\n\\n' +
+        'First set Printing preferences → Paper:\\n' +
+        '• Type: Receipt\\n' +
+        '• Add custom size 58 × 50 mm (JS-INV Label)\\n' +
+        '• Select that size\\n\\n' +
+        'Have you already set a short paper size?'
+      );
+      if (!ok) {
+        setStatus('Set short paper size in Bixolon Printing preferences first (not 58×3276).');
+        return;
+      }
+      setStatus('Chrome print — pick BIXOLON, paper JS-INV Label (or 58×50), 100% scale, no margins.');
       window.print();
     };
     document.getElementById('close-btn').onclick = function () { window.close(); };
@@ -448,6 +465,6 @@ export async function printInventoryQrToBixolon(
   return {
     method: 'html',
     message:
-      'Print helper opened — use Print to Windows Bixolon (same driver as the Windows test page). Set Paper type to Receipt in printer preferences to avoid long feeds.',
+      'Print helper opened. Windows print feeds ~5 ft if paper is still 58×3276 — add custom 58×50 mm (Receipt) in Bixolon Printing preferences first, or use Bluetooth / .prn for one label.',
   }
 }
