@@ -248,10 +248,21 @@ export function AdminListsPage() {
   const salesmanOptions = useMemo(
     () =>
       employees
-        .filter((employee) => employee.is_active)
+        .filter((employee) => employee.is_active && employee.is_salesman)
         .slice()
         .sort((a, b) => a.full_name.localeCompare(b.full_name, undefined, { sensitivity: 'base' })),
     [employees],
+  )
+
+  const salesmanOptionsForCustomer = useCallback(
+    (salesRepEmployeeId: string | null) => {
+      if (!salesRepEmployeeId) return salesmanOptions
+      if (salesmanOptions.some((employee) => employee.id === salesRepEmployeeId)) return salesmanOptions
+      const assigned = employees.find((employee) => employee.id === salesRepEmployeeId)
+      if (!assigned) return salesmanOptions
+      return [assigned, ...salesmanOptions]
+    },
+    [employees, salesmanOptions],
   )
 
   const saveCustomerSalesRep = async (customerId: number, salesRepEmployeeId: string) => {
@@ -1490,10 +1501,11 @@ export function AdminListsPage() {
                             aria-label={`Salesman for ${c.name}`}
                           >
                             <option value="">— Unassigned —</option>
-                            {salesmanOptions.map((employee) => (
+                            {salesmanOptionsForCustomer(c.sales_rep_employee_id).map((employee) => (
                               <option key={employee.id} value={employee.id}>
                                 {employee.full_name}
                                 {employee.auth_user_id ? '' : ' (no login)'}
+                                {!employee.is_salesman ? ' (not marked salesman)' : ''}
                               </option>
                             ))}
                           </select>

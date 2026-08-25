@@ -5,7 +5,9 @@ import { useToast } from '../components/ToastNotification'
 import { useAuth } from '../contexts/AuthContext'
 import { useEmployees } from '../hooks/useEmployees'
 import {
+  findCustomerByName,
   loadCustomersWithSalesRep,
+  updateCustomerSalesRep,
   type CustomerSalesRepRow,
 } from '../lib/customers'
 import {
@@ -43,6 +45,7 @@ import {
   type InventoryRecord,
 } from '../lib/inventory'
 import {
+  buildInventoryCustomerReportStats,
   currentInventoryReportPeriod,
   formatInventoryCustomerReportMessage,
   groupInventoryByCustomer,
@@ -541,6 +544,8 @@ export function AdminInventoryPage() {
   const [search, setSearch] = useState('')
   const [customerFilter, setCustomerFilter] = useState('')
   const [customerRows, setCustomerRows] = useState<CustomerSalesRepRow[]>([])
+  const [salesRepColumnMissing, setSalesRepColumnMissing] = useState(false)
+  const [savingSalesRep, setSavingSalesRep] = useState(false)
   const [customers, setCustomers] = useState<string[]>([])
   const [manufacturers, setManufacturers] = useState<string[]>([])
   const [valveTypes, setValveTypes] = useState<string[]>([])
@@ -610,8 +615,10 @@ export function AdminInventoryPage() {
     setPressureClasses(options.pressureClasses)
     if (customerResult.error) {
       setCustomerRows([])
+      setSalesRepColumnMissing(false)
     } else {
       setCustomerRows(customerResult.data)
+      setSalesRepColumnMissing(customerResult.salesRepColumnMissing)
     }
   }, [showToast])
 
@@ -730,6 +737,11 @@ export function AdminInventoryPage() {
     )
   }, [customerGroups, customerFilter])
 
+  const selectedCustomerRow = useMemo(
+    () => (customerFilter.trim() ? findCustomerByName(customerRows, customerFilter) : null),
+    [customerRows, customerFilter],
+  )
+
   const employeeNameById = useMemo(() => {
     const map = new Map<string, string>()
     for (const employee of employees) {
@@ -738,9 +750,51 @@ export function AdminInventoryPage() {
     return map
   }, [employees])
 
-  const selectedSalesmanName = selectedCustomerGroup?.salesRepEmployeeId
-    ? employeeNameById.get(selectedCustomerGroup.salesRepEmployeeId) ?? null
+  const selectedSalesRepId =
+    selectedCustomerRow?.sales_rep_employee_id ?? selectedCustomerGroup?.salesRepEmployeeId ?? ''
+
+  const salesmanOptions = useMemo(
+    () =>
+      employees
+        .filter(
+          (employee) =>
+            employee.is_active &&
+            (employee.is_salesman || employee.id === selectedSalesRepId),
+        )
+        .slice()
+        .sort((a, b) => a.full_name.localeCompare(b.full_name, undefined, { sensitivity: 'base' })),
+    [employees, selectedSalesRepId],
+  )
+
+  const selectedSalesmanName = selectedSalesRepId
+    ? employeeNameById.get(selectedSalesRepId) ?? null
     : null
+
+  const saveSelectedCustomerSalesman = async (salesRepEmployeeId: string) => {
+    if (!selectedCustomerRow) {
+      showToast('Add this customer under Admin → Lists → Customers first, then assign a salesman')
+      return
+    }
+    if (salesRepColumnMissing) {
+      showToast('Run migration-customers-sales-rep.sql in Supabase to enable salesman assignment')
+      return
+    }
+    setSavingSalesRep(true)
+    const { error } = await updateCustomerSalesRep(selectedCustomerRow.id, salesRepEmployeeId || null)
+    setSavingSalesRep(false)
+    if (error) {
+      showToast(error)
+      return
+    }
+    setCustomerRows((prev) =>
+      prev.map((row) =>
+        row.id === selectedCustomerRow.id
+          ? { ...row, sales_rep_employee_id: salesRepEmployeeId || null }
+          : row,
+      ),
+    )
+    showToast(salesRepEmployeeId ? 'Salesman saved' : 'Salesman cleared')
+  }
 
   const printableFiltered = useMemo(
     () => filtered.filter((row) => Boolean(row.qr_code_data_url?.trim())),
@@ -1337,7 +1391,7 @@ export function AdminInventoryPage() {
             <h3>Inventory by customer</h3>
             <p className="placeholder-copy">
               Pull one customer&apos;s inventory, print a monthly report, or send it to the assigned salesman in
-              Messages. Assign salesmen under Admin → Lists → Customers.
+              Messages. Assign the salesman below (mark salesmen on Admin → Employees first).
             </p>
           </div>
           <p className="inventory-report-period">Period: {periodLabel}</p>
@@ -1354,6 +1408,38 @@ export function AdminInventoryPage() {
               {inventoryCustomers.map((name) => (
                 <option key={name} value={name}>
                   {name}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="inventory-toolbar-field inventory-toolbar-salesman">
+            <span>Salesman</span>
+            <select
+              value={selectedSalesRepId}
+              onChange={(e) => void saveSelectedCustomerSalesman(e.target.value)}
+              aria-label="Assign salesman for selected customer"
+              disabled={
+                !customerFilter.trim() ||
+                !selectedCustomerRow ||
+                salesRepColumnMissing ||
+                savingSalesRep
+              }
+            >
+              <option value="">
+                {!customerFilter.trim()
+                  ? 'Select a customer first'
+                  : !selectedCustomerRow
+                    ? 'Customer not in Lists yet'
+                    : salesRepColumnMissing
+                      ? 'Salesman column missing'
+                      : salesmanOptions.length === 0 && !selectedSalesRepId
+                        ? 'Mark salesmen on Employees'
+                        : 'No salesman assigned'}
+              </option>
+              {salesmanOptions.map((employee) => (
+                <option key={employee.id} value={employee.id}>
+                  {employee.full_name.trim() || employee.username}
+                  {!employee.is_salesman ? ' (not marked salesman)' : ''}
                 </option>
               ))}
             </select>

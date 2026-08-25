@@ -221,6 +221,7 @@ function mapEmployeeRow(row: Record<string, unknown>): Employee {
     company: String(row.company ?? ''),
     is_active: Boolean(row.is_active),
     is_tester: Boolean(row.is_tester),
+    is_salesman: Boolean(row.is_salesman),
     quality_team_level: normalizeQualityTeamLevel(row.quality_team_level),
     auth_user_id: row.auth_user_id == null ? null : String(row.auth_user_id),
   }

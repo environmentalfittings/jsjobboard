@@ -17,6 +17,8 @@ let sharedSnapshot: EmployeesSnapshot | null = null
 let sharedLoadPromise: Promise<EmployeesSnapshot> | null = null
 
 const EMPLOYEE_SELECT_FULL =
+  'id,employee_no,first_name,last_name,full_name,username,initials,company,is_active,is_tester,is_salesman,quality_team_level,auth_user_id'
+const EMPLOYEE_SELECT_NO_SALESMAN =
   'id,employee_no,first_name,last_name,full_name,username,initials,company,is_active,is_tester,quality_team_level,auth_user_id'
 const EMPLOYEE_SELECT_WITH_TESTER =
   'id,employee_no,first_name,last_name,full_name,username,initials,company,is_active,is_tester,auth_user_id'
@@ -24,7 +26,10 @@ const EMPLOYEE_SELECT_BASE =
   'id,employee_no,first_name,last_name,full_name,username,initials,company,is_active,auth_user_id'
 
 function isMissingColumn(message: string | null | undefined, column: string) {
-  return new RegExp(column, 'i').test(String(message ?? '')) && /column|schema|does not exist/i.test(String(message ?? ''))
+  return (
+    new RegExp(column, 'i').test(String(message ?? '')) &&
+    /column|schema|does not exist/i.test(String(message ?? ''))
+  )
 }
 
 function mapEmployeeRow(row: Record<string, unknown>): Employee {
@@ -39,6 +44,7 @@ function mapEmployeeRow(row: Record<string, unknown>): Employee {
     company: String(row.company ?? ''),
     is_active: Boolean(row.is_active),
     is_tester: Boolean(row.is_tester),
+    is_salesman: Boolean(row.is_salesman),
     quality_team_level: normalizeQualityTeamLevel(row.quality_team_level),
     auth_user_id: row.auth_user_id == null ? null : String(row.auth_user_id),
   }
@@ -57,7 +63,66 @@ async function loadEmployeesSnapshot(): Promise<EmployeesSnapshot> {
   let rows: Employee[] = []
   let error: string | null = employeesResPrimary.error?.message ?? null
 
-  if (employeesResPrimary.error && isMissingColumn(employeesResPrimary.error.message, 'quality_team_level')) {
+  if (employeesResPrimary.error && isMissingColumn(employeesResPrimary.error.message, 'is_salesman')) {
+    const withoutSalesman = await supabase
+      .from('employees')
+      .select(EMPLOYEE_SELECT_NO_SALESMAN)
+      .order('last_name', { ascending: true })
+      .order('first_name', { ascending: true })
+
+    if (withoutSalesman.error && isMissingColumn(withoutSalesman.error.message, 'quality_team_level')) {
+      const withTester = await supabase
+        .from('employees')
+        .select(EMPLOYEE_SELECT_WITH_TESTER)
+        .order('last_name', { ascending: true })
+        .order('first_name', { ascending: true })
+
+      if (withTester.error && isMissingColumn(withTester.error.message, 'is_tester')) {
+        const fallback = await supabase
+          .from('employees')
+          .select(EMPLOYEE_SELECT_BASE)
+          .order('last_name', { ascending: true })
+          .order('first_name', { ascending: true })
+
+        if (fallback.error) {
+          error = fallback.error.message
+        } else {
+          error =
+            'Run migration-employee-is-tester.sql, migration-employee-quality-team.sql, and migration-employee-is-salesman.sql in Supabase'
+          rows = ((fallback.data as Record<string, unknown>[] | null) ?? []).map(mapEmployeeRow)
+        }
+      } else if (withTester.error) {
+        error = withTester.error.message
+      } else {
+        error =
+          'Run migration-employee-quality-team.sql and migration-employee-is-salesman.sql in Supabase SQL Editor. Then click Refresh.'
+        rows = ((withTester.data as Record<string, unknown>[] | null) ?? []).map(mapEmployeeRow)
+      }
+    } else if (withoutSalesman.error && isMissingColumn(withoutSalesman.error.message, 'is_tester')) {
+      const fallback = await supabase
+        .from('employees')
+        .select(EMPLOYEE_SELECT_BASE)
+        .order('last_name', { ascending: true })
+        .order('first_name', { ascending: true })
+
+      if (fallback.error) {
+        error = fallback.error.message
+      } else {
+        error =
+          'Run migration-employee-is-tester.sql, migration-employee-quality-team.sql, and migration-employee-is-salesman.sql in Supabase'
+        rows = ((fallback.data as Record<string, unknown>[] | null) ?? []).map(mapEmployeeRow)
+      }
+    } else if (withoutSalesman.error) {
+      error = withoutSalesman.error.message
+    } else {
+      error =
+        'Run migration-employee-is-salesman.sql in Supabase SQL Editor to enable salesman designation. Then click Refresh.'
+      rows = ((withoutSalesman.data as Record<string, unknown>[] | null) ?? []).map(mapEmployeeRow)
+    }
+  } else if (
+    employeesResPrimary.error &&
+    isMissingColumn(employeesResPrimary.error.message, 'quality_team_level')
+  ) {
     const withTester = await supabase
       .from('employees')
       .select(EMPLOYEE_SELECT_WITH_TESTER)
@@ -81,8 +146,8 @@ async function loadEmployeesSnapshot(): Promise<EmployeesSnapshot> {
     } else if (withTester.error) {
       error = withTester.error.message
     } else {
-        error =
-          'Run migration-employee-quality-team.sql in Supabase SQL Editor (Tester migration is separate). Then click Refresh.'
+      error =
+        'Run migration-employee-quality-team.sql in Supabase SQL Editor (Tester migration is separate). Then click Refresh.'
       rows = ((withTester.data as Record<string, unknown>[] | null) ?? []).map(mapEmployeeRow)
     }
   } else if (employeesResPrimary.error && isMissingColumn(employeesResPrimary.error.message, 'is_tester')) {
@@ -140,7 +205,9 @@ async function getEmployeesSnapshot(force = false): Promise<EmployeesSnapshot> {
 
 export function useEmployees() {
   const [employees, setEmployees] = useState<Employee[]>(sharedSnapshot?.employees ?? [])
-  const [currentUserProfile, setCurrentUserProfile] = useState<Profile | null>(sharedSnapshot?.currentUserProfile ?? null)
+  const [currentUserProfile, setCurrentUserProfile] = useState<Profile | null>(
+    sharedSnapshot?.currentUserProfile ?? null,
+  )
   const [loading, setLoading] = useState(!sharedSnapshot)
   const [error, setError] = useState<string | null>(sharedSnapshot?.error ?? null)
 

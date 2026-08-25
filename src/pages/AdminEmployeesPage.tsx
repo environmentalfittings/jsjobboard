@@ -84,6 +84,7 @@ export function AdminEmployeesPage({ isAdmin }: { isAdmin: boolean }) {
     username: '',
     initials: '',
     is_tester: false,
+    is_salesman: false,
     quality_team_level: 'none' as QualityTeamLevel,
     createLogin: false,
     password: '',
@@ -166,6 +167,7 @@ export function AdminEmployeesPage({ isAdmin }: { isAdmin: boolean }) {
       username: '',
       initials: '',
       is_tester: false,
+      is_salesman: false,
       quality_team_level: 'none',
       createLogin: false,
       password: '',
@@ -243,6 +245,7 @@ export function AdminEmployeesPage({ isAdmin }: { isAdmin: boolean }) {
       company: 'J-S Machine & Valve, Inc.',
       is_active: true,
       is_tester: addForm.is_tester,
+      is_salesman: addForm.is_salesman,
       quality_team_level: addForm.quality_team_level,
       auth_user_id: null as string | null,
     }
@@ -405,6 +408,36 @@ export function AdminEmployeesPage({ isAdmin }: { isAdmin: boolean }) {
     await reload()
   }
 
+  const toggleSalesman = async (employee: Employee, nextValue: boolean) => {
+    if (!isAdmin) {
+      showToast('Only Admin can update salesman designation')
+      return
+    }
+    setBusy(true)
+    const { error: rpcError } = await supabase.rpc('set_employee_is_salesman', {
+      p_employee_id: employee.id,
+      p_is_salesman: nextValue,
+    })
+    setBusy(false)
+    if (rpcError) {
+      const message = rpcError.message || 'Could not update salesman designation'
+      showToast(
+        /Only Admin can update salesman designation/i.test(message)
+          ? 'Admin check failed in database. Re-run supabase/migration-employee-is-salesman.sql, then try again.'
+          : /set_employee_is_salesman|function|schema cache|does not exist|is_salesman/i.test(message)
+            ? 'Run migration-employee-is-salesman.sql in Supabase SQL Editor first'
+            : message,
+      )
+      return
+    }
+    showToast(
+      nextValue
+        ? `${employee.full_name} marked as salesman`
+        : `${employee.full_name} removed from salesmen`,
+    )
+    await reload()
+  }
+
   const setQualityTeamLevel = async (employee: Employee, nextLevel: QualityTeamLevel) => {
     if (!isAdmin) {
       showToast('Only Admin can update Quality Team level')
@@ -463,9 +496,10 @@ export function AdminEmployeesPage({ isAdmin }: { isAdmin: boolean }) {
 
       {error ? <p className="admin-employees-error">{error}</p> : null}
       <p className="admin-employees-tester-hint">
-        Check <strong>Tester</strong> for people who should appear in the Test Log tester dropdown. Use{' '}
-        <strong>Quality Team</strong> to assign Admin, Manager, Supervisor, or Technician (access by level comes
-        later).
+        Check <strong>Tester</strong> for people who should appear in the Test Log tester dropdown. Check{' '}
+        <strong>Salesman</strong> for people who should appear when assigning a salesman on Inventory by Customer
+        or Admin → Lists → Customers. Use <strong>Quality Team</strong> to assign Admin, Manager, Supervisor, or
+        Technician (access by level comes later).
       </p>
 
       <section className="dashboard-panel admin-employees-panel">
@@ -513,6 +547,7 @@ export function AdminEmployeesPage({ isAdmin }: { isAdmin: boolean }) {
                 <th>Username</th>
                 <th>Initials</th>
                 <th>Tester</th>
+                <th>Salesman</th>
                 <th>Quality Team</th>
                 <th>Status</th>
                 <th>Last Sign In</th>
@@ -522,11 +557,11 @@ export function AdminEmployeesPage({ isAdmin }: { isAdmin: boolean }) {
             <tbody>
               {loading ? (
                 <tr>
-                  <td colSpan={9}>Loading employees…</td>
+                  <td colSpan={10}>Loading employees…</td>
                 </tr>
               ) : filteredEmployees.length === 0 ? (
                 <tr>
-                  <td colSpan={9}>No employees match your filters.</td>
+                  <td colSpan={10}>No employees match your filters.</td>
                 </tr>
               ) : (
                 filteredEmployees.map((employee) => {
@@ -553,6 +588,18 @@ export function AdminEmployeesPage({ isAdmin }: { isAdmin: boolean }) {
                             aria-label={`Mark ${employee.full_name} as tester`}
                           />
                           <span>{employee.is_tester ? 'Yes' : 'No'}</span>
+                        </label>
+                      </td>
+                      <td>
+                        <label className="admin-employees-tester-toggle">
+                          <input
+                            type="checkbox"
+                            checked={Boolean(employee.is_salesman)}
+                            disabled={!isAdmin || busy || !employee.is_active}
+                            onChange={(e) => void toggleSalesman(employee, e.target.checked)}
+                            aria-label={`Mark ${employee.full_name} as salesman`}
+                          />
+                          <span>{employee.is_salesman ? 'Yes' : 'No'}</span>
                         </label>
                       </td>
                       <td>
@@ -792,6 +839,14 @@ export function AdminEmployeesPage({ isAdmin }: { isAdmin: boolean }) {
                     onChange={(e) => setAddForm((f) => ({ ...f, is_tester: e.target.checked }))}
                   />
                   Tester (show in Test Log)
+                </label>
+                <label className="admin-employees-add-check">
+                  <input
+                    type="checkbox"
+                    checked={addForm.is_salesman}
+                    onChange={(e) => setAddForm((f) => ({ ...f, is_salesman: e.target.checked }))}
+                  />
+                  Salesman (show in customer salesman dropdowns)
                 </label>
                 <label>
                   Quality Team

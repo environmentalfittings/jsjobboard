@@ -10,6 +10,8 @@ export interface Employee {
   is_active: boolean
   /** When true, employee appears in Test Log tester multi-select. */
   is_tester: boolean
+  /** When true, employee appears in Inventory / Lists salesman dropdowns. */
+  is_salesman: boolean
   /**
    * Quality Team hierarchy. `none` = not on the team.
    * Access differences by level will be wired later.
