@@ -2033,6 +2033,7 @@ export function AdminInventoryPage() {
                               </span>
                               <span>{row.js_inventory_id || '—'}</span>
                             </span>
+                            {row.is_valve_part ? <span className="inventory-part-badge">Part</span> : null}
                             {row.hf_acid ? <span className="inventory-hf-badge">HF Acid</span> : null}
                           </div>
                         </td>
@@ -2213,6 +2214,12 @@ export function AdminInventoryPage() {
                                 <div className="inventory-detail-item">
                                   <span className="inventory-detail-label">Operator</span>
                                   <span className="inventory-detail-value">{display(row.operator)}</span>
+                                </div>
+                                <div className="inventory-detail-item">
+                                  <span className="inventory-detail-label">Item type</span>
+                                  <span className="inventory-detail-value">
+                                    {row.is_valve_part ? 'Valve part' : 'Valve'}
+                                  </span>
                                 </div>
                                 <div className="inventory-detail-item">
                                   <span className="inventory-detail-label">HF Acid</span>
@@ -2410,13 +2417,30 @@ export function AdminInventoryPage() {
                       />
                     </Field>
                   ) : null}
+                  <label className="inventory-checkbox-field inventory-field-wide">
+                    <input
+                      type="checkbox"
+                      checked={form.isValvePart}
+                      onChange={(e) => patchForm({ isValvePart: e.target.checked })}
+                    />
+                    <span>
+                      Valve part
+                      <span className="inventory-field-hint" style={{ display: 'block', marginTop: '0.15rem' }}>
+                        Leave unchecked for a complete valve (default).
+                      </span>
+                    </span>
+                  </label>
                   {modalMode === 'create' || modalMode === 'duplicate' ? (
                     <Field label="Reason for adding" required className="inventory-field-wide">
                       <textarea
                         rows={2}
                         value={form.changeReason}
                         onChange={(e) => patchForm({ changeReason: e.target.value })}
-                        placeholder="Why is this valve being added to customer inventory?"
+                        placeholder={
+                          form.isValvePart
+                            ? 'Why is this valve part being added to customer inventory?'
+                            : 'Why is this valve being added to customer inventory?'
+                        }
                       />
                     </Field>
                   ) : null}
@@ -2434,8 +2458,12 @@ export function AdminInventoryPage() {
                 </div>
                 <div className="inventory-photo-grid">
                   <PhotoCard
-                    title="Valve photo"
-                    hint="Clear shot of the valve body"
+                    title={form.isValvePart ? 'Part photo' : 'Valve photo'}
+                    hint={
+                      form.isValvePart
+                        ? 'Clear shot of the part'
+                        : 'Clear shot of the valve body'
+                    }
                     draft={valvePhoto}
                     required
                     inputId="inventory-valve-photo"
@@ -2584,7 +2612,7 @@ export function AdminInventoryPage() {
                       checked={form.hfAcid}
                       onChange={(e) => patchForm({ hfAcid: e.target.checked })}
                     />
-                    <span>HF Acid valve</span>
+                    <span>{form.isValvePart ? 'HF Acid part' : 'HF Acid valve'}</span>
                   </label>
                 </div>
                 <div className="inventory-notes-in-section">
