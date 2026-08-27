@@ -3,6 +3,7 @@ import { useToast } from './ToastNotification'
 import { useEmployees } from '../hooks/useEmployees'
 import {
   TRAINING_FILE_KINDS,
+  TRAINING_COURSE_SECTION_KINDS,
   TRAINING_REASONS,
   TRAINING_RECERT_INTERVALS,
   TRAINING_SKILL_KEYS,
@@ -10,32 +11,49 @@ import {
   TRAINING_STATUSES,
   computeRecertDueDate,
   createEmployeeTraining,
+  createTrainingCourse,
+  createTrainingHourEntry,
+  createTrainingLibraryLink,
   deleteEmployeeTraining,
   deleteTrainingAttendee,
+  deleteTrainingCourse,
   deleteTrainingFile,
+  deleteTrainingHourEntry,
   emptyTrainingInput,
   formatTrainingDate,
+  formatTrainingHours,
+  groupTrainingFilesBySection,
   inputFromTraining,
   isTrainingExpired,
+  isTrainingFileLink,
   daysUntilTrainingExpiration,
   listAllAttendeeTrainings,
   listAttendeeTrainingsForEmployee,
   listEmployeeSkills,
   listEmployeeTrainings,
   listTrainingAttendees,
+  listTrainingCourses,
+  listTrainingHourEntries,
   listTrainingFiles,
   trainingExpirationStatusLabel,
-  trainingFilePublicUrl,
+  trainingFileHref,
+  trainingFileLabel,
+  trainingHoursByAttendeeId,
   trainingRecertIntervalLabel,
   trainingStatusLabel,
+  sumTrainingHours,
   updateEmployeeTraining,
   updateTrainingAttendee,
+  updateTrainingCourse,
+  updateTrainingFileMeta,
   uploadTrainingFile,
   upsertEmployeeSkill,
   upsertTrainingAttendee,
   type EmployeeTraining,
   type EmployeeTrainingAttendee,
+  type EmployeeTrainingCourse,
   type EmployeeTrainingFile,
+  type EmployeeTrainingHourEntry,
   type EmployeeTrainingInput,
   type EmployeeTrainingSkill,
   type TrainingFileKind,
@@ -63,7 +81,7 @@ function todayIso() {
 }
 
 function migrationHint(message: string) {
-  return /relation .* does not exist|Could not find the table|function .* does not exist|allocate_training_record_no|row-level security|employee_training|recert_interval|recert_due_date|certificate/i.test(
+  return /relation .* does not exist|Could not find the table|function .* does not exist|allocate_training_record_no|row-level security|employee_training|recert_interval|recert_due_date|certificate|external_url|library-links|employee_training_courses|course_id|employee_training_hour_entries/i.test(
     message,
   )
 }
@@ -94,6 +112,13 @@ export function EmployeeTrainingPanel({ canWrite, onCountsChange }: EmployeeTrai
   const [creating, setCreating] = useState(false)
 
   const [attendees, setAttendees] = useState<EmployeeTrainingAttendee[]>([])
+  const [hourEntries, setHourEntries] = useState<EmployeeTrainingHourEntry[]>([])
+  const [linkedCourseFiles, setLinkedCourseFiles] = useState<EmployeeTrainingFile[]>([])
+  const [hourLogAttendeeId, setHourLogAttendeeId] = useState<number | null>(null)
+  const [hourLogDate, setHourLogDate] = useState(() => todayIso())
+  const [hourLogHours, setHourLogHours] = useState('')
+  const [hourLogNotes, setHourLogNotes] = useState('')
+  const [employeeHourEntries, setEmployeeHourEntries] = useState<EmployeeTrainingHourEntry[]>([])
   const [draftAttendees, setDraftAttendees] = useState<Array<{ employeeId: string; employeeName: string }>>([])
   const [files, setFiles] = useState<EmployeeTrainingFile[]>([])
   const [attendeePickId, setAttendeePickId] = useState('')
@@ -101,8 +126,22 @@ export function EmployeeTrainingPanel({ canWrite, onCountsChange }: EmployeeTrai
   const fileInputRef = useRef<HTMLInputElement>(null)
 
   const [libraryFiles, setLibraryFiles] = useState<EmployeeTrainingFile[]>([])
+  const [courses, setCourses] = useState<EmployeeTrainingCourse[]>([])
+  const [selectedCourseId, setSelectedCourseId] = useState<number | null>(null)
+  const [newCourseTitle, setNewCourseTitle] = useState('')
+  const [newCourseDescription, setNewCourseDescription] = useState('')
+  const [editCourseTitle, setEditCourseTitle] = useState('')
+  const [editCourseDescription, setEditCourseDescription] = useState('')
   const [libraryFilter, setLibraryFilter] = useState<LibraryFilter>('all')
   const [libraryKind, setLibraryKind] = useState<TrainingFileKind>('material')
+  const [librarySource, setLibrarySource] = useState<'file' | 'url'>('file')
+  const [libraryTitle, setLibraryTitle] = useState('')
+  const [libraryDescription, setLibraryDescription] = useState('')
+  const [libraryUrl, setLibraryUrl] = useState('')
+  const [editingLibraryId, setEditingLibraryId] = useState<number | null>(null)
+  const [editLibraryTitle, setEditLibraryTitle] = useState('')
+  const [editLibraryDescription, setEditLibraryDescription] = useState('')
+  const [editLibraryUrl, setEditLibraryUrl] = useState('')
   const libraryFileRef = useRef<HTMLInputElement>(null)
 
   const [selectedEmployeeId, setSelectedEmployeeId] = useState<string>('')
@@ -123,6 +162,59 @@ export function EmployeeTrainingPanel({ canWrite, onCountsChange }: EmployeeTrai
   const [expiringSearch, setExpiringSearch] = useState('')
 
   const selected = useMemo(() => rows.find((r) => r.id === selectedId) ?? null, [rows, selectedId])
+
+  const selectedCourse = useMemo(
+    () => courses.find((course) => course.id === selectedCourseId) ?? null,
+    [courses, selectedCourseId],
+  )
+
+  const courseFileCounts = useMemo(() => {
+    const counts = new Map<number, number>()
+    for (const file of libraryFiles) {
+      if (file.course_id == null) continue
+      counts.set(file.course_id, (counts.get(file.course_id) ?? 0) + 1)
+    }
+    return counts
+  }, [libraryFiles])
+
+  const selectedCourseFiles = useMemo(
+    () => (selectedCourseId == null ? [] : libraryFiles.filter((file) => file.course_id === selectedCourseId)),
+    [libraryFiles, selectedCourseId],
+  )
+
+  const generalLibraryFiles = useMemo(
+    () => libraryFiles.filter((file) => file.course_id == null),
+    [libraryFiles],
+  )
+
+  const filteredGeneralLibraryFiles = useMemo(() => {
+    if (libraryFilter === 'all') return generalLibraryFiles
+    return generalLibraryFiles.filter((file) => file.kind === libraryFilter)
+  }, [generalLibraryFiles, libraryFilter])
+
+  const selectedCourseSections = useMemo(
+    () => groupTrainingFilesBySection(selectedCourseFiles),
+    [selectedCourseFiles],
+  )
+
+  const linkedCourse = useMemo(
+    () => (draft.course_id ? courses.find((course) => course.id === draft.course_id) ?? null : null),
+    [courses, draft.course_id],
+  )
+
+  const linkedCourseSections = useMemo(
+    () => groupTrainingFilesBySection(linkedCourseFiles),
+    [linkedCourseFiles],
+  )
+
+  const attendeeHoursById = useMemo(() => trainingHoursByAttendeeId(hourEntries), [hourEntries])
+
+  const totalTrainingHours = useMemo(() => sumTrainingHours(hourEntries), [hourEntries])
+
+  const employeeHoursByAttendeeId = useMemo(
+    () => trainingHoursByAttendeeId(employeeHourEntries),
+    [employeeHourEntries],
+  )
 
   const scheduledRows = useMemo(
     () => rows.filter((r) => r.status === 'scheduled' || r.status === 'in_progress'),
@@ -248,13 +340,24 @@ export function EmployeeTrainingPanel({ canWrite, onCountsChange }: EmployeeTrai
   const loadDetail = useCallback(
     async (trainingId: number) => {
       try {
-        const [a, f] = await Promise.all([listTrainingAttendees(trainingId), listTrainingFiles({ trainingId })])
+        const [a, f] = await Promise.all([
+          listTrainingAttendees(trainingId),
+          listTrainingFiles({ trainingId }),
+        ])
         setAttendees(a)
         setFiles(f)
+        try {
+          setHourEntries(await listTrainingHourEntries({ trainingId }))
+        } catch (error) {
+          setHourEntries([])
+          const message = errorMessage(error, 'Could not load hour log')
+          if (migrationHint(message)) showToast(message)
+        }
       } catch (error) {
         showToast(error instanceof Error ? error.message : 'Could not load training details')
         setAttendees([])
         setFiles([])
+        setHourEntries([])
       }
     },
     [showToast],
@@ -262,21 +365,25 @@ export function EmployeeTrainingPanel({ canWrite, onCountsChange }: EmployeeTrai
 
   const loadLibrary = useCallback(async () => {
     try {
-      const list = await listTrainingFiles({
-        libraryOnly: true,
-        kind: libraryFilter === 'all' ? 'all' : libraryFilter,
-      })
+      const [courseList, list] = await Promise.all([
+        listTrainingCourses(),
+        listTrainingFiles({
+          libraryOnly: true,
+        }),
+      ])
+      setCourses(courseList)
       setLibraryFiles(list)
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Could not load library'
+      setCourses([])
       setLibraryFiles([])
       if (migrationHint(message)) {
-        showToast('Run migration-employee-training-module.sql in Supabase, then refresh')
+        showToast(message.includes('courses') ? message : 'Run training migrations in Supabase, then refresh')
       } else {
         showToast(message)
       }
     }
-  }, [libraryFilter, showToast])
+  }, [showToast])
 
   const loadEmployeeRoster = useCallback(async () => {
     try {
@@ -296,6 +403,7 @@ export function EmployeeTrainingPanel({ canWrite, onCountsChange }: EmployeeTrai
         setSkills([])
         setEmployeeHistory([])
         setEmployeeCertificates([])
+        setEmployeeHourEntries([])
         setShopLocation('')
         return
       }
@@ -308,16 +416,38 @@ export function EmployeeTrainingPanel({ canWrite, onCountsChange }: EmployeeTrai
         setSkills(skillRows)
         setEmployeeHistory(history)
         setEmployeeCertificates(certificates)
+        try {
+          setEmployeeHourEntries(await listTrainingHourEntries({ employeeId }))
+        } catch {
+          setEmployeeHourEntries([])
+        }
         setShopLocation(skillRows.find((s) => s.shop_location)?.shop_location ?? '')
       } catch (error) {
         showToast(errorMessage(error, 'Could not load employee training record'))
         setSkills([])
         setEmployeeHistory([])
         setEmployeeCertificates([])
+        setEmployeeHourEntries([])
       }
     },
     [showToast],
   )
+
+  useEffect(() => {
+    void listTrainingCourses()
+      .then(setCourses)
+      .catch(() => setCourses([]))
+  }, [])
+
+  useEffect(() => {
+    if (!draft.course_id) {
+      setLinkedCourseFiles([])
+      return
+    }
+    void listTrainingFiles({ courseId: draft.course_id })
+      .then(setLinkedCourseFiles)
+      .catch(() => setLinkedCourseFiles([]))
+  }, [draft.course_id])
 
   useEffect(() => {
     void loadTrainings()
@@ -370,6 +500,7 @@ export function EmployeeTrainingPanel({ canWrite, onCountsChange }: EmployeeTrai
     setDraft(inputFromTraining(row))
     setDraftAttendees([])
     setAttendeePickId('')
+    cancelHourLog()
   }
 
   const saveTraining = async () => {
@@ -522,6 +653,58 @@ export function EmployeeTrainingPanel({ canWrite, onCountsChange }: EmployeeTrai
     }
   }
 
+  const startHourLog = (attendee: EmployeeTrainingAttendee) => {
+    setHourLogAttendeeId(attendee.id)
+    setHourLogDate(todayIso())
+    setHourLogHours('')
+    setHourLogNotes('')
+  }
+
+  const cancelHourLog = () => {
+    setHourLogAttendeeId(null)
+    setHourLogDate(todayIso())
+    setHourLogHours('')
+    setHourLogNotes('')
+  }
+
+  const saveHourLog = async () => {
+    if (!canWrite || busy || selectedId == null || hourLogAttendeeId == null) return
+    const attendee = attendees.find((row) => row.id === hourLogAttendeeId)
+    if (!attendee) return
+    setBusy(true)
+    try {
+      await createTrainingHourEntry({
+        attendeeId: attendee.id,
+        trainingId: selectedId,
+        employeeId: attendee.employee_id,
+        sessionDate: hourLogDate,
+        hours: hourLogHours,
+        notes: hourLogNotes,
+      })
+      showToast(`Logged ${hourLogHours.trim()} hour${Number(hourLogHours) === 1 ? '' : 's'} for ${attendee.employee_name}`)
+      cancelHourLog()
+      await loadDetail(selectedId)
+    } catch (error) {
+      showToast(errorMessage(error, 'Could not log training hours'))
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const removeHourEntry = async (entry: EmployeeTrainingHourEntry) => {
+    if (!canWrite || busy || selectedId == null) return
+    if (!window.confirm(`Remove ${formatTrainingHours(entry.hours)} hour log from ${formatTrainingDate(entry.session_date)}?`)) return
+    setBusy(true)
+    try {
+      await deleteTrainingHourEntry(entry.id)
+      await loadDetail(selectedId)
+    } catch (error) {
+      showToast(errorMessage(error, 'Could not remove hour log'))
+    } finally {
+      setBusy(false)
+    }
+  }
+
   const uploadDetailFile = async (fileList: FileList | null) => {
     if (!fileList?.length || !canWrite || busy || selectedId == null) return
     setBusy(true)
@@ -544,15 +727,157 @@ export function EmployeeTrainingPanel({ canWrite, onCountsChange }: EmployeeTrai
     setBusy(true)
     try {
       for (const file of Array.from(fileList)) {
-        await uploadTrainingFile({ file, kind: libraryKind, trainingId: null })
+        await uploadTrainingFile({
+          file,
+          kind: libraryKind,
+          title: libraryTitle.trim() || undefined,
+          notes: libraryDescription.trim() || undefined,
+          trainingId: null,
+          courseId: selectedCourseId,
+        })
       }
       showToast(fileList.length > 1 ? 'Files uploaded' : 'File uploaded')
+      setLibraryTitle('')
+      setLibraryDescription('')
       await loadLibrary()
     } catch (error) {
       showToast(errorMessage(error, 'Upload failed'))
     } finally {
       setBusy(false)
       if (libraryFileRef.current) libraryFileRef.current.value = ''
+    }
+  }
+
+  const addLibraryLink = async () => {
+    if (!canWrite || busy) return
+    setBusy(true)
+    try {
+      await createTrainingLibraryLink({
+        url: libraryUrl,
+        kind: libraryKind,
+        title: libraryTitle,
+        notes: libraryDescription,
+        trainingId: null,
+        courseId: selectedCourseId,
+      })
+      showToast('Link added to library')
+      setLibraryUrl('')
+      setLibraryTitle('')
+      setLibraryDescription('')
+      await loadLibrary()
+    } catch (error) {
+      const message = errorMessage(error, 'Could not add link')
+      showToast(migrationHint(message) ? message : message)
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const createCourse = async () => {
+    if (!canWrite || busy) return
+    setBusy(true)
+    try {
+      const created = await createTrainingCourse({
+        title: newCourseTitle,
+        description: newCourseDescription,
+      })
+      showToast(`Course created: ${created.title}`)
+      setNewCourseTitle('')
+      setNewCourseDescription('')
+      await loadLibrary()
+      setSelectedCourseId(created.id)
+      setEditCourseTitle(created.title)
+      setEditCourseDescription(created.description)
+      cancelEditLibrary()
+      setLibrarySource('file')
+      setLibraryKind('material')
+    } catch (error) {
+      showToast(errorMessage(error, 'Could not create course'))
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const openCourse = (courseId: number) => {
+    const course = courses.find((row) => row.id === courseId)
+    setSelectedCourseId(courseId)
+    setEditCourseTitle(course?.title ?? '')
+    setEditCourseDescription(course?.description ?? '')
+    cancelEditLibrary()
+    setLibrarySource('file')
+    setLibraryKind('material')
+  }
+
+  const closeCourse = () => {
+    setSelectedCourseId(null)
+    setEditCourseTitle('')
+    setEditCourseDescription('')
+    cancelEditLibrary()
+  }
+
+  const saveCourseMeta = async () => {
+    if (!canWrite || busy || selectedCourseId == null) return
+    setBusy(true)
+    try {
+      await updateTrainingCourse(selectedCourseId, {
+        title: editCourseTitle,
+        description: editCourseDescription,
+      })
+      showToast('Course updated')
+      await loadLibrary()
+    } catch (error) {
+      showToast(errorMessage(error, 'Could not update course'))
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const removeCourse = async (course: EmployeeTrainingCourse) => {
+    if (!canWrite || busy) return
+    if (!window.confirm(`Delete course “${course.title}” and all of its materials?`)) return
+    setBusy(true)
+    try {
+      await deleteTrainingCourse(course.id)
+      if (selectedCourseId === course.id) closeCourse()
+      showToast('Course deleted')
+      await loadLibrary()
+    } catch (error) {
+      showToast(errorMessage(error, 'Could not delete course'))
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const startEditLibrary = (row: EmployeeTrainingFile) => {
+    setEditingLibraryId(row.id)
+    setEditLibraryTitle(row.title || row.file_name)
+    setEditLibraryDescription(row.notes || '')
+    setEditLibraryUrl(row.external_url || '')
+  }
+
+  const cancelEditLibrary = () => {
+    setEditingLibraryId(null)
+    setEditLibraryTitle('')
+    setEditLibraryDescription('')
+    setEditLibraryUrl('')
+  }
+
+  const saveLibraryMeta = async (row: EmployeeTrainingFile) => {
+    if (!canWrite || busy) return
+    setBusy(true)
+    try {
+      await updateTrainingFileMeta(row.id, {
+        title: editLibraryTitle,
+        notes: editLibraryDescription,
+        ...(isTrainingFileLink(row) ? { external_url: editLibraryUrl } : {}),
+      })
+      showToast('Resource updated')
+      cancelEditLibrary()
+      await loadLibrary()
+    } catch (error) {
+      showToast(errorMessage(error, 'Could not update resource'))
+    } finally {
+      setBusy(false)
     }
   }
 
@@ -607,7 +932,7 @@ export function EmployeeTrainingPanel({ canWrite, onCountsChange }: EmployeeTrai
 
   const removeFile = async (row: EmployeeTrainingFile, from: 'detail' | 'library') => {
     if (!canWrite || busy) return
-    if (!window.confirm(`Remove “${row.file_name}”?`)) return
+    if (!window.confirm(`Remove “${trainingFileLabel(row)}”?`)) return
     setBusy(true)
     try {
       await deleteTrainingFile(row)
@@ -704,6 +1029,192 @@ export function EmployeeTrainingPanel({ canWrite, onCountsChange }: EmployeeTrai
     showToast(`Exported ${expiringReportRows.length} row${expiringReportRows.length === 1 ? '' : 's'}`)
   }
 
+  const librarySectionKinds = selectedCourseId ? TRAINING_COURSE_SECTION_KINDS : TRAINING_FILE_KINDS
+
+  const renderLibraryFileRow = (f: EmployeeTrainingFile) => (
+    <li key={f.id} className="training-file-row training-library-row">
+      {editingLibraryId === f.id ? (
+        <div className="training-library-edit">
+          <label>
+            Title
+            <input
+              type="text"
+              value={editLibraryTitle}
+              disabled={busy}
+              onChange={(e) => setEditLibraryTitle(e.target.value)}
+            />
+          </label>
+          <label>
+            Description
+            <input
+              type="text"
+              value={editLibraryDescription}
+              disabled={busy}
+              onChange={(e) => setEditLibraryDescription(e.target.value)}
+            />
+          </label>
+          {isTrainingFileLink(f) ? (
+            <label>
+              URL
+              <input
+                type="url"
+                value={editLibraryUrl}
+                disabled={busy}
+                onChange={(e) => setEditLibraryUrl(e.target.value)}
+              />
+            </label>
+          ) : null}
+          <div className="training-library-edit-actions">
+            <button type="button" className="button-primary" disabled={busy} onClick={() => void saveLibraryMeta(f)}>
+              Save
+            </button>
+            <button type="button" className="button-secondary" disabled={busy} onClick={cancelEditLibrary}>
+              Cancel
+            </button>
+          </div>
+        </div>
+      ) : (
+        <>
+          <span className="training-file-kind">
+            {isTrainingFileLink(f) ? 'Link · ' : ''}
+            {TRAINING_FILE_KINDS.find((k) => k.value === f.kind)?.label ?? f.kind}
+          </span>
+          <div className="training-file-main">
+            <a href={trainingFileHref(f)} target="_blank" rel="noreferrer">
+              {trainingFileLabel(f)}
+            </a>
+            {f.notes.trim() ? <p className="training-file-desc">{f.notes}</p> : null}
+          </div>
+          {canWrite ? (
+            <div className="training-file-actions">
+              <button
+                type="button"
+                className="button-secondary admin-list-btn"
+                disabled={busy}
+                onClick={() => startEditLibrary(f)}
+              >
+                Edit
+              </button>
+              <button
+                type="button"
+                className="button-secondary admin-list-btn danger"
+                disabled={busy}
+                onClick={() => void removeFile(f, 'library')}
+              >
+                Delete
+              </button>
+            </div>
+          ) : null}
+        </>
+      )}
+    </li>
+  )
+
+  const renderLibraryAddForm = (heading: string) =>
+    canWrite ? (
+      <div className="training-library-add">
+        <h5 className="training-library-add-title">{heading}</h5>
+        <div className="training-library-add-mode" role="group" aria-label="Add library item type">
+          <button
+            type="button"
+            className={`button-secondary${librarySource === 'file' ? ' is-active' : ''}`}
+            disabled={busy}
+            onClick={() => setLibrarySource('file')}
+          >
+            Upload file
+          </button>
+          <button
+            type="button"
+            className={`button-secondary${librarySource === 'url' ? ' is-active' : ''}`}
+            disabled={busy}
+            onClick={() => setLibrarySource('url')}
+          >
+            Add URL link
+          </button>
+        </div>
+        <div className="training-library-add-grid">
+          <label>
+            Section
+            <select
+              value={libraryKind}
+              disabled={busy}
+              onChange={(e) => setLibraryKind(e.target.value as TrainingFileKind)}
+            >
+              {librarySectionKinds.map((k) => (
+                <option key={k.value} value={k.value}>
+                  {k.label}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label>
+            Title
+            <input
+              type="text"
+              value={libraryTitle}
+              disabled={busy}
+              placeholder={
+                librarySource === 'url' ? 'Optional — defaults to site name' : 'Optional — defaults to file name'
+              }
+              onChange={(e) => setLibraryTitle(e.target.value)}
+            />
+          </label>
+          <label className="training-form-full">
+            Description
+            <input
+              type="text"
+              value={libraryDescription}
+              disabled={busy}
+              placeholder="What this resource is for"
+              onChange={(e) => setLibraryDescription(e.target.value)}
+            />
+          </label>
+          {librarySource === 'url' ? (
+            <label className="training-form-full">
+              URL
+              <input
+                type="url"
+                value={libraryUrl}
+                disabled={busy}
+                placeholder="https://…"
+                onChange={(e) => setLibraryUrl(e.target.value)}
+              />
+            </label>
+          ) : null}
+        </div>
+        <div className="training-library-add-actions">
+          {librarySource === 'file' ? (
+            <>
+              <button
+                type="button"
+                className="button-primary"
+                disabled={busy}
+                onClick={() => libraryFileRef.current?.click()}
+              >
+                {selectedCourseId ? 'Add file to course' : 'Upload to library'}
+              </button>
+              <input
+                ref={libraryFileRef}
+                type="file"
+                multiple
+                hidden
+                onChange={(e) => void uploadLibraryFile(e.target.files)}
+              />
+            </>
+          ) : (
+            <button
+              type="button"
+              className="button-primary"
+              disabled={busy || !libraryUrl.trim()}
+              onClick={() => void addLibraryLink()}
+            >
+              {selectedCourseId ? 'Add link to course' : 'Add link to library'}
+            </button>
+          )}
+        </div>
+      </div>
+    ) : null
+
   const renderTrainingTable = (list: EmployeeTraining[], emptyLabel: string) => (
     <div className="dashboard-table-wrap training-table-scroll">
       <table className="dashboard-table">
@@ -799,6 +1310,31 @@ export function EmployeeTrainingPanel({ canWrite, onCountsChange }: EmployeeTrai
               onChange={(e) => setDraft((d) => ({ ...d, title: e.target.value }))}
               placeholder="e.g. Calibrating Measurement tools"
             />
+          </label>
+          <label>
+            Library course
+            <select
+              value={draft.course_id ?? ''}
+              disabled={!canWrite || busy}
+              onChange={(e) => {
+                const nextCourseId = e.target.value ? Number(e.target.value) : null
+                setDraft((d) => ({
+                  ...d,
+                  course_id: nextCourseId,
+                  title:
+                    d.title.trim() || !nextCourseId
+                      ? d.title
+                      : (courses.find((course) => course.id === nextCourseId)?.title ?? d.title),
+                }))
+              }}
+            >
+              <option value="">— No library course —</option>
+              {courses.map((course) => (
+                <option key={course.id} value={course.id}>
+                  {course.title}
+                </option>
+              ))}
+            </select>
           </label>
           <label>
             Status
@@ -923,7 +1459,15 @@ export function EmployeeTrainingPanel({ canWrite, onCountsChange }: EmployeeTrai
 
         <div className="training-subsection">
           <div className="training-subsection-head">
-            <h5>Attendees</h5>
+            <div>
+              <h5>Attendees</h5>
+              {!creating && attendees.length > 0 ? (
+                <p className="placeholder-copy training-hours-summary">
+                  Total logged on this training: {formatTrainingHours(totalTrainingHours)} hour
+                  {totalTrainingHours === 1 ? '' : 's'}
+                </p>
+              ) : null}
+            </div>
             {canWrite ? (
               <div className="training-inline-add">
                 <select value={attendeePickId} disabled={busy} onChange={(e) => setAttendeePickId(e.target.value)}>
@@ -945,6 +1489,7 @@ export function EmployeeTrainingPanel({ canWrite, onCountsChange }: EmployeeTrai
               <thead>
                 <tr>
                   <th>Employee</th>
+                  <th>Hours logged</th>
                   <th>Signed off</th>
                   <th>Date</th>
                   <th />
@@ -955,6 +1500,7 @@ export function EmployeeTrainingPanel({ canWrite, onCountsChange }: EmployeeTrai
                   ? draftAttendees.map((a) => (
                       <tr key={a.employeeId}>
                         <td>{a.employeeName}</td>
+                        <td>—</td>
                         <td>{draft.status === 'completed' ? 'On create' : 'After create'}</td>
                         <td>—</td>
                         <td>
@@ -974,6 +1520,19 @@ export function EmployeeTrainingPanel({ canWrite, onCountsChange }: EmployeeTrai
                   : attendees.map((a) => (
                       <tr key={a.id}>
                         <td>{a.employee_name}</td>
+                        <td className="training-hours-cell">
+                          <strong>{formatTrainingHours(attendeeHoursById.get(a.id) ?? 0)}</strong>
+                          {canWrite ? (
+                            <button
+                              type="button"
+                              className="button-secondary admin-list-btn"
+                              disabled={busy}
+                              onClick={() => startHourLog(a)}
+                            >
+                              Log hours
+                            </button>
+                          ) : null}
+                        </td>
                         <td>
                           {canWrite ? (
                             <label className="training-check">
@@ -1008,7 +1567,7 @@ export function EmployeeTrainingPanel({ canWrite, onCountsChange }: EmployeeTrai
                     ))}
                 {(creating ? draftAttendees.length === 0 : attendees.length === 0) ? (
                   <tr>
-                    <td colSpan={4} className="table-empty-cell">
+                    <td colSpan={5} className="table-empty-cell">
                       No attendees yet. Use the dropdown to add employees who attended.
                     </td>
                   </tr>
@@ -1016,6 +1575,92 @@ export function EmployeeTrainingPanel({ canWrite, onCountsChange }: EmployeeTrai
               </tbody>
             </table>
           </div>
+          {!creating && hourLogAttendeeId != null ? (
+            <div className="training-hour-log-form">
+              <h6>
+                Log hours for {attendees.find((row) => row.id === hourLogAttendeeId)?.employee_name ?? 'attendee'}
+              </h6>
+              <div className="training-library-add-grid">
+                <label>
+                  Session date
+                  <input type="date" value={hourLogDate} disabled={busy} onChange={(e) => setHourLogDate(e.target.value)} />
+                </label>
+                <label>
+                  Hours
+                  <input
+                    type="number"
+                    min="0.25"
+                    step="0.25"
+                    value={hourLogHours}
+                    disabled={busy}
+                    placeholder="2"
+                    onChange={(e) => setHourLogHours(e.target.value)}
+                  />
+                </label>
+                <label className="training-form-full">
+                  Notes
+                  <input
+                    type="text"
+                    value={hourLogNotes}
+                    disabled={busy}
+                    placeholder="Optional — what was covered"
+                    onChange={(e) => setHourLogNotes(e.target.value)}
+                  />
+                </label>
+              </div>
+              <div className="training-library-edit-actions">
+                <button type="button" className="button-primary" disabled={busy || !hourLogHours.trim()} onClick={() => void saveHourLog()}>
+                  Save hours
+                </button>
+                <button type="button" className="button-secondary" disabled={busy} onClick={cancelHourLog}>
+                  Cancel
+                </button>
+              </div>
+            </div>
+          ) : null}
+          {!creating && hourEntries.length > 0 ? (
+            <div className="training-hour-log-history">
+              <h6>Hour log</h6>
+              <div className="dashboard-table-wrap">
+                <table className="dashboard-table">
+                  <thead>
+                    <tr>
+                      <th>Date</th>
+                      <th>Employee</th>
+                      <th>Hours</th>
+                      <th>Notes</th>
+                      <th />
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {hourEntries.map((entry) => {
+                      const attendee = attendees.find((row) => row.id === entry.attendee_id)
+                      return (
+                        <tr key={entry.id}>
+                          <td>{formatTrainingDate(entry.session_date)}</td>
+                          <td>{attendee?.employee_name ?? '—'}</td>
+                          <td>{formatTrainingHours(entry.hours)}</td>
+                          <td>{entry.notes.trim() || '—'}</td>
+                          <td>
+                            {canWrite ? (
+                              <button
+                                type="button"
+                                className="button-secondary admin-list-btn danger"
+                                disabled={busy}
+                                onClick={() => void removeHourEntry(entry)}
+                              >
+                                Delete
+                              </button>
+                            ) : null}
+                          </td>
+                        </tr>
+                      )
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          ) : null}
           {creating ? (
             <p className="placeholder-copy resources-hint" style={{ marginTop: '0.5rem' }}>
               Selected employees are saved with the training and will show on their Employee Records. A TR number is
@@ -1024,10 +1669,70 @@ export function EmployeeTrainingPanel({ canWrite, onCountsChange }: EmployeeTrai
           ) : null}
         </div>
 
+        {!creating && draft.course_id ? (
+          <div className="training-subsection">
+            <div className="training-subsection-head">
+              <div>
+                <h5>Course package materials</h5>
+                <p className="placeholder-copy">
+                  From Library course {linkedCourse ? `“${linkedCourse.title}”` : ''}. Update the master package under
+                  the Library tab.
+                </p>
+              </div>
+              {canWrite ? (
+                <button
+                  type="button"
+                  className="button-secondary"
+                  disabled={busy}
+                  onClick={() => {
+                    setTab('library')
+                    openCourse(draft.course_id!)
+                  }}
+                >
+                  Open in Library
+                </button>
+              ) : null}
+            </div>
+            {linkedCourseSections.some((section) => section.files.length > 0) ? (
+              <div className="training-library-sections">
+                {linkedCourseSections.map((section) =>
+                  section.files.length > 0 ? (
+                    <section key={section.kind} className="training-library-section">
+                      <h5>{section.label}</h5>
+                      <ul className="training-file-list">
+                        {section.files.map((file) => (
+                          <li key={file.id} className="training-file-row">
+                            <span className="training-file-kind">
+                              {isTrainingFileLink(file) ? 'Link · ' : ''}
+                              {TRAINING_FILE_KINDS.find((k) => k.value === file.kind)?.label ?? file.kind}
+                            </span>
+                            <div className="training-file-main">
+                              <a href={trainingFileHref(file)} target="_blank" rel="noreferrer">
+                                {trainingFileLabel(file)}
+                              </a>
+                              {file.notes.trim() ? <p className="training-file-desc">{file.notes}</p> : null}
+                            </div>
+                          </li>
+                        ))}
+                      </ul>
+                    </section>
+                  ) : null,
+                )}
+              </div>
+            ) : (
+              <p className="placeholder-copy">
+                This course does not have any materials in the Library yet. Use Open in Library to add agenda, tests,
+                PDFs, and links.
+              </p>
+            )}
+          </div>
+        ) : null}
+
         {!creating && selectedId != null ? (
           <div className="training-subsection">
             <div className="training-subsection-head">
-              <h5>Materials & tests</h5>
+              <h5>Session files</h5>
+              <p className="placeholder-copy">Uploads tied to this TR record only (completed tests, sign-offs, etc.).</p>
               {canWrite ? (
                 <div className="training-inline-add">
                   <select value={fileKind} disabled={busy} onChange={(e) => setFileKind(e.target.value as TrainingFileKind)}>
@@ -1054,9 +1759,10 @@ export function EmployeeTrainingPanel({ canWrite, onCountsChange }: EmployeeTrai
               {files.map((f) => (
                 <li key={f.id} className="training-file-row">
                   <span className="training-file-kind">{TRAINING_FILE_KINDS.find((k) => k.value === f.kind)?.label ?? f.kind}</span>
-                  <a href={trainingFilePublicUrl(f.storage_path)} target="_blank" rel="noreferrer">
-                    {f.title || f.file_name}
+                  <a href={trainingFileHref(f)} target="_blank" rel="noreferrer">
+                    {trainingFileLabel(f)}
                   </a>
+                  {f.notes.trim() ? <span className="training-file-desc">{f.notes}</span> : null}
                   {canWrite ? (
                     <button type="button" className="button-secondary admin-list-btn danger" disabled={busy} onClick={() => void removeFile(f, 'detail')}>
                       Delete
@@ -1380,6 +2086,7 @@ export function EmployeeTrainingPanel({ canWrite, onCountsChange }: EmployeeTrai
                       <tr>
                         <th>Record #</th>
                         <th>Title</th>
+                        <th>Hours</th>
                         <th>Completed</th>
                         <th>Expires</th>
                         <th>Interval</th>
@@ -1391,10 +2098,12 @@ export function EmployeeTrainingPanel({ canWrite, onCountsChange }: EmployeeTrai
                       {employeeHistory.map((row) => {
                         const cert = certificateForTraining(row.training_id)
                         const expires = row.training?.recert_due_date ?? null
+                        const hoursLogged = employeeHoursByAttendeeId.get(row.id) ?? 0
                         return (
                           <tr key={row.id}>
                             <td>{row.training?.record_no ?? '—'}</td>
                             <td>{row.training?.title ?? '—'}</td>
+                            <td>{formatTrainingHours(hoursLogged)}</td>
                             <td>{formatTrainingDate(row.training?.completed_date ?? null)}</td>
                             <td className={isTrainingExpired(expires) ? 'training-expired' : undefined}>
                               {formatTrainingDate(expires)}
@@ -1405,7 +2114,7 @@ export function EmployeeTrainingPanel({ canWrite, onCountsChange }: EmployeeTrai
                                 {cert ? (
                                   <>
                                     <a
-                                      href={trainingFilePublicUrl(cert.storage_path)}
+                                      href={trainingFileHref(cert)}
                                       target="_blank"
                                       rel="noreferrer"
                                     >
@@ -1445,7 +2154,7 @@ export function EmployeeTrainingPanel({ canWrite, onCountsChange }: EmployeeTrai
                       })}
                       {employeeHistory.length === 0 ? (
                         <tr>
-                          <td colSpan={7} className="table-empty-cell">
+                          <td colSpan={8} className="table-empty-cell">
                             No trainings on file for this employee. Expiration fills in when a training has a
                             completed date and recert interval.
                           </td>
@@ -1461,61 +2170,165 @@ export function EmployeeTrainingPanel({ canWrite, onCountsChange }: EmployeeTrai
       ) : null}
 
       {tab === 'library' ? (
-        <div>
-          <div className="training-list-toolbar">
-            <label>
-              Filter
-              <select value={libraryFilter} onChange={(e) => setLibraryFilter(e.target.value as LibraryFilter)}>
-                <option value="all">All</option>
-                {TRAINING_FILE_KINDS.map((k) => (
-                  <option key={k.value} value={k.value}>
-                    {k.label}
-                  </option>
-                ))}
-              </select>
-            </label>
-            {canWrite ? (
-              <div className="training-inline-add">
-                <select value={libraryKind} disabled={busy} onChange={(e) => setLibraryKind(e.target.value as TrainingFileKind)}>
-                  {TRAINING_FILE_KINDS.map((k) => (
-                    <option key={k.value} value={k.value}>
-                      {k.label}
-                    </option>
-                  ))}
-                </select>
-                <button type="button" className="button-primary" disabled={busy} onClick={() => libraryFileRef.current?.click()}>
-                  Upload to library
+        <div className="training-library-page">
+          {selectedCourseId && selectedCourse ? (
+            <>
+              <div className="training-library-course-head">
+                <button type="button" className="button-secondary" disabled={busy} onClick={closeCourse}>
+                  ← All courses
                 </button>
-                <input
-                  ref={libraryFileRef}
-                  type="file"
-                  multiple
-                  hidden
-                  onChange={(e) => void uploadLibraryFile(e.target.files)}
-                />
-              </div>
-            ) : null}
-          </div>
-          <p className="placeholder-copy resources-hint">
-            General materials and blank tests not tied to a single session. Attach session-specific files from a training
-            detail.
-          </p>
-          <ul className="training-file-list">
-            {libraryFiles.map((f) => (
-              <li key={f.id} className="training-file-row">
-                <span className="training-file-kind">{TRAINING_FILE_KINDS.find((k) => k.value === f.kind)?.label ?? f.kind}</span>
-                <a href={trainingFilePublicUrl(f.storage_path)} target="_blank" rel="noreferrer">
-                  {f.title || f.file_name}
-                </a>
+                <div className="training-library-course-meta">
+                  <h4 className="training-detail-title">{selectedCourse.title}</h4>
+                  {selectedCourse.description.trim() ? (
+                    <p className="placeholder-copy">{selectedCourse.description}</p>
+                  ) : null}
+                  <p className="training-library-course-count">
+                    {selectedCourseFiles.length} resource{selectedCourseFiles.length === 1 ? '' : 's'}
+                  </p>
+                </div>
                 {canWrite ? (
-                  <button type="button" className="button-secondary admin-list-btn danger" disabled={busy} onClick={() => void removeFile(f, 'library')}>
-                    Delete
-                  </button>
+                  <div className="training-library-course-edit">
+                    <label>
+                      Course title
+                      <input
+                        type="text"
+                        value={editCourseTitle}
+                        disabled={busy}
+                        onChange={(e) => setEditCourseTitle(e.target.value)}
+                      />
+                    </label>
+                    <label>
+                      Course description
+                      <input
+                        type="text"
+                        value={editCourseDescription}
+                        disabled={busy}
+                        placeholder="What this class covers"
+                        onChange={(e) => setEditCourseDescription(e.target.value)}
+                      />
+                    </label>
+                    <div className="training-library-edit-actions">
+                      <button type="button" className="button-secondary" disabled={busy} onClick={() => void saveCourseMeta()}>
+                        Save course
+                      </button>
+                      <button
+                        type="button"
+                        className="button-secondary admin-list-btn danger"
+                        disabled={busy}
+                        onClick={() => void removeCourse(selectedCourse)}
+                      >
+                        Delete course
+                      </button>
+                    </div>
+                  </div>
                 ) : null}
-              </li>
-            ))}
-            {libraryFiles.length === 0 ? <li className="placeholder-copy">Library is empty.</li> : null}
-          </ul>
+              </div>
+              {renderLibraryAddForm('Add to this course')}
+              <div className="training-library-sections">
+                {selectedCourseSections.map((section) => (
+                  <section key={section.kind} className="training-library-section">
+                    <h5>{section.label}</h5>
+                    {section.files.length > 0 ? (
+                      <ul className="training-file-list">{section.files.map((file) => renderLibraryFileRow(file))}</ul>
+                    ) : (
+                      <p className="placeholder-copy">No {section.label.toLowerCase()} yet.</p>
+                    )}
+                  </section>
+                ))}
+              </div>
+            </>
+          ) : (
+            <>
+              <div className="training-list-toolbar">
+                <label>
+                  Filter resources
+                  <select value={libraryFilter} onChange={(e) => setLibraryFilter(e.target.value as LibraryFilter)}>
+                    <option value="all">All types</option>
+                    {TRAINING_FILE_KINDS.map((k) => (
+                      <option key={k.value} value={k.value}>
+                        {k.label}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              </div>
+              <p className="placeholder-copy resources-hint">
+                Create a course package to hold materials, agenda, tests, and links for a class like Gate Valve
+                Training. Session-specific completed tests and sign-offs still attach from Schedule / Training Log.
+              </p>
+              {canWrite ? (
+                <div className="training-library-create-course">
+                  <h5>New course</h5>
+                  <div className="training-library-add-grid">
+                    <label>
+                      Course title
+                      <input
+                        type="text"
+                        value={newCourseTitle}
+                        disabled={busy}
+                        placeholder="Gate Valve Training"
+                        onChange={(e) => setNewCourseTitle(e.target.value)}
+                      />
+                    </label>
+                    <label>
+                      Description
+                      <input
+                        type="text"
+                        value={newCourseDescription}
+                        disabled={busy}
+                        placeholder="What this class covers"
+                        onChange={(e) => setNewCourseDescription(e.target.value)}
+                      />
+                    </label>
+                  </div>
+                  <button
+                    type="button"
+                    className="button-primary"
+                    disabled={busy || !newCourseTitle.trim()}
+                    onClick={() => void createCourse()}
+                  >
+                    Create course
+                  </button>
+                </div>
+              ) : null}
+              <div className="training-library-course-grid">
+                {courses.map((course) => (
+                  <button
+                    key={course.id}
+                    type="button"
+                    className="training-library-course-card"
+                    disabled={busy}
+                    onClick={() => openCourse(course.id)}
+                  >
+                    <strong>{course.title}</strong>
+                    {course.description.trim() ? <span>{course.description}</span> : null}
+                    <em>
+                      {courseFileCounts.get(course.id) ?? 0} resource
+                      {(courseFileCounts.get(course.id) ?? 0) === 1 ? '' : 's'}
+                    </em>
+                  </button>
+                ))}
+                {courses.length === 0 ? (
+                  <p className="placeholder-copy training-library-empty-courses">
+                    No courses yet. Create one to start building a class material package.
+                  </p>
+                ) : null}
+              </div>
+              <div className="training-library-general">
+                <div className="training-subsection-head">
+                  <h5>General library</h5>
+                  <p className="placeholder-copy">Resources not assigned to a course.</p>
+                </div>
+                {renderLibraryAddForm('Add general resource')}
+                <ul className="training-file-list">
+                  {filteredGeneralLibraryFiles.map((file) => renderLibraryFileRow(file))}
+                  {filteredGeneralLibraryFiles.length === 0 ? (
+                    <li className="placeholder-copy">No general library resources yet.</li>
+                  ) : null}
+                </ul>
+              </div>
+            </>
+          )}
         </div>
       ) : null}
     </section>

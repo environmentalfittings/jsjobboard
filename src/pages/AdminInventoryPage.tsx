@@ -1,6 +1,7 @@
 import { Fragment, useCallback, useEffect, useId, useMemo, useRef, useState, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
 import { Link, useSearchParams } from 'react-router-dom'
+import { TestLogColumnHeader } from '../components/testLog/TestLogColumnHeader'
 import { useToast } from '../components/ToastNotification'
 import { useAuth } from '../contexts/AuthContext'
 import { useEmployees } from '../hooks/useEmployees'
@@ -22,6 +23,7 @@ import {
   INVENTORY_CONDITIONS,
   INVENTORY_OPERATORS,
   INVENTORY_ORIGINS,
+  formatInventoryLocationLabel,
   inventoryConditionLabel,
   inventoryEventLabel,
   inventoryMatchesSearch,
@@ -52,8 +54,7 @@ import {
   printInventoryCustomerReport,
 } from '../lib/inventoryCustomerReport'
 import { clearInventoryMonthlyReportAlert } from '../lib/inventoryMonthlyAlert'
-import { printInventoryQrToBixolon } from '../lib/bixolonInventoryQrPrint'
-import { printInventoryQrSheet } from '../lib/inventoryQrPrint'
+import { printInventoryLabelSheet } from '../lib/inventoryLabelPrint'
 import {
   notifySalesRepCustomerInventoryReport,
   resolveEmployeeAuthUserId,
@@ -531,6 +532,88 @@ function DocumentCard({
   )
 }
 
+const INVENTORY_BLANK_FILTER = '(Blank)'
+
+type InventorySortKey =
+  | 'jsInventoryId'
+  | 'customer'
+  | 'customerValveId'
+  | 'manufacturer'
+  | 'type'
+  | 'size'
+  | 'pressure'
+  | 'location'
+
+type InventoryColumnFilters = {
+  jsInventoryId: string[]
+  customer: string[]
+  customerValveId: string[]
+  manufacturer: string[]
+  type: string[]
+  size: string[]
+  pressure: string[]
+  location: string[]
+}
+
+const EMPTY_INVENTORY_COLUMN_FILTERS: InventoryColumnFilters = {
+  jsInventoryId: [],
+  customer: [],
+  customerValveId: [],
+  manufacturer: [],
+  type: [],
+  size: [],
+  pressure: [],
+  location: [],
+}
+
+function inventoryDisplayOrBlank(value: string | null | undefined) {
+  return value?.trim() ? value.trim() : INVENTORY_BLANK_FILTER
+}
+
+function inventoryUniqueSortedValues(values: string[]) {
+  return [...new Set(values)].sort((a, b) => a.localeCompare(b, undefined, { sensitivity: 'base', numeric: true }))
+}
+
+function matchesInventoryColumnFilter(selected: string[], value: string) {
+  if (!selected.length) return true
+  return selected.includes(value)
+}
+
+function inventorySortValue(row: InventoryRecord, key: InventorySortKey): string {
+  switch (key) {
+    case 'jsInventoryId':
+      return row.js_inventory_id ?? ''
+    case 'customer':
+      return row.customer ?? ''
+    case 'customerValveId':
+      return row.customer_id_no ?? ''
+    case 'manufacturer':
+      return row.manufacturer_name ?? ''
+    case 'type':
+      return row.valve_type_label ?? ''
+    case 'size':
+      return row.size ?? ''
+    case 'pressure':
+      return row.pressure ?? ''
+    case 'location':
+      return formatInventoryLocationLabel(row.origin)
+  }
+}
+
+function sortInventoryRows(
+  rows: InventoryRecord[],
+  key: InventorySortKey,
+  direction: 'asc' | 'desc',
+): InventoryRecord[] {
+  return [...rows].sort((a, b) => {
+    const cmp = inventorySortValue(a, key).localeCompare(inventorySortValue(b, key), undefined, {
+      sensitivity: 'base',
+      numeric: true,
+    })
+    return direction === 'asc' ? cmp : -cmp
+  })
+}
+
 export function AdminInventoryPage() {
   const { showToast } = useToast()
   const { user, username } = useAuth()
@@ -566,7 +649,6 @@ export function AdminInventoryPage() {
   const [expandedRowId, setExpandedRowId] = useState<string | null>(null)
   const [sendingReport, setSendingReport] = useState(false)
   const [sendingMonthly, setSendingMonthly] = useState(false)
-  const [printingLabel, setPrintingLabel] = useState(false)
   const [removeReason, setRemoveReason] = useState('')
   const [removePoNumber, setRemovePoNumber] = useState('')
   const [removing, setRemoving] = useState(false)
@@ -574,6 +656,9 @@ export function AdminInventoryPage() {
   const [showRestoreForm, setShowRestoreForm] = useState(false)
   const [restoreReason, setRestoreReason] = useState('')
   const [restoring, setRestoring] = useState(false)
+  const [columnFilters, setColumnFilters] = useState<InventoryColumnFilters>(EMPTY_INVENTORY_COLUMN_FILTERS)
+  const [sortKey, setSortKey] = useState<InventorySortKey>('jsInventoryId')
+  const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('asc')
 
   const reload = useCallback(async () => {
     setLoading(true)
@@ -672,6 +757,10 @@ export function AdminInventoryPage() {
     }
   }, [searchParams, rows, removedRows, loading, showToast])
 
+  useEffect(() => {
+    setColumnFilters(EMPTY_INVENTORY_COLUMN_FILTERS)
+  }, [listScope])
+
   const periodLabel = useMemo(() => currentInventoryReportPeriod(), [])
 
   const inventoryCustomers = useMemo(() => {
@@ -690,7 +779,7 @@ export function AdminInventoryPage() {
 
   const sourceRows = listScope === 'removed' ? removedRows : rows
 
-  const filtered = useMemo(() => {
+  const searchFiltered = useMemo(() => {
     return sourceRows.filter((row) => {
       if (customerFilter.trim()) {
         const needle = customerFilter.trim().toLowerCase()
@@ -699,6 +788,113 @@ export function AdminInventoryPage() {
       return inventoryMatchesSearch(row, search)
     })
   }, [sourceRows, search, customerFilter])
+
+  const filterOptions = useMemo(
+    () => ({
+      jsInventoryId: inventoryUniqueSortedValues(
+        searchFiltered.map((row) => inventoryDisplayOrBlank(row.js_inventory_id)),
+      ),
+      customer: inventoryUniqueSortedValues(
+        searchFiltered.map((row) => inventoryDisplayOrBlank(row.customer)),
+      ),
+      customerValveId: inventoryUniqueSortedValues(
+        searchFiltered.map((row) => inventoryDisplayOrBlank(row.customer_id_no)),
+      ),
+      manufacturer: inventoryUniqueSortedValues(
+        searchFiltered.map((row) => inventoryDisplayOrBlank(row.manufacturer_name)),
+      ),
+      type: inventoryUniqueSortedValues(
+        searchFiltered.map((row) => inventoryDisplayOrBlank(row.valve_type_label)),
+      ),
+      size: inventoryUniqueSortedValues(searchFiltered.map((row) => inventoryDisplayOrBlank(row.size))),
+      pressure: inventoryUniqueSortedValues(
+        searchFiltered.map((row) => inventoryDisplayOrBlank(row.pressure)),
+      ),
+      location: inventoryUniqueSortedValues(
+        searchFiltered.map((row) => inventoryDisplayOrBlank(formatInventoryLocationLabel(row.origin))),
+      ),
+    }),
+    [searchFiltered],
+  )
+
+  const filtered = useMemo(() => {
+    return searchFiltered.filter((row) => {
+      if (
+        !matchesInventoryColumnFilter(
+          columnFilters.jsInventoryId,
+          inventoryDisplayOrBlank(row.js_inventory_id),
+        )
+      ) {
+        return false
+      }
+      if (
+        !matchesInventoryColumnFilter(columnFilters.customer, inventoryDisplayOrBlank(row.customer))
+      ) {
+        return false
+      }
+      if (
+        !matchesInventoryColumnFilter(
+          columnFilters.customerValveId,
+          inventoryDisplayOrBlank(row.customer_id_no),
+        )
+      ) {
+        return false
+      }
+      if (
+        !matchesInventoryColumnFilter(
+          columnFilters.manufacturer,
+          inventoryDisplayOrBlank(row.manufacturer_name),
+        )
+      ) {
+        return false
+      }
+      if (
+        !matchesInventoryColumnFilter(columnFilters.type, inventoryDisplayOrBlank(row.valve_type_label))
+      ) {
+        return false
+      }
+      if (!matchesInventoryColumnFilter(columnFilters.size, inventoryDisplayOrBlank(row.size))) {
+        return false
+      }
+      if (
+        !matchesInventoryColumnFilter(columnFilters.pressure, inventoryDisplayOrBlank(row.pressure))
+      ) {
+        return false
+      }
+      if (
+        !matchesInventoryColumnFilter(
+          columnFilters.location,
+          inventoryDisplayOrBlank(formatInventoryLocationLabel(row.origin)),
+        )
+      ) {
+        return false
+      }
+      return true
+    })
+  }, [searchFiltered, columnFilters])
+
+  const sortedRows = useMemo(
+    () => sortInventoryRows(filtered, sortKey, sortDirection),
+    [filtered, sortKey, sortDirection],
+  )
+
+  const activeColumnFilterCount = useMemo(
+    () => Object.values(columnFilters).reduce((count, selected) => count + (selected.length ? 1 : 0), 0),
+    [columnFilters],
+  )
+
+  const setColumnFilter = (key: keyof InventoryColumnFilters, selected: string[]) => {
+    setColumnFilters((prev) => ({ ...prev, [key]: selected }))
+  }
+
+  const toggleSort = (key: InventorySortKey) => {
+    if (sortKey === key) {
+      setSortDirection((prev) => (prev === 'asc' ? 'desc' : 'asc'))
+      return
+    }
+    setSortKey(key)
+    setSortDirection('asc')
+  }
 
   const filteredEvents = useMemo(() => {
     return events.filter((event) => {
@@ -1179,26 +1375,15 @@ export function AdminInventoryPage() {
     link.click()
   }
 
-  const printSelectedQrCodes = () => {
-    const { error } = printInventoryQrSheet(selectedPrintable)
+  const printSelectedLabels = () => {
+    const { error } = printInventoryLabelSheet(selectedPrintable)
     if (error) showToast(error)
   }
 
-  const printBarcodeLabels = async (items: InventoryRecord[]) => {
-    setPrintingLabel(true)
-    try {
-      const result = await printInventoryQrToBixolon(items)
-      showToast(result.message)
-    } catch (error) {
-      showToast(error instanceof Error ? error.message : 'Could not print on barcode printer')
-    } finally {
-      setPrintingLabel(false)
-    }
-  }
-
-  const printQrOnBarcodePrinter = () => {
+  const printQrLabel = () => {
     if (!qrItem) return
-    void printBarcodeLabels([qrItem])
+    const { error } = printInventoryLabelSheet([qrItem])
+    if (error) showToast(error)
   }
 
   const editFromQr = () => {
@@ -1206,10 +1391,6 @@ export function AdminInventoryPage() {
     const row = qrItem
     closeQr()
     openEdit(row)
-  }
-
-  const printSelectedOnBarcodePrinter = () => {
-    void printBarcodeLabels(selectedPrintable)
   }
 
   const setCustomerFilterValue = (value: string) => {
@@ -1551,8 +1732,8 @@ export function AdminInventoryPage() {
               <span className="inventory-toolbar-count">
                 {listScope === 'activity'
                   ? `${filteredEvents.length} event${filteredEvents.length === 1 ? '' : 's'}`
-                  : `${filtered.length} item${filtered.length === 1 ? '' : 's'}`}
-                {customerFilter.trim() || search.trim() ? ' matching' : ''}
+                  : `${sortedRows.length} item${sortedRows.length === 1 ? '' : 's'}`}
+                {customerFilter.trim() || search.trim() || activeColumnFilterCount > 0 ? ' matching' : ''}
                 {listScope === 'active' && selectedPrintable.length > 0
                   ? ` · ${selectedPrintable.length} selected for print`
                   : ''}
@@ -1562,16 +1743,8 @@ export function AdminInventoryPage() {
                   <button type="button" className="button-secondary" onClick={clearSelection}>
                     Clear selection
                   </button>
-                  <button type="button" className="button-secondary" onClick={printSelectedQrCodes}>
-                    Print sheet
-                  </button>
-                  <button
-                    type="button"
-                    className="button-primary"
-                    disabled={printingLabel}
-                    onClick={printSelectedOnBarcodePrinter}
-                  >
-                    {printingLabel ? 'Printing…' : 'Print on barcode printer'}
+                  <button type="button" className="button-primary" onClick={printSelectedLabels}>
+                    Print labels
                   </button>
                 </div>
               ) : null}
@@ -1657,6 +1830,21 @@ export function AdminInventoryPage() {
             </table>
           </div>
         ) : (
+        <>
+        {activeColumnFilterCount > 0 ? (
+          <div className="received-valves-filter-bar">
+            <span>
+              {activeColumnFilterCount} column filter{activeColumnFilterCount === 1 ? '' : 's'} active
+            </span>
+            <button
+              type="button"
+              className="button-secondary"
+              onClick={() => setColumnFilters(EMPTY_INVENTORY_COLUMN_FILTERS)}
+            >
+              Clear filters
+            </button>
+          </div>
+        ) : null}
         <div className="dashboard-table-wrap">
           <table className="dashboard-table">
             <thead>
@@ -1674,25 +1862,107 @@ export function AdminInventoryPage() {
                   />
                 </th>
                 <th>Photos</th>
-                <th>JS inventory ID</th>
-                <th>Customer</th>
-                <th>Manufacturer</th>
-                <th>Type</th>
-                <th>Size</th>
-                <th>Pressure</th>
+                <th>
+                  <TestLogColumnHeader
+                    label="JS inventory ID"
+                    sortActive={sortKey === 'jsInventoryId'}
+                    sortDirection={sortDirection}
+                    onSort={() => toggleSort('jsInventoryId')}
+                    filterOptions={filterOptions.jsInventoryId}
+                    selectedFilters={columnFilters.jsInventoryId}
+                    onFilterChange={(selected) => setColumnFilter('jsInventoryId', selected)}
+                  />
+                </th>
+                <th>
+                  <TestLogColumnHeader
+                    label="Customer"
+                    sortActive={sortKey === 'customer'}
+                    sortDirection={sortDirection}
+                    onSort={() => toggleSort('customer')}
+                    filterOptions={filterOptions.customer}
+                    selectedFilters={columnFilters.customer}
+                    onFilterChange={(selected) => setColumnFilter('customer', selected)}
+                  />
+                </th>
+                <th>
+                  <TestLogColumnHeader
+                    label="Customer valve ID"
+                    sortActive={sortKey === 'customerValveId'}
+                    sortDirection={sortDirection}
+                    onSort={() => toggleSort('customerValveId')}
+                    filterOptions={filterOptions.customerValveId}
+                    selectedFilters={columnFilters.customerValveId}
+                    onFilterChange={(selected) => setColumnFilter('customerValveId', selected)}
+                  />
+                </th>
+                <th>
+                  <TestLogColumnHeader
+                    label="Manufacturer"
+                    sortActive={sortKey === 'manufacturer'}
+                    sortDirection={sortDirection}
+                    onSort={() => toggleSort('manufacturer')}
+                    filterOptions={filterOptions.manufacturer}
+                    selectedFilters={columnFilters.manufacturer}
+                    onFilterChange={(selected) => setColumnFilter('manufacturer', selected)}
+                  />
+                </th>
+                <th>
+                  <TestLogColumnHeader
+                    label="Type"
+                    sortActive={sortKey === 'type'}
+                    sortDirection={sortDirection}
+                    onSort={() => toggleSort('type')}
+                    filterOptions={filterOptions.type}
+                    selectedFilters={columnFilters.type}
+                    onFilterChange={(selected) => setColumnFilter('type', selected)}
+                  />
+                </th>
+                <th>
+                  <TestLogColumnHeader
+                    label="Size"
+                    sortActive={sortKey === 'size'}
+                    sortDirection={sortDirection}
+                    onSort={() => toggleSort('size')}
+                    filterOptions={filterOptions.size}
+                    selectedFilters={columnFilters.size}
+                    onFilterChange={(selected) => setColumnFilter('size', selected)}
+                  />
+                </th>
+                <th>
+                  <TestLogColumnHeader
+                    label="Pressure"
+                    sortActive={sortKey === 'pressure'}
+                    sortDirection={sortDirection}
+                    onSort={() => toggleSort('pressure')}
+                    filterOptions={filterOptions.pressure}
+                    selectedFilters={columnFilters.pressure}
+                    onFilterChange={(selected) => setColumnFilter('pressure', selected)}
+                  />
+                </th>
+                <th>
+                  <TestLogColumnHeader
+                    label="Location"
+                    sortActive={sortKey === 'location'}
+                    sortDirection={sortDirection}
+                    onSort={() => toggleSort('location')}
+                    filterOptions={filterOptions.location}
+                    selectedFilters={columnFilters.location}
+                    onFilterChange={(selected) => setColumnFilter('location', selected)}
+                  />
+                </th>
                 <th>Actions</th>
               </tr>
             </thead>
             <tbody>
               {loading ? (
                 <tr>
-                  <td colSpan={9} className="table-empty-cell">
+                  <td colSpan={11} className="table-empty-cell">
                     Loading customer inventory…
                   </td>
                 </tr>
-              ) : filtered.length === 0 ? (
+              ) : sortedRows.length === 0 ? (
                 <tr>
-                  <td colSpan={9} className="table-empty-cell">
+                  <td colSpan={11} className="table-empty-cell">
                     {sourceRows.length === 0
                       ? listScope === 'removed'
                         ? 'No removed inventory items.'
@@ -1701,7 +1971,7 @@ export function AdminInventoryPage() {
                   </td>
                 </tr>
               ) : (
-                filtered.map((row) => {
+                sortedRows.map((row) => {
                   const isExpanded = expandedRowId === row.id
                   const display = (value: string | null | undefined) => {
                     const trimmed = value?.trim()
@@ -1767,10 +2037,12 @@ export function AdminInventoryPage() {
                           </div>
                         </td>
                         <td>{display(row.customer)}</td>
+                        <td>{display(row.customer_id_no)}</td>
                         <td>{display(row.manufacturer_name)}</td>
                         <td>{display(row.valve_type_label)}</td>
                         <td>{display(row.size)}</td>
                         <td>{display(row.pressure)}</td>
+                        <td>{display(formatInventoryLocationLabel(row.origin))}</td>
                         <td
                           className="list-col-actions-cell"
                           onClick={(e) => e.stopPropagation()}
@@ -1825,7 +2097,7 @@ export function AdminInventoryPage() {
                       </tr>
                       {isExpanded ? (
                         <tr className="inventory-detail-row">
-                          <td colSpan={9}>
+                          <td colSpan={11}>
                             <div className="inventory-detail-panel">
                               <div className="inventory-detail-photos">
                                 <div className="inventory-detail-photo">
@@ -1865,8 +2137,10 @@ export function AdminInventoryPage() {
                                   <span className="inventory-detail-value">{display(row.customer_id_no)}</span>
                                 </div>
                                 <div className="inventory-detail-item">
-                                  <span className="inventory-detail-label">Origin</span>
-                                  <span className="inventory-detail-value">{display(row.origin)}</span>
+                                  <span className="inventory-detail-label">Location</span>
+                                  <span className="inventory-detail-value">
+                                    {display(formatInventoryLocationLabel(row.origin))}
+                                  </span>
                                 </div>
                                 <div className="inventory-detail-item">
                                   <span className="inventory-detail-label">Condition</span>
@@ -1980,6 +2254,7 @@ export function AdminInventoryPage() {
             </tbody>
           </table>
         </div>
+        </>
         )}
       </section>
 
@@ -2517,13 +2792,8 @@ export function AdminInventoryPage() {
                     Edit
                   </button>
                   {qrItem.qr_code_data_url ? (
-                    <button
-                      type="button"
-                      className="button-primary"
-                      disabled={printingLabel}
-                      onClick={printQrOnBarcodePrinter}
-                    >
-                      {printingLabel ? 'Printing…' : 'Print on barcode printer'}
+                    <button type="button" className="button-primary" onClick={printQrLabel}>
+                      Print label
                     </button>
                   ) : null}
                 </>

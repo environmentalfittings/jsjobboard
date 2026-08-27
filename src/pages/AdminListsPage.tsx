@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { Link } from 'react-router-dom'
+import { Link, useSearchParams } from 'react-router-dom'
 import { useToast } from '../components/ToastNotification'
 import { ItpTemplateBuilderPanel } from '../components/ItpTemplateBuilderPanel'
 import { ShopWorkflowAdminPanel } from '../components/ShopWorkflowAdminPanel'
@@ -83,9 +83,26 @@ type B1634RefForm = {
 
 const MANAGE_LISTS_PIN = '1582'
 
+const ADMIN_LIST_TABS: Tab[] = [
+  'lookups',
+  'customers',
+  'itpTemplates',
+  'itpTemplateBuilder',
+  'valveTypes',
+  'flangeThickness',
+  'b1610',
+  'b1634',
+  'shopWorkflow',
+]
+
+function isAdminListTab(value: string | null): value is Tab {
+  return Boolean(value && (ADMIN_LIST_TABS as string[]).includes(value))
+}
+
 export function AdminListsPage() {
   const { showToast } = useToast()
   const { employees } = useEmployees()
+  const [searchParams, setSearchParams] = useSearchParams()
   const [unlocked, setUnlocked] = useState(false)
   const [pinDraft, setPinDraft] = useState('')
   const [pinError, setPinError] = useState(false)
@@ -101,7 +118,39 @@ export function AdminListsPage() {
     }
   }
 
-  const [tab, setTab] = useState<Tab>('lookups')
+  const [tab, setTab] = useState<Tab>(() => {
+    const fromQuery = searchParams.get('tab')
+    return isAdminListTab(fromQuery) ? fromQuery : 'lookups'
+  })
+
+  useEffect(() => {
+    const fromQuery = searchParams.get('tab')
+    if (isAdminListTab(fromQuery) && fromQuery !== tab) {
+      setTab(fromQuery)
+    }
+  }, [searchParams, tab])
+
+  const selectTab = (next: Tab) => {
+    setTab(next)
+    const params = new URLSearchParams(searchParams)
+    if (next === 'lookups') params.delete('tab')
+    else params.set('tab', next)
+    if (next !== 'itpTemplateBuilder') {
+      params.delete('jobType')
+      params.delete('valveType')
+      params.delete('template')
+    }
+    setSearchParams(params, { replace: true })
+  }
+
+  const templateBuilderFocus = useMemo(() => {
+    if (tab !== 'itpTemplateBuilder') return null
+    const jobType = searchParams.get('jobType')?.trim() || undefined
+    const valveType = searchParams.get('valveType')?.trim() || undefined
+    const templateName = searchParams.get('template')?.trim() || undefined
+    if (!jobType && !valveType && !templateName) return null
+    return { jobType, valveType, templateName }
+  }, [tab, searchParams])
   const [lookupRows, setLookupRows] = useState<LookupValueRow[]>([])
   const [lookupLoading, setLookupLoading] = useState(true)
   const [activeCategory, setActiveCategory] = useState<LookupCategory>('test_type')
@@ -1034,7 +1083,7 @@ export function AdminListsPage() {
           role="tab"
           aria-selected={tab === 'lookups'}
           className={`admin-lists-tab ${tab === 'lookups' ? 'active' : ''}`}
-          onClick={() => setTab('lookups')}
+          onClick={() => selectTab('lookups')}
         >
           Job field lists
         </button>
@@ -1043,7 +1092,7 @@ export function AdminListsPage() {
           role="tab"
           aria-selected={tab === 'itpTemplateBuilder'}
           className={`admin-lists-tab ${tab === 'itpTemplateBuilder' ? 'active' : ''}`}
-          onClick={() => setTab('itpTemplateBuilder')}
+          onClick={() => selectTab('itpTemplateBuilder')}
         >
           ITP template builder
         </button>
@@ -1052,7 +1101,7 @@ export function AdminListsPage() {
           role="tab"
           aria-selected={tab === 'shopWorkflow'}
           className={`admin-lists-tab ${tab === 'shopWorkflow' ? 'active' : ''}`}
-          onClick={() => setTab('shopWorkflow')}
+          onClick={() => selectTab('shopWorkflow')}
         >
           Shop workflow
         </button>
@@ -1061,7 +1110,7 @@ export function AdminListsPage() {
           role="tab"
           aria-selected={tab === 'itpTemplates'}
           className={`admin-lists-tab ${tab === 'itpTemplates' ? 'active' : ''}`}
-          onClick={() => setTab('itpTemplates')}
+          onClick={() => selectTab('itpTemplates')}
         >
           Ticket checklist
         </button>
@@ -1070,7 +1119,7 @@ export function AdminListsPage() {
           role="tab"
           aria-selected={tab === 'customers'}
           className={`admin-lists-tab ${tab === 'customers' ? 'active' : ''}`}
-          onClick={() => setTab('customers')}
+          onClick={() => selectTab('customers')}
         >
           Customers
         </button>
@@ -1079,7 +1128,7 @@ export function AdminListsPage() {
           role="tab"
           aria-selected={tab === 'valveTypes'}
           className={`admin-lists-tab ${tab === 'valveTypes' ? 'active' : ''}`}
-          onClick={() => setTab('valveTypes')}
+          onClick={() => selectTab('valveTypes')}
         >
           Valve Types
         </button>
@@ -1088,7 +1137,7 @@ export function AdminListsPage() {
           role="tab"
           aria-selected={tab === 'flangeThickness'}
           className={`admin-lists-tab ${tab === 'flangeThickness' ? 'active' : ''}`}
-          onClick={() => setTab('flangeThickness')}
+          onClick={() => selectTab('flangeThickness')}
         >
           Flange Thickness
         </button>
@@ -1097,7 +1146,7 @@ export function AdminListsPage() {
           role="tab"
           aria-selected={tab === 'b1610'}
           className={`admin-lists-tab ${tab === 'b1610' ? 'active' : ''}`}
-          onClick={() => setTab('b1610')}
+          onClick={() => selectTab('b1610')}
         >
           B16.10 F2F
         </button>
@@ -1106,7 +1155,7 @@ export function AdminListsPage() {
           role="tab"
           aria-selected={tab === 'b1634'}
           className={`admin-lists-tab ${tab === 'b1634' ? 'active' : ''}`}
-          onClick={() => setTab('b1634')}
+          onClick={() => selectTab('b1634')}
         >
           B16.34 Wall
         </button>
@@ -1229,7 +1278,7 @@ export function AdminListsPage() {
         </section>
       )}
 
-      {tab === 'itpTemplateBuilder' && <ItpTemplateBuilderPanel />}
+      {tab === 'itpTemplateBuilder' && <ItpTemplateBuilderPanel focus={templateBuilderFocus} />}
 
       {tab === 'shopWorkflow' && (
         <section className="dashboard-panel admin-lists-panel">

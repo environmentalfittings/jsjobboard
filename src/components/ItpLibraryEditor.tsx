@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
+import { ItpAddToTravelerModal } from './ItpAddToTravelerModal'
 import { ItpClearFlagModal } from './ItpClearFlagModal'
 import { ItpFlagIssueModal } from './ItpFlagIssueModal'
 import { ItpQcChangeNoteModal } from './ItpQcChangeNoteModal'
@@ -13,7 +14,9 @@ import {
   ITP_LIBRARY_JOB_TYPE_LABELS,
   type ItpLibraryJobType,
 } from '../constants/itpLibrary'
-import { normalizeProcessSections } from '../constants/itpProcessSections'
+import { normalizeProcessSections, resolveLibrarySectionId } from '../constants/itpProcessSections'
+import { defaultShopAreas, itpShopAreaLabel, normalizeShopAreaValue, type ItpShopAreaDef } from '../constants/itpShopAreas'
+import { defaultAreaForSection, loadItpMasterCatalog } from '../lib/itpMasterCatalog'
 import {
   deleteItpLibraryAttachment,
   isItpLibraryAttachmentImage,
@@ -51,13 +54,18 @@ import {
   qualityTeamLevelLabel,
   type QualityTeamLevel,
 } from '../types/employees'
-import { applyLibraryTemplateAsync, listItpLibraryTemplates } from '../lib/itpLibraryTemplates'
+import {
+  applyLibraryTemplateAsync,
+  listItpLibraryTemplates,
+  type ItpLibraryTemplateRow,
+} from '../lib/itpLibraryTemplates'
 import {
   buildItpTravelerReport,
   formatItpTravelerCaptureSummary,
 } from '../lib/itpTravelerReport'
 import {
   allScopeItems,
+  effectiveScopeSectionId,
   emptyItemExec,
   emptyItemSel,
   emptyQcReview,
@@ -78,6 +86,40 @@ type ItpLibraryEditorProps = {
 }
 
 type AttrFlag = keyof Pick<ItpLibraryItemSel, 'holdPoint' | 'blockNext' | 'requirePicture'>
+
+type BuildScopeRow = {
+  id: string
+  name: string
+  ref: string
+  defaultSecId: string
+  custom: boolean
+}
+
+function resolveItemShopArea(sel: ItpLibraryItemSel, effectiveSecId: string): string {
+  const fromSel = normalizeShopAreaValue(sel.shopArea)
+  if (fromSel) return fromSel
+  return defaultAreaForSection(effectiveSecId)
+}
+
+function compareBuildScopeRows(
+  a: BuildScopeRow,
+  b: BuildScopeRow,
+  plan: ItpLibraryPlanPayload,
+  libraryIndex: Map<string, number>,
+  customIndex: Map<string, number>,
+): number {
+  const selA = getSel(plan, a.id)
+  const selB = getSel(plan, b.id)
+  const sortA = selA.sortIndex
+  const sortB = selB.sortIndex
+  if (sortA != null && sortB != null && sortA !== sortB) return sortA - sortB
+  if (sortA != null && sortB == null) return -1
+  if (sortA == null && sortB != null) return 1
+  const libA = libraryIndex.get(a.id) ?? Number.POSITIVE_INFINITY
+  const libB = libraryIndex.get(b.id) ?? Number.POSITIVE_INFINITY
+  if (libA !== libB) return libA - libB
+  return (customIndex.get(a.id) ?? 0) - (customIndex.get(b.id) ?? 0)
+}
 
 function JobTypeBadge({ jobType }: { jobType: ItpLibraryJobType }) {
   const color = ITP_LIBRARY_JOB_TYPE_COLORS[jobType]
@@ -103,6 +145,11 @@ export function ItpLibraryEditor({ valve, onClose, readOnly = false }: ItpLibrar
   const [hasLegacyProcessPlan, setHasLegacyProcessPlan] = useState(false)
   const [attachmentBusy, setAttachmentBusy] = useState(false)
   const [flaggingItem, setFlaggingItem] = useState<{ id: string; name: string } | null>(null)
+  const [travelerItem, setTravelerItem] = useState<{
+    id: string
+    name: string
+    shopArea: string
+  } | null>(null)
   const [clearingItem, setClearingItem] = useState<{ id: string; name: string } | null>(null)
   const [flagBusy, setFlagBusy] = useState(false)
   const [pendingScopeChange, setPendingScopeChange] = useState<{
@@ -118,11 +165,31 @@ export function ItpLibraryEditor({ valve, onClose, readOnly = false }: ItpLibrar
   const fileInputRef = useRef<HTMLInputElement>(null)
   const cameraInputRef = useRef<HTMLInputElement>(null)
   const [customDrafts, setCustomDrafts] = useState<Record<string, string>>({})
+  const [availableTemplates, setAvailableTemplates] = useState<ItpLibraryTemplateRow[]>([])
+  const [selectedTemplateName, setSelectedTemplateName] = useState('')
+  const [templatesLoading, setTemplatesLoading] = useState(false)
+  const [applyingTemplate, setApplyingTemplate] = useState(false)
   const [subReqDrafts, setSubReqDrafts] = useState<Record<string, string>>({})
   const [detailsOpen, setDetailsOpen] = useState(false)
   const [qrDataUrl, setQrDataUrl] = useState<string | null>(null)
+  const [shopAreaOptions, setShopAreaOptions] = useState<ItpShopAreaDef[]>(() => defaultShopAreas())
 
   const itpPageUrl = useMemo(() => buildItpPageUrl(valve.id), [valve.id])
+
+  useEffect(() => {
+    let cancelled = false
+    void loadItpMasterCatalog()
+      .then((state) => {
+        if (cancelled || !state.areas.length) return
+        setShopAreaOptions(state.areas)
+      })
+      .catch(() => {
+        /* keep built-in floor stations */
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [])
 
   useEffect(() => {
     let cancelled = false
@@ -147,6 +214,7 @@ export function ItpLibraryEditor({ valve, onClose, readOnly = false }: ItpLibrar
         if (cancelled) return
         setPlan(result.plan)
         setIsPersisted(!result.isNew)
+        setSelectedTemplateName(result.plan.scopeTemplateName ?? result.appliedTemplateName ?? '')
         scopeBaselineRef.current = itpScopeFingerprint(result.plan)
         lastSavedPlanRef.current = result.plan
         setScopeMinimized(
@@ -155,6 +223,11 @@ export function ItpLibraryEditor({ valve, onClose, readOnly = false }: ItpLibrar
         )
         setHasLegacyInspection(result.hasLegacyInspection)
         setHasLegacyProcessPlan(result.hasLegacyProcessPlan)
+        if (result.isNew && result.appliedTemplateName) {
+          showToast(`Loaded “${result.appliedTemplateName}” into Build Scope`)
+        } else if (result.isNew && result.appliedTemplateSource === 'builtin') {
+          showToast(`Loaded built-in ${result.plan.valveType || 'valve'} checklist into Build Scope`)
+        }
       } catch (error) {
         if (!cancelled) {
           showToast(error instanceof Error ? error.message : 'Failed to load ITP')
@@ -196,6 +269,115 @@ export function ItpLibraryEditor({ valve, onClose, readOnly = false }: ItpLibrar
     }
   }, [user?.id, username, employees])
 
+  useEffect(() => {
+    if (!plan?.jobType || !plan.valveType?.trim()) {
+      setAvailableTemplates([])
+      setSelectedTemplateName('')
+      return
+    }
+    let cancelled = false
+    setTemplatesLoading(true)
+    void (async () => {
+      try {
+        const templates = await listItpLibraryTemplates({
+          jobType: plan.jobType,
+          valveType: plan.valveType,
+        })
+        if (cancelled) return
+        setAvailableTemplates(templates)
+        setSelectedTemplateName((prev) => {
+          if (plan.scopeTemplateName && templates.some((row) => row.name === plan.scopeTemplateName)) {
+            return plan.scopeTemplateName
+          }
+          if (prev && templates.some((row) => row.name === prev)) return prev
+          const preferred =
+            templates.find((row) => row.is_default)?.name ??
+            templates.find((row) => row.name === 'Default')?.name ??
+            templates[0]?.name ??
+            ''
+          return preferred
+        })
+      } catch {
+        if (!cancelled) {
+          setAvailableTemplates([])
+          setSelectedTemplateName('')
+        }
+      } finally {
+        if (!cancelled) setTemplatesLoading(false)
+      }
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [plan?.jobType, plan?.valveType, plan?.scopeTemplateName])
+
+  const renderTemplatePicker = (compact = false) => {
+    if (!canEditScope || !plan) return null
+    const templateForBuilder =
+      selectedTemplateName.trim() || String(plan.scopeTemplateName ?? '').trim()
+    const builderParams = new URLSearchParams({
+      tab: 'itpTemplateBuilder',
+      jobType: plan.jobType,
+      valveType: plan.valveType,
+    })
+    if (templateForBuilder) builderParams.set('template', templateForBuilder)
+    return (
+      <div className={`itp-library-template-pick${compact ? ' itp-library-template-pick-compact' : ''}`}>
+        <label className="itp-library-template-pick-label" htmlFor="itp-scope-template">
+          Valve template
+        </label>
+        <select
+          id="itp-scope-template"
+          value={selectedTemplateName}
+          disabled={templatesLoading || applyingTemplate}
+          onChange={(e) => setSelectedTemplateName(e.target.value)}
+          aria-label="Choose saved valve template for Build Scope"
+        >
+          {availableTemplates.length === 0 ? (
+            <option value="">
+              {templatesLoading
+                ? 'Loading templates…'
+                : `No saved templates for ${plan.valveType || 'this type'}`}
+            </option>
+          ) : (
+            availableTemplates.map((row) => (
+              <option key={row.id} value={row.name}>
+                {row.name}
+                {row.is_default ? ' (default)' : ''}
+              </option>
+            ))
+          )}
+        </select>
+        <button
+          type="button"
+          className="button-primary"
+          disabled={applyingTemplate || templatesLoading}
+          onClick={applySelectedTemplate}
+        >
+          {applyingTemplate ? 'Applying…' : 'Load template'}
+        </button>
+        <Link
+          to={`/admin/lists?${builderParams.toString()}`}
+          className="button-secondary"
+          target="_blank"
+          rel="noreferrer"
+          title={
+            templateForBuilder
+              ? `Open ITP template builder for “${templateForBuilder}”`
+              : 'Open ITP template builder for this valve type'
+          }
+        >
+          Edit in template builder
+        </Link>
+        {!compact ? (
+          <p className="itp-library-template-pick-hint">
+            Missing steps? Edit the saved template, then click Load template again on this ITP.
+          </p>
+        ) : null}
+      </div>
+    )
+  }
+
   const updatePlan = useCallback((updater: (prev: ItpLibraryPlanPayload) => ItpLibraryPlanPayload) => {
     setPlan((prev) => (prev ? updater(prev) : prev))
   }, [])
@@ -204,13 +386,69 @@ export function ItpLibraryEditor({ valve, onClose, readOnly = false }: ItpLibrar
     prev.sel[itemId] ?? emptyItemSel()
 
   const scopeItems = useMemo(() => (plan ? allScopeItems(plan) : []), [plan])
+  const libraryItemIndex = useMemo(() => {
+    const map = new Map<string, number>()
+    let pos = 0
+    for (const section of ITP_LIBRARY) {
+      for (const item of section.items) {
+        map.set(item.id, pos++)
+      }
+    }
+    return map
+  }, [])
+  const customItemIndex = useMemo(
+    () => new Map((plan?.custom ?? []).map((row, index) => [row.id, index])),
+    [plan?.custom],
+  )
+  const buildScopeRowsBySection = useMemo(() => {
+    const map = new Map<string, BuildScopeRow[]>()
+    if (!plan) return map
+    for (const section of ITP_LIBRARY) {
+      for (const item of section.items) {
+        const sel = getSel(plan, item.id)
+        const defaultSecId = resolveLibrarySectionId(section.id)
+        const secId = effectiveScopeSectionId(defaultSecId, sel)
+        const row: BuildScopeRow = {
+          id: item.id,
+          name: item.name,
+          ref: item.ref,
+          defaultSecId,
+          custom: false,
+        }
+        const list = map.get(secId) ?? []
+        list.push(row)
+        map.set(secId, list)
+      }
+    }
+    for (const custom of plan.custom) {
+      const sel = getSel(plan, custom.id)
+      const defaultSec = resolveLibrarySectionId(String(custom.secId ?? '').trim() || 'receipt')
+      const secId = effectiveScopeSectionId(defaultSec, sel)
+      const row: BuildScopeRow = {
+        id: custom.id,
+        name: custom.name,
+        ref: 'Custom',
+        defaultSecId: defaultSec,
+        custom: true,
+      }
+      const list = map.get(secId) ?? []
+      list.push(row)
+      map.set(secId, list)
+    }
+    for (const [secId, rows] of map) {
+      rows.sort((a, b) => compareBuildScopeRows(a, b, plan, libraryItemIndex, customItemIndex))
+      map.set(secId, rows)
+    }
+    return map
+  }, [plan, libraryItemIndex, customItemIndex])
   const editorSections = useMemo(() => {
     const extraIds = [
       ...(plan?.custom ?? []).map((row) => String(row.secId)),
       ...scopeItems.map((item) => item.secId),
+      ...[...buildScopeRowsBySection.keys()],
     ]
     return normalizeProcessSections(undefined, extraIds)
-  }, [plan?.custom, scopeItems])
+  }, [plan?.custom, scopeItems, buildScopeRowsBySection])
   const travelerReportStats = useMemo(
     () => (plan ? buildItpTravelerReport(plan).stats : { total: 0, captured: 0, pending: 0 }),
     [plan],
@@ -531,6 +769,60 @@ export function ItpLibraryEditor({ valve, onClose, readOnly = false }: ItpLibrar
     })
   }
 
+  const changeScopeItemSection = (itemId: string, defaultSecId: string, nextSecId: string) => {
+    if (!canEditScope) return
+    const secId = nextSecId.trim()
+    if (!secId) return
+    updatePlan((prev) => {
+      const current = ensureSel(prev, itemId)
+      const sectionId = secId === defaultSecId ? '' : secId
+      const shopArea =
+        current.shopArea.trim() || defaultAreaForSection(secId)
+      return {
+        ...prev,
+        sel: {
+          ...prev.sel,
+          [itemId]: { ...current, sectionId, shopArea },
+        },
+        custom: prev.custom.map((row) => (row.id === itemId ? { ...row, secId } : row)),
+      }
+    })
+  }
+
+  const changeScopeItemShopArea = (itemId: string, shopArea: string) => {
+    if (!canEditScope) return
+    updatePlan((prev) => {
+      const current = ensureSel(prev, itemId)
+      return {
+        ...prev,
+        sel: {
+          ...prev.sel,
+          [itemId]: { ...current, shopArea: normalizeShopAreaValue(shopArea) },
+        },
+      }
+    })
+  }
+
+  const moveScopeItemInSection = (sectionId: string, itemId: string, direction: -1 | 1) => {
+    if (!canEditScope || !plan) return
+    const rows = buildScopeRowsBySection.get(sectionId) ?? []
+    const index = rows.findIndex((row) => row.id === itemId)
+    const swapWith = index + direction
+    if (index < 0 || swapWith < 0 || swapWith >= rows.length) return
+    const ordered = [...rows]
+    const tmp = ordered[index]
+    ordered[index] = ordered[swapWith]
+    ordered[swapWith] = tmp
+    updatePlan((prev) => {
+      const sel = { ...prev.sel }
+      ordered.forEach((row, sortIndex) => {
+        const current = sel[row.id] ?? emptyItemSel()
+        sel[row.id] = { ...current, sortIndex }
+      })
+      return { ...prev, sel }
+    })
+  }
+
   const toggleAttr = (itemId: string, attr: AttrFlag) => {
     if (!canEditScope) return
     updatePlan((prev) => {
@@ -572,20 +864,17 @@ export function ItpLibraryEditor({ valve, onClose, readOnly = false }: ItpLibrar
 
   const selectAllInSection = (secId: string, select: boolean) => {
     if (!canEditScope) return
-    const section = ITP_LIBRARY.find((s) => s.id === secId)
+    const rows = buildScopeRowsBySection.get(secId) ?? []
     updatePlan((prev) => {
       const sel = { ...prev.sel }
-      for (const item of section?.items ?? []) {
-        const current = sel[item.id] ?? emptyItemSel()
+      for (const row of rows) {
+        const current = sel[row.id] ?? emptyItemSel()
         let subReqs = current.subReqs
-        if (select && subReqs.length === 0 && item.defaultSubReqs?.length) {
-          subReqs = [...item.defaultSubReqs]
+        if (select && subReqs.length === 0) {
+          const found = findLibraryItem(row.id)
+          if (found?.item.defaultSubReqs?.length) subReqs = [...found.item.defaultSubReqs]
         }
-        sel[item.id] = { ...current, included: select, subReqs }
-      }
-      for (const custom of prev.custom.filter((c) => c.secId === secId)) {
-        const current = sel[custom.id] ?? emptyItemSel()
-        sel[custom.id] = { ...current, included: select }
+        sel[row.id] = { ...current, included: select, subReqs }
       }
       return { ...prev, sel }
     })
@@ -1050,56 +1339,40 @@ export function ItpLibraryEditor({ valve, onClose, readOnly = false }: ItpLibrar
     })
   }
 
-  const reapplyTemplate = () => {
+  const applySelectedTemplate = () => {
     if (!canEditScope || !plan) return
     void (async () => {
+      const templateName = selectedTemplateName.trim() || null
+      const label = templateName
+        ? `Load “${templateName}” into Build Scope for ${plan.valveType || 'this valve type'}?`
+        : `Load the built-in checklist into Build Scope for ${plan.valveType || 'this valve type'}?`
+      if (
+        !window.confirm(
+          `${label} Checked items will match the template. You can still check additional items from the master list below.`,
+        )
+      ) {
+        return
+      }
+      setApplyingTemplate(true)
       try {
-        const templates = await listItpLibraryTemplates({
-          jobType: plan.jobType,
-          valveType: plan.valveType,
+        const applied = await applyLibraryTemplateAsync(plan, {
+          replaceIncludes: true,
+          templateName: templateName || undefined,
         })
-        let templateName: string | null = null
-        if (templates.length > 1) {
-          const defaultName =
-            templates.find((row) => row.is_default)?.name ??
-            templates.find((row) => row.name === 'Default')?.name ??
-            templates[0]?.name ??
-            ''
-          const listed = templates
-            .map((row) => `${row.name}${row.is_default ? ' (default)' : ''}`)
-            .join('\n')
-          const answer = window.prompt(
-            `Multiple ITP templates exist for ${plan.valveType}.\n\n${listed}\n\nType the template name to apply:`,
-            defaultName,
-          )
-          if (answer == null) return
-          const chosen = answer.trim()
-          if (!chosen) return
-          const match = templates.find((row) => row.name.toLowerCase() === chosen.toLowerCase())
-          if (!match) {
-            showToast(`No template named “${chosen}” for this valve type`)
-            return
-          }
-          templateName = match.name
-        } else if (templates.length === 1) {
-          templateName = templates[0].name
+        const next = {
+          ...applied.plan,
+          scopeTemplateName: applied.templateName,
         }
-
-        if (
-          !window.confirm(
-            templateName
-              ? `Re-apply “${templateName}” for this job/valve type? Existing selections stay; template items will be included.`
-              : 'Re-apply the template for this job/valve type? Existing selections stay; template items will be included. Uses the Manage lists ITP template builder when one is saved for this valve type.',
-          )
-        ) {
-          return
-        }
-
-        const next = await applyLibraryTemplateAsync(plan, { templateName })
         updatePlan(() => next)
-        showToast(templateName ? `Applied “${templateName}”` : 'Template re-applied')
+        showToast(
+          applied.templateName
+            ? `Loaded “${applied.templateName}” into Build Scope`
+            : 'Loaded built-in checklist into Build Scope',
+        )
       } catch (error) {
-        showToast(error instanceof Error ? error.message : 'Could not re-apply template')
+        showToast(error instanceof Error ? error.message : 'Could not load template')
+      } finally {
+        setApplyingTemplate(false)
       }
     })()
   }
@@ -1224,11 +1497,6 @@ export function ItpLibraryEditor({ valve, onClose, readOnly = false }: ItpLibrar
             <button type="button" className="button-secondary" onClick={() => window.print()}>
               Print ITP
             </button>
-            {canEditScope ? (
-              <button type="button" className="button-secondary" onClick={reapplyTemplate}>
-                Re-apply template
-              </button>
-            ) : null}
             {canAccept ? (
               <>
                 <button
@@ -1324,18 +1592,22 @@ export function ItpLibraryEditor({ valve, onClose, readOnly = false }: ItpLibrar
               ) : null}
             </div>
           </div>
+          {!scopeMinimized && canEditScope ? (
+            <div className="itp-library-scope-template-wrap">
+              {renderTemplatePicker()}
+              <p className="itp-library-template-pick-hint">
+                {plan.scopeTemplateName
+                  ? `Using “${plan.scopeTemplateName}”. Checked items below populate the ITP checklist on the right. Check more items to add from the master list.`
+                  : 'Pick a saved template for this valve type to pre-check Build Scope, then add any extra items from the master list below.'}
+              </p>
+            </div>
+          ) : null}
           {!scopeMinimized ? (
           <div className="itp-library-panel-body">
             {editorSections.map((section) => {
-              const libraryItems = ITP_LIBRARY.find((row) => row.id === section.id)?.items ?? []
-              const customInSec = plan.custom.filter((c) => c.secId === section.id)
-              const selCount =
-                libraryItems.filter((it) => getSel(plan, it.id).included).length +
-                customInSec.filter((c) => getSel(plan, c.id).included).length
-              const allSel =
-                libraryItems.length + customInSec.length > 0 &&
-                libraryItems.every((it) => getSel(plan, it.id).included) &&
-                customInSec.every((c) => getSel(plan, c.id).included)
+              const rows = buildScopeRowsBySection.get(section.id) ?? []
+              const selCount = rows.filter((row) => getSel(plan, row.id).included).length
+              const allSel = rows.length > 0 && rows.every((row) => getSel(plan, row.id).included)
 
               return (
                 <div key={section.id} className="itp-library-lib-sec">
@@ -1343,9 +1615,9 @@ export function ItpLibraryEditor({ valve, onClose, readOnly = false }: ItpLibrar
                     <h4>{section.title}</h4>
                     <div className="itp-library-lshr">
                       <span>
-                        {selCount}/{libraryItems.length + customInSec.length}
+                        {selCount}/{rows.length}
                       </span>
-                      {canEditScope ? (
+                      {canEditScope && rows.length > 0 ? (
                         <button
                           type="button"
                           className="itp-library-sel-all"
@@ -1357,17 +1629,80 @@ export function ItpLibraryEditor({ valve, onClose, readOnly = false }: ItpLibrar
                     </div>
                   </div>
 
-                  {libraryItems.map((item) => {
-                    const sel = getSel(plan, item.id)
+                  {rows.map((row, indexInSection) => {
+                    const sel = getSel(plan, row.id)
+                    const shopArea = resolveItemShopArea(sel, section.id)
                     return (
-                      <div key={item.id} className={`itp-library-lib-item${sel.included ? ' sel' : ''}`}>
+                      <div key={row.id} className={`itp-library-lib-item${sel.included ? ' sel' : ''}`}>
+                        {canEditScope ? (
+                          <div className="itp-master-item-toolbar">
+                            <button
+                              type="button"
+                              className="itp-master-order-btn"
+                              disabled={indexInSection === 0}
+                              onClick={() => moveScopeItemInSection(section.id, row.id, -1)}
+                              title="Move up in this section"
+                            >
+                              ↑
+                            </button>
+                            <button
+                              type="button"
+                              className="itp-master-order-btn"
+                              disabled={indexInSection >= rows.length - 1}
+                              onClick={() => moveScopeItemInSection(section.id, row.id, 1)}
+                              title="Move down in this section"
+                            >
+                              ↓
+                            </button>
+                            <select
+                              className="itp-master-area-select"
+                              value={shopArea}
+                              onChange={(e) => changeScopeItemShopArea(row.id, e.target.value)}
+                              title="Assigned station"
+                              onClick={(e) => e.stopPropagation()}
+                            >
+                              {shopAreaOptions.map((opt) => (
+                                <option key={opt.value} value={opt.value}>
+                                  {opt.label}
+                                </option>
+                              ))}
+                              {!shopAreaOptions.some((opt) => opt.value === shopArea) && shopArea ? (
+                                <option value={shopArea}>{itpShopAreaLabel(shopArea, shopAreaOptions)}</option>
+                              ) : null}
+                            </select>
+                            <select
+                              className="itp-master-section-select"
+                              value={section.id}
+                              onChange={(e) =>
+                                changeScopeItemSection(row.id, row.defaultSecId, e.target.value)
+                              }
+                              title="ITP section"
+                              onClick={(e) => e.stopPropagation()}
+                            >
+                              {editorSections.map((opt) => (
+                                <option key={opt.id} value={opt.id}>
+                                  {opt.title}
+                                </option>
+                              ))}
+                            </select>
+                            {row.custom ? (
+                              <button
+                                type="button"
+                                className="link-button-danger itp-master-remove"
+                                onClick={() => removeCustomItem(row.id)}
+                              >
+                                Remove
+                              </button>
+                            ) : null}
+                          </div>
+                        ) : null}
                         <div
                           className="itp-library-lib-item-top"
-                          onClick={() => toggleInclude(item.id)}
+                          onClick={() => toggleInclude(row.id)}
                           onKeyDown={(e) => {
                             if (e.key === 'Enter' || e.key === ' ') {
                               e.preventDefault()
-                              toggleInclude(item.id)
+                              toggleInclude(row.id)
                             }
                           }}
                           role="button"
@@ -1377,47 +1712,81 @@ export function ItpLibraryEditor({ valve, onClose, readOnly = false }: ItpLibrar
                             <span className="itp-library-cb" />
                           </div>
                           <div className="itp-library-lib-item-name">
-                            <div className="itp-library-lin">{item.name}</div>
-                            <div className="itp-library-lref">{item.ref}</div>
+                            <div className="itp-library-lin">
+                              {row.name}
+                              {row.custom ? <span className="itp-library-custom-tag"> (custom)</span> : null}
+                            </div>
+                            <div className="itp-library-lref">
+                              {row.ref}
+                              {!canEditScope ? ` · ${itpShopAreaLabel(shopArea)}` : null}
+                            </div>
                           </div>
                         </div>
                         {sel.included ? (
                           <>
-                            <div className="itp-library-attr-bar">
-                              <button
-                                type="button"
-                                className={`itp-library-attr-toggle hp${sel.holdPoint ? ' on' : ''}`}
-                                disabled={readOnly}
-                                onClick={(e) => {
-                                  e.stopPropagation()
-                                  toggleAttr(item.id, 'holdPoint')
-                                }}
-                              >
-                                Hold Point
-                              </button>
-                              <button
-                                type="button"
-                                className={`itp-library-attr-toggle meas${itemRequiresMeasurements(sel) ? ' on' : ''}`}
-                                disabled={readOnly}
-                                onClick={(e) => {
-                                  e.stopPropagation()
-                                  toggleRequiresMeasurements(item.id)
-                                }}
-                              >
-                                Requires Measurements
-                              </button>
-                              <button
-                                type="button"
-                                className={`itp-library-attr-toggle${sel.blockNext ? ' on' : ''}`}
-                                disabled={readOnly}
-                                onClick={(e) => {
-                                  e.stopPropagation()
-                                  toggleAttr(item.id, 'blockNext')
-                                }}
-                              >
-                                Block next
-                              </button>
-                            </div>
+                            {!row.custom ? (
+                              <div className="itp-library-attr-bar">
+                                <button
+                                  type="button"
+                                  className={`itp-library-attr-toggle hp${sel.holdPoint ? ' on' : ''}`}
+                                  disabled={readOnly}
+                                  onClick={(e) => {
+                                    e.stopPropagation()
+                                    toggleAttr(row.id, 'holdPoint')
+                                  }}
+                                >
+                                  Hold Point
+                                </button>
+                                <button
+                                  type="button"
+                                  className={`itp-library-attr-toggle meas${itemRequiresMeasurements(sel) ? ' on' : ''}`}
+                                  disabled={readOnly}
+                                  onClick={(e) => {
+                                    e.stopPropagation()
+                                    toggleRequiresMeasurements(row.id)
+                                  }}
+                                >
+                                  Requires Measurements
+                                </button>
+                                <button
+                                  type="button"
+                                  className={`itp-library-attr-toggle${sel.requirePicture ? ' on' : ''}`}
+                                  disabled={readOnly}
+                                  onClick={(e) => {
+                                    e.stopPropagation()
+                                    toggleAttr(row.id, 'requirePicture')
+                                  }}
+                                >
+                                  Picture requirement
+                                </button>
+                                <button
+                                  type="button"
+                                  className={`itp-library-attr-toggle${sel.blockNext ? ' on' : ''}`}
+                                  disabled={readOnly}
+                                  onClick={(e) => {
+                                    e.stopPropagation()
+                                    toggleAttr(row.id, 'blockNext')
+                                  }}
+                                >
+                                  Block next
+                                </button>
+                                <button
+                                  type="button"
+                                  className={`itp-library-attr-toggle traveler${sel.addToTraveler ? ' on' : ''}`}
+                                  disabled={readOnly}
+                                  onClick={(e) => {
+                                    e.stopPropagation()
+                                    setTravelerItem({
+                                      id: row.id,
+                                      name: row.name,
+                                      shopArea: resolveItemShopArea(sel, section.id),
+                                    })
+                                  }}
+                                >
+                                  Add to Traveler
+                                </button>
+                              </div>
+                            ) : null}
                             <div className="itp-library-sub-reqs-area">
                               <label className="itp-library-scope-notes">
                                 Notes
@@ -1427,107 +1796,53 @@ export function ItpLibraryEditor({ valve, onClose, readOnly = false }: ItpLibrar
                                   disabled={readOnly}
                                   placeholder="Add notes for this line…"
                                   onClick={(e) => e.stopPropagation()}
-                                  onChange={(e) => setItemNotes(item.id, e.target.value)}
+                                  onChange={(e) => setItemNotes(row.id, e.target.value)}
                                 />
                               </label>
-                              {sel.subReqs.map((sr, idx) => (
-                                <div key={`${item.id}-sr-${idx}`} className="itp-library-sub-req-row">
-                                  <span>• {sr}</span>
-                                  {!readOnly ? (
-                                    <button
-                                      type="button"
-                                      className="itp-library-sr-del"
-                                      onClick={() => removeSubReq(item.id, idx)}
-                                    >
-                                      ✕
-                                    </button>
-                                  ) : null}
-                                </div>
-                              ))}
-                              {!readOnly ? (
+                              {!row.custom
+                                ? sel.subReqs.map((sr, idx) => (
+                                    <div key={`${row.id}-sr-${idx}`} className="itp-library-sub-req-row">
+                                      <span>• {sr}</span>
+                                      {!readOnly ? (
+                                        <button
+                                          type="button"
+                                          className="itp-library-sr-del"
+                                          onClick={() => removeSubReq(row.id, idx)}
+                                        >
+                                          ✕
+                                        </button>
+                                      ) : null}
+                                    </div>
+                                  ))
+                                : null}
+                              {!row.custom && !readOnly ? (
                                 <div className="itp-library-add-sr-row">
                                   <input
                                     className="itp-library-add-sr-inp"
                                     type="text"
                                     placeholder="+ Add sub-requirement…"
-                                    value={subReqDrafts[item.id] ?? ''}
-                                    onChange={(e) => setSubReqDrafts((prev) => ({ ...prev, [item.id]: e.target.value }))}
+                                    value={subReqDrafts[row.id] ?? ''}
+                                    onChange={(e) =>
+                                      setSubReqDrafts((prev) => ({ ...prev, [row.id]: e.target.value }))
+                                    }
                                     onKeyDown={(e) => {
                                       if (e.key === 'Enter') {
                                         e.preventDefault()
-                                        addSubReq(item.id)
+                                        addSubReq(row.id)
                                       }
                                     }}
                                   />
-                                  <button type="button" className="itp-library-add-sr-btn" onClick={() => addSubReq(item.id)}>
+                                  <button
+                                    type="button"
+                                    className="itp-library-add-sr-btn"
+                                    onClick={() => addSubReq(row.id)}
+                                  >
                                     Add
                                   </button>
                                 </div>
                               ) : null}
                             </div>
                           </>
-                        ) : null}
-                      </div>
-                    )
-                  })}
-
-                  {customInSec.map((custom) => {
-                    const sel = getSel(plan, custom.id)
-                    return (
-                      <div key={custom.id} className={`itp-library-lib-item${sel.included ? ' sel' : ''}`}>
-                        <div
-                          className="itp-library-lib-item-top"
-                          onClick={() => toggleInclude(custom.id)}
-                          role="button"
-                          tabIndex={readOnly ? -1 : 0}
-                          onKeyDown={(e) => {
-                            if (e.key === 'Enter' || e.key === ' ') {
-                              e.preventDefault()
-                              toggleInclude(custom.id)
-                            }
-                          }}
-                        >
-                          <div className="itp-library-cb-cell">
-                            <span className="itp-library-cb" />
-                          </div>
-                          <div className="itp-library-lib-item-name">
-                            <div className="itp-library-lin">
-                              {custom.name} <span className="itp-library-custom-tag">(custom)</span>
-                            </div>
-                            <div className="itp-library-lref">
-                              Custom
-                              {!readOnly ? (
-                                <>
-                                  {' · '}
-                                  <button
-                                    type="button"
-                                    className="link-button-danger"
-                                    onClick={(e) => {
-                                      e.stopPropagation()
-                                      removeCustomItem(custom.id)
-                                    }}
-                                  >
-                                    remove
-                                  </button>
-                                </>
-                              ) : null}
-                            </div>
-                          </div>
-                        </div>
-                        {sel.included ? (
-                          <div className="itp-library-sub-reqs-area">
-                            <label className="itp-library-scope-notes">
-                              Notes
-                              <textarea
-                                rows={2}
-                                value={sel.notes}
-                                disabled={readOnly}
-                                placeholder="Add notes for this line…"
-                                onClick={(e) => e.stopPropagation()}
-                                onChange={(e) => setItemNotes(custom.id, e.target.value)}
-                              />
-                            </label>
-                          </div>
                         ) : null}
                       </div>
                     )
@@ -1769,8 +2084,53 @@ export function ItpLibraryEditor({ valve, onClose, readOnly = false }: ItpLibrar
                                     {sel.blockNext ? (
                                       <span className="itp-library-attr-badge block">Blocks next</span>
                                     ) : null}
+                                    {sel.addToTraveler ? (
+                                      <span className="itp-library-attr-badge traveler">On Traveler</span>
+                                    ) : null}
                                   </div>
-                                  <div className="itp-library-er">[{it.ref}]</div>
+                                  <div className="itp-library-er">
+                                    [{it.ref}]
+                                    {it.sel.shopArea || it.secId
+                                      ? ` · ${itpShopAreaLabel(resolveItemShopArea(it.sel, it.secId))}`
+                                      : ''}
+                                  </div>
+                                  {sel.travelerEntry?.notes ? (
+                                    <p className="itp-library-traveler-entry-note">
+                                      <strong>Traveler:</strong> {sel.travelerEntry.notes}
+                                      {!readOnly ? (
+                                        <>
+                                          {' '}
+                                          <button
+                                            type="button"
+                                            className="link-button"
+                                            onClick={() =>
+                                              setTravelerItem({
+                                                id: it.id,
+                                                name: it.name,
+                                                shopArea: resolveItemShopArea(sel, it.secId),
+                                              })
+                                            }
+                                          >
+                                            Edit
+                                          </button>
+                                        </>
+                                      ) : null}
+                                    </p>
+                                  ) : !readOnly ? (
+                                    <button
+                                      type="button"
+                                      className="button-secondary itp-library-add-traveler-btn"
+                                      onClick={() =>
+                                        setTravelerItem({
+                                          id: it.id,
+                                          name: it.name,
+                                          shopArea: resolveItemShopArea(sel, it.secId),
+                                        })
+                                      }
+                                    >
+                                      Add to Traveler
+                                    </button>
+                                  ) : null}
                                   {sel.requirePicture ? (
                                     <div className="itp-library-item-photos screen-only">
                                       <div className="itp-library-item-photos-hdr">
@@ -2180,6 +2540,52 @@ export function ItpLibraryEditor({ valve, onClose, readOnly = false }: ItpLibrar
           )}
         </div>
       </div>
+
+      {travelerItem && plan ? (
+        <ItpAddToTravelerModal
+          valveIdText={valve.valve_id}
+          itemName={travelerItem.name}
+          shopArea={travelerItem.shopArea}
+          sel={getSel(plan, travelerItem.id)}
+          onCancel={() => setTravelerItem(null)}
+          onSaved={(next) => {
+            updatePlan((prev) => {
+              const current = ensureSel(prev, travelerItem.id)
+              return {
+                ...prev,
+                sel: {
+                  ...prev.sel,
+                  [travelerItem.id]: {
+                    ...current,
+                    addToTraveler: next.addToTraveler,
+                    travelerEntry: next.travelerEntry,
+                  },
+                },
+              }
+            })
+            setTravelerItem(null)
+          }}
+          onCleared={() => {
+            updatePlan((prev) => {
+              const current = ensureSel(prev, travelerItem.id)
+              return {
+                ...prev,
+                sel: {
+                  ...prev.sel,
+                  [travelerItem.id]: {
+                    ...current,
+                    addToTraveler: false,
+                    travelerEntry: null,
+                  },
+                },
+              }
+            })
+            setTravelerItem(null)
+            showToast('Traveler link removed from this ITP line')
+          }}
+          showToast={showToast}
+        />
+      ) : null}
 
       {flaggingItem ? (
         <ItpFlagIssueModal

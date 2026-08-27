@@ -1,0 +1,15 @@
+---
+description: Pushing to git also deploys production on Vercel
+alwaysApply: true
+---
+
+# Git push includes Vercel
+
+When the user asks to **push to git** (including “please push to git”), that also means:
+
+1. Commit if there are uncommitted changes they intend to ship (only when they asked to push / commit).
+2. `git push` to the remote.
+3. Deploy production with `npx vercel --prod --yes`.
+
+Do not wait for a separate “and Vercel” request. Return the production URL when done (typically https://jsjobboard.vercel.app).
+Deploy with the linked project under the **JS Valve's projects** team (`js-valves-projects/jsjobboard`), not Santa Fe Room / `jsjobboard-eight`.

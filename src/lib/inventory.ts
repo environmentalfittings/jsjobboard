@@ -175,6 +175,14 @@ export function resolveInventoryOrigin(origin: string, originOther: string): str
   return selected
 }
 
+/** Human-readable location label for list views (warehouse, yard, custom text, etc.). */
+export function formatInventoryLocationLabel(raw: string | null | undefined): string {
+  const value = String(raw ?? '').trim()
+  if (!value) return ''
+  if (value === 'other') return 'Other'
+  return value
+}
+
 const PRODUCTION_APP_ORIGIN = 'https://jsjobboard.vercel.app'
 
 export const INVENTORY_SELECT =

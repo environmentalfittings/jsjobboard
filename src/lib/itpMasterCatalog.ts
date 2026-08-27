@@ -2,10 +2,12 @@ import { ITP_LIBRARY } from '../constants/itpLibrary'
 import {
   defaultProcessSections,
   normalizeProcessSections,
+  resolveLibrarySectionId,
   type ItpProcessSectionDef,
 } from '../constants/itpProcessSections'
 import {
   defaultShopAreas,
+  normalizeShopAreaValue,
   normalizeShopAreas,
   type ItpShopArea,
   type ItpShopAreaDef,
@@ -67,34 +69,34 @@ export function requirementDefaultsFromCatalogItem(
   }
 }
 
-/** Map ITP process sections to a default shop station. */
+/** Map ITP process sections to a default shop station (job-card status name). */
 export function defaultAreaForSection(secId: string): ItpShopArea {
   switch (secId) {
     case 'receipt':
     case 'disassembly':
-      return 'teardown'
+      return 'Teardown'
     case 'inspection':
     case 'ndt':
     case 'final':
-      return 'qa_qc'
+      return 'Testing'
     case 'repair':
-      return 'machine_shop'
+      return 'Machine 1'
     case 'assembly':
     case 'hfservice':
     case 'controlvlv':
-      return 'assembly'
+      return 'Assembly'
     case 'actuatorsec':
-      return 'actuation'
+      return 'Actuation'
     case 'reliefsafety':
-      return 'prv'
+      return 'PRV Teardown'
     case 'testing':
-      return 'testing'
+      return 'Testing'
     case 'slabgate':
     case 'wedgeplug':
     case 'mfgsec':
-      return 'machine_shop'
+      return 'Machine 1'
     default:
-      return 'teardown'
+      return 'Teardown'
   }
 }
 
@@ -134,16 +136,17 @@ export function seedMasterCatalogFromLibrary(): ItpMasterCatalogItem[] {
   const items: ItpMasterCatalogItem[] = []
   let sortOrder = 0
   for (const section of ITP_LIBRARY) {
+    const secId = resolveLibrarySectionId(section.id)
     for (const item of section.items) {
-      let area = defaultAreaForSection(section.id)
-      if (looksLikeWelding(item.name, item.ref)) area = 'welding'
-      if (looksLikePainting(item.name, item.ref)) area = 'painting'
+      let area = defaultAreaForSection(secId)
+      if (looksLikeWelding(item.name, item.ref)) area = 'Welding'
+      if (looksLikePainting(item.name, item.ref)) area = 'Painting'
       items.push(
         applyBuiltinRequirementDefaults({
           id: item.id,
           name: item.name,
           ref: item.ref,
-          secId: section.id,
+          secId,
           area,
           sortOrder: sortOrder++,
           builtIn: true,
@@ -160,10 +163,10 @@ function normalizeCatalogItem(raw: unknown, fallbackOrder: number): ItpMasterCat
   const row = raw as Partial<ItpMasterCatalogItem>
   const id = String(row.id ?? '').trim()
   const name = String(row.name ?? '').trim()
-  const secId = String(row.secId ?? '').trim()
+  const secId = resolveLibrarySectionId(String(row.secId ?? '').trim())
   if (!id || !name || !secId) return null
   const areaRaw = String(row.area ?? '').trim()
-  const area = areaRaw || defaultAreaForSection(secId)
+  const area = normalizeShopAreaValue(areaRaw) || defaultAreaForSection(secId)
   const minPhotosRaw = Number(row.minPhotos)
   const measFields = normalizeMeasFields(row.measFields)
   const base: ItpMasterCatalogItem = {

@@ -139,8 +139,24 @@ function normalizeSel(raw: unknown): ItpLibraryItemSel {
   const o = (raw && typeof raw === 'object' ? raw : {}) as Partial<ItpLibraryItemSel> & {
     minPhotos?: unknown
     measFields?: unknown
+    travelerEntry?: unknown
   }
   const minPhotosRaw = Number(o.minPhotos)
+  const travelerEntry = (() => {
+    if (!o.travelerEntry || typeof o.travelerEntry !== 'object') return null
+    const te = o.travelerEntry as Partial<ItpLibraryItemSel['travelerEntry']> & { section?: string }
+    const section = String(te?.section ?? '').trim()
+    const allowed = new Set(['basic_info', 'valve_selection', 'other_parts', 'welding', 'testing_qc'])
+    if (!allowed.has(section)) return null
+    const notes = String(te?.notes ?? '').trim()
+    if (!notes) return null
+    return {
+      section: section as NonNullable<ItpLibraryItemSel['travelerEntry']>['section'],
+      notes,
+      savedAt: te?.savedAt ? String(te.savedAt) : null,
+      block: String(te?.block ?? '').trim(),
+    }
+  })()
   return {
     included: Boolean(o.included),
     holdPoint: Boolean(o.holdPoint),
@@ -155,6 +171,15 @@ function normalizeSel(raw: unknown): ItpLibraryItemSel {
     measFields: normalizeMeasFields(o.measFields),
     blockNext: Boolean(o.blockNext),
     sectionId: String(o.sectionId ?? '').trim(),
+    shopArea: String(o.shopArea ?? '').trim(),
+    sortIndex: (() => {
+      const raw = (o as { sortIndex?: unknown }).sortIndex
+      if (raw == null || raw === '') return null
+      const n = Number(raw)
+      return Number.isFinite(n) ? Math.floor(n) : null
+    })(),
+    addToTraveler: Boolean(o.addToTraveler) || Boolean(travelerEntry),
+    travelerEntry,
   }
 }
 
@@ -213,6 +238,7 @@ export function compactTemplateScope(scope: ItpLibraryTemplateScope): ItpLibrary
       value.measVerify ||
       value.requirePicture ||
       value.blockNext ||
+      value.addToTraveler ||
       value.measFields.length > 0 ||
       value.subReqs.length > 0 ||
       value.notes.trim()
@@ -515,7 +541,11 @@ export function applyScopeToPlan(
             ? templateSel.measFields.map((f) => ({ ...f }))
             : prev.measFields,
         blockNext: templateSel.blockNext || prev.blockNext,
+        addToTraveler: templateSel.addToTraveler || prev.addToTraveler,
+        travelerEntry: templateSel.travelerEntry ?? prev.travelerEntry,
         sectionId: templateSel.sectionId || prev.sectionId,
+        shopArea: templateSel.shopArea.trim() || prev.shopArea,
+        sortIndex: templateSel.sortIndex != null ? templateSel.sortIndex : prev.sortIndex,
         subReqs,
         notes: templateSel.notes.trim() || prev.notes,
       }
@@ -543,19 +573,33 @@ export function applyScopeToPlan(
   return { ...plan, sel, custom }
 }
 
+export type ApplyLibraryTemplateResult = {
+  plan: ItpLibraryPlanPayload
+  templateName: string | null
+  templateSource: 'saved' | 'builtin'
+}
+
 export async function applyLibraryTemplateAsync(
   plan: ItpLibraryPlanPayload,
   options?: { replaceIncludes?: boolean; templateName?: string | null },
-): Promise<ItpLibraryPlanPayload> {
+): Promise<ApplyLibraryTemplateResult> {
   try {
     const stored = await loadItpLibraryTemplate(plan.jobType, plan.valveType, options?.templateName)
     if (stored && countIncludedInScope(stored.scope) > 0) {
-      return applyScopeToPlan(plan, stored.scope, options)
+      return {
+        plan: applyScopeToPlan(plan, stored.scope, options),
+        templateName: stored.name,
+        templateSource: 'saved',
+      }
     }
   } catch {
     // Table may not exist yet — fall back to code templates.
   }
 
   const codeScope = scopeFromCodeTemplate(plan.jobType, plan.valveType)
-  return applyScopeToPlan(plan, codeScope, options)
+  return {
+    plan: applyScopeToPlan(plan, codeScope, options),
+    templateName: null,
+    templateSource: 'builtin',
+  }
 }

@@ -9,10 +9,26 @@ import {
   type ItpLibraryJobType,
   type ItpLibrarySectionId,
 } from '../constants/itpLibrary'
-import { processSectionTitle } from '../constants/itpProcessSections'
+import { processSectionTitle, resolveLibrarySectionId } from '../constants/itpProcessSections'
 import { normalizeMeasFields, type ItpMeasFieldDef } from './itpMeasFields'
 
-export const ITP_LIBRARY_PLAN_SCHEMA_VERSION = 8 as const
+export const ITP_LIBRARY_PLAN_SCHEMA_VERSION = 9 as const
+
+/** Shop traveler note section targeted by “Add to Traveler”. */
+export type ItpTravelerNoteSection =
+  | 'basic_info'
+  | 'valve_selection'
+  | 'other_parts'
+  | 'welding'
+  | 'testing_qc'
+
+export type ItpTravelerEntry = {
+  section: ItpTravelerNoteSection
+  notes: string
+  savedAt: string | null
+  /** Formatted block last written to the traveler (used to replace on re-save). */
+  block: string
+}
 
 export type ItpLibraryItemSel = {
   included: boolean
@@ -36,6 +52,16 @@ export type ItpLibraryItemSel = {
    * Empty string = use the master/library default section.
    */
   sectionId: string
+  /** Shop station assignment for this job (e.g. teardown, welding). Empty = derive from section. */
+  shopArea: string
+  /**
+   * Optional order within the effective ITP section.
+   * Lower sorts first. Null/undefined = fall back to master catalog order.
+   */
+  sortIndex: number | null
+  /** When true, this line’s detail is captured on the shop traveler (not duplicated as ITP work). */
+  addToTraveler: boolean
+  travelerEntry: ItpTravelerEntry | null
 }
 
 export type ItpLibraryItemExec = {
@@ -151,6 +177,8 @@ export type ItpLibraryPlanPayload = {
   qcDate: string
   notes: string
   updatedAt: string
+  /** Saved template name last applied to Build Scope (Manage lists → ITP template builder). */
+  scopeTemplateName?: string | null
 }
 
 /** Accept current and prior library plan schema versions when loading. */
@@ -193,6 +221,10 @@ export function emptyItemSel(): ItpLibraryItemSel {
     measFields: [],
     blockNext: false,
     sectionId: '',
+    shopArea: '',
+    sortIndex: null,
+    addToTraveler: false,
+    travelerEntry: null,
   }
 }
 
@@ -273,7 +305,7 @@ export function isItpLibrarySectionId(value: string): value is ItpLibrarySection
 
 export function effectiveScopeSectionId(defaultSecId: string, sel: ItpLibraryItemSel): string {
   const override = String(sel.sectionId ?? '').trim()
-  return override || defaultSecId
+  return resolveLibrarySectionId(override || defaultSecId)
 }
 
 export function sectionTitleForId(secId: string): string {
@@ -288,7 +320,8 @@ export function allScopeItems(plan: ItpLibraryPlanPayload): ItpLibraryScopeItem[
     for (const item of section.items) {
       if (!isItemIncluded(plan, item.id) || seen.has(item.id)) continue
       const sel = getSel(plan, item.id)
-      const secId = effectiveScopeSectionId(section.id, sel)
+      const catalogSecId = resolveLibrarySectionId(section.id)
+      const secId = effectiveScopeSectionId(catalogSecId, sel)
       out.push({
         id: item.id,
         name: item.name,
@@ -305,7 +338,7 @@ export function allScopeItems(plan: ItpLibraryPlanPayload): ItpLibraryScopeItem[
   for (const custom of plan.custom) {
     if (!isItemIncluded(plan, custom.id) || seen.has(custom.id)) continue
     const sel = getSel(plan, custom.id)
-    const defaultSec = String(custom.secId ?? '').trim() || 'receipt'
+    const defaultSec = resolveLibrarySectionId(String(custom.secId ?? '').trim() || 'receipt')
     const secId = effectiveScopeSectionId(defaultSec, sel)
     out.push({
       id: custom.id,
@@ -335,6 +368,11 @@ export function allScopeItems(plan: ItpLibraryPlanPayload): ItpLibraryScopeItem[
     const orderA = sectionOrder.get(a.secId) ?? 999
     const orderB = sectionOrder.get(b.secId) ?? 999
     if (orderA !== orderB) return orderA - orderB
+    const sortA = a.sel.sortIndex
+    const sortB = b.sel.sortIndex
+    if (sortA != null && sortB != null && sortA !== sortB) return sortA - sortB
+    if (sortA != null && sortB == null) return -1
+    if (sortA == null && sortB != null) return 1
     const libA = libraryIndex.get(a.id) ?? Number.POSITIVE_INFINITY
     const libB = libraryIndex.get(b.id) ?? Number.POSITIVE_INFINITY
     if (libA !== libB) return libA - libB
@@ -400,11 +438,34 @@ export function createEmptyItpLibraryPlan(valve: Valve): ItpLibraryPlanPayload {
   return applyLibraryTemplate(plan)
 }
 
+function normalizeTravelerEntry(raw: unknown): ItpTravelerEntry | null {
+  if (!raw || typeof raw !== 'object') return null
+  const o = raw as Partial<ItpTravelerEntry>
+  const section = String(o.section ?? '').trim() as ItpTravelerNoteSection
+  const allowed: ItpTravelerNoteSection[] = [
+    'basic_info',
+    'valve_selection',
+    'other_parts',
+    'welding',
+    'testing_qc',
+  ]
+  if (!allowed.includes(section)) return null
+  const notes = String(o.notes ?? '').trim()
+  if (!notes) return null
+  return {
+    section,
+    notes,
+    savedAt: o.savedAt ? String(o.savedAt) : null,
+    block: String(o.block ?? '').trim(),
+  }
+}
+
 function normalizeSel(raw: unknown, fallbackNotes = ''): ItpLibraryItemSel {
   const o = (raw && typeof raw === 'object' ? raw : {}) as Partial<ItpLibraryItemSel> & {
     minPhotos?: unknown
   }
   const minPhotosRaw = Number(o.minPhotos)
+  const travelerEntry = normalizeTravelerEntry(o.travelerEntry)
   return {
     included: Boolean(o.included),
     holdPoint: Boolean(o.holdPoint),
@@ -419,6 +480,15 @@ function normalizeSel(raw: unknown, fallbackNotes = ''): ItpLibraryItemSel {
     measFields: normalizeMeasFields(o.measFields),
     blockNext: Boolean(o.blockNext),
     sectionId: String(o.sectionId ?? '').trim(),
+    shopArea: String(o.shopArea ?? '').trim(),
+    sortIndex: (() => {
+      const raw = (o as { sortIndex?: unknown }).sortIndex
+      if (raw == null || raw === '') return null
+      const n = Number(raw)
+      return Number.isFinite(n) ? Math.floor(n) : null
+    })(),
+    addToTraveler: Boolean(o.addToTraveler) || Boolean(travelerEntry),
+    travelerEntry,
   }
 }
 
@@ -632,6 +702,10 @@ export function normalizeItpLibraryPlan(raw: unknown, valve: Valve): ItpLibraryP
       qcDate: String(source.qcDate ?? ''),
       notes: String(source.notes ?? ''),
       updatedAt: String(source.updatedAt ?? new Date().toISOString()),
+      scopeTemplateName:
+        source.scopeTemplateName == null || source.scopeTemplateName === ''
+          ? null
+          : String(source.scopeTemplateName),
     }
   }
   return createEmptyItpLibraryPlan(valve)

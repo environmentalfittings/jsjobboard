@@ -6,8 +6,56 @@ export type ItpProcessSectionDef = {
   title: string
 }
 
+/** Numbered process flow — these stay as heading sections on the ITP. */
+export const ITP_CORE_PROCESS_SECTION_IDS = [
+  'receipt',
+  'disassembly',
+  'inspection',
+  'ndt',
+  'repair',
+  'assembly',
+  'testing',
+  'final',
+] as const
+
+export type ItpCoreProcessSectionId = (typeof ITP_CORE_PROCESS_SECTION_IDS)[number]
+
+/**
+ * Valve-specific / specialty catalogs are not their own ITP headings.
+ * Their items fall under a numbered process section instead.
+ */
+export const ITP_SPECIALTY_SECTION_HOME: Record<string, ItpCoreProcessSectionId> = {
+  hfservice: 'inspection',
+  slabgate: 'inspection',
+  wedgeplug: 'inspection',
+  controlvlv: 'testing',
+  reliefsafety: 'testing',
+  actuatorsec: 'assembly',
+  mfgsec: 'repair',
+}
+
+export function isCoreProcessSectionId(id: string | null | undefined): boolean {
+  const value = String(id ?? '').trim()
+  return (ITP_CORE_PROCESS_SECTION_IDS as readonly string[]).includes(value)
+}
+
+export function isSpecialtyProcessSectionId(id: string | null | undefined): boolean {
+  const value = String(id ?? '').trim()
+  return Boolean(value) && value in ITP_SPECIALTY_SECTION_HOME
+}
+
+/** Map specialty section ids onto numbered process sections; leave core/custom ids alone. */
+export function resolveLibrarySectionId(secId: string | null | undefined): string {
+  const value = String(secId ?? '').trim()
+  if (!value) return value
+  return ITP_SPECIALTY_SECTION_HOME[value] ?? value
+}
+
 export function defaultProcessSections(): ItpProcessSectionDef[] {
-  return ITP_LIBRARY.map((section) => ({ id: section.id, title: section.title }))
+  return ITP_LIBRARY.filter((section) => isCoreProcessSectionId(section.id)).map((section) => ({
+    id: section.id,
+    title: section.title,
+  }))
 }
 
 function humanizeSectionId(id: string): string {
@@ -55,15 +103,17 @@ export function normalizeProcessSections(
   if (Array.isArray(raw)) {
     for (const row of raw) {
       if (typeof row === 'string') {
-        const id = row.trim()
-        if (!id) continue
+        const id = resolveLibrarySectionId(row)
+        if (!id || isSpecialtyProcessSectionId(row)) continue
         parsed.push({ id, title: processSectionTitle(id) })
         continue
       }
       if (!row || typeof row !== 'object') continue
-      const id = String((row as { id?: unknown }).id ?? '').trim()
-      const title = String((row as { title?: unknown }).title ?? '').trim()
+      const rawId = String((row as { id?: unknown }).id ?? '').trim()
+      if (!rawId || isSpecialtyProcessSectionId(rawId)) continue
+      const id = resolveLibrarySectionId(rawId)
       if (!id) continue
+      const title = String((row as { title?: unknown }).title ?? '').trim()
       parsed.push({ id, title: title || processSectionTitle(id) })
     }
   }
@@ -71,9 +121,10 @@ export function normalizeProcessSections(
   const seen = new Set<string>()
   const out: ItpProcessSectionDef[] = []
   const push = (def: ItpProcessSectionDef) => {
-    if (!def.id || seen.has(def.id)) return
-    seen.add(def.id)
-    out.push({ id: def.id, title: def.title.trim() || processSectionTitle(def.id) })
+    const id = resolveLibrarySectionId(def.id)
+    if (!id || isSpecialtyProcessSectionId(def.id) || seen.has(id)) return
+    seen.add(id)
+    out.push({ id, title: def.title.trim() || processSectionTitle(id) })
   }
 
   if (parsed.length > 0) {
@@ -83,12 +134,26 @@ export function normalizeProcessSections(
   }
 
   for (const secId of itemSecIds) {
-    const id = String(secId ?? '').trim()
+    const id = resolveLibrarySectionId(secId)
     if (!id) continue
     push({ id, title: processSectionTitle(id) })
   }
 
-  return out
+  // Always keep the numbered core sections available, even if a saved list omitted one.
+  for (const core of defaultProcessSections()) {
+    push(core)
+  }
+
+  // Prefer core process order, then any custom sections.
+  const coreOrder = new Map(ITP_CORE_PROCESS_SECTION_IDS.map((id, index) => [id, index]))
+  return out.sort((a, b) => {
+    const orderA = coreOrder.get(a.id as ItpCoreProcessSectionId)
+    const orderB = coreOrder.get(b.id as ItpCoreProcessSectionId)
+    if (orderA != null && orderB != null) return orderA - orderB
+    if (orderA != null) return -1
+    if (orderB != null) return 1
+    return a.title.localeCompare(b.title, undefined, { sensitivity: 'base' })
+  })
 }
 
 export function moveProcessSectionTo(

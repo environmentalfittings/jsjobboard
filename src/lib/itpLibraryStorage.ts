@@ -28,6 +28,8 @@ function tryParseJson(raw: string): unknown {
 export async function loadItpLibraryPlan(valve: Valve): Promise<{
   plan: ItpLibraryPlanPayload
   isNew: boolean
+  appliedTemplateName: string | null
+  appliedTemplateSource: 'saved' | 'builtin' | null
   hasLegacyInspection: boolean
   hasLegacyProcessPlan: boolean
 }> {
@@ -45,6 +47,8 @@ export async function loadItpLibraryPlan(valve: Valve): Promise<{
     return {
       plan: normalizeItpLibraryPlan({ ...storedPlan, valveSnapshot: valveToLibrarySnapshot(valve) }, valve),
       isNew: false,
+      appliedTemplateName: storedPlan.scopeTemplateName ?? null,
+      appliedTemplateSource: storedPlan.scopeTemplateName ? 'saved' : null,
       hasLegacyInspection: hasItpInspectionData(fromJsonb, data?.content),
       hasLegacyProcessPlan: hasLegacyProcessPlan(fromJsonb),
     }
@@ -60,17 +64,24 @@ export async function loadItpLibraryPlan(valve: Valve): Promise<{
         valve,
       ),
       isNew: false,
+      appliedTemplateName: storedFromContent.scopeTemplateName ?? null,
+      appliedTemplateSource: storedFromContent.scopeTemplateName ? 'saved' : null,
       hasLegacyInspection: hasItpInspectionData(fromJsonb ?? fromContent, rawContent),
       hasLegacyProcessPlan: hasLegacyProcessPlan(fromJsonb ?? fromContent),
     }
   }
 
   const empty = createEmptyItpLibraryPlan(valve)
-  // Prefer Manage lists → ITP template builder scopes when present.
-  const plan = await applyLibraryTemplateAsync(empty, { replaceIncludes: true })
+  const applied = await applyLibraryTemplateAsync(empty, { replaceIncludes: true })
+  const plan = {
+    ...applied.plan,
+    scopeTemplateName: applied.templateName,
+  }
   return {
     plan,
     isNew: true,
+    appliedTemplateName: applied.templateName,
+    appliedTemplateSource: applied.templateSource,
     hasLegacyInspection: hasItpInspectionData(fromJsonb, rawContent),
     hasLegacyProcessPlan: Boolean(extractProcessPlanFromItpData(fromJsonb) || extractProcessPlanFromItpData(fromContent)),
   }

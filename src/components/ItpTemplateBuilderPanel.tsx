@@ -1,16 +1,24 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useToast } from './ToastNotification'
-import { findLibraryItem, type ItpLibraryJobType } from '../constants/itpLibrary'
+import {
+  findLibraryItem,
+  mapShopJobTypeToLibrary,
+  type ItpLibraryJobType,
+} from '../constants/itpLibrary'
 import {
   defaultProcessSections,
+  isSpecialtyProcessSectionId,
   moveProcessSection,
   moveProcessSectionTo,
+  normalizeProcessSections,
   processSectionTitle,
+  resolveLibrarySectionId,
   uniqueProcessSectionId,
   type ItpProcessSectionDef,
 } from '../constants/itpProcessSections'
 import {
   defaultShopAreas,
+  ensureShopAreaDef,
   itpShopAreaLabel,
   type ItpShopArea,
   type ItpShopAreaDef,
@@ -87,25 +95,10 @@ function parseAreaDefs(raw: unknown): ItpShopAreaDef[] {
 }
 
 function parseProcessSectionDefs(raw: unknown, items: ItpMasterCatalogItem[]): ItpProcessSectionDef[] {
-  if (!Array.isArray(raw)) {
-    return defaultProcessSections()
-  }
-  const parsed = raw
-    .map((row) => {
-      if (!row || typeof row !== 'object') return null
-      const id = String((row as { id?: unknown }).id ?? '').trim()
-      const title = String((row as { title?: unknown }).title ?? '').trim()
-      if (!id) return null
-      return { id, title: title || processSectionTitle(id) }
-    })
-    .filter((row): row is ItpProcessSectionDef => Boolean(row))
-  if (parsed.length === 0) return defaultProcessSections()
-  const seen = new Set(parsed.map((row) => row.id))
-  const extras = items
-    .map((item) => item.secId)
-    .filter((id) => id && !seen.has(id))
-    .map((id) => ({ id, title: processSectionTitle(id) }))
-  return extras.length ? [...parsed, ...extras] : parsed
+  return normalizeProcessSections(
+    raw,
+    items.map((item) => item.secId),
+  )
 }
 
 function catalogFingerprint(
@@ -274,7 +267,17 @@ const emptyNewMasterDraft = (): NewMasterDraft => ({
   blockNext: false,
 })
 
-export function ItpTemplateBuilderPanel() {
+export type ItpTemplateBuilderFocus = {
+  jobType?: string
+  valveType?: string
+  templateName?: string
+}
+
+export function ItpTemplateBuilderPanel({
+  focus = null,
+}: {
+  focus?: ItpTemplateBuilderFocus | null
+}) {
   const { showToast } = useToast()
   const [jobType, setJobType] = useState<ItpLibraryJobType>('repair')
   const [valveType, setValveType] = useState('')
@@ -287,11 +290,15 @@ export function ItpTemplateBuilderPanel() {
   const [areas, setAreas] = useState<ItpShopAreaDef[]>(() => defaultShopAreas())
   const [processSections, setProcessSections] = useState<ItpProcessSectionDef[]>(() => defaultProcessSections())
   const [newSectionName, setNewSectionName] = useState('')
+  const [newStationName, setNewStationName] = useState('')
   const [draggingSection, setDraggingSection] = useState<string | null>(null)
   const [dragOverSection, setDragOverSection] = useState<string | null>(null)
   const skipSectionChipClickRef = useRef(false)
   const masterBodyRef = useRef<HTMLDivElement | null>(null)
   const checklistBodyRef = useRef<HTMLDivElement | null>(null)
+  /** When set, the next jobType/valveType load uses this template name (null = preferred default). */
+  const pendingTemplateNameRef = useRef<string | null | undefined>(undefined)
+  const appliedFocusKeyRef = useRef<string | null>(null)
   const [savedRows, setSavedRows] = useState<ItpLibraryTemplateRow[]>([])
   const [loading, setLoading] = useState(false)
   const [catalogLoading, setCatalogLoading] = useState(true)
@@ -339,15 +346,22 @@ export function ItpTemplateBuilderPanel() {
   const pickerValue = loadedTemplateName ?? NEW_TEMPLATE_OPTION
 
   const catalogBySection = useMemo(() => {
-    const sorted = catalog.slice().sort((a, b) => a.sortOrder - b.sortOrder || a.name.localeCompare(b.name))
+    const sorted = catalog
+      .slice()
+      .map((item) => ({ ...item, secId: resolveLibrarySectionId(item.secId) || item.secId }))
+      .sort((a, b) => a.sortOrder - b.sortOrder || a.name.localeCompare(b.name))
     const known = new Set(processSections.map((section) => section.id))
-    const extra = [...new Set(sorted.map((item) => item.secId).filter((secId) => secId && !known.has(secId)))].map(
-      (secId) => ({
-        id: secId,
-        title: processSectionTitle(secId, processSections),
-        items: sorted.filter((item) => item.secId === secId),
-      }),
-    )
+    const extra = [
+      ...new Set(
+        sorted
+          .map((item) => item.secId)
+          .filter((secId) => secId && !known.has(secId) && !isSpecialtyProcessSectionId(secId)),
+      ),
+    ].map((secId) => ({
+      id: secId,
+      title: processSectionTitle(secId, processSections),
+      items: sorted.filter((item) => item.secId === secId),
+    }))
     return [
       ...processSections.map((section) => ({
         id: section.id,
@@ -512,8 +526,30 @@ export function ItpTemplateBuilderPanel() {
   )
 
   useEffect(() => {
-    void loadTemplate(jobType, valveType)
+    const named = pendingTemplateNameRef.current
+    pendingTemplateNameRef.current = undefined
+    void loadTemplate(jobType, valveType, named === undefined ? null : named)
   }, [jobType, valveType, loadTemplate])
+
+  useEffect(() => {
+    if (!focus) return
+    const jtRaw = focus.jobType?.trim() ?? ''
+    const vt = focus.valveType?.trim() ?? ''
+    const tn = focus.templateName?.trim() ?? ''
+    if (!jtRaw && !vt && !tn) return
+    const key = `${jtRaw}|${vt}|${tn}`
+    if (appliedFocusKeyRef.current === key) return
+    appliedFocusKeyRef.current = key
+    const jt = mapShopJobTypeToLibrary(jtRaw || jobType)
+    const nextValve = vt || valveType
+    pendingTemplateNameRef.current = tn || null
+    if (jt === jobType && nextValve === valveType) {
+      void loadTemplate(jt, nextValve, tn || null)
+      return
+    }
+    setJobType(jt)
+    setValveType(nextValve)
+  }, [focus, jobType, valveType, loadTemplate])
 
   const startNewTemplate = () => {
     if (!valveType.trim()) {
@@ -531,10 +567,14 @@ export function ItpTemplateBuilderPanel() {
 
   const openSavedTemplate = (row: ItpLibraryTemplateRow) => {
     if (dirty && !window.confirm('Discard unsaved template changes?')) return
-    const jt = row.job_type as ItpLibraryJobType
-    if (jt !== jobType) setJobType(jt)
+    const jt = mapShopJobTypeToLibrary(row.job_type)
+    pendingTemplateNameRef.current = row.name
+    if (jt === jobType && row.valve_type === valveType) {
+      void loadTemplate(jt, row.valve_type, row.name)
+      return
+    }
+    setJobType(jt)
     setValveType(row.valve_type)
-    void loadTemplate(jt, row.valve_type, row.name)
   }
 
   const selectExistingTemplate = (name: string) => {
@@ -793,12 +833,42 @@ export function ItpTemplateBuilderPanel() {
       return
     }
     const id = uniqueProcessSectionId(title, processSections)
+    const nextAreas = ensureShopAreaDef(areas, title)
+    const matchingStation = nextAreas.find(
+      (area) =>
+        area.label.toLowerCase() === title.toLowerCase() || area.value.toLowerCase() === title.toLowerCase(),
+    )
     setProcessSections((prev) => [...prev, { id, title }])
-    setNewItem((prev) => ({ ...prev, secId: id }))
+    setAreas(nextAreas)
+    setNewItem((prev) => ({
+      ...prev,
+      secId: id,
+      ...(matchingStation ? { area: matchingStation.value } : {}),
+    }))
     setNewSectionName('')
     setMasterDirty(true)
-    showToast(`Added section “${title}” — click Save master list`)
+    showToast(`Added “${title}” as section and station — click Save master list`)
     window.setTimeout(() => scrollMasterSection(id), 50)
+  }
+
+  const addMasterStation = () => {
+    const title = newStationName.trim()
+    if (!title) {
+      showToast('Enter a station name')
+      return
+    }
+    const before = areas.length
+    const next = ensureShopAreaDef(areas, title)
+    if (next.length === before) {
+      showToast(`“${title}” is already a station`)
+      return
+    }
+    const added = next[next.length - 1]
+    setAreas(next)
+    setNewItem((prev) => ({ ...prev, area: added.value }))
+    setNewStationName('')
+    setMasterDirty(true)
+    showToast(`Added station “${title}” — click Save master list`)
   }
 
   const moveMasterSection = (secId: string, direction: -1 | 1) => {
@@ -985,10 +1055,13 @@ export function ItpTemplateBuilderPanel() {
     <section className="dashboard-panel admin-lists-panel itp-template-builder">
       <h3>ITP template builder</h3>
       <p className="placeholder-copy">
-        Master list is grouped by <strong>ITP process sections</strong> (Incoming Inspection, Disassembly, Repair,
-        and so on). Shop stations stay as an assignment on each item, so machining can go Machine 1 → Welding →
-        Machine 2. Add or reorder sections, then pick a <strong>valve type</strong> and check items into the
-        template on the right.
+        Master list is the shared catalog of all checklist items (grouped by process section). Shop stations stay
+        as an assignment on each item. To make a reusable checklist for one family of valves:{' '}
+        <strong>Job type</strong> (e.g. Valve Repair) → <strong>Valve type</strong> (e.g. Relief Valve) → name the
+        template → check the items you want → <strong>Save template</strong> and optionally{' '}
+        <strong>Default for this valve type</strong>. On a job ITP whose valve type is Relief Valve, that saved
+        template appears in the template dropdown so you can apply it (or pick another Relief Valve template you
+        saved).
       </p>
 
       {schemaError ? (
@@ -1261,8 +1334,8 @@ export function ItpTemplateBuilderPanel() {
               ))}
             </div>
             <p className="itp-section-nav-hint">
-              Sections follow the ITP process. Drag to reorder, click to jump, or use × to delete. Assigned station
-              stays on each item.
+              Sections follow the ITP process. Drag to reorder, click to jump, or use × to delete. New section names
+              are also added to the Assigned station dropdown (same as job-card statuses).
             </p>
             <div className="itp-section-nav-add">
               <input
@@ -1280,6 +1353,24 @@ export function ItpTemplateBuilderPanel() {
               />
               <button type="button" className="button-secondary" onClick={addMasterSection}>
                 Add section
+              </button>
+            </div>
+            <div className="itp-section-nav-add itp-station-nav-add">
+              <input
+                type="text"
+                value={newStationName}
+                placeholder="Station only (e.g. Machine 3)…"
+                aria-label="New station name"
+                onChange={(e) => setNewStationName(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') {
+                    e.preventDefault()
+                    addMasterStation()
+                  }
+                }}
+              />
+              <button type="button" className="button-secondary" onClick={addMasterStation}>
+                Add station
               </button>
             </div>
           </nav>
