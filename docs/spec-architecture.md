@@ -56,7 +56,7 @@ erDiagram
 
 | Table | Role |
 |-------|------|
-| `resource_documents` | Browse/library view (Relief Valve Spec Books on Resources page). Storage in `valve-attachments`. |
+| `resource_documents` | Browse/library view (Relief Valve Spec Books on Resources page). Storage in private **`spec-documents`** bucket. |
 | `spec_documents` | Quality-cataloged spec metadata. `resource_document_id` FK → same Storage object. **Never copy bytes.** |
 
 Promotion flow: quality admin/manager creates a `spec_documents` row pointing at an existing `resource_documents` row when cataloging a PDF for structured extraction.
@@ -251,8 +251,14 @@ Run the full file in Supabase SQL Editor:
 
 `supabase/migration-spec-phase1-prv-specs.sql`
 
+Then create the private Storage bucket:
+
+`supabase/migration-spec-documents-bucket.sql`
+
 Deploy Edge Function:
 
 ```bash
 supabase functions deploy spec-doc-page
 ```
+
+**Storage:** Relief Valve Spec Books upload once to private bucket `spec-documents`. `resource_documents.storage_path` points at that object; cataloguing creates `spec_documents` with `resource_document_id` (no second upload).

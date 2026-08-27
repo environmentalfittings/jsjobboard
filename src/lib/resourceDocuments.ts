@@ -173,15 +173,117 @@ export async function uploadResourceDocument(args: {
   return { error: null }
 }
 
+/** Layer 2 / traveler tables that cite a catalogued spec_documents row. */
+const SPEC_DOCUMENT_CITATION_TABLES = [
+  'orifices',
+  'orifice_capacities',
+  'model_nomenclature_rules',
+  'spring_specs',
+  'spring_temp_corrections',
+  'traveler_spec_snapshot',
+  'traveler_spec_snapshots',
+  'prv_spec_snapshot',
+] as const
+
+function isMissingRelationError(message: string | undefined): boolean {
+  if (!message) return false
+  return (
+    /relation .* does not exist/i.test(message) ||
+    /could not find the table/i.test(message) ||
+    /schema cache/i.test(message)
+  )
+}
+
+async function findSpecDocumentCitationLabels(specDocumentId: string): Promise<{
+  labels: string[]
+  error: string | null
+}> {
+  const labels: string[] = []
+
+  for (const table of SPEC_DOCUMENT_CITATION_TABLES) {
+    const { count, error } = await supabase
+      .from(table)
+      .select('id', { count: 'exact', head: true })
+      .eq('source_document_id', specDocumentId)
+
+    if (error) {
+      if (isMissingRelationError(error.message)) continue
+      // traveler snapshot tables may use a different FK column name later
+      if (/column .* does not exist/i.test(error.message)) {
+        const alt = await supabase
+          .from(table)
+          .select('id', { count: 'exact', head: true })
+          .eq('spec_document_id', specDocumentId)
+        if (alt.error) {
+          if (isMissingRelationError(alt.error.message) || /column .* does not exist/i.test(alt.error.message)) {
+            continue
+          }
+          return { labels: [], error: alt.error.message }
+        }
+        if ((alt.count ?? 0) > 0) labels.push(`${table} (${alt.count})`)
+        continue
+      }
+      return { labels: [], error: error.message }
+    }
+
+    if ((count ?? 0) > 0) labels.push(`${table} (${count})`)
+  }
+
+  return { labels, error: null }
+}
+
 export async function deleteResourceDocument(row: {
   id: number
   storage_path: string
+  /** Defaults to valve-attachments; use for relief_valve_spec_book → spec-documents. */
+  storage_bucket?: string
 }): Promise<{ error: string | null }> {
-  const { error: storageErr } = await supabase.storage.from(RESOURCE_DOCS_BUCKET).remove([row.storage_path])
-  if (storageErr) return { error: storageErr.message || 'Could not remove file.' }
+  const bucket = row.storage_bucket?.trim() || RESOURCE_DOCS_BUCKET
+
+  const { data: linkedSpecs, error: linkedErr } = await supabase
+    .from('spec_documents')
+    .select('id, title')
+    .eq('resource_document_id', row.id)
+
+  if (linkedErr && !isMissingRelationError(linkedErr.message)) {
+    return { error: linkedErr.message || 'Could not check linked spec catalog rows.' }
+  }
+
+  const specs = linkedSpecs ?? []
+  for (const spec of specs) {
+    const { labels, error: citeErr } = await findSpecDocumentCitationLabels(String(spec.id))
+    if (citeErr) return { error: citeErr }
+    if (labels.length > 0) {
+      const title = (spec.title ?? 'this document').trim() || 'this document'
+      return {
+        error:
+          `Cannot delete “${title}”: it is catalogued and still cited by ${labels.join(', ')}. ` +
+          'Remove or reassign those citations before deleting.',
+      }
+    }
+  }
+
+  // Cascade: catalog row(s) → library row → storage object
+  if (specs.length > 0) {
+    const { error: specDelErr } = await supabase
+      .from('spec_documents')
+      .delete()
+      .eq('resource_document_id', row.id)
+    if (specDelErr) {
+      return { error: specDelErr.message || 'Could not remove linked spec catalog row.' }
+    }
+  }
 
   const { error: dbErr } = await supabase.from('resource_documents').delete().eq('id', row.id)
   if (dbErr) return { error: dbErr.message || 'Could not remove document row.' }
+
+  const { error: storageErr } = await supabase.storage.from(bucket).remove([row.storage_path])
+  if (storageErr) {
+    return {
+      error:
+        `Document record deleted, but the file could not be removed from storage: ${storageErr.message}`,
+    }
+  }
 
   return { error: null }
 }

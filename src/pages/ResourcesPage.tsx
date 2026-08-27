@@ -4,6 +4,7 @@ import { EmployeeTrainingPanel } from '../components/EmployeeTrainingPanel'
 import { useToast } from '../components/ToastNotification'
 import { useAuth } from '../contexts/AuthContext'
 import { countEmployeeTrainings } from '../lib/employeeTraining'
+import { loadCurrentUserQualityTeamLevel } from '../lib/qualityTeam'
 import {
   deleteResourceDocument,
   resourceDocumentPublicUrl,
@@ -20,7 +21,17 @@ import {
   WPS_TYPES,
 } from '../lib/resourceDocuments'
 import { canWriteShop, permissionDeniedReason } from '../lib/roles'
+import {
+  SPEC_DOCUMENTS_BUCKET,
+  SPEC_DOC_TYPES,
+  createSpecDocumentSignedUrl,
+  loadManufacturerOptions,
+  uploadReliefValveSpecBook,
+  type ManufacturerOption,
+} from '../lib/specDocuments'
 import { supabase } from '../lib/supabase'
+import type { SpecDocumentType } from '../types/manufacturerSpec'
+import type { QualityTeamLevel } from '../types/employees'
 
 
 
@@ -33,16 +44,23 @@ type ProcStatFilter = 'all' | (typeof PROC_STAT_CATEGORIES)[number] | 'uncategor
 
 export function ResourcesPage() {
   const { showToast } = useToast()
-  const { role } = useAuth()
+  const { role, user, username } = useAuth()
   const canWrite = canWriteShop(role)
+  const [qualityTeamLevel, setQualityTeamLevel] = useState<QualityTeamLevel>('none')
+  const canCatalogSpecs = qualityTeamLevel === 'admin' || qualityTeamLevel === 'manager'
 
   // ── Lookup lists for modal dropdowns ─────────────────────────────────────
   const [manufacturers, setManufacturers] = useState<string[]>([])
+  const [manufacturerOptions, setManufacturerOptions] = useState<ManufacturerOption[]>([])
   const [valveTypeOptions, setValveTypeOptions] = useState<string[]>([])
 
   useEffect(() => {
+    void loadCurrentUserQualityTeamLevel({ userId: user?.id, username }).then(setQualityTeamLevel)
+  }, [user?.id, username])
+
+  useEffect(() => {
     void (async () => {
-      const [mfgRes, vtRes] = await Promise.all([
+      const [mfgRes, vtRes, catalogMfg] = await Promise.all([
         supabase
           .from('lookup_values')
           .select('value')
@@ -54,6 +72,7 @@ export function ResourcesPage() {
           .eq('category', 'valve_type')
           .order('sort_order', { ascending: true })
           .order('id', { ascending: true }),
+        loadManufacturerOptions(),
       ])
       if (!mfgRes.error && mfgRes.data?.length) {
         setManufacturers(mfgRes.data.map((r: { value: string }) => r.value))
@@ -61,8 +80,13 @@ export function ResourcesPage() {
       if (!vtRes.error && vtRes.data?.length) {
         setValveTypeOptions(vtRes.data.map((r: { value: string }) => r.value))
       }
+      if (catalogMfg.error) {
+        showToast(`Could not load manufacturers: ${catalogMfg.error}`)
+      } else {
+        setManufacturerOptions(catalogMfg.options)
+      }
     })()
-  }, [])
+  }, [showToast])
 
   // ── Weld procedures section ──────────────────────────────────────────────
   const [weldRows, setWeldRows] = useState<ResourceDocumentRow[]>([])
@@ -213,9 +237,48 @@ export function ResourcesPage() {
   const [revisionNumber, setRevisionNumber] = useState('')
   const [dateUpdated, setDateUpdated] = useState('')
   const [procCategory, setProcCategory] = useState<'Valve-Specific' | 'NDE' | 'Other' | 'Test' | 'Answer Key' | ''>('')
+  // Relief Valve Spec Books catalog fields
+  const [manufacturerId, setManufacturerId] = useState('')
+  const [specDocType, setSpecDocType] = useState<SpecDocumentType | ''>('')
+  const [editionLabel, setEditionLabel] = useState('')
+  const [revisionLabel, setRevisionLabel] = useState('')
+  const [effectiveDate, setEffectiveDate] = useState('')
+  const [pageCount, setPageCount] = useState('')
 
   const toggleWeldProcess = (p: WeldProcess) =>
     setWeldProcesses((prev) => (prev.includes(p) ? prev.filter((x) => x !== p) : [...prev, p]))
+
+  const resolveManufacturerIdFromName = useCallback(
+    (name: string | null | undefined) => {
+      const wanted = (name ?? '').trim().toLowerCase()
+      if (!wanted) return ''
+      const exact = manufacturerOptions.find((m) => m.name.toLowerCase() === wanted)
+      if (exact) return exact.id
+      const byAlias = manufacturerOptions.find(
+        (m) =>
+          m.aliases.some((a) => a.toLowerCase() === wanted) ||
+          m.label.toLowerCase().includes(wanted),
+      )
+      return byAlias?.id ?? ''
+    },
+    [manufacturerOptions],
+  )
+
+  const openSpecBookFile = useCallback(
+    async (row: ResourceDocumentRow) => {
+      if (row.category === 'relief_valve_spec_book') {
+        const { url, error } = await createSpecDocumentSignedUrl(row.storage_path)
+        if (error || !url) {
+          showToast(error || 'Could not open file')
+          return
+        }
+        window.open(url, '_blank', 'noopener,noreferrer')
+        return
+      }
+      window.open(resourceDocumentPublicUrl(row.storage_path), '_blank', 'noopener,noreferrer')
+    },
+    [showToast],
+  )
 
   const uploadModalHasUnsavedChanges = useCallback((): boolean => {
     if (uploadFile) return true
@@ -244,13 +307,20 @@ export function ResourcesPage() {
       if (norm(revisionNumber) !== norm(editingDoc.revision_number)) return true
       if ((dateUpdated || '') !== (editingDoc.date_updated ?? '')) return true
       if ((procCategory || '') !== (editingDoc.proc_category ?? '')) return true
+      if (editingDoc.category === 'relief_valve_spec_book') {
+        if (manufacturerId !== resolveManufacturerIdFromName(editingDoc.manufacturer)) return true
+        if (specDocType || editionLabel.trim() || revisionLabel.trim() || effectiveDate || pageCount.trim()) {
+          return true
+        }
+      }
       return false
     }
 
     if (trimmed(uploadTitle)) return true
     if (trimmed(uploadNotes)) return true
     if (trimmed(sopNumber) || trimmed(revisionNumber) || dateUpdated || procCategory) return true
-    if (manufacturer || productValveType) return true
+    if (manufacturer || manufacturerId || productValveType) return true
+    if (specDocType || editionLabel.trim() || revisionLabel.trim() || effectiveDate || pageCount.trim()) return true
     if (wpsType || baseMetalCategory) return true
     if (weldProcesses.length > 0 || weldModes.length > 0) return true
     if (trimmed(fillerMetal) || trimmed(baseMetalThicknessQualified) || trimmed(fillerMetalThicknessQualified)) {
@@ -265,6 +335,7 @@ export function ResourcesPage() {
     uploadTitle,
     uploadNotes,
     manufacturer,
+    manufacturerId,
     productValveType,
     wpsType,
     baseMetalCategory,
@@ -281,6 +352,12 @@ export function ResourcesPage() {
     revisionNumber,
     dateUpdated,
     procCategory,
+    specDocType,
+    editionLabel,
+    revisionLabel,
+    effectiveDate,
+    pageCount,
+    resolveManufacturerIdFromName,
   ])
 
   const resetModalState = () => {
@@ -290,6 +367,7 @@ export function ResourcesPage() {
     setUploadFile(null)
     setDragOver(false)
     setManufacturer('')
+    setManufacturerId('')
     setProductValveType('')
     setWpsType('')
     setBaseMetalCategory('')
@@ -306,9 +384,18 @@ export function ResourcesPage() {
     setRevisionNumber('')
     setDateUpdated('')
     setProcCategory('')
+    setSpecDocType('')
+    setEditionLabel('')
+    setRevisionLabel('')
+    setEffectiveDate('')
+    setPageCount('')
   }
 
   const openEditModal = (row: ResourceDocumentRow) => {
+    if (row.category === 'relief_valve_spec_book' && !canCatalogSpecs) {
+      showToast('Only Quality Admin or Manager can edit spec books.')
+      return
+    }
     setEditingDoc(row)
     setModalMode(row.category === 'weld_procedure' ? 'weld' : 'general')
     setUploadCategory(row.category)
@@ -317,6 +404,7 @@ export function ResourcesPage() {
     setUploadFile(null)
     setDragOver(false)
     setManufacturer(row.manufacturer ?? '')
+    setManufacturerId(resolveManufacturerIdFromName(row.manufacturer))
     setProductValveType(row.product_valve_type ?? '')
     setWpsType(row.wps_type ?? '')
     setBaseMetalCategory(row.base_metal_category ?? '')
@@ -333,6 +421,11 @@ export function ResourcesPage() {
     setRevisionNumber(row.revision_number ?? '')
     setDateUpdated(row.date_updated ?? '')
     setProcCategory((row.proc_category as 'Valve-Specific' | 'NDE' | 'Other' | 'Test' | 'Answer Key' | '') ?? '')
+    setSpecDocType('')
+    setEditionLabel('')
+    setRevisionLabel('')
+    setEffectiveDate('')
+    setPageCount('')
     setUploadModalOpen(true)
   }
 
@@ -348,7 +441,12 @@ export function ResourcesPage() {
   }
 
   const openSimpleUploadModal = (category: ResourceDocumentCategory) => {
-    if (!canWrite) {
+    if (category === 'relief_valve_spec_book') {
+      if (!canCatalogSpecs) {
+        showToast('Only Quality Admin or Manager can add spec books.')
+        return
+      }
+    } else if (!canWrite) {
       showToast(permissionDeniedReason('shopWrite'))
       return
     }
@@ -391,7 +489,15 @@ export function ResourcesPage() {
   const onDragLeave = useCallback(() => setDragOver(false), [])
 
   const handleUpload = async () => {
-    if (!canWrite) {
+    const isSpecBook =
+      uploadCategory === 'relief_valve_spec_book' || editingDoc?.category === 'relief_valve_spec_book'
+
+    if (isSpecBook) {
+      if (!canCatalogSpecs) {
+        showToast('Only Quality Admin or Manager can manage spec books.')
+        return
+      }
+    } else if (!canWrite) {
       showToast(permissionDeniedReason('shopWrite'))
       return
     }
@@ -407,30 +513,34 @@ export function ResourcesPage() {
       let newMimeType: string | undefined
 
       if (uploadFile) {
+        const isRelief = editingDoc.category === 'relief_valve_spec_book'
+        const bucket = isRelief ? SPEC_DOCUMENTS_BUCKET : 'valve-attachments'
         const { error: upErr, path } = await (async () => {
-          // Re-use the uploadResourceDocument helper for the storage part only,
-          // then we'll patch the DB row ourselves.
           const ext = uploadFile.name.lastIndexOf('.') >= 0
             ? uploadFile.name.slice(uploadFile.name.lastIndexOf('.')).toLowerCase()
             : ''
-          const p = `resources/general/${crypto.randomUUID()}${ext}`
+          const folder = isRelief ? 'spec-books/replaced' : 'resources/general'
+          const p = `${folder}/${crypto.randomUUID()}${ext}`
           const { error } = await supabase.storage
-            .from('valve-attachments')
+            .from(bucket)
             .upload(p, uploadFile, { contentType: uploadFile.type || undefined, upsert: false })
           return { error, path: p }
         })()
         if (upErr) { setUploading(false); showToast(upErr.message || 'File upload failed'); return }
-        // Remove old file (best-effort)
-        await supabase.storage.from('valve-attachments').remove([editingDoc.storage_path])
+        await supabase.storage.from(bucket).remove([editingDoc.storage_path])
         newStoragePath = path
         newFileName = uploadFile.name.slice(0, 500)
         newMimeType = uploadFile.type || undefined
       }
 
+      const selectedMfg = manufacturerOptions.find((m) => m.id === manufacturerId)
       const patch: Record<string, unknown> = {
         title: uploadTitle.trim(),
         notes: uploadNotes,
-        manufacturer: manufacturer || null,
+        manufacturer:
+          editingDoc.category === 'relief_valve_spec_book'
+            ? (selectedMfg?.name ?? manufacturer) || null
+            : manufacturer || null,
         product_valve_type: productValveType || null,
         wps_type: wpsType || null,
         base_metal_category: baseMetalCategory || null,
@@ -459,12 +569,57 @@ export function ResourcesPage() {
         .update(patch)
         .eq('id', editingDoc.id)
 
-      setUploading(false)
       if (patchErr) {
+        setUploading(false)
         const isdup = patchErr.code === '23505' || /duplicate|unique/i.test(patchErr.message)
         showToast(isdup ? `A document named "${uploadTitle.trim()}" already exists in this section.` : patchErr.message || 'Could not save changes')
         return
       }
+
+      // Optional promote / update catalog metadata when editing a spec book with doc_type set
+      if (editingDoc.category === 'relief_valve_spec_book' && specDocType && manufacturerId) {
+        const pageCountNum = pageCount.trim() ? Number.parseInt(pageCount, 10) : null
+        const { data: existingSpec } = await supabase
+          .from('spec_documents')
+          .select('id')
+          .eq('resource_document_id', editingDoc.id)
+          .maybeSingle()
+
+        if (existingSpec?.id) {
+          await supabase
+            .from('spec_documents')
+            .update({
+              manufacturer_id: manufacturerId,
+              title: uploadTitle.trim(),
+              doc_type: specDocType,
+              edition_label: editionLabel.trim() || null,
+              revision_label: revisionLabel.trim() || null,
+              effective_date: effectiveDate || null,
+              page_count:
+                pageCountNum != null && Number.isFinite(pageCountNum) && pageCountNum > 0
+                  ? pageCountNum
+                  : null,
+            })
+            .eq('id', existingSpec.id)
+        } else {
+          await supabase.from('spec_documents').insert({
+            manufacturer_id: manufacturerId,
+            resource_document_id: editingDoc.id,
+            title: uploadTitle.trim(),
+            doc_type: specDocType,
+            edition_label: editionLabel.trim() || null,
+            revision_label: revisionLabel.trim() || null,
+            effective_date: effectiveDate || null,
+            page_count:
+              pageCountNum != null && Number.isFinite(pageCountNum) && pageCountNum > 0
+                ? pageCountNum
+                : null,
+            status: 'active',
+          })
+        }
+      }
+
+      setUploading(false)
       setUploadModalOpen(false)
       resetModalState()
       showToast('Document updated')
@@ -480,6 +635,42 @@ export function ResourcesPage() {
 
     // ── Create mode ───────────────────────────────────────────────────────────
     if (!uploadFile) { setUploading(false); showToast('Choose a file to upload'); return }
+
+    if (uploadCategory === 'relief_valve_spec_book') {
+      if (!manufacturerId) {
+        setUploading(false)
+        showToast('Select a manufacturer')
+        return
+      }
+      const selectedMfg = manufacturerOptions.find((m) => m.id === manufacturerId)
+      if (!selectedMfg) {
+        setUploading(false)
+        showToast('Select a valid manufacturer')
+        return
+      }
+      const pageCountNum = pageCount.trim() ? Number.parseInt(pageCount, 10) : null
+      const { error } = await uploadReliefValveSpecBook({
+        file: uploadFile,
+        title: uploadTitle,
+        notes: uploadNotes,
+        manufacturerId,
+        manufacturerName: selectedMfg.name,
+        productValveType: productValveType || null,
+        docType: specDocType,
+        editionLabel,
+        revisionLabel,
+        effectiveDate: effectiveDate || null,
+        pageCount: pageCountNum,
+      })
+      setUploading(false)
+      if (error) { showToast(error); return }
+      setUploadModalOpen(false)
+      resetModalState()
+      showToast(specDocType ? 'Spec book uploaded and catalogued' : 'Spec book uploaded to library')
+      void loadSection('relief_valve_spec_books', ['relief_valve_spec_book'])
+      return
+    }
+
     const { error } = await uploadResourceDocument({
       file: uploadFile,
       scope: 'general',
@@ -523,8 +714,16 @@ export function ResourcesPage() {
   }
 
   const removeDocument = async (row: ResourceDocumentRow) => {
+    if (row.category === 'relief_valve_spec_book' && !canCatalogSpecs) {
+      showToast('Only Quality Admin or Manager can delete spec books.')
+      return
+    }
     if (!window.confirm(`Delete "${row.title}"?`)) return
-    const { error } = await deleteResourceDocument({ id: row.id, storage_path: row.storage_path })
+    const { error } = await deleteResourceDocument({
+      id: row.id,
+      storage_path: row.storage_path,
+      storage_bucket: row.category === 'relief_valve_spec_book' ? SPEC_DOCUMENTS_BUCKET : undefined,
+    })
     if (error) { showToast(error); return }
     showToast('Document deleted')
     if (row.category === 'weld_procedure') {
@@ -954,13 +1153,19 @@ export function ResourcesPage() {
             ) : null}
 
             <div className="resources-upload-trigger-row">
-              <button
-                type="button"
-                className="button-primary"
-                onClick={() => openSimpleUploadModal(activeSimpleSection.categories[0])}
-              >
-                {activeSimpleSection.addLabel}
-              </button>
+              {!(isReliefSpecBooks && !canCatalogSpecs) ? (
+                <button
+                  type="button"
+                  className="button-primary"
+                  onClick={() => openSimpleUploadModal(activeSimpleSection.categories[0])}
+                >
+                  {activeSimpleSection.addLabel}
+                </button>
+              ) : (
+                <p className="placeholder-copy resources-hint">
+                  Only Quality Admin or Manager can add or catalogue spec books.
+                </p>
+              )}
             </div>
 
             {isManufacturerFiltered && (
@@ -973,7 +1178,10 @@ export function ResourcesPage() {
                     className="iom-filter-select"
                   >
                     <option value="">All manufacturers</option>
-                    {manufacturers.map((m) => <option key={m} value={m}>{m}</option>)}
+                    {(isReliefSpecBooks
+                      ? manufacturerOptions.map((m) => m.name)
+                      : manufacturers
+                    ).map((m) => <option key={m} value={m}>{m}</option>)}
                   </select>
                 </label>
                 <label className="iom-filter-label">
@@ -1056,19 +1264,30 @@ export function ResourcesPage() {
                         </>
                       ) : null}
                       <td>
-                        <a href={resourceDocumentPublicUrl(row.storage_path)} target="_blank" rel="noreferrer">
+                        <button
+                          type="button"
+                          className="resources-procedure-link-btn"
+                          onClick={() => void openSpecBookFile(row)}
+                          style={{ whiteSpace: 'nowrap' }}
+                        >
                           📄 {row.file_name}
-                        </a>
+                        </button>
                       </td>
                       <td className="table-cell-clamp">{row.notes || '-'}</td>
                       <td>{new Date(row.updated_at).toLocaleDateString()}</td>
                       <td style={{ display: 'flex', gap: '6px' }}>
-                        <button type="button" className="button-secondary admin-list-btn" onClick={() => openEditModal(row)}>
-                          Edit
-                        </button>
-                        <button type="button" className="button-secondary admin-list-btn danger" onClick={() => void removeDocument(row)}>
-                          Delete
-                        </button>
+                        {(!isReliefSpecBooks || canCatalogSpecs) ? (
+                          <>
+                            <button type="button" className="button-secondary admin-list-btn" onClick={() => openEditModal(row)}>
+                              Edit
+                            </button>
+                            <button type="button" className="button-secondary admin-list-btn danger" onClick={() => void removeDocument(row)}>
+                              Delete
+                            </button>
+                          </>
+                        ) : (
+                          <span className="placeholder-copy">View only</span>
+                        )}
                       </td>
                     </tr>
                   ))}
@@ -1274,10 +1493,8 @@ export function ResourcesPage() {
               />
 
 
-              {/* Manufacturer + Valve Type — shown for IOM / maintenance manual */}
-              {(uploadCategory === 'iom' ||
-                uploadCategory === 'maintenance_manual' ||
-                uploadCategory === 'relief_valve_spec_book') ? (
+              {/* Manufacturer + Valve Type — IOM / maintenance manual (lookup_values) */}
+              {(uploadCategory === 'iom' || uploadCategory === 'maintenance_manual') ? (
                 <>
                   <label className="modal-label" htmlFor="upload-manufacturer">Manufacturer</label>
                   <select
@@ -1294,6 +1511,99 @@ export function ResourcesPage() {
                   <label className="modal-label" htmlFor="upload-product-valve-type">Valve Type</label>
                   <select
                     id="upload-product-valve-type"
+                    className="modal-status-select"
+                    value={productValveType}
+                    onChange={(e) => setProductValveType(e.target.value)}
+                    disabled={uploading}
+                  >
+                    <option value="">— Select valve type —</option>
+                    {valveTypeOptions.map((t) => <option key={t} value={t}>{t}</option>)}
+                  </select>
+                </>
+              ) : null}
+
+              {/* Relief Valve Spec Books — manufacturers table + optional catalog fields */}
+              {uploadCategory === 'relief_valve_spec_book' ? (
+                <>
+                  <div className="weld-fields-divider">Spec book details</div>
+
+                  <label className="modal-label" htmlFor="upload-manufacturer-id">
+                    Manufacturer <span className="required-star">*</span>
+                  </label>
+                  <select
+                    id="upload-manufacturer-id"
+                    className="modal-status-select"
+                    value={manufacturerId}
+                    onChange={(e) => setManufacturerId(e.target.value)}
+                    disabled={uploading}
+                  >
+                    <option value="">— Select manufacturer —</option>
+                    {manufacturerOptions.map((m) => (
+                      <option key={m.id} value={m.id}>{m.label}</option>
+                    ))}
+                  </select>
+
+                  <label className="modal-label" htmlFor="upload-spec-doc-type">Document type</label>
+                  <select
+                    id="upload-spec-doc-type"
+                    className="modal-status-select"
+                    value={specDocType}
+                    onChange={(e) => setSpecDocType(e.target.value as SpecDocumentType | '')}
+                    disabled={uploading}
+                  >
+                    <option value="">— Library only (no spec catalog) —</option>
+                    {SPEC_DOC_TYPES.map((t) => (
+                      <option key={t.value} value={t.value}>{t.label}</option>
+                    ))}
+                  </select>
+
+                  <label className="modal-label" htmlFor="upload-edition-label">Edition</label>
+                  <input
+                    id="upload-edition-label"
+                    type="text"
+                    className="modal-status-select"
+                    value={editionLabel}
+                    onChange={(e) => setEditionLabel(e.target.value)}
+                    placeholder="e.g. 2022"
+                    disabled={uploading}
+                  />
+
+                  <label className="modal-label" htmlFor="upload-revision-label">Revision</label>
+                  <input
+                    id="upload-revision-label"
+                    type="text"
+                    className="modal-status-select"
+                    value={revisionLabel}
+                    onChange={(e) => setRevisionLabel(e.target.value)}
+                    placeholder="e.g. Rev B"
+                    disabled={uploading}
+                  />
+
+                  <label className="modal-label" htmlFor="upload-effective-date">Effective date</label>
+                  <input
+                    id="upload-effective-date"
+                    type="date"
+                    className="modal-status-select"
+                    value={effectiveDate}
+                    onChange={(e) => setEffectiveDate(e.target.value)}
+                    disabled={uploading}
+                  />
+
+                  <label className="modal-label" htmlFor="upload-page-count">Page count</label>
+                  <input
+                    id="upload-page-count"
+                    type="number"
+                    min={1}
+                    className="modal-status-select"
+                    value={pageCount}
+                    onChange={(e) => setPageCount(e.target.value)}
+                    placeholder="e.g. 120"
+                    disabled={uploading}
+                  />
+
+                  <label className="modal-label" htmlFor="upload-spec-product-valve-type">Valve Type</label>
+                  <select
+                    id="upload-spec-product-valve-type"
                     className="modal-status-select"
                     value={productValveType}
                     onChange={(e) => setProductValveType(e.target.value)}

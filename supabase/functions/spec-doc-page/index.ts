@@ -1,6 +1,6 @@
 import { createClient } from 'npm:@supabase/supabase-js@2'
 
-const RESOURCE_DOCS_BUCKET = 'valve-attachments'
+const SPEC_DOCUMENTS_BUCKET = 'spec-documents'
 const SIGNED_URL_TTL_SEC = 3600
 
 const corsHeaders = {
@@ -100,10 +100,8 @@ Deno.serve(async (req) => {
   })
 
   const { data: signed, error: signError } = await adminClient.storage
-    .from(RESOURCE_DOCS_BUCKET)
-    .createSignedUrl(resourceDoc.storage_path, SIGNED_URL_TTL_SEC, {
-      download: specDoc.title?.endsWith('.pdf') ? `${specDoc.title}` : undefined,
-    })
+    .from(SPEC_DOCUMENTS_BUCKET)
+    .createSignedUrl(resourceDoc.storage_path, SIGNED_URL_TTL_SEC)
 
   if (signError || !signed?.signedUrl) {
     return new Response('Could not mint signed URL', { status: 500, headers: corsHeaders })
