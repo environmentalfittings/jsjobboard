@@ -10,6 +10,7 @@ export type ResourceDocumentCategory =
   | 'iom'
   | 'maintenance_manual'
   | 'employee_training'
+  | 'relief_valve_spec_book'
   | 'other'
 
 export const WPS_TYPES = ['Joint', 'Corrosion Resistant Overlay', 'Hardface Overlay'] as const

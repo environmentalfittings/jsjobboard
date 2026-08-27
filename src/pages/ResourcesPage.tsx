@@ -130,6 +130,13 @@ export function ResourcesPage() {
       categories: ['employee_training'] as ResourceDocumentCategory[],
       addLabel: '+ Add training document',
     },
+    {
+      key: 'relief_valve_spec_books',
+      title: 'Relief Valve Spec Books',
+      description: 'Manufacturer relief valve specification books and reference data.',
+      categories: ['relief_valve_spec_book'] as ResourceDocumentCategory[],
+      addLabel: '+ Add spec book',
+    },
   ] as const
 
   type SectionKey = (typeof SIMPLE_SECTIONS)[number]['key']
@@ -622,6 +629,16 @@ export function ResourcesPage() {
       border: '#14b8a6',
       count: trainingCount,
     },
+    {
+      key: 'relief_valve_spec_books' as const,
+      title: 'Relief Valve Spec Books',
+      description: 'Manufacturer relief valve specification books and reference data.',
+      icon: '📕',
+      color: '#c2410c',
+      bg: '#fff7ed',
+      border: '#f97316',
+      count: (sectionDocs['relief_valve_spec_books'] ?? []).length,
+    },
   ]
 
   const activeSimpleSection = SIMPLE_SECTIONS.find((s) => s.key === activeModule)
@@ -861,6 +878,8 @@ export function ResourcesPage() {
         const allDocs = sectionDocs[activeSimpleSection.key] ?? []
         const loading = sectionLoading[activeSimpleSection.key] ?? false
         const isIom = activeSimpleSection.key === 'iom'
+        const isReliefSpecBooks = activeSimpleSection.key === 'relief_valve_spec_books'
+        const isManufacturerFiltered = isIom || isReliefSpecBooks
         const isProcedureLike = activeSimpleSection.key === 'procedures' || activeSimpleSection.key === 'qaqc'
         const procedureCategoryCounts = PROC_STAT_CATEGORIES.map((cat) => ({
           key: cat,
@@ -868,7 +887,7 @@ export function ResourcesPage() {
           count: allDocs.filter((d) => d.proc_category === cat).length,
         }))
         const uncategorizedCount = allDocs.filter((d) => !(d.proc_category ?? '').trim()).length
-        const baseDocs = isIom
+        const baseDocs = isManufacturerFiltered
           ? allDocs.filter((d) => {
               if (iomMfgFilter && (d.manufacturer ?? '') !== iomMfgFilter) return false
               if (iomVtFilter && (d.product_valve_type ?? '') !== iomVtFilter) return false
@@ -944,7 +963,7 @@ export function ResourcesPage() {
               </button>
             </div>
 
-            {isIom && (
+            {isManufacturerFiltered && (
               <div className="iom-filter-row">
                 <label className="iom-filter-label">
                   Manufacturer
@@ -986,7 +1005,7 @@ export function ResourcesPage() {
                 <thead>
                   <tr>
                     <th>Title</th>
-                    {isIom ? (
+                    {isManufacturerFiltered ? (
                       <>
                         <th>Manufacturer</th>
                         <th>Valve Type</th>
@@ -1022,7 +1041,7 @@ export function ResourcesPage() {
                           row.title
                         )}
                       </td>
-                      {isIom ? (
+                      {isManufacturerFiltered ? (
                         <>
                           <td>{row.manufacturer ?? '-'}</td>
                           <td>{row.product_valve_type ?? '-'}</td>
@@ -1256,7 +1275,9 @@ export function ResourcesPage() {
 
 
               {/* Manufacturer + Valve Type — shown for IOM / maintenance manual */}
-              {(uploadCategory === 'iom' || uploadCategory === 'maintenance_manual') ? (
+              {(uploadCategory === 'iom' ||
+                uploadCategory === 'maintenance_manual' ||
+                uploadCategory === 'relief_valve_spec_book') ? (
                 <>
                   <label className="modal-label" htmlFor="upload-manufacturer">Manufacturer</label>
                   <select
