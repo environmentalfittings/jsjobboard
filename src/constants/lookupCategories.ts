@@ -24,6 +24,9 @@ export type LookupCategory =
   | 'api_trim'
   | 'manufacturer'
   | 'vendor'
+  | 'inventory_part_type'
+
+export const INVENTORY_PART_TYPES = ['Plug', 'Kit', 'Ball', 'Bellows', 'Sleeve'] as const
 
 export const LOOKUP_CATEGORY_DEFS: readonly {
   key: LookupCategory
@@ -42,4 +45,5 @@ export const LOOKUP_CATEGORY_DEFS: readonly {
   { key: 'order_type', label: 'Order type', fallback: ORDER_TYPES },
   { key: 'manufacturer', label: 'Manufacturer', fallback: [] },
   { key: 'vendor', label: 'Vendor', fallback: [] },
+  { key: 'inventory_part_type', label: 'Inventory part type', fallback: INVENTORY_PART_TYPES },
 ]

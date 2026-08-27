@@ -1,6 +1,6 @@
 import QRCode from 'qrcode'
 import { supabase } from './supabase'
-import { loadLookupOptionsMap } from './lookupValues'
+import { loadLookupOptionsMap, addLookupValue } from './lookupValues'
 import { API_TRIMS, PRESSURE_CLASSES, VALVE_SIZES } from '../constants/jobLookups'
 import { attachmentPublicUrl, VALVE_ATTACHMENTS_BUCKET } from './valveAttachments'
 
@@ -29,9 +29,11 @@ export type InventoryRecord = {
   traveler_link: string | null
   hf_acid: boolean
   is_valve_part: boolean
+  part_type: string | null
   removed_at: string | null
   removed_reason: string | null
   removed_po_number: string | null
+  removed_destination_valve_id: string | null
   removed_by_user_id: string | null
   removed_by_name: string | null
   image_url: string | null
@@ -63,6 +65,7 @@ export type InventoryFormState = {
   hfAcid: boolean
   /** When true, this item is a valve part; otherwise it is a complete valve. */
   isValvePart: boolean
+  partType: string
   /** Required when adding (or restoring) an item — logged in inventory_events. */
   changeReason: string
 }
@@ -195,7 +198,7 @@ const INVENTORY_CONDITION_SELECT =
   'condition,manufacturer_serial_no,repair_tag_number,document_url,document_name,document_storage_path,traveler_link'
 
 const INVENTORY_REMOVAL_SELECT =
-  'removed_at,removed_reason,removed_po_number,removed_by_user_id,removed_by_name'
+  'removed_at,removed_reason,removed_po_number,removed_destination_valve_id,removed_by_user_id,removed_by_name'
 
 type InventoryRow = {
   id: string
@@ -218,6 +221,7 @@ type InventoryRow = {
   qr_code_data_url?: string | null
   hf_acid?: boolean | null
   is_valve_part?: boolean | null
+  part_type?: string | null
   condition?: string | null
   manufacturer_serial_no?: string | null
   repair_tag_number?: string | null
@@ -228,6 +232,7 @@ type InventoryRow = {
   removed_at?: string | null
   removed_reason?: string | null
   removed_po_number?: string | null
+  removed_destination_valve_id?: string | null
   removed_by_user_id?: string | null
   removed_by_name?: string | null
   created_at: string
@@ -264,6 +269,7 @@ export function emptyInventoryForm(): InventoryFormState {
     notes: '',
     hfAcid: false,
     isValvePart: false,
+    partType: '',
     changeReason: '',
   }
 }
@@ -350,6 +356,7 @@ export function inventoryToForm(row: InventoryRecord): InventoryFormState {
     notes: row.notes ?? '',
     hfAcid: Boolean(row.hf_acid),
     isValvePart: Boolean(row.is_valve_part),
+    partType: row.part_type ?? '',
     changeReason: '',
   }
 }
@@ -386,9 +393,11 @@ function mapInventoryRow(row: InventoryRow): InventoryRecord {
     traveler_link: row.traveler_link?.trim() || null,
     hf_acid: row.hf_acid === true || packed.hfAcid === true,
     is_valve_part: row.is_valve_part === true || packed.isValvePart === true,
+    part_type: row.part_type?.trim() || null,
     removed_at: row.removed_at?.trim() || null,
     removed_reason: row.removed_reason?.trim() || null,
     removed_po_number: row.removed_po_number?.trim() || null,
+    removed_destination_valve_id: row.removed_destination_valve_id?.trim() || null,
     removed_by_user_id: row.removed_by_user_id ? String(row.removed_by_user_id) : null,
     removed_by_name: row.removed_by_name?.trim() || null,
     image_url: row.image_url,
@@ -411,7 +420,7 @@ export function inventoryEventLabel(eventType: string): string {
   return eventType
 }
 
-const INVENTORY_FULL_SELECT = `${INVENTORY_SELECT},valve_image_url,tag_image_url,qr_code_data_url,hf_acid,is_valve_part,${INVENTORY_CONDITION_SELECT},${INVENTORY_REMOVAL_SELECT},valve_types(label)`
+const INVENTORY_FULL_SELECT = `${INVENTORY_SELECT},valve_image_url,tag_image_url,qr_code_data_url,hf_acid,is_valve_part,part_type,${INVENTORY_CONDITION_SELECT},${INVENTORY_REMOVAL_SELECT},valve_types(label)`
 
 async function logInventoryEvent(options: {
   inventoryId: string
@@ -505,7 +514,7 @@ export async function loadInventoryRecords(): Promise<{ data: InventoryRecord[];
   const withRemoval = await supabase
     .from('inventory')
     .select(
-      `${INVENTORY_SELECT},valve_image_url,tag_image_url,qr_code_data_url,hf_acid,is_valve_part,${INVENTORY_CONDITION_SELECT},${INVENTORY_REMOVAL_SELECT},valve_types(label)`,
+      `${INVENTORY_SELECT},valve_image_url,tag_image_url,qr_code_data_url,hf_acid,is_valve_part,part_type,${INVENTORY_CONDITION_SELECT},${INVENTORY_REMOVAL_SELECT},valve_types(label)`,
     )
     .is('removed_at', null)
     .order('updated_at', { ascending: false })
@@ -518,7 +527,7 @@ export async function loadInventoryRecords(): Promise<{ data: InventoryRecord[];
   const withCondition = await supabase
     .from('inventory')
     .select(
-      `${INVENTORY_SELECT},valve_image_url,tag_image_url,qr_code_data_url,hf_acid,is_valve_part,${INVENTORY_CONDITION_SELECT},valve_types(label)`,
+      `${INVENTORY_SELECT},valve_image_url,tag_image_url,qr_code_data_url,hf_acid,is_valve_part,part_type,${INVENTORY_CONDITION_SELECT},valve_types(label)`,
     )
     .order('updated_at', { ascending: false })
     .limit(2000)
@@ -529,7 +538,7 @@ export async function loadInventoryRecords(): Promise<{ data: InventoryRecord[];
 
   const withExtras = await supabase
     .from('inventory')
-    .select(`${INVENTORY_SELECT},valve_image_url,tag_image_url,qr_code_data_url,hf_acid,is_valve_part,valve_types(label)`)
+    .select(`${INVENTORY_SELECT},valve_image_url,tag_image_url,qr_code_data_url,hf_acid,is_valve_part,part_type,valve_types(label)`)
     .order('updated_at', { ascending: false })
     .limit(2000)
 
@@ -572,7 +581,7 @@ export async function getInventoryRecordById(
   const full = await supabase
     .from('inventory')
     .select(
-      `${INVENTORY_SELECT},valve_image_url,tag_image_url,qr_code_data_url,hf_acid,is_valve_part,${INVENTORY_CONDITION_SELECT},${INVENTORY_REMOVAL_SELECT},valve_types(label)`,
+      `${INVENTORY_SELECT},valve_image_url,tag_image_url,qr_code_data_url,hf_acid,is_valve_part,part_type,${INVENTORY_CONDITION_SELECT},${INVENTORY_REMOVAL_SELECT},valve_types(label)`,
     )
     .eq('id', id)
     .maybeSingle()
@@ -585,7 +594,7 @@ export async function getInventoryRecordById(
     const withoutRemoval = await supabase
       .from('inventory')
       .select(
-        `${INVENTORY_SELECT},valve_image_url,tag_image_url,qr_code_data_url,hf_acid,is_valve_part,${INVENTORY_CONDITION_SELECT},valve_types(label)`,
+        `${INVENTORY_SELECT},valve_image_url,tag_image_url,qr_code_data_url,hf_acid,is_valve_part,part_type,${INVENTORY_CONDITION_SELECT},valve_types(label)`,
       )
       .eq('id', id)
       .maybeSingle()
@@ -604,18 +613,26 @@ export async function removeInventoryRecord(options: {
   id: string
   reason: string
   poNumber: string
+  /** Required when removing a valve part — valve ID / tag the part is going into. */
+  destinationValveId?: string | null
+  isValvePart?: boolean
   removedByUserId: string | null
   removedByName: string | null
 }): Promise<{ data: InventoryRecord | null; error: string | null }> {
   const reason = options.reason.trim()
   const poNumber = options.poNumber.trim()
+  const destinationValveId = (options.destinationValveId ?? '').trim()
   if (!reason) return { data: null, error: 'Enter a reason for removing this item' }
-  if (!poNumber) return { data: null, error: 'Enter the purchase order number' }
+  if (!poNumber) return { data: null, error: 'Enter the customer purchase order number' }
+  if (options.isValvePart && !destinationValveId) {
+    return { data: null, error: 'Enter the valve ID this part is going into' }
+  }
 
   const payload = {
     removed_at: new Date().toISOString(),
     removed_reason: reason,
     removed_po_number: poNumber,
+    removed_destination_valve_id: options.isValvePart ? destinationValveId : null,
     removed_by_user_id: options.removedByUserId,
     removed_by_name: options.removedByName?.trim() || null,
     updated_at: new Date().toISOString(),
@@ -627,11 +644,17 @@ export async function removeInventoryRecord(options: {
     .eq('id', options.id)
     .is('removed_at', null)
     .select(
-      `${INVENTORY_SELECT},valve_image_url,tag_image_url,qr_code_data_url,hf_acid,is_valve_part,${INVENTORY_CONDITION_SELECT},${INVENTORY_REMOVAL_SELECT},valve_types(label)`,
+      `${INVENTORY_SELECT},valve_image_url,tag_image_url,qr_code_data_url,hf_acid,is_valve_part,part_type,${INVENTORY_CONDITION_SELECT},${INVENTORY_REMOVAL_SELECT},valve_types(label)`,
     )
     .maybeSingle()
 
   if (error) {
+    if (/removed_destination_valve_id/i.test(error.message) && /column|schema|does not exist/i.test(error.message)) {
+      return {
+        data: null,
+        error: 'Run supabase/migration-inventory-part-removal-valve-id.sql in Supabase, then try again',
+      }
+    }
     if (/removed_at|removed_reason|removed_po|schema cache|column/i.test(error.message)) {
       return {
         data: null,
@@ -644,10 +667,14 @@ export async function removeInventoryRecord(options: {
     return { data: null, error: 'Item was already removed or could not be found' }
   }
   const mapped = mapInventoryRow(data as InventoryRow)
+  const logReason =
+    options.isValvePart && destinationValveId
+      ? `${reason} (installed on valve ${destinationValveId})`
+      : reason
   const log = await logInventoryEvent({
     inventoryId: mapped.id,
     eventType: 'removed',
-    reason,
+    reason: logReason,
     poNumber,
     record: mapped,
     createdByUserId: options.removedByUserId,
@@ -669,6 +696,7 @@ export async function restoreInventoryRecord(options: {
     removed_at: null,
     removed_reason: null,
     removed_po_number: null,
+    removed_destination_valve_id: null,
     removed_by_user_id: null,
     removed_by_name: null,
     updated_at: new Date().toISOString(),
@@ -727,6 +755,7 @@ export async function loadInventoryFormOptions(): Promise<{
   apiTrims: string[]
   sizes: string[]
   pressureClasses: string[]
+  partTypes: string[]
   error: string | null
 }> {
   const [lookups, customersRes] = await Promise.all([
@@ -769,6 +798,7 @@ export async function loadInventoryFormOptions(): Promise<{
     apiTrims,
     sizes,
     pressureClasses,
+    partTypes: lookups.inventory_part_type ?? [],
     error: customersRes.error?.message ?? null,
   }
 }
@@ -809,17 +839,18 @@ async function ensureValveTypeId(label: string): Promise<string | null> {
 
 function formToPayload(form: InventoryFormState, manufacturerId: string | null, valveTypeId: string | null) {
   const condition = normalizeInventoryCondition(form.condition)
+  const isPart = Boolean(form.isValvePart)
   return {
     js_inventory_id: form.jsInventoryId.trim() || null,
     customer: form.customer.trim() || null,
     manufacturer_id: manufacturerId,
     manufacturer_name: form.manufacturerName.trim() || null,
-    valve_type_id: valveTypeId,
+    valve_type_id: isPart ? null : valveTypeId,
     body_material: form.bodyMaterial.trim() || null,
-    api_trim: form.apiTrim.trim() || null,
+    api_trim: isPart ? null : form.apiTrim.trim() || null,
     size: form.size.trim() || null,
-    pressure: form.pressure.trim() || null,
-    operator: form.operator.trim() || null,
+    pressure: isPart ? null : form.pressure.trim() || null,
+    operator: isPart ? null : form.operator.trim() || null,
     customer_id_no: form.customerIdNo.trim() || null,
     origin: resolveInventoryOrigin(form.origin, form.originOther) || null,
     condition,
@@ -830,7 +861,8 @@ function formToPayload(form: InventoryFormState, manufacturerId: string | null, 
     traveler_link: normalizeTravelerLink(form.travelerLink),
     notes: form.notes.trim() || null,
     hf_acid: Boolean(form.hfAcid),
-    is_valve_part: Boolean(form.isValvePart),
+    is_valve_part: isPart,
+    part_type: isPart ? form.partType.trim() || null : null,
   }
 }
 
@@ -1028,6 +1060,19 @@ async function writeInventoryRow(
     lastError = retry.error?.message || lastError
   }
 
+  if (lastError && /part_type/i.test(lastError)) {
+    const withoutPartType: Record<string, unknown> = { ...withExtras }
+    delete withoutPartType.part_type
+    const retry = await run(withoutPartType)
+    if (!retry.error && retry.data) {
+      return {
+        data: mapInventoryRow(retry.data as InventoryRow),
+        error: 'Saved, but run supabase/migration-inventory-part-type.sql for part types.',
+      }
+    }
+    lastError = retry.error?.message || lastError
+  }
+
   if (lastError && /valve_image_url|tag_image_url|qr_code_data_url/i.test(lastError)) {
     const packedOnly: Record<string, unknown> = { ...payload }
     delete packedOnly.valve_image_url
@@ -1035,6 +1080,7 @@ async function writeInventoryRow(
     delete packedOnly.qr_code_data_url
     delete packedOnly.hf_acid
     delete packedOnly.is_valve_part
+    delete packedOnly.part_type
     delete packedOnly.condition
     delete packedOnly.manufacturer_serial_no
     delete packedOnly.repair_tag_number
@@ -1052,7 +1098,7 @@ async function writeInventoryRow(
 
 export async function createInventoryRecord(
   form: InventoryFormState,
-  photos: { valve: File; tag: File },
+  photos: { valve: File; tag: File | null },
   document: InventoryDocumentDraft = emptyDocumentDraft(),
   actor?: { userId: string | null; name: string | null },
 ): Promise<{ data: InventoryRecord | null; error: string | null }> {
@@ -1060,21 +1106,36 @@ export async function createInventoryRecord(
   if (!changeReason) {
     return { data: null, error: 'Enter a reason for adding this item to inventory' }
   }
+  if (!photos.valve) {
+    return { data: null, error: form.isValvePart ? 'A picture of the part is required' : 'A picture of the valve is required' }
+  }
+  if (!form.isValvePart && !photos.tag) {
+    return { data: null, error: 'A picture of the tag is required' }
+  }
 
   const id = crypto.randomUUID()
+  if (form.isValvePart && form.partType.trim()) {
+    try {
+      await addLookupValue('inventory_part_type', form.partType)
+    } catch {
+      // Non-fatal: part still saves even if lookup list insert fails
+    }
+  }
   const [manufacturerId, valveTypeId, valveUpload, tagUpload, allocated] = await Promise.all([
     ensureManufacturerId(form.manufacturerName),
-    ensureValveTypeId(form.valveType),
+    form.isValvePart ? Promise.resolve(null) : ensureValveTypeId(form.valveType),
     uploadInventoryPhoto(id, 'valve', photos.valve),
-    uploadInventoryPhoto(id, 'tag', photos.tag),
+    photos.tag
+      ? uploadInventoryPhoto(id, 'tag', photos.tag)
+      : Promise.resolve({ url: null as string | null, path: null as string | null, error: null as string | null }),
     allocateNextJsInventoryId(),
   ])
 
   if (valveUpload.error || !valveUpload.url) {
     if (tagUpload.path) await supabase.storage.from(VALVE_ATTACHMENTS_BUCKET).remove([tagUpload.path])
-    return { data: null, error: valveUpload.error || 'Valve photo upload failed' }
+    return { data: null, error: valveUpload.error || (form.isValvePart ? 'Part photo upload failed' : 'Valve photo upload failed') }
   }
-  if (tagUpload.error || !tagUpload.url) {
+  if (photos.tag && (tagUpload.error || !tagUpload.url)) {
     if (valveUpload.path) await supabase.storage.from(VALVE_ATTACHMENTS_BUCKET).remove([valveUpload.path])
     return { data: null, error: tagUpload.error || 'Tag photo upload failed' }
   }
@@ -1188,12 +1249,27 @@ export async function updateInventoryRecord(
 ): Promise<{ data: InventoryRecord | null; error: string | null }> {
   const valveUrl = photos.valve.existingUrl
   const tagUrl = photos.tag.existingUrl
-  if (!photos.valve.file && !valveUrl) return { data: null, error: 'A picture of the valve is required' }
-  if (!photos.tag.file && !tagUrl) return { data: null, error: 'A picture of the tag is required' }
+  if (!photos.valve.file && !valveUrl) {
+    return {
+      data: null,
+      error: form.isValvePart ? 'A picture of the part is required' : 'A picture of the valve is required',
+    }
+  }
+  if (!form.isValvePart && !photos.tag.file && !tagUrl) {
+    return { data: null, error: 'A picture of the tag is required' }
+  }
+
+  if (form.isValvePart && form.partType.trim()) {
+    try {
+      await addLookupValue('inventory_part_type', form.partType)
+    } catch {
+      // Non-fatal
+    }
+  }
 
   const [manufacturerId, valveTypeId] = await Promise.all([
     ensureManufacturerId(form.manufacturerName),
-    ensureValveTypeId(form.valveType),
+    form.isValvePart ? Promise.resolve(null) : ensureValveTypeId(form.valveType),
   ])
 
   let nextValveUrl = valveUrl
@@ -1294,6 +1370,7 @@ export function inventoryMatchesSearch(row: InventoryRecord, rawQuery: string): 
     row.notes,
     row.hf_acid ? 'hf acid' : '',
     row.is_valve_part ? 'valve part part' : 'valve',
+    row.part_type,
   ]
     .map((value) => String(value ?? '').toLowerCase())
     .join(' ')

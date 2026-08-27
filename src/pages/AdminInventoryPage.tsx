@@ -636,6 +636,7 @@ export function AdminInventoryPage() {
   const [apiTrims, setApiTrims] = useState<string[]>([])
   const [sizes, setSizes] = useState<string[]>([])
   const [pressureClasses, setPressureClasses] = useState<string[]>([])
+  const [partTypes, setPartTypes] = useState<string[]>([])
   const [modalOpen, setModalOpen] = useState(false)
   const [modalMode, setModalMode] = useState<ModalMode>('create')
   const [editingId, setEditingId] = useState<string | null>(null)
@@ -651,6 +652,7 @@ export function AdminInventoryPage() {
   const [sendingMonthly, setSendingMonthly] = useState(false)
   const [removeReason, setRemoveReason] = useState('')
   const [removePoNumber, setRemovePoNumber] = useState('')
+  const [removeDestinationValveId, setRemoveDestinationValveId] = useState('')
   const [removing, setRemoving] = useState(false)
   const [showRemoveForm, setShowRemoveForm] = useState(false)
   const [showRestoreForm, setShowRestoreForm] = useState(false)
@@ -698,6 +700,7 @@ export function AdminInventoryPage() {
     setApiTrims(options.apiTrims)
     setSizes(options.sizes)
     setPressureClasses(options.pressureClasses)
+    setPartTypes(options.partTypes)
     if (customerResult.error) {
       setCustomerRows([])
       setSalesRepColumnMissing(false)
@@ -728,6 +731,7 @@ export function AdminInventoryPage() {
       setShowRestoreForm(false)
       setRemoveReason('')
       setRemovePoNumber('')
+      setRemoveDestinationValveId('')
       setRestoreReason('')
       return
     }
@@ -749,6 +753,7 @@ export function AdminInventoryPage() {
       setShowRestoreForm(false)
       setRemoveReason('')
       setRemovePoNumber('')
+      setRemoveDestinationValveId('')
       setRestoreReason('')
     })()
 
@@ -1198,22 +1203,26 @@ export function AdminInventoryPage() {
     const hasValve = Boolean(valvePhoto.file || valvePhoto.existingUrl)
     const hasTag = Boolean(tagPhoto.file || tagPhoto.existingUrl)
     if (!hasValve) {
-      showToast('A picture of the valve is required')
+      showToast(form.isValvePart ? 'A picture of the part is required' : 'A picture of the valve is required')
       return
     }
-    if (!hasTag) {
+    if (!form.isValvePart && !hasTag) {
       showToast('A picture of the tag is required')
       return
     }
 
     setSaving(true)
     if (modalMode === 'create' || modalMode === 'duplicate') {
-      if (!valvePhoto.file || !tagPhoto.file) {
+      if (!valvePhoto.file || (!form.isValvePart && !tagPhoto.file)) {
         setSaving(false)
         showToast(
           modalMode === 'duplicate'
-            ? 'Add new valve and tag photos for the duplicate — photos are not copied'
-            : 'Upload both the valve photo and the tag photo',
+            ? form.isValvePart
+              ? 'Add a new part photo for the duplicate — photos are not copied'
+              : 'Add new valve and tag photos for the duplicate — photos are not copied'
+            : form.isValvePart
+              ? 'Upload a part photo'
+              : 'Upload both the valve photo and the tag photo',
         )
         return
       }
@@ -1295,12 +1304,17 @@ export function AdminInventoryPage() {
     }
     const reason = removeReason.trim()
     const poNumber = removePoNumber.trim()
+    const destinationValveId = removeDestinationValveId.trim()
     if (!reason) {
       showToast('Enter a reason for removing this item')
       return
     }
     if (!poNumber) {
-      showToast('Enter the purchase order number')
+      showToast('Enter the customer purchase order number')
+      return
+    }
+    if (qrItem.is_valve_part && !destinationValveId) {
+      showToast('Enter the valve ID this part is going into')
       return
     }
 
@@ -1309,6 +1323,8 @@ export function AdminInventoryPage() {
       id: qrItem.id,
       reason,
       poNumber,
+      destinationValveId,
+      isValvePart: Boolean(qrItem.is_valve_part),
       removedByUserId: user?.id ?? null,
       removedByName: username || null,
     })
@@ -1323,6 +1339,7 @@ export function AdminInventoryPage() {
     setShowRemoveForm(false)
     setRemoveReason('')
     setRemovePoNumber('')
+    setRemoveDestinationValveId('')
     if (expandedRowId === data.id) setExpandedRowId(null)
     setSelectedIds((prev) => {
       if (!prev.has(data.id)) return prev
@@ -1527,6 +1544,7 @@ export function AdminInventoryPage() {
     setShowRestoreForm(false)
     setRemoveReason('')
     setRemovePoNumber('')
+    setRemoveDestinationValveId('')
     setRestoreReason('')
     if (searchParams.get('item')) {
       const next = new URLSearchParams(searchParams)
@@ -2192,29 +2210,41 @@ export function AdminInventoryPage() {
                                   <span className="inventory-detail-value">{display(row.manufacturer_name)}</span>
                                 </div>
                                 <div className="inventory-detail-item">
-                                  <span className="inventory-detail-label">Type</span>
-                                  <span className="inventory-detail-value">{display(row.valve_type_label)}</span>
+                                  <span className="inventory-detail-label">
+                                    {row.is_valve_part ? 'Part type' : 'Type'}
+                                  </span>
+                                  <span className="inventory-detail-value">
+                                    {display(row.is_valve_part ? row.part_type : row.valve_type_label)}
+                                  </span>
                                 </div>
                                 <div className="inventory-detail-item">
                                   <span className="inventory-detail-label">Size</span>
                                   <span className="inventory-detail-value">{display(row.size)}</span>
                                 </div>
+                                {!row.is_valve_part ? (
+                                  <div className="inventory-detail-item">
+                                    <span className="inventory-detail-label">Pressure</span>
+                                    <span className="inventory-detail-value">{display(row.pressure)}</span>
+                                  </div>
+                                ) : null}
                                 <div className="inventory-detail-item">
-                                  <span className="inventory-detail-label">Pressure</span>
-                                  <span className="inventory-detail-value">{display(row.pressure)}</span>
-                                </div>
-                                <div className="inventory-detail-item">
-                                  <span className="inventory-detail-label">Body material</span>
+                                  <span className="inventory-detail-label">
+                                    {row.is_valve_part ? 'Material' : 'Body material'}
+                                  </span>
                                   <span className="inventory-detail-value">{display(row.body_material)}</span>
                                 </div>
-                                <div className="inventory-detail-item">
-                                  <span className="inventory-detail-label">API trim</span>
-                                  <span className="inventory-detail-value">{display(row.api_trim)}</span>
-                                </div>
-                                <div className="inventory-detail-item">
-                                  <span className="inventory-detail-label">Operator</span>
-                                  <span className="inventory-detail-value">{display(row.operator)}</span>
-                                </div>
+                                {!row.is_valve_part ? (
+                                  <>
+                                    <div className="inventory-detail-item">
+                                      <span className="inventory-detail-label">API trim</span>
+                                      <span className="inventory-detail-value">{display(row.api_trim)}</span>
+                                    </div>
+                                    <div className="inventory-detail-item">
+                                      <span className="inventory-detail-label">Operator</span>
+                                      <span className="inventory-detail-value">{display(row.operator)}</span>
+                                    </div>
+                                  </>
+                                ) : null}
                                 <div className="inventory-detail-item">
                                   <span className="inventory-detail-label">Item type</span>
                                   <span className="inventory-detail-value">
@@ -2449,11 +2479,15 @@ export function AdminInventoryPage() {
 
               <section className="inventory-form-section">
                 <div className="inventory-form-section-head">
-                  <h4>Required photos</h4>
+                  <h4>{form.isValvePart ? 'Photos' : 'Required photos'}</h4>
                   <p>
                     {modalMode === 'duplicate'
-                      ? 'Photos are not copied — add new valve and tag pictures for this item.'
-                      : 'Both photos are required before the item can be saved.'}
+                      ? form.isValvePart
+                        ? 'Photos are not copied — add a new part picture for this item. Tag photo is optional.'
+                        : 'Photos are not copied — add new valve and tag pictures for this item.'
+                      : form.isValvePart
+                        ? 'A part photo is required. Tag photo is optional.'
+                        : 'Both photos are required before the item can be saved.'}
                   </p>
                 </div>
                 <div className="inventory-photo-grid">
@@ -2472,9 +2506,13 @@ export function AdminInventoryPage() {
                   />
                   <PhotoCard
                     title="Tag photo"
-                    hint="Nameplate / tag so ID is readable"
+                    hint={
+                      form.isValvePart
+                        ? 'Optional — nameplate / tag if available'
+                        : 'Nameplate / tag so ID is readable'
+                    }
                     draft={tagPhoto}
-                    required
+                    required={!form.isValvePart}
                     inputId="inventory-tag-photo"
                     onPick={(file) => pickPhoto('tag', file)}
                     onClear={() => clearPhoto('tag')}
@@ -2487,35 +2525,117 @@ export function AdminInventoryPage() {
 
               <section className="inventory-form-section">
                 <div className="inventory-form-section-head">
-                  <h4>MTR / traveler document</h4>
+                  <h4>{form.isValvePart ? 'MTR document' : 'MTR / traveler document'}</h4>
                   <p>
                     {modalMode === 'duplicate'
-                      ? 'PDF is not copied — add a PDF and/or traveler link for this duplicate if needed.'
-                      : 'Optional PDF upload and/or link to the traveler or MTR.'}
+                      ? form.isValvePart
+                        ? 'PDF is not copied — add an MTR PDF for this duplicate if needed.'
+                        : 'PDF is not copied — add a PDF and/or traveler link for this duplicate if needed.'
+                      : form.isValvePart
+                        ? 'Optional MTR PDF upload for this part.'
+                        : 'Optional PDF upload and/or link to the traveler or MTR.'}
                   </p>
                 </div>
                 <DocumentCard draft={documentDraft} onPick={pickDocument} onClear={clearDocument} />
-                <Field label="Traveler / MTR link" className="inventory-field-wide">
-                  <input
-                    type="url"
-                    inputMode="url"
-                    value={form.travelerLink}
-                    onChange={(e) => patchForm({ travelerLink: e.target.value })}
-                    placeholder="https://… (SharePoint, OneDrive, etc.)"
-                  />
-                  {normalizeTravelerLink(form.travelerLink) ? (
-                    <a
-                      className="inventory-traveler-link-open"
-                      href={normalizeTravelerLink(form.travelerLink) ?? undefined}
-                      target="_blank"
-                      rel="noreferrer"
-                    >
-                      Open link
-                    </a>
-                  ) : null}
-                </Field>
+                {!form.isValvePart ? (
+                  <Field label="Traveler / MTR link" className="inventory-field-wide">
+                    <input
+                      type="url"
+                      inputMode="url"
+                      value={form.travelerLink}
+                      onChange={(e) => patchForm({ travelerLink: e.target.value })}
+                      placeholder="https://… (SharePoint, OneDrive, etc.)"
+                    />
+                    {normalizeTravelerLink(form.travelerLink) ? (
+                      <a
+                        className="inventory-traveler-link-open"
+                        href={normalizeTravelerLink(form.travelerLink) ?? undefined}
+                        target="_blank"
+                        rel="noreferrer"
+                      >
+                        Open link
+                      </a>
+                    ) : null}
+                  </Field>
+                ) : null}
               </section>
 
+              {form.isValvePart ? (
+                <section className="inventory-form-section">
+                  <div className="inventory-form-section-head">
+                    <h4>Part details</h4>
+                    <p>Manufacturer, type, size, and material for this part.</p>
+                  </div>
+                  <div className="inventory-form-grid">
+                    <Field label="Manufacturer">
+                      <FreeTextCombobox
+                        options={manufacturers}
+                        value={form.manufacturerName}
+                        onChange={(manufacturerName) => patchForm({ manufacturerName })}
+                        placeholder="Select or type a manufacturer"
+                        showAllUntilTyped
+                        maxSuggestions={500}
+                        clearAriaLabel="Clear manufacturer"
+                        emptyHint="No manufacturers found — type a new name"
+                      />
+                    </Field>
+                    <Field label="Part type">
+                      <FreeTextCombobox
+                        options={partTypes}
+                        value={form.partType}
+                        onChange={(partType) => patchForm({ partType })}
+                        placeholder="Select or type a part type"
+                        showAllUntilTyped
+                        maxSuggestions={500}
+                        clearAriaLabel="Clear part type"
+                        emptyHint="No part types found — type a new type (saved to the list)"
+                      />
+                    </Field>
+                    <Field label="Size">
+                      <FreeTextCombobox
+                        options={sizes}
+                        value={form.size}
+                        onChange={(size) => patchForm({ size })}
+                        placeholder="Select or type a size"
+                        showAllUntilTyped
+                        maxSuggestions={500}
+                        clearAriaLabel="Clear size"
+                        emptyHint="No sizes found — type a new size"
+                      />
+                    </Field>
+                    <Field label="Material">
+                      <FreeTextCombobox
+                        options={bodyMaterials}
+                        value={form.bodyMaterial}
+                        onChange={(bodyMaterial) => patchForm({ bodyMaterial })}
+                        placeholder="Select or type a material"
+                        showAllUntilTyped
+                        maxSuggestions={500}
+                        clearAriaLabel="Clear material"
+                        emptyHint="No materials found — type a new material"
+                      />
+                    </Field>
+                    <label className="inventory-checkbox-field">
+                      <input
+                        type="checkbox"
+                        checked={form.hfAcid}
+                        onChange={(e) => patchForm({ hfAcid: e.target.checked })}
+                      />
+                      <span>HF Acid part</span>
+                    </label>
+                  </div>
+                  <div className="inventory-notes-in-section">
+                    <Field label="Notes">
+                      <textarea
+                        rows={3}
+                        value={form.notes}
+                        onChange={(e) => patchForm({ notes: e.target.value })}
+                        placeholder="Condition, special instructions…"
+                      />
+                    </Field>
+                  </div>
+                </section>
+              ) : (
               <section className="inventory-form-section">
                 <div className="inventory-form-section-head">
                   <h4>Valve details</h4>
@@ -2612,7 +2732,7 @@ export function AdminInventoryPage() {
                       checked={form.hfAcid}
                       onChange={(e) => patchForm({ hfAcid: e.target.checked })}
                     />
-                    <span>{form.isValvePart ? 'HF Acid part' : 'HF Acid valve'}</span>
+                    <span>HF Acid valve</span>
                   </label>
                 </div>
                 <div className="inventory-notes-in-section">
@@ -2626,6 +2746,7 @@ export function AdminInventoryPage() {
                   </Field>
                 </div>
               </section>
+              )}
             </div>
 
             <div className="technician-modal-footer modal-footer">
@@ -2697,6 +2818,12 @@ export function AdminInventoryPage() {
                   <p>
                     <strong>PO:</strong> {qrItem.removed_po_number || '—'}
                   </p>
+                  {qrItem.is_valve_part ? (
+                    <p>
+                      <strong>Installed on valve:</strong>{' '}
+                      {qrItem.removed_destination_valve_id || '—'}
+                    </p>
+                  ) : null}
                   <p>
                     <strong>Reason:</strong> {qrItem.removed_reason || '—'}
                   </p>
@@ -2750,9 +2877,13 @@ export function AdminInventoryPage() {
               ) : showRemoveForm ? (
                 <div className="inventory-remove-form">
                   <h4>Remove from inventory</h4>
-                  <p>Enter the purchase order and reason before this item leaves inventory.</p>
+                  <p>
+                    {qrItem.is_valve_part
+                      ? 'Enter the customer purchase order and the valve ID this part is going into before removing.'
+                      : 'Enter the purchase order and reason before this item leaves inventory.'}
+                  </p>
                   <label className="inventory-remove-field">
-                    <span>Purchase order #</span>
+                    <span>Customer purchase order #</span>
                     <input
                       type="text"
                       value={removePoNumber}
@@ -2762,13 +2893,29 @@ export function AdminInventoryPage() {
                       autoFocus
                     />
                   </label>
+                  {qrItem.is_valve_part ? (
+                    <label className="inventory-remove-field">
+                      <span>Valve ID (part going into)</span>
+                      <input
+                        type="text"
+                        value={removeDestinationValveId}
+                        onChange={(e) => setRemoveDestinationValveId(e.target.value)}
+                        placeholder="Valve / tag ID receiving this part"
+                        disabled={removing}
+                      />
+                    </label>
+                  ) : null}
                   <label className="inventory-remove-field">
                     <span>Reason</span>
                     <textarea
                       rows={3}
                       value={removeReason}
                       onChange={(e) => setRemoveReason(e.target.value)}
-                      placeholder="Why is this being removed from inventory?"
+                      placeholder={
+                        qrItem.is_valve_part
+                          ? 'Why is this part being removed from inventory?'
+                          : 'Why is this being removed from inventory?'
+                      }
                       disabled={removing}
                     />
                   </label>
@@ -2781,6 +2928,7 @@ export function AdminInventoryPage() {
                         setShowRemoveForm(false)
                         setRemoveReason('')
                         setRemovePoNumber('')
+                        setRemoveDestinationValveId('')
                       }}
                     >
                       Cancel
