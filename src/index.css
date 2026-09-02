@@ -15505,19 +15505,33 @@ tbody tr:hover {
 
 .itp-library-split.is-scope-minimized {
   grid-template-columns: 1fr;
-  grid-template-rows: auto 1fr;
+  grid-template-rows: auto auto;
+  /* Shop-floor / accepted ITP: grow with content so the page scrolls (iPad-friendly). */
+  height: auto;
+  max-height: none;
+  min-height: 0;
+  overflow: visible;
 }
 
 .itp-library-split.is-scope-minimized .itp-library-panel-left.is-minimized {
   height: auto;
   max-height: none;
+  overflow: visible;
   border-right: none;
   border-bottom: 1px solid var(--itp-lib-border);
 }
 
+.itp-library-split.is-scope-minimized .itp-library-panel,
 .itp-library-split.is-scope-minimized .itp-library-panel-right {
+  height: auto;
+  max-height: none;
   min-height: 0;
-  height: 100%;
+  overflow: visible;
+}
+
+.itp-library-split.is-scope-minimized .itp-library-panel-body {
+  flex: none;
+  overflow: visible;
 }
 
 .quality-team-page .dashboard-panel h3 {
@@ -15916,6 +15930,52 @@ tbody tr:hover {
   overscroll-behavior: contain;
   -webkit-overflow-scrolling: touch;
   padding: 9px;
+}
+
+.itp-library-save-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 10px 12px;
+  background: #f8fafc;
+  border: 1px solid var(--itp-lib-border);
+  z-index: 30;
+}
+
+.itp-library-save-bar--top {
+  position: sticky;
+  top: 0;
+  margin: 0 0 8px;
+  border-radius: 8px;
+  box-shadow: 0 6px 14px rgba(15, 23, 42, 0.06);
+}
+
+.itp-library-save-bar--bottom {
+  position: sticky;
+  bottom: 0;
+  margin: 10px 0 0;
+  border-radius: 8px;
+  box-shadow: 0 -6px 14px rgba(15, 23, 42, 0.06);
+}
+
+.itp-library-save-hint {
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: #475569;
+}
+
+.itp-library-save-hint.is-unsaved {
+  color: #c2410c;
+}
+
+.itp-library-save-hint.is-saved {
+  color: var(--itp-lib-pass);
+}
+
+.itp-library-save-hint.is-error {
+  color: var(--itp-lib-fail);
 }
 
 .itp-library-lib-sec {
@@ -17079,27 +17139,26 @@ tbody tr:hover {
 }
 
 @media (max-width: 980px) {
+  /* Tablet / iPad: full ITP in page flow — no nested half-screen scrollboxes. */
   .itp-library-split {
     grid-template-columns: 1fr;
     height: auto;
     max-height: none;
     min-height: 0;
+    overflow: visible;
   }
 
+  .itp-library-panel,
   .itp-library-panel-left,
   .itp-library-panel-right {
-    height: min(50dvh, 480px);
-    max-height: 50dvh;
-  }
-
-  .itp-library-split.is-scope-minimized .itp-library-panel-left.is-minimized {
     height: auto;
     max-height: none;
+    overflow: visible;
   }
 
-  .itp-library-split.is-scope-minimized .itp-library-panel-right {
-    height: min(70dvh, 640px);
-    max-height: 70dvh;
+  .itp-library-panel-body {
+    flex: none;
+    overflow: visible;
   }
 
   .itp-library-panel-left {
@@ -17109,6 +17168,20 @@ tbody tr:hover {
 
   .itp-library-summary {
     grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .itp-library-save-bar--top {
+    top: 0;
+  }
+
+  /* Keep a Save control reachable while scrolling the full checklist on tablets. */
+  .itp-library-save-bar--bottom {
+    position: sticky;
+    bottom: 0;
+  }
+
+  .itp-library-panel-right {
+    padding-bottom: 4px;
   }
 }
 
@@ -17137,6 +17210,7 @@ tbody tr:hover {
 
   .app-nav,
   .itp-library-jb-actions,
+  .itp-library-save-bar,
   .itp-library-panel-left,
   .itp-library-attr-bar,
   .itp-library-sub-reqs-area,

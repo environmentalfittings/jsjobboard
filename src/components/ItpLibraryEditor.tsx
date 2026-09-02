@@ -173,6 +173,10 @@ export function ItpLibraryEditor({ valve, onClose, readOnly = false }: ItpLibrar
   const [detailsOpen, setDetailsOpen] = useState(false)
   const [qrDataUrl, setQrDataUrl] = useState<string | null>(null)
   const [shopAreaOptions, setShopAreaOptions] = useState<ItpShopAreaDef[]>(() => defaultShopAreas())
+  const [dirty, setDirty] = useState(false)
+  const [saveHint, setSaveHint] = useState<'idle' | 'unsaved' | 'saving' | 'saved' | 'error'>('idle')
+  const autoSaveGenRef = useRef(0)
+  const dirtyGenRef = useRef(0)
 
   const itpPageUrl = useMemo(() => buildItpPageUrl(valve.id), [valve.id])
 
@@ -214,6 +218,8 @@ export function ItpLibraryEditor({ valve, onClose, readOnly = false }: ItpLibrar
         if (cancelled) return
         setPlan(result.plan)
         setIsPersisted(!result.isNew)
+        setDirty(false)
+        setSaveHint(result.isNew ? 'idle' : 'saved')
         setSelectedTemplateName(result.plan.scopeTemplateName ?? result.appliedTemplateName ?? '')
         scopeBaselineRef.current = itpScopeFingerprint(result.plan)
         lastSavedPlanRef.current = result.plan
@@ -379,7 +385,10 @@ export function ItpLibraryEditor({ valve, onClose, readOnly = false }: ItpLibrar
   }
 
   const updatePlan = useCallback((updater: (prev: ItpLibraryPlanPayload) => ItpLibraryPlanPayload) => {
+    dirtyGenRef.current += 1
     setPlan((prev) => (prev ? updater(prev) : prev))
+    setDirty(true)
+    setSaveHint('unsaved')
   }, [])
 
   const ensureSel = (prev: ItpLibraryPlanPayload, itemId: string): ItpLibraryItemSel =>
@@ -487,14 +496,14 @@ export function ItpLibraryEditor({ valve, onClose, readOnly = false }: ItpLibrar
   )
   const isQcScopeEditor = isQualityTeamFlagOwner(qualityTeamLevel) || isShopAdmin
   const canSignOffHold = isQcScopeEditor
-  const isAccepted = plan?.qcReview.status === 'accepted'
   const acceptedByLevelForLog =
     qualityTeamLevel !== 'none' ? qualityTeamLevel : isShopAdmin ? 'admin' : qualityTeamLevel
 
   const persistPlan = async (
     nextPlan: ItpLibraryPlanPayload,
-    options?: { notifyQc?: boolean; successToast?: string },
+    options?: { notifyQc?: boolean; successToast?: string; quiet?: boolean },
   ) => {
+    const dirtyAtStart = dirtyGenRef.current
     const result = await saveItpLibraryPlan(valve, nextPlan, {
       notifyQc:
         options?.notifyQc && user?.id
@@ -506,6 +515,10 @@ export function ItpLibraryEditor({ valve, onClose, readOnly = false }: ItpLibrar
     })
     setPlan(result.plan)
     setIsPersisted(true)
+    if (dirtyGenRef.current === dirtyAtStart) {
+      setDirty(false)
+      setSaveHint('saved')
+    }
     scopeBaselineRef.current = itpScopeFingerprint(result.plan)
     lastSavedPlanRef.current = result.plan
     if (
@@ -514,6 +527,9 @@ export function ItpLibraryEditor({ valve, onClose, readOnly = false }: ItpLibrar
       result.plan.qcReview.status === 'accepted'
     ) {
       setScopeMinimized(true)
+    }
+    if (options?.quiet) {
+      return result
     }
     if (options?.successToast) {
       showToast(options.successToast)
@@ -529,35 +545,108 @@ export function ItpLibraryEditor({ valve, onClose, readOnly = false }: ItpLibrar
     return result
   }
 
-  const handleSave = async () => {
-    if (!plan || readOnly) return
-    if (plan.qcReview.status === 'accepted' && !isQcScopeEditor) {
-      showToast('Only Quality Team Admin, Manager, or Supervisor can change an accepted ITP')
-      return
-    }
-
+  const scopeFingerprintDirty = (candidate: ItpLibraryPlanPayload) => {
     const baseline = scopeBaselineRef.current
-    const scopeChanged =
-      isPersisted &&
-      isQcScopeEditor &&
-      baseline != null &&
-      itpScopeFingerprint(plan) !== baseline
+    return isPersisted && baseline != null && itpScopeFingerprint(candidate) !== baseline
+  }
+
+  const handleSave = async (options?: { fromAuto?: boolean }) => {
+    if (!plan || readOnly) return
+
+    const scopeChanged = scopeFingerprintDirty(plan)
+    const fromAuto = Boolean(options?.fromAuto)
 
     if (scopeChanged) {
+      if (!isQcScopeEditor) {
+        if (fromAuto) return
+        showToast('Only Quality Team Admin, Manager, or Supervisor can change Build Scope after the ITP is saved')
+        return
+      }
+      // Scope edits need a QC change note — never auto-save those.
+      if (fromAuto) return
       const lastSaved = lastSavedPlanRef.current
       const autoSummary = (lastSaved ? diffItpScopeSummary(lastSaved, plan) : null) || 'Updated Build Scope'
       setPendingScopeChange({ summary: autoSummary, plan })
       return
     }
 
+    const gen = ++autoSaveGenRef.current
     setSaving(true)
+    setSaveHint('saving')
     try {
-      await persistPlan(plan, { notifyQc: true })
+      await persistPlan(plan, {
+        notifyQc: !fromAuto && !isPersisted,
+        quiet: fromAuto,
+      })
+      if (gen !== autoSaveGenRef.current) return
     } catch (error) {
-      showToast(error instanceof Error ? error.message : 'Failed to save ITP')
+      if (gen !== autoSaveGenRef.current) return
+      setSaveHint('error')
+      showToast(
+        error instanceof Error
+          ? error.message
+          : fromAuto
+            ? 'Auto-save failed — tap Save ITP'
+            : 'Failed to save ITP',
+      )
     } finally {
-      setSaving(false)
+      if (gen === autoSaveGenRef.current) setSaving(false)
     }
+  }
+
+  useEffect(() => {
+    if (readOnly || !plan || !dirty || !isPersisted || saving) return
+    if (scopeFingerprintDirty(plan)) return
+
+    const timer = window.setTimeout(() => {
+      void handleSave({ fromAuto: true })
+    }, 1400)
+    return () => {
+      window.clearTimeout(timer)
+    }
+    // Debounce checklist/exec edits; handleSave reads latest plan from closure when timer fires.
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- intentional debounce on plan edits
+  }, [plan, dirty, readOnly, isPersisted, saving])
+
+  const saveHintLabel =
+    saveHint === 'saving' || saving
+      ? 'Saving…'
+      : saveHint === 'unsaved' || dirty
+        ? 'Unsaved changes — auto-saves shortly'
+        : saveHint === 'error'
+          ? 'Save failed — tap Save ITP'
+          : saveHint === 'saved'
+            ? 'All changes saved'
+            : isPersisted
+              ? 'All changes saved'
+              : 'Save to send for Quality Team review'
+
+  const saveHintClass =
+    saveHint === 'error'
+      ? 'is-error'
+      : saveHint === 'unsaved' || dirty
+        ? 'is-unsaved'
+        : saveHint === 'saved' || (isPersisted && !dirty)
+          ? 'is-saved'
+          : ''
+
+  const renderSaveBar = (placement: 'top' | 'bottom') => {
+    if (readOnly) return null
+    return (
+      <div className={`itp-library-save-bar itp-library-save-bar--${placement} screen-only`}>
+        <span className={`itp-library-save-hint ${saveHintClass}`.trim()} aria-live="polite">
+          {saveHintLabel}
+        </span>
+        <button
+          type="button"
+          className="button-primary"
+          onClick={() => void handleSave()}
+          disabled={saving}
+        >
+          {saving ? 'Saving…' : 'Save ITP'}
+        </button>
+      </div>
+    )
   }
 
   const confirmScopeChangeSave = async (note: string) => {
@@ -1230,6 +1319,10 @@ export function ItpLibraryEditor({ valve, onClose, readOnly = false }: ItpLibrar
       const saved = await saveItpLibraryPlan(valve, nextPlan)
       setPlan(saved.plan)
       setIsPersisted(true)
+      setDirty(false)
+      setSaveHint('saved')
+      lastSavedPlanRef.current = saved.plan
+      scopeBaselineRef.current = itpScopeFingerprint(saved.plan)
       setClearingItem(null)
       showToast('Flag removed')
     } catch (error) {
@@ -1273,6 +1366,10 @@ export function ItpLibraryEditor({ valve, onClose, readOnly = false }: ItpLibrar
       const saved = await saveItpLibraryPlan(valve, nextPlan)
       setPlan(saved.plan)
       setIsPersisted(true)
+      setDirty(false)
+      setSaveHint('saved')
+      lastSavedPlanRef.current = saved.plan
+      scopeBaselineRef.current = itpScopeFingerprint(saved.plan)
       setFlaggingItem(null)
       const { notified, error } = await notifyQualityTeamItpItemFlagged({
         valveRowId: valve.id,
@@ -1527,7 +1624,7 @@ export function ItpLibraryEditor({ valve, onClose, readOnly = false }: ItpLibrar
                 {saving ? 'Saving…' : 'Reopen ITP'}
               </button>
             ) : null}
-            {!readOnly && !isAccepted ? (
+            {!readOnly ? (
               <button type="button" className="button-primary" onClick={() => void handleSave()} disabled={saving}>
                 {saving ? 'Saving…' : 'Save ITP'}
               </button>
@@ -1922,6 +2019,8 @@ export function ItpLibraryEditor({ valve, onClose, readOnly = false }: ItpLibrar
               <div className="itp-library-pbar-strip">
                 <div className="itp-library-pbar-fill" style={{ width: `${stats.pct}%`, background: pctColor }} />
               </div>
+
+              {renderSaveBar('top')}
 
               <div className="itp-library-panel-body">
                 <div className="itp-library-job-details">
@@ -2536,6 +2635,8 @@ export function ItpLibraryEditor({ valve, onClose, readOnly = false }: ItpLibrar
                   </div>
                 </div>
               </div>
+
+              {renderSaveBar('bottom')}
             </>
           )}
         </div>
