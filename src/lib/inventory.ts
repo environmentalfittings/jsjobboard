@@ -116,8 +116,41 @@ export const INVENTORY_CONDITIONS = [
 export type InventoryCondition = (typeof INVENTORY_CONDITIONS)[number]['value']
 export const INVENTORY_MAX_IMAGE_BYTES = 8 * 1024 * 1024
 export const INVENTORY_MAX_DOCUMENT_BYTES = 20 * 1024 * 1024
+/** Abort hung Storage uploads (large PDFs / flaky networks / OneDrive placeholders). */
+export const INVENTORY_UPLOAD_TIMEOUT_MS = 90_000
 export const JS_INVENTORY_ID_PREFIX = 'JS-INV-'
 export const JS_INVENTORY_ID_START = 1001
+
+async function withTimeout<T>(promise: Promise<T>, ms: number, label: string): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined
+  try {
+    return await Promise.race([
+      promise,
+      new Promise<T>((_, reject) => {
+        timer = setTimeout(() => {
+          reject(new Error(`${label} timed out after ${Math.round(ms / 1000)}s — try a smaller file or check your connection`))
+        }, ms)
+      }),
+    ])
+  } finally {
+    if (timer) clearTimeout(timer)
+  }
+}
+
+/** Fail fast when Windows/OneDrive has not downloaded the local file yet. */
+export async function assertInventoryFileReadable(
+  file: File,
+  timeoutMs = 8_000,
+): Promise<string | null> {
+  try {
+    await withTimeout(file.slice(0, Math.min(64, Math.max(file.size, 1))).arrayBuffer(), timeoutMs, 'Reading file')
+    return null
+  } catch (error) {
+    return error instanceof Error
+      ? error.message
+      : 'Could not read that file — if it is on OneDrive/SharePoint, open it once locally first'
+  }
+}
 
 export type InventoryOriginOption = (typeof INVENTORY_ORIGINS)[number]
 
@@ -926,13 +959,28 @@ export async function uploadInventoryPhoto(
   const validation = validateInventoryPhoto(file)
   if (validation) return { url: null, path: null, error: validation }
 
+  const readable = await assertInventoryFileReadable(file)
+  if (readable) return { url: null, path: null, error: readable }
+
   const path = `inventory/${inventoryId}/${kind}-${crypto.randomUUID()}${extFromFile(file)}`
-  const { error } = await supabase.storage.from(VALVE_ATTACHMENTS_BUCKET).upload(path, file, {
-    contentType: file.type || 'image/jpeg',
-    upsert: false,
-  })
-  if (error) return { url: null, path: null, error: error.message || 'Photo upload failed' }
-  return { url: attachmentPublicUrl(path), path, error: null }
+  try {
+    const { error } = await withTimeout(
+      supabase.storage.from(VALVE_ATTACHMENTS_BUCKET).upload(path, file, {
+        contentType: file.type || 'image/jpeg',
+        upsert: false,
+      }),
+      INVENTORY_UPLOAD_TIMEOUT_MS,
+      'Photo upload',
+    )
+    if (error) return { url: null, path: null, error: error.message || 'Photo upload failed' }
+    return { url: attachmentPublicUrl(path), path, error: null }
+  } catch (error) {
+    return {
+      url: null,
+      path: null,
+      error: error instanceof Error ? error.message : 'Photo upload failed',
+    }
+  }
 }
 
 export async function uploadInventoryDocument(
@@ -942,17 +990,33 @@ export async function uploadInventoryDocument(
   const validation = validateInventoryDocument(file)
   if (validation) return { url: null, path: null, name: null, error: validation }
 
+  const readable = await assertInventoryFileReadable(file)
+  if (readable) return { url: null, path: null, name: null, error: readable }
+
   const path = `inventory/${inventoryId}/document-${crypto.randomUUID()}.pdf`
-  const { error } = await supabase.storage.from(VALVE_ATTACHMENTS_BUCKET).upload(path, file, {
-    contentType: file.type || 'application/pdf',
-    upsert: false,
-  })
-  if (error) return { url: null, path: null, name: null, error: error.message || 'PDF upload failed' }
-  return {
-    url: attachmentPublicUrl(path),
-    path,
-    name: file.name.slice(0, 500),
-    error: null,
+  try {
+    const { error } = await withTimeout(
+      supabase.storage.from(VALVE_ATTACHMENTS_BUCKET).upload(path, file, {
+        contentType: file.type || 'application/pdf',
+        upsert: false,
+      }),
+      INVENTORY_UPLOAD_TIMEOUT_MS,
+      'PDF upload',
+    )
+    if (error) return { url: null, path: null, name: null, error: error.message || 'PDF upload failed' }
+    return {
+      url: attachmentPublicUrl(path),
+      path,
+      name: file.name.slice(0, 500),
+      error: null,
+    }
+  } catch (error) {
+    return {
+      url: null,
+      path: null,
+      name: null,
+      error: error instanceof Error ? error.message : 'PDF upload failed',
+    }
   }
 }
 

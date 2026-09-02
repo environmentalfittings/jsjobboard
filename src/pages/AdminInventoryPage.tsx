@@ -39,6 +39,7 @@ import {
   updateInventoryRecord,
   validateInventoryDocument,
   validateInventoryPhoto,
+  assertInventoryFileReadable,
   type InventoryCondition,
   type InventoryDocumentDraft,
   type InventoryEvent,
@@ -400,7 +401,7 @@ function PhotoCard({
   draft: InventoryPhotoDraft
   required?: boolean
   inputId: string
-  onPick: (file: File) => void
+  onPick: (file: File) => void | Promise<void>
   onClear: () => void
 }) {
   const inputRef = useRef<HTMLInputElement>(null)
@@ -451,7 +452,7 @@ function PhotoCard({
         className="inventory-file-input"
         onChange={(e) => {
           const file = e.target.files?.[0]
-          if (file) onPick(file)
+          if (file) void onPick(file)
           e.target.value = ''
         }}
       />
@@ -463,7 +464,7 @@ function PhotoCard({
         className="inventory-file-input"
         onChange={(e) => {
           const file = e.target.files?.[0]
-          if (file) onPick(file)
+          if (file) void onPick(file)
           e.target.value = ''
         }}
       />
@@ -477,7 +478,7 @@ function DocumentCard({
   onClear,
 }: {
   draft: InventoryDocumentDraft
-  onPick: (file: File) => void
+  onPick: (file: File) => void | Promise<void>
   onClear: () => void
 }) {
   const inputRef = useRef<HTMLInputElement>(null)
@@ -524,7 +525,7 @@ function DocumentCard({
         className="inventory-file-input"
         onChange={(e) => {
           const file = e.target.files?.[0]
-          if (file) onPick(file)
+          if (file) void onPick(file)
           e.target.value = ''
         }}
       />
@@ -645,6 +646,7 @@ export function AdminInventoryPage() {
   const [tagPhoto, setTagPhoto] = useState<InventoryPhotoDraft>(() => emptyPhotoDraft())
   const [documentDraft, setDocumentDraft] = useState<InventoryDocumentDraft>(() => emptyDocumentDraft())
   const [saving, setSaving] = useState(false)
+  const saveGenerationRef = useRef(0)
   const [qrItem, setQrItem] = useState<InventoryRecord | null>(null)
   const [selectedIds, setSelectedIds] = useState<Set<string>>(() => new Set())
   const [expandedRowId, setExpandedRowId] = useState<string | null>(null)
@@ -1042,13 +1044,15 @@ export function AdminInventoryPage() {
     if (draft.previewUrl && draft.previewUrl.startsWith('blob:')) URL.revokeObjectURL(draft.previewUrl)
   }
 
-  const pickPhoto = (
-    kind: 'valve' | 'tag',
-    file: File,
-  ) => {
+  const pickPhoto = async (kind: 'valve' | 'tag', file: File) => {
     const error = validateInventoryPhoto(file)
     if (error) {
       showToast(error)
+      return
+    }
+    const readable = await assertInventoryFileReadable(file)
+    if (readable) {
+      showToast(readable)
       return
     }
     const previewUrl = URL.createObjectURL(file)
@@ -1079,10 +1083,15 @@ export function AdminInventoryPage() {
     }
   }
 
-  const pickDocument = (file: File) => {
+  const pickDocument = async (file: File) => {
     const error = validateInventoryDocument(file)
     if (error) {
       showToast(error)
+      return
+    }
+    const readable = await assertInventoryFileReadable(file)
+    if (readable) {
+      showToast(readable)
       return
     }
     setDocumentDraft((prev) => ({
@@ -1154,8 +1163,7 @@ export function AdminInventoryPage() {
     setModalOpen(true)
   }
 
-  const closeModal = () => {
-    if (saving) return
+  const resetModalState = () => {
     setModalOpen(false)
     setEditingId(null)
     setForm(emptyInventoryForm())
@@ -1168,6 +1176,16 @@ export function AdminInventoryPage() {
       return emptyPhotoDraft()
     })
     setDocumentDraft(emptyDocumentDraft())
+  }
+
+  const closeModal = () => {
+    // Allow force-close even while saving so a hung upload cannot trap the UI.
+    if (saving) {
+      saveGenerationRef.current += 1
+      setSaving(false)
+      showToast('Save cancelled — you can try again')
+    }
+    resetModalState()
   }
 
   const save = async () => {
@@ -1211,75 +1229,78 @@ export function AdminInventoryPage() {
       return
     }
 
+    const saveGen = ++saveGenerationRef.current
     setSaving(true)
-    if (modalMode === 'create' || modalMode === 'duplicate') {
-      if (!valvePhoto.file || (!form.isValvePart && !tagPhoto.file)) {
-        setSaving(false)
-        showToast(
-          modalMode === 'duplicate'
-            ? form.isValvePart
-              ? 'Add a new part photo for the duplicate — photos are not copied'
-              : 'Add new valve and tag photos for the duplicate — photos are not copied'
-            : form.isValvePart
-              ? 'Upload a part photo'
-              : 'Upload both the valve photo and the tag photo',
+    try {
+      if (modalMode === 'create' || modalMode === 'duplicate') {
+        if (!valvePhoto.file || (!form.isValvePart && !tagPhoto.file)) {
+          showToast(
+            modalMode === 'duplicate'
+              ? form.isValvePart
+                ? 'Add a new part photo for the duplicate — photos are not copied'
+                : 'Add new valve and tag photos for the duplicate — photos are not copied'
+              : form.isValvePart
+                ? 'Upload a part photo'
+                : 'Upload both the valve photo and the tag photo',
+          )
+          return
+        }
+        const result = await createInventoryRecord(
+          form,
+          { valve: valvePhoto.file, tag: tagPhoto.file },
+          documentDraft,
+          { userId: user?.id ?? null, name: username || null },
         )
+        if (saveGen !== saveGenerationRef.current) return
+        if (!result.data) {
+          showToast(result.error || 'Could not create item')
+          return
+        }
+        if (result.error) showToast(result.error)
+        else {
+          showToast(
+            modalMode === 'duplicate'
+              ? 'Duplicate inventory item created'
+              : 'Customer inventory item added',
+          )
+        }
+        resetModalState()
+        setQrItem(result.data)
+        await reload()
         return
       }
-      const result = await createInventoryRecord(
+
+      if (!editingId) return
+      const existing = rows.find((row) => row.id === editingId)
+      if (!existing) {
+        showToast('Could not find inventory item to update')
+        return
+      }
+      const result = await updateInventoryRecord(
+        editingId,
         form,
-        { valve: valvePhoto.file, tag: tagPhoto.file },
+        {
+          valve: valvePhoto,
+          tag: tagPhoto,
+          existing,
+        },
         documentDraft,
-        { userId: user?.id ?? null, name: username || null },
       )
-      setSaving(false)
+      if (saveGen !== saveGenerationRef.current) return
       if (!result.data) {
-        showToast(result.error || 'Could not create item')
+        showToast(result.error || 'Could not update item')
         return
       }
       if (result.error) showToast(result.error)
-      else {
-        showToast(
-          modalMode === 'duplicate'
-            ? 'Duplicate inventory item created'
-            : 'Customer inventory item added',
-        )
-      }
-      closeModal()
-      setQrItem(result.data)
+      else showToast('Customer inventory item updated')
+      resetModalState()
       await reload()
-      return
+    } catch (error) {
+      if (saveGen !== saveGenerationRef.current) return
+      showToast(error instanceof Error ? error.message : 'Could not save inventory item')
+    } finally {
+      if (saveGen === saveGenerationRef.current) setSaving(false)
     }
-
-    if (!editingId) {
-      setSaving(false)
-      return
-    }
-    const existing = rows.find((row) => row.id === editingId)
-    if (!existing) {
-      setSaving(false)
-      showToast('Could not find inventory item to update')
-      return
-    }
-    const result = await updateInventoryRecord(
-      editingId,
-      form,
-      {
-        valve: valvePhoto,
-        tag: tagPhoto,
-        existing,
-      },
-      documentDraft,
-    )
-    setSaving(false)
-    if (!result.data) {
-      showToast(result.error || 'Could not update item')
-      return
-    }
-    if (result.error) showToast(result.error)
-    else showToast('Customer inventory item updated')
-    closeModal()
-    await reload()
   }
 
   const openQrItem = (row: InventoryRecord) => {
@@ -1847,6 +1868,10 @@ export function AdminInventoryPage() {
               </tbody>
             </table>
           </div>
+        ) : modalOpen ? (
+          <p className="placeholder-copy inventory-editing-placeholder">
+            Editing inventory item… list is paused so the form stays responsive.
+          </p>
         ) : (
         <>
         {activeColumnFilterCount > 0 ? (
@@ -2750,12 +2775,14 @@ export function AdminInventoryPage() {
             </div>
 
             <div className="technician-modal-footer modal-footer">
-              <button type="button" className="button-secondary" onClick={closeModal} disabled={saving}>
-                Cancel
+              <button type="button" className="button-secondary" onClick={closeModal}>
+                {saving ? 'Cancel save' : 'Cancel'}
               </button>
               <button type="button" className="button-primary" onClick={() => void save()} disabled={saving}>
                 {saving
-                  ? 'Saving…'
+                  ? documentDraft.file
+                    ? 'Uploading PDF…'
+                    : 'Saving…'
                   : modalMode === 'edit'
                     ? 'Save changes'
                     : modalMode === 'duplicate'
