@@ -661,7 +661,7 @@ export function TestLogEntryForm({
           setLoadingEntry(false)
           return
         }
-        await loadEditingEntry(data as TestLogEntry)
+        await loadEditingEntry(data as unknown as TestLogEntry)
       } catch (error) {
         showToast(error instanceof Error ? error.message : 'Could not open that test log entry')
         setLoadingEntry(false)
