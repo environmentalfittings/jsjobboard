@@ -23,13 +23,16 @@ import {
   INVENTORY_CONDITIONS,
   INVENTORY_OPERATORS,
   INVENTORY_ORIGINS,
+  INVENTORY_PART_VALVE_TYPE_LABEL,
   formatInventoryLocationLabel,
   inventoryConditionLabel,
   inventoryEventLabel,
   inventoryMatchesSearch,
   inventoryToForm,
+  inventoryValveTypeDisplay,
   isInventoryRemoved,
   loadInventoryEvents,
+  loadInventoryEventsForCustomer,
   loadInventoryFormOptions,
   loadInventoryRecords,
   loadRemovedInventoryRecords,
@@ -49,9 +52,15 @@ import {
 } from '../lib/inventory'
 import {
   buildInventoryCustomerReportStats,
+  buildInventoryPeriodActivity,
   currentInventoryReportPeriod,
+  emailInventoryCustomerReport,
   formatInventoryCustomerReportMessage,
   groupInventoryByCustomer,
+  INVENTORY_REPORT_PERIOD_PRESETS,
+  inventoryReportPeriodDateRange,
+  inventoryReportPeriodOptions,
+  isInventoryReportPeriodPreset,
   printInventoryCustomerReport,
 } from '../lib/inventoryCustomerReport'
 import { clearInventoryMonthlyReportAlert } from '../lib/inventoryMonthlyAlert'
@@ -59,6 +68,7 @@ import { printInventoryLabelSheet } from '../lib/inventoryLabelPrint'
 import {
   notifySalesRepCustomerInventoryReport,
   resolveEmployeeAuthUserId,
+  resolveSalesmanEmail,
 } from '../lib/messages'
 
 type ModalMode = 'create' | 'edit' | 'duplicate'
@@ -591,7 +601,7 @@ function inventorySortValue(row: InventoryRecord, key: InventorySortKey): string
     case 'manufacturer':
       return row.manufacturer_name ?? ''
     case 'type':
-      return row.valve_type_label ?? ''
+      return inventoryValveTypeDisplay(row)
     case 'size':
       return row.size ?? ''
     case 'pressure':
@@ -623,10 +633,12 @@ export function AdminInventoryPage() {
   const [rows, setRows] = useState<InventoryRecord[]>([])
   const [removedRows, setRemovedRows] = useState<InventoryRecord[]>([])
   const [events, setEvents] = useState<InventoryEvent[]>([])
+  const [reportEvents, setReportEvents] = useState<InventoryEvent[]>([])
   const [listScope, setListScope] = useState<ListScope>('active')
   const [loading, setLoading] = useState(true)
   const [search, setSearch] = useState('')
   const [customerFilter, setCustomerFilter] = useState('')
+  const [reportPeriodLabel, setReportPeriodLabel] = useState(() => currentInventoryReportPeriod())
   const [customerRows, setCustomerRows] = useState<CustomerSalesRepRow[]>([])
   const [salesRepColumnMissing, setSalesRepColumnMissing] = useState(false)
   const [savingSalesRep, setSavingSalesRep] = useState(false)
@@ -651,6 +663,7 @@ export function AdminInventoryPage() {
   const [selectedIds, setSelectedIds] = useState<Set<string>>(() => new Set())
   const [expandedRowId, setExpandedRowId] = useState<string | null>(null)
   const [sendingReport, setSendingReport] = useState(false)
+  const [emailingReport, setEmailingReport] = useState(false)
   const [sendingMonthly, setSendingMonthly] = useState(false)
   const [removeReason, setRemoveReason] = useState('')
   const [removePoNumber, setRemovePoNumber] = useState('')
@@ -768,7 +781,45 @@ export function AdminInventoryPage() {
     setColumnFilters(EMPTY_INVENTORY_COLUMN_FILTERS)
   }, [listScope])
 
-  const periodLabel = useMemo(() => currentInventoryReportPeriod(), [])
+  useEffect(() => {
+    const customer = customerFilter.trim()
+    if (!customer) {
+      setReportEvents([])
+      return
+    }
+    let cancelled = false
+    void (async () => {
+      const result = await loadInventoryEventsForCustomer(customer)
+      if (cancelled) return
+      if (result.error) {
+        setReportEvents([])
+        return
+      }
+      setReportEvents(result.data)
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [customerFilter])
+
+  const periodLabel = reportPeriodLabel
+  const periodDateRange = useMemo(
+    () => inventoryReportPeriodDateRange(periodLabel),
+    [periodLabel],
+  )
+
+  const reportPeriodChoices = useMemo(() => {
+    const choices = inventoryReportPeriodOptions(events)
+    if (reportPeriodLabel && !choices.includes(reportPeriodLabel)) {
+      return [reportPeriodLabel, ...choices]
+    }
+    return choices
+  }, [events, reportPeriodLabel])
+
+  const reportPeriodMonthChoices = useMemo(
+    () => reportPeriodChoices.filter((label) => !isInventoryReportPeriodPreset(label)),
+    [reportPeriodChoices],
+  )
 
   const inventoryCustomers = useMemo(() => {
     const names = new Set<string>()
@@ -811,7 +862,7 @@ export function AdminInventoryPage() {
         searchFiltered.map((row) => inventoryDisplayOrBlank(row.manufacturer_name)),
       ),
       type: inventoryUniqueSortedValues(
-        searchFiltered.map((row) => inventoryDisplayOrBlank(row.valve_type_label)),
+        searchFiltered.map((row) => inventoryDisplayOrBlank(inventoryValveTypeDisplay(row))),
       ),
       size: inventoryUniqueSortedValues(searchFiltered.map((row) => inventoryDisplayOrBlank(row.size))),
       pressure: inventoryUniqueSortedValues(
@@ -856,7 +907,10 @@ export function AdminInventoryPage() {
         return false
       }
       if (
-        !matchesInventoryColumnFilter(columnFilters.type, inventoryDisplayOrBlank(row.valve_type_label))
+        !matchesInventoryColumnFilter(
+          columnFilters.type,
+          inventoryDisplayOrBlank(inventoryValveTypeDisplay(row)),
+        )
       ) {
         return false
       }
@@ -939,6 +993,26 @@ export function AdminInventoryPage() {
       ) ?? null
     )
   }, [customerGroups, customerFilter])
+
+  const reportLookupRecords = useMemo(() => [...rows, ...removedRows], [rows, removedRows])
+
+  const reportItems = selectedCustomerGroup?.items ?? []
+  const reportPartsOnHand = useMemo(
+    () => reportItems.filter((item) => item.is_valve_part).length,
+    [reportItems],
+  )
+
+  const reportPeriodActivity = useMemo(() => {
+    if (!selectedCustomerGroup) {
+      return { added: [], removed: [], restored: [] }
+    }
+    return buildInventoryPeriodActivity({
+      events: reportEvents.length ? reportEvents : events,
+      customer: selectedCustomerGroup.customer,
+      periodLabel,
+      lookupRecords: reportLookupRecords,
+    })
+  }, [selectedCustomerGroup, reportEvents, events, periodLabel, reportLookupRecords])
 
   const selectedCustomerRow = useMemo(
     () => (customerFilter.trim() ? findCustomerByName(customerRows, customerFilter) : null),
@@ -1439,11 +1513,16 @@ export function AdminInventoryPage() {
     setSearchParams(next, { replace: true })
   }
 
-  const sendReportForGroup = async (group: {
-    customer: string
-    items: InventoryRecord[]
-    salesRepEmployeeId: string | null
-  }) => {
+  const sendReportForGroup = async (
+    group: {
+      customer: string
+      items: InventoryRecord[]
+      salesRepEmployeeId: string | null
+    },
+    options?: {
+      lookupRecords?: InventoryRecord[]
+    },
+  ) => {
     if (!user?.id) {
       showToast('Sign in with an employee account to send Messages')
       return { ok: false as const, error: 'Not signed in' }
@@ -1467,16 +1546,25 @@ export function AdminInventoryPage() {
       }
     }
 
+    const loaded = await loadInventoryEventsForCustomer(group.customer)
+    const reportEventList = loaded.data.length
+      ? loaded.data
+      : reportEvents.length
+        ? reportEvents
+        : events
     const { subject, body } = formatInventoryCustomerReportMessage({
       customer: group.customer,
       items: group.items,
       periodLabel,
       salesmanName: resolved.fullName,
+      events: reportEventList,
+      lookupRecords: options?.lookupRecords ?? reportLookupRecords,
       stats: buildInventoryCustomerReportStats({
         items: group.items,
-        events,
+        events: reportEventList,
         customer: group.customer,
         periodLabel,
+        lookupRecords: options?.lookupRecords ?? reportLookupRecords,
       }),
     })
 
@@ -1502,8 +1590,15 @@ export function AdminInventoryPage() {
       showToast('Choose a customer to generate the report')
       return
     }
+    if (!reportItems.length) {
+      showToast('No inventory items for this customer')
+      return
+    }
     setSendingReport(true)
-    const result = await sendReportForGroup(selectedCustomerGroup)
+    const result = await sendReportForGroup(
+      { ...selectedCustomerGroup, items: reportItems },
+      { lookupRecords: reportLookupRecords },
+    )
     setSendingReport(false)
     if (!result.ok) {
       showToast(result.error)
@@ -1512,17 +1607,76 @@ export function AdminInventoryPage() {
     showToast(`Monthly inventory report sent to ${result.salesmanName} in Messages`)
   }
 
+  const emailSelectedCustomerReport = async () => {
+    if (!selectedCustomerGroup) {
+      showToast('Choose a customer to email the report')
+      return
+    }
+    if (!reportItems.length) {
+      showToast('No inventory items for this customer')
+      return
+    }
+    if (!selectedCustomerGroup.salesRepEmployeeId) {
+      showToast(`Assign a salesman to ${selectedCustomerGroup.customer} first`)
+      return
+    }
+
+    setEmailingReport(true)
+    try {
+      const resolved = await resolveSalesmanEmail(selectedCustomerGroup.salesRepEmployeeId)
+      if (resolved.error) {
+        showToast(resolved.error)
+        return
+      }
+      const suggested = resolved.email?.trim() || ''
+      const prompted = window.prompt(
+        `Email inventory report for ${selectedCustomerGroup.customer} to:`,
+        suggested,
+      )
+      if (prompted == null) return
+      const toEmail = prompted.trim()
+      if (!toEmail) {
+        showToast('Enter an email address')
+        return
+      }
+
+      const customerEvents = await loadInventoryEventsForCustomer(selectedCustomerGroup.customer)
+      const result = await emailInventoryCustomerReport({
+        toEmail,
+        customer: selectedCustomerGroup.customer,
+        items: reportItems,
+        periodLabel,
+        salesmanName: resolved.fullName || selectedSalesmanName,
+        events: customerEvents.data.length ? customerEvents.data : events,
+        lookupRecords: reportLookupRecords,
+      })
+      if (result.error) {
+        showToast(result.error)
+        return
+      }
+      showToast(result.message || `Email draft opened for ${toEmail}`)
+    } finally {
+      setEmailingReport(false)
+    }
+  }
+
   const printSelectedCustomerReport = async () => {
     if (!selectedCustomerGroup) {
       showToast('Choose a customer to print the report')
       return
     }
+    if (!reportItems.length) {
+      showToast('No inventory items for this customer')
+      return
+    }
+    const customerEvents = await loadInventoryEventsForCustomer(selectedCustomerGroup.customer)
     const { error } = await printInventoryCustomerReport({
       customer: selectedCustomerGroup.customer,
-      items: selectedCustomerGroup.items,
+      items: reportItems,
       periodLabel,
       salesmanName: selectedSalesmanName,
-      events,
+      events: customerEvents.data.length ? customerEvents.data : events,
+      lookupRecords: reportLookupRecords,
     })
     if (error) showToast(error)
   }
@@ -1610,11 +1764,17 @@ export function AdminInventoryPage() {
           <div>
             <h3>Inventory by customer</h3>
             <p className="placeholder-copy">
-              Pull one customer&apos;s inventory, print a monthly report, or send it to the assigned salesman in
-              Messages. Assign the salesman below (mark salesmen on Admin → Employees first).
+              Pull one customer&apos;s inventory, print a monthly report, email it, or send it to the assigned
+              salesman in Messages. Assign the salesman below (mark salesmen on Admin → Employees first).
             </p>
           </div>
-          <p className="inventory-report-period">Period: {periodLabel}</p>
+          <div className="inventory-report-period-block">
+            <p className="inventory-report-period">{periodDateRange.rangeText}</p>
+            <p className="inventory-report-period-note">
+              Activity covers {periodDateRange.label}: {periodDateRange.rangeText}. The inventory table is always
+              current on-hand stock.
+            </p>
+          </div>
         </div>
         <div className="inventory-toolbar inventory-report-toolbar">
           <label className="inventory-toolbar-field inventory-toolbar-customer">
@@ -1644,6 +1804,11 @@ export function AdminInventoryPage() {
                 salesRepColumnMissing ||
                 savingSalesRep
               }
+              title={
+                salesRepColumnMissing
+                  ? 'Run supabase/migration-customers-sales-rep.sql in Supabase SQL Editor'
+                  : undefined
+              }
             >
               <option value="">
                 {!customerFilter.trim()
@@ -1651,7 +1816,7 @@ export function AdminInventoryPage() {
                   : !selectedCustomerRow
                     ? 'Customer not in Lists yet'
                     : salesRepColumnMissing
-                      ? 'Salesman column missing'
+                      ? 'Run DB migration to assign'
                       : salesmanOptions.length === 0 && !selectedSalesRepId
                         ? 'Mark salesmen on Employees'
                         : 'No salesman assigned'}
@@ -1664,15 +1829,47 @@ export function AdminInventoryPage() {
               ))}
             </select>
           </label>
+          <label className="inventory-toolbar-field">
+            <span>Period</span>
+            <select
+              value={periodLabel}
+              onChange={(e) => setReportPeriodLabel(e.target.value)}
+              aria-label="Filter report activity by period"
+            >
+              <optgroup label="Ranges">
+                {INVENTORY_REPORT_PERIOD_PRESETS.map((label) => (
+                  <option key={label} value={label}>
+                    {label}
+                  </option>
+                ))}
+              </optgroup>
+              <optgroup label="Months">
+                {reportPeriodMonthChoices.map((label) => (
+                  <option key={label} value={label}>
+                    {label}
+                  </option>
+                ))}
+              </optgroup>
+            </select>
+          </label>
           <div className="inventory-toolbar-meta">
             <span className="inventory-toolbar-count">
-              {selectedCustomerGroup ? (
+              {salesRepColumnMissing ? (
                 <>
-                  {selectedCustomerGroup.items.length} item
-                  {selectedCustomerGroup.items.length === 1 ? '' : 's'} for {selectedCustomerGroup.customer}
+                  Salesman assignment needs a database update — run{' '}
+                  <code>migration-customers-sales-rep.sql</code> in Supabase, then refresh.
+                  {salesmanOptions.length > 0
+                    ? ` (${salesmanOptions.length} salesman${salesmanOptions.length === 1 ? '' : 'men'} ready, including marked Employees).`
+                    : null}
+                </>
+              ) : selectedCustomerGroup ? (
+                <>
+                  {reportItems.length} item{reportItems.length === 1 ? '' : 's'} for{' '}
+                  {selectedCustomerGroup.customer}
                   {selectedSalesmanName
                     ? ` · Salesman: ${selectedSalesmanName}`
                     : ' · No salesman assigned'}
+                  {` · ${periodLabel}: ${reportPeriodActivity.added.length} added, ${reportPeriodActivity.removed.length} removed · ${reportPartsOnHand} parts on hand`}
                 </>
               ) : (
                 'Choose a customer to preview or send their monthly report'
@@ -1683,21 +1880,81 @@ export function AdminInventoryPage() {
                 type="button"
                 className="button-secondary"
                 onClick={printSelectedCustomerReport}
-                disabled={!selectedCustomerGroup}
+                disabled={!selectedCustomerGroup || reportItems.length === 0}
+                title="Opens the printable HTML report"
               >
                 Print customer report
               </button>
               <button
                 type="button"
+                className="button-secondary"
+                onClick={() => void emailSelectedCustomerReport()}
+                disabled={!selectedCustomerGroup || emailingReport || reportItems.length === 0}
+                title="Downloads the same HTML report as Print and opens Outlook — attach the file before sending"
+              >
+                {emailingReport ? 'Preparing email…' : 'Email report to salesman'}
+              </button>
+              <button
+                type="button"
                 className="button-primary"
                 onClick={() => void sendSelectedCustomerReport()}
-                disabled={!selectedCustomerGroup || sendingReport}
+                disabled={!selectedCustomerGroup || sendingReport || reportItems.length === 0}
               >
                 {sendingReport ? 'Sending…' : 'Send report to salesman'}
               </button>
             </div>
           </div>
         </div>
+        {selectedCustomerGroup &&
+        (reportPeriodActivity.added.length > 0 ||
+          reportPeriodActivity.removed.length > 0 ||
+          reportPeriodActivity.restored.length > 0) ? (
+          <div className="inventory-report-activity-preview">
+            <p className="inventory-report-activity-preview-title">
+              Period activity for {periodDateRange.rangeText} (also included on print / email)
+            </p>
+            <p className="placeholder-copy inventory-report-activity-preview-note">
+              On hand can be higher than valves added when some items were received before this period. Valve parts on
+              hand: {reportPartsOnHand}.
+            </p>
+            {reportPeriodActivity.added.length > 0 ? (
+              <div className="inventory-report-activity-group">
+                <h4>Added ({reportPeriodActivity.added.length})</h4>
+                <ul>
+                  {reportPeriodActivity.added.map((row) => (
+                    <li key={`add-${row.eventId}`}>
+                      {row.whenLabel} · {row.jsInventoryId} · {row.valveType} {row.size} · by {row.byName}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            ) : null}
+            {reportPeriodActivity.removed.length > 0 ? (
+              <div className="inventory-report-activity-group">
+                <h4>Removed ({reportPeriodActivity.removed.length})</h4>
+                <ul>
+                  {reportPeriodActivity.removed.map((row) => (
+                    <li key={`rm-${row.eventId}`}>
+                      {row.whenLabel} · {row.jsInventoryId} · by {row.byName} · PO {row.poNumber} · {row.reason}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            ) : null}
+            {reportPeriodActivity.restored.length > 0 ? (
+              <div className="inventory-report-activity-group">
+                <h4>Added back ({reportPeriodActivity.restored.length})</h4>
+                <ul>
+                  {reportPeriodActivity.restored.map((row) => (
+                    <li key={`back-${row.eventId}`}>
+                      {row.whenLabel} · {row.jsInventoryId} · {row.valveType} {row.size} · by {row.byName}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            ) : null}
+          </div>
+        ) : null}
       </section>
 
       <section className="dashboard-panel">
@@ -2083,7 +2340,7 @@ export function AdminInventoryPage() {
                         <td>{display(row.customer)}</td>
                         <td>{display(row.customer_id_no)}</td>
                         <td>{display(row.manufacturer_name)}</td>
-                        <td>{display(row.valve_type_label)}</td>
+                        <td>{display(inventoryValveTypeDisplay(row))}</td>
                         <td>{display(row.size)}</td>
                         <td>{display(row.pressure)}</td>
                         <td>{display(formatInventoryLocationLabel(row.origin))}</td>
@@ -2235,13 +2492,17 @@ export function AdminInventoryPage() {
                                   <span className="inventory-detail-value">{display(row.manufacturer_name)}</span>
                                 </div>
                                 <div className="inventory-detail-item">
-                                  <span className="inventory-detail-label">
-                                    {row.is_valve_part ? 'Part type' : 'Type'}
-                                  </span>
+                                  <span className="inventory-detail-label">Type</span>
                                   <span className="inventory-detail-value">
-                                    {display(row.is_valve_part ? row.part_type : row.valve_type_label)}
+                                    {display(inventoryValveTypeDisplay(row))}
                                   </span>
                                 </div>
+                                {row.is_valve_part ? (
+                                  <div className="inventory-detail-item">
+                                    <span className="inventory-detail-label">Part type</span>
+                                    <span className="inventory-detail-value">{display(row.part_type)}</span>
+                                  </div>
+                                ) : null}
                                 <div className="inventory-detail-item">
                                   <span className="inventory-detail-label">Size</span>
                                   <span className="inventory-detail-value">{display(row.size)}</span>
@@ -2476,7 +2737,13 @@ export function AdminInventoryPage() {
                     <input
                       type="checkbox"
                       checked={form.isValvePart}
-                      onChange={(e) => patchForm({ isValvePart: e.target.checked })}
+                      onChange={(e) => {
+                        const isValvePart = e.target.checked
+                        patchForm({
+                          isValvePart,
+                          ...(isValvePart ? { valveType: INVENTORY_PART_VALVE_TYPE_LABEL } : {}),
+                        })
+                      }}
                     />
                     <span>
                       Valve part

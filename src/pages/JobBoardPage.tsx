@@ -2,8 +2,10 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { CopyJobModal } from '../components/CopyJobModal'
 import { DueDateChangeModal } from '../components/DueDateChangeModal'
+import { JobTestBadges, valveHasTestBadge } from '../components/JobTestBadges'
 import { ReworkReasonModal } from '../components/ReworkReasonModal'
 import { StatusBadge } from '../components/StatusBadge'
+import { TestingKindModal } from '../components/TestingKindModal'
 import { FinishCellBadge } from '../components/FinishCellBadge'
 import { TechnicianAvatars } from '../components/TechnicianAvatars'
 import { JobCardItpStatusBar } from '../components/JobCardItpStatusBar'
@@ -33,6 +35,7 @@ import {
   loadOutsourcedCardSummaries,
   type OutsourcedCardSummary,
 } from '../lib/valveOutsourcedItems'
+import type { ShopTestKind } from '../lib/testKind'
 import { valveStatusPatch } from '../lib/valveStatusPatch'
 import {
   compareValvesBySort,
@@ -84,13 +87,6 @@ function dueDateLabel(raw: string | null): string | null {
   const trimmed = raw.trim()
   if (!trimmed) return null
   return trimmed
-}
-
-function formatShortDate(raw: string | null | undefined): string | null {
-  const value = String(raw ?? '').trim().slice(0, 10)
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return null
-  const [, month, day] = value.split('-')
-  return `${month}/${day}`
 }
 
 function isDueDateOverdue(raw: string | null): boolean {
@@ -258,8 +254,7 @@ function KanbanJobCard({
           ? ' job-card-urgency-soon'
           : ''
   const isInTesting = valve.status === 'Testing'
-  const testedDateLabel = formatShortDate(valve.date_tested)
-  const showTestedBadge = Boolean(testedDateLabel) && !isInTesting
+  const showTestedBadge = valveHasTestBadge(valve) && !isInTesting
   const outsourced = outsourcedSummaries[valve.id]
   const outsourcedExpectedLabel = outsourced
     ? formatOutsourcedExpectedLabel(outsourced.latestExpectedBack)
@@ -328,21 +323,7 @@ function KanbanJobCard({
           <div className="job-card-failure-analysis-flag">Failure analysis</div>
         ) : null}
         <div className="job-card-job-type-badge">{normalizeJobType(valve.job_type)}</div>
-        {isInTesting || showTestedBadge ? (
-          <div className="job-card-test-flags">
-            {isInTesting ? (
-              <span className="job-card-testing-badge" title="Currently in the test area">
-                In testing
-                {testedDateLabel ? ` · ${testedDateLabel}` : ''}
-              </span>
-            ) : null}
-            {showTestedBadge ? (
-              <span className="job-card-tested-badge" title={`Shop date tested: ${valve.date_tested}`}>
-                Tested {testedDateLabel}
-              </span>
-            ) : null}
-          </div>
-        ) : null}
+        <JobTestBadges valve={valve} />
         <div className="job-id">{valve.valve_id}</div>
         <div className="job-muted truncate">{valve.customer ?? 'Unknown customer'}</div>
         <div className="job-muted small"><FinishCellBadge cell={valve.cell} /></div>
@@ -531,6 +512,8 @@ export function JobBoardPage({ role, username }: { role?: UserRole; username?: s
     nextStatus: string
     mode: 'status-only' | 'modal-save'
     modalFields?: JobCardSaveFields
+    testKind?: ShopTestKind
+    dueDateReason?: string
   } | null>(null)
   const [savingRework, setSavingRework] = useState(false)
   const [pendingResumeDueDate, setPendingResumeDueDate] = useState<{
@@ -540,6 +523,15 @@ export function JobBoardPage({ role, username }: { role?: UserRole; username?: s
     modalFields?: JobCardSaveFields
   } | null>(null)
   const [savingResumeDueDate, setSavingResumeDueDate] = useState(false)
+  const [pendingTestingKind, setPendingTestingKind] = useState<{
+    valve: Valve
+    nextStatus: string
+    mode: 'status-only' | 'modal-save'
+    modalFields?: JobCardSaveFields
+    nextDueDate?: string | null
+    dueDateReason?: string
+  } | null>(null)
+  const [savingTestingKind, setSavingTestingKind] = useState(false)
   const [phaseOrder, setPhaseOrder] = useState<PhaseOrder>(() => {
     try {
       const stored = window.localStorage.getItem(ORDER_STORAGE_KEY)
@@ -1066,6 +1058,7 @@ export function JobBoardPage({ role, username }: { role?: UserRole; username?: s
     nextStatus: string,
     reworkReason?: string,
     dueDateReason?: string,
+    testKind?: ShopTestKind,
   ) => {
     const patch: Partial<Valve> = {
       description: fields.description.trim() || null,
@@ -1089,7 +1082,7 @@ export function JobBoardPage({ role, username }: { role?: UserRole; username?: s
     }
     const statusChanged = nextStatus !== valve.status
     if (statusChanged) {
-      Object.assign(patch, valveStatusPatch(nextStatus, valve))
+      Object.assign(patch, valveStatusPatch(nextStatus, valve, { testKind }))
     }
 
     const previousDueDate = dueDateLabel(valve.due_date)
@@ -1160,6 +1153,15 @@ export function JobBoardPage({ role, username }: { role?: UserRole; username?: s
         return
       }
     }
+    if (selectedStatus === 'Testing' && activeValve.status !== 'Testing') {
+      setPendingTestingKind({
+        valve: activeValve,
+        nextStatus: selectedStatus,
+        mode: 'modal-save',
+        modalFields: fields,
+      })
+      return
+    }
     if (isBackwardStatusMove(activeValve.status, selectedStatus)) {
       setPendingRework({
         valve: activeValve,
@@ -1179,11 +1181,14 @@ export function JobBoardPage({ role, username }: { role?: UserRole; username?: s
       reworkReason?: string
       nextDueDate?: string | null
       dueDateReason?: string
+      testKind?: ShopTestKind
     },
   ) => {
     if (!nextStatus || valve.status === nextStatus) return false
     const previous = { ...valve }
-    const patch: Partial<Valve> = valveStatusPatch(nextStatus, valve)
+    const patch: Partial<Valve> = valveStatusPatch(nextStatus, valve, {
+      testKind: options?.testKind,
+    })
     const dueDateProvided = options != null && 'nextDueDate' in options
     const previousDueDate = dueDateLabel(valve.due_date)
     const nextDueDate = dueDateProvided ? options.nextDueDate?.trim() || null : previousDueDate
@@ -1249,6 +1254,27 @@ export function JobBoardPage({ role, username }: { role?: UserRole; username?: s
     return true
   }
 
+  const updateShopTestDates = async (dates: {
+    date_pre_tested: string | null
+    date_tested: string | null
+  }) => {
+    if (!activeValve) return
+    if (!canWrite) {
+      showToast(permissionDeniedReason('shopWrite'))
+      throw new Error(permissionDeniedReason('shopWrite'))
+    }
+    const patch = {
+      date_pre_tested: dates.date_pre_tested?.trim() || null,
+      date_tested: dates.date_tested?.trim() || null,
+    }
+    const { error } = await supabase.from('valves').update(patch).eq('id', activeValve.id)
+    if (error) {
+      throw new Error(error.message || 'Could not update shop test stamps')
+    }
+    setValves((prev) => prev.map((v) => (v.id === activeValve.id ? { ...v, ...patch } : v)))
+    setActiveValve((prev) => (prev && prev.id === activeValve.id ? { ...prev, ...patch } : prev))
+  }
+
   const confirmPendingRework = async (reason: string) => {
     if (!pendingRework) return
     setSavingRework(true)
@@ -1259,16 +1285,61 @@ export function JobBoardPage({ role, username }: { role?: UserRole; username?: s
           pendingRework.modalFields,
           pendingRework.nextStatus,
           reason,
+          pendingRework.dueDateReason,
+          pendingRework.testKind,
         )
         if (ok) setPendingRework(null)
       } else {
         const ok = await applyStatusMove(pendingRework.valve, pendingRework.nextStatus, {
           reworkReason: reason,
+          testKind: pendingRework.testKind,
+          dueDateReason: pendingRework.dueDateReason,
         })
         if (ok) setPendingRework(null)
       }
     } finally {
       setSavingRework(false)
+    }
+  }
+
+  const confirmTestingKind = async (testKind: ShopTestKind) => {
+    if (!pendingTestingKind) return
+    setSavingTestingKind(true)
+    try {
+      if (isBackwardStatusMove(pendingTestingKind.valve.status, pendingTestingKind.nextStatus)) {
+        setPendingRework({
+          valve: pendingTestingKind.valve,
+          nextStatus: pendingTestingKind.nextStatus,
+          mode: pendingTestingKind.mode,
+          modalFields: pendingTestingKind.modalFields,
+          testKind,
+          dueDateReason: pendingTestingKind.dueDateReason,
+        })
+        setPendingTestingKind(null)
+        return
+      }
+      if (pendingTestingKind.mode === 'modal-save' && pendingTestingKind.modalFields) {
+        const ok = await applyModalSave(
+          pendingTestingKind.valve,
+          pendingTestingKind.modalFields,
+          pendingTestingKind.nextStatus,
+          undefined,
+          pendingTestingKind.dueDateReason,
+          testKind,
+        )
+        if (ok) setPendingTestingKind(null)
+      } else {
+        const ok = await applyStatusMove(pendingTestingKind.valve, pendingTestingKind.nextStatus, {
+          testKind,
+          dueDateReason: pendingTestingKind.dueDateReason,
+          ...(pendingTestingKind.nextDueDate !== undefined
+            ? { nextDueDate: pendingTestingKind.nextDueDate }
+            : {}),
+        })
+        if (ok) setPendingTestingKind(null)
+      }
+    } finally {
+      setSavingTestingKind(false)
     }
   }
 
@@ -1281,6 +1352,17 @@ export function JobBoardPage({ role, username }: { role?: UserRole; username?: s
           ...pendingResumeDueDate.modalFields,
           dueDate: nextDueDate,
         }
+        if (pendingResumeDueDate.nextStatus === 'Testing' && pendingResumeDueDate.valve.status !== 'Testing') {
+          setPendingResumeDueDate(null)
+          setPendingTestingKind({
+            valve: pendingResumeDueDate.valve,
+            nextStatus: pendingResumeDueDate.nextStatus,
+            mode: 'modal-save',
+            modalFields: fields,
+            dueDateReason: reason,
+          })
+          return
+        }
         if (isBackwardStatusMove(pendingResumeDueDate.valve.status, pendingResumeDueDate.nextStatus)) {
           setPendingResumeDueDate(null)
           setPendingRework({
@@ -1288,6 +1370,7 @@ export function JobBoardPage({ role, username }: { role?: UserRole; username?: s
             nextStatus: pendingResumeDueDate.nextStatus,
             mode: 'modal-save',
             modalFields: fields,
+            dueDateReason: reason,
           })
           return
         }
@@ -1300,6 +1383,27 @@ export function JobBoardPage({ role, username }: { role?: UserRole; username?: s
         )
         if (ok) setPendingResumeDueDate(null)
       } else {
+        if (pendingResumeDueDate.nextStatus === 'Testing' && pendingResumeDueDate.valve.status !== 'Testing') {
+          setPendingResumeDueDate(null)
+          setPendingTestingKind({
+            valve: pendingResumeDueDate.valve,
+            nextStatus: pendingResumeDueDate.nextStatus,
+            mode: 'status-only',
+            nextDueDate,
+            dueDateReason: reason,
+          })
+          return
+        }
+        if (isBackwardStatusMove(pendingResumeDueDate.valve.status, pendingResumeDueDate.nextStatus)) {
+          setPendingResumeDueDate(null)
+          setPendingRework({
+            valve: pendingResumeDueDate.valve,
+            nextStatus: pendingResumeDueDate.nextStatus,
+            mode: 'status-only',
+            dueDateReason: reason,
+          })
+          return
+        }
         const ok = await applyStatusMove(pendingResumeDueDate.valve, pendingResumeDueDate.nextStatus, {
           nextDueDate,
           dueDateReason: reason,
@@ -1613,6 +1717,10 @@ export function JobBoardPage({ role, username }: { role?: UserRole; username?: s
     if (!nextStatus || valve.status === nextStatus) return
     if (requiresDueDateUpdateWhenLeavingOtdPause(valve.status, nextStatus)) {
       setPendingResumeDueDate({ valve, nextStatus, mode: 'status-only' })
+      return
+    }
+    if (nextStatus === 'Testing') {
+      setPendingTestingKind({ valve, nextStatus, mode: 'status-only' })
       return
     }
     if (isBackwardStatusMove(valve.status, nextStatus)) {
@@ -1933,13 +2041,7 @@ export function JobBoardPage({ role, username }: { role?: UserRole; username?: s
                     <td>
                       <div className="list-status-cell">
                         <StatusBadge status={valve.status} />
-                        {valve.status === 'Testing' ? (
-                          <span className="job-card-testing-badge">In testing</span>
-                        ) : valve.date_tested ? (
-                          <span className="job-card-tested-badge" title={`Shop date tested: ${valve.date_tested}`}>
-                            Tested {formatShortDate(valve.date_tested) ?? valve.date_tested}
-                          </span>
-                        ) : null}
+                        <JobTestBadges valve={valve} className="job-card-test-flags list-status-test-flags" />
                       </div>
                     </td>
                     <td>
@@ -2119,6 +2221,17 @@ export function JobBoardPage({ role, username }: { role?: UserRole; username?: s
         />
       ) : null}
 
+      {pendingTestingKind ? (
+        <TestingKindModal
+          valve={pendingTestingKind.valve}
+          isSaving={savingTestingKind}
+          onCancel={() => {
+            if (!savingTestingKind) setPendingTestingKind(null)
+          }}
+          onConfirm={confirmTestingKind}
+        />
+      ) : null}
+
       {activeValve ? (
         <StatusChangeModal
           valve={activeValve}
@@ -2129,6 +2242,7 @@ export function JobBoardPage({ role, username }: { role?: UserRole; username?: s
           onCancel={closeModal}
           isSaving={isSaving}
           onSaveAll={saveModalChanges}
+          onUpdateShopTestDates={updateShopTestDates}
           assignedTechnicianIds={technicianIdsForValve(activeValve)}
           assignedTechnicianId={activeValve.assigned_technician_id ?? null}
           onAssignmentsChanged={loadJobTechnicianAssignments}

@@ -1696,6 +1696,57 @@ body {
   align-items: center;
 }
 
+.test-log-shop-kind {
+  margin: 0 0 1.25rem;
+  padding: 0.875rem 1rem;
+  border: 1px solid var(--tl-border-soft);
+  border-radius: var(--tl-radius-lg);
+  background: #f8fafc;
+}
+
+.test-log-shop-kind-title {
+  font-size: 0.875rem;
+  font-weight: 700;
+  color: var(--tl-heading);
+}
+
+.test-log-shop-kind-hint {
+  margin: 0.25rem 0 0.75rem;
+  font-size: 0.8125rem;
+  color: #64748b;
+  line-height: 1.4;
+}
+
+.test-log-shop-kind-options {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.test-log-shop-kind-option {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.45rem 0.75rem;
+  border: 1px solid #cbd5e1;
+  border-radius: 8px;
+  background: #fff;
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: #334155;
+  cursor: pointer;
+}
+
+.test-log-shop-kind-option.is-selected {
+  border-color: #2563eb;
+  background: #eff6ff;
+  color: #1d4ed8;
+}
+
+.test-log-shop-kind-option input {
+  margin: 0;
+}
+
 .test-log-entry-panel input[readonly] {
   background: #f8fafc;
   color: #334155;
@@ -8352,6 +8403,10 @@ a.test-log-reports-item-name:hover {
   margin: 0 0 6px;
 }
 
+.list-status-test-flags {
+  margin: 0;
+}
+
 .job-card-testing-badge,
 .job-card-tested-badge {
   display: inline-flex;
@@ -8375,6 +8430,51 @@ a.test-log-reports-item-name:hover {
   color: #166534;
   background: #ecfdf3;
   border: 1px solid #bbf7d0;
+}
+
+.job-card-pretested-badge {
+  color: #1e40af;
+  background: #eff6ff;
+  border: 1px solid #bfdbfe;
+}
+
+.job-card-finaltested-badge {
+  color: #166534;
+  background: #ecfdf3;
+  border: 1px solid #bbf7d0;
+}
+
+.testing-kind-options {
+  display: grid;
+  gap: 8px;
+  margin: 12px 0 4px;
+}
+
+.testing-kind-option {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  padding: 10px 12px;
+  border: 1px solid #dbe4ef;
+  border-radius: 8px;
+  background: #fff;
+  cursor: pointer;
+}
+
+.testing-kind-option.is-selected {
+  border-color: #93c5fd;
+  background: #f8fbff;
+}
+
+.testing-kind-option input {
+  margin-top: 3px;
+}
+
+.testing-kind-option-hint {
+  display: block;
+  margin-top: 2px;
+  font-size: 12px;
+  color: #64748b;
 }
 
 .job-card.job-card-in-testing {
@@ -10035,6 +10135,68 @@ tbody tr:hover {
 
 .modal-test-log-shop-date {
   margin-bottom: 8px;
+}
+
+.modal-shop-test-stamps {
+  margin: 0 0 12px;
+  padding: 10px 12px;
+  border: 1px solid #dbe4ef;
+  border-radius: 8px;
+  background: #f8fafc;
+}
+
+.modal-shop-test-stamps-title {
+  font-size: 13px;
+  font-weight: 700;
+  color: #0f172a;
+  margin-bottom: 4px;
+}
+
+.modal-shop-test-stamps-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+  margin: 8px 0;
+}
+
+.modal-shop-test-stamps-grid label {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 12px;
+  font-weight: 600;
+  color: #475569;
+}
+
+.modal-shop-test-stamps-grid input[type='date'] {
+  font-weight: 500;
+  padding: 6px 8px;
+  border: 1px solid #cbd5e1;
+  border-radius: 6px;
+  background: #fff;
+}
+
+.modal-shop-test-stamps-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.modal-test-log-pre-hint {
+  color: #1d4ed8;
+  font-weight: 600;
+}
+
+.modal-test-log-stamp-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 6px;
+}
+
+.modal-test-log-stamp-btn {
+  padding: 4px 8px;
+  font-size: 12px;
 }
 
 .modal-test-log-list {
@@ -17563,8 +17725,62 @@ tbody tr:hover {
 }
 
 .inventory-report-toolbar {
-  grid-template-columns: minmax(200px, 0.85fr) minmax(180px, 0.7fr) minmax(0, 1.5fr);
+  grid-template-columns:
+    minmax(180px, 0.8fr)
+    minmax(160px, 0.65fr)
+    minmax(150px, 0.55fr)
+    minmax(0, 1.5fr);
   margin-bottom: 0;
+}
+
+.inventory-report-period-block {
+  text-align: right;
+  max-width: 18rem;
+}
+
+.inventory-report-period-note {
+  margin: 0.35rem 0 0;
+  font-size: 0.8rem;
+  line-height: 1.35;
+  color: #64748b;
+}
+
+.inventory-report-activity-preview {
+  margin-top: 0.85rem;
+  padding: 0.75rem 0.9rem;
+  border: 1px solid #e2e8f0;
+  border-radius: 10px;
+  background: #f8fafc;
+}
+
+.inventory-report-activity-preview-title {
+  margin: 0;
+  font-size: 0.85rem;
+  font-weight: 700;
+  color: #0f172a;
+}
+
+.inventory-report-activity-preview-note {
+  margin: 0.35rem 0 0.65rem;
+}
+
+.inventory-report-activity-group {
+  margin-top: 0.55rem;
+}
+
+.inventory-report-activity-group h4 {
+  margin: 0 0 0.25rem;
+  font-size: 0.8rem;
+  font-weight: 700;
+  color: #115e59;
+}
+
+.inventory-report-activity-group ul {
+  margin: 0;
+  padding-left: 1.1rem;
+  color: #334155;
+  font-size: 0.82rem;
+  line-height: 1.45;
 }
 
 .inventory-toolbar-field {

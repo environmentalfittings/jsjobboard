@@ -9,6 +9,8 @@ export const TEST_LOG_PREFILL_KEYS = {
   cell: 'cell',
   description: 'description',
   jobStatus: 'jobStatus',
+  /** Open an existing test_logs row for edit. */
+  editId: 'editId',
 } as const
 
 export type JobCardTestLogPrefill = {
@@ -21,6 +23,7 @@ export type JobCardTestLogPrefill = {
   cell?: string | null
   description?: string | null
   jobStatus?: string | null
+  editId?: number | string | null
 }
 
 const MAX_DESCRIPTION_LEN = 1500
@@ -54,6 +57,11 @@ export function buildTestLogEntryHref(p: JobCardTestLogPrefill): string {
 
   const st = (p.jobStatus ?? '').trim()
   if (st) params.set(TEST_LOG_PREFILL_KEYS.jobStatus, st)
+
+  const editRaw = p.editId == null ? '' : String(p.editId).trim()
+  if (editRaw && /^\d+$/.test(editRaw)) {
+    params.set(TEST_LOG_PREFILL_KEYS.editId, editRaw)
+  }
 
   const qs = params.toString()
   return qs ? `/test-log-entry?${qs}` : '/test-log-entry'

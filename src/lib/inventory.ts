@@ -109,6 +109,8 @@ export const INVENTORY_OPERATORS = [
   'Other',
 ] as const
 export const INVENTORY_ORIGINS = ['JS Warehouse', 'JS Yard', 'JS Cage', 'other'] as const
+/** Stored/displayed valve type when the item is a valve part. */
+export const INVENTORY_PART_VALVE_TYPE_LABEL = 'Part'
 export const INVENTORY_CONDITIONS = [
   { value: 'new', label: 'New' },
   { value: 'reconditioned', label: 'Reconditioned' },
@@ -453,6 +455,16 @@ export function inventoryEventLabel(eventType: string): string {
   return eventType
 }
 
+/** Type column value — valve parts always show as Part. */
+export function inventoryValveTypeDisplay(
+  row: Pick<InventoryRecord, 'is_valve_part' | 'valve_type_label' | 'valve_type_id'>,
+): string {
+  if (row.is_valve_part) {
+    return row.valve_type_label?.trim() || INVENTORY_PART_VALVE_TYPE_LABEL
+  }
+  return row.valve_type_label?.trim() || row.valve_type_id?.trim() || ''
+}
+
 const INVENTORY_FULL_SELECT = `${INVENTORY_SELECT},valve_image_url,tag_image_url,qr_code_data_url,hf_acid,is_valve_part,part_type,${INVENTORY_CONDITION_SELECT},${INVENTORY_REMOVAL_SELECT},valve_types(label)`
 
 async function logInventoryEvent(options: {
@@ -495,13 +507,62 @@ export async function loadInventoryEvents(): Promise<{ data: InventoryEvent[]; e
       'id,inventory_id,event_type,reason,po_number,js_inventory_id,customer,customer_id_no,created_by_user_id,created_by_name,created_at',
     )
     .order('created_at', { ascending: false })
-    .limit(500)
+    .limit(2000)
 
   if (error) {
     if (/inventory_events|schema cache|does not exist/i.test(error.message)) {
       return { data: [], error: null }
     }
     return { data: [], error: error.message }
+  }
+
+  return {
+    data: ((data ?? []) as InventoryEvent[]).map((row) => ({
+      ...row,
+      id: Number(row.id),
+      inventory_id: String(row.inventory_id),
+      event_type: row.event_type,
+      reason: String(row.reason ?? ''),
+      po_number: row.po_number ? String(row.po_number) : null,
+      js_inventory_id: row.js_inventory_id ? String(row.js_inventory_id) : null,
+      customer: row.customer ? String(row.customer) : null,
+      customer_id_no: row.customer_id_no ? String(row.customer_id_no) : null,
+      created_by_user_id: row.created_by_user_id ? String(row.created_by_user_id) : null,
+      created_by_name: row.created_by_name ? String(row.created_by_name) : null,
+      created_at: String(row.created_at),
+    })),
+    error: null,
+  }
+}
+
+/** All events for one customer (for accurate report period counts). */
+export async function loadInventoryEventsForCustomer(
+  customer: string,
+): Promise<{ data: InventoryEvent[]; error: string | null }> {
+  const name = customer.trim()
+  if (!name) return { data: [], error: null }
+
+  const { data, error } = await supabase
+    .from('inventory_events')
+    .select(
+      'id,inventory_id,event_type,reason,po_number,js_inventory_id,customer,customer_id_no,created_by_user_id,created_by_name,created_at',
+    )
+    .ilike('customer', name)
+    .order('created_at', { ascending: false })
+    .limit(5000)
+
+  if (error) {
+    if (/inventory_events|schema cache|does not exist/i.test(error.message)) {
+      return { data: [], error: null }
+    }
+    // ilike may fail on some setups — fall back to unfiltered load
+    const fallback = await loadInventoryEvents()
+    if (fallback.error) return fallback
+    const key = name.toLowerCase()
+    return {
+      data: fallback.data.filter((event) => (event.customer ?? '').trim().toLowerCase() === key),
+      error: null,
+    }
   }
 
   return {
@@ -878,7 +939,7 @@ function formToPayload(form: InventoryFormState, manufacturerId: string | null, 
     customer: form.customer.trim() || null,
     manufacturer_id: manufacturerId,
     manufacturer_name: form.manufacturerName.trim() || null,
-    valve_type_id: isPart ? null : valveTypeId,
+    valve_type_id: valveTypeId,
     body_material: form.bodyMaterial.trim() || null,
     api_trim: isPart ? null : form.apiTrim.trim() || null,
     size: form.size.trim() || null,
@@ -1187,7 +1248,7 @@ export async function createInventoryRecord(
   }
   const [manufacturerId, valveTypeId, valveUpload, tagUpload, allocated] = await Promise.all([
     ensureManufacturerId(form.manufacturerName),
-    form.isValvePart ? Promise.resolve(null) : ensureValveTypeId(form.valveType),
+    ensureValveTypeId(form.isValvePart ? INVENTORY_PART_VALVE_TYPE_LABEL : form.valveType),
     uploadInventoryPhoto(id, 'valve', photos.valve),
     photos.tag
       ? uploadInventoryPhoto(id, 'tag', photos.tag)
@@ -1333,7 +1394,7 @@ export async function updateInventoryRecord(
 
   const [manufacturerId, valveTypeId] = await Promise.all([
     ensureManufacturerId(form.manufacturerName),
-    form.isValvePart ? Promise.resolve(null) : ensureValveTypeId(form.valveType),
+    ensureValveTypeId(form.isValvePart ? INVENTORY_PART_VALVE_TYPE_LABEL : form.valveType),
   ])
 
   let nextValveUrl = valveUrl

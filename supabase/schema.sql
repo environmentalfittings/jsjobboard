@@ -18,6 +18,7 @@ create table if not exists public.valves (
   order_type text,
   due_date date,
   date_tested date,
+  date_pre_tested date,
   date_closed date,
   description text,
   notes text,

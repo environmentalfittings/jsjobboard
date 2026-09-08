@@ -1,4 +1,5 @@
 import { TEST_AND_DISPOSE_NOTIFY_RECIPIENT_NAMES } from '../constants/testLogDisposeNotifyRecipients'
+import { employeeLoginEmail, normalizeEmployeeUsername } from './employeeAuth'
 import { isFeedbackEnabled } from './feedbackEnabled'
 import { loadUnseenFeedbackResolutions, markFeedbackResolutionSeen } from './feedbackNotifications'
 import {
@@ -7,7 +8,6 @@ import {
   type MessageAttachment,
 } from './messageAttachments'
 import { loadTechniciansForMessages } from './messageRecipients'
-import { normalizeEmployeeUsername } from './employeeAuth'
 import { isQualityTeamMember } from './qualityTeam'
 import { normalizeQualityTeamLevel } from '../types/employees'
 import { supabase } from './supabase'
@@ -923,6 +923,59 @@ export async function resolveEmployeeAuthUserId(employeeId: string): Promise<{
     fullName,
     error: null,
   }
+}
+
+/** Resolve a workable email for emailing inventory reports to a salesman. */
+export async function resolveSalesmanEmail(employeeId: string): Promise<{
+  email: string | null
+  fullName: string | null
+  error: string | null
+}> {
+  const id = employeeId.trim()
+  if (!id) return { email: null, fullName: null, error: null }
+
+  const { data: employee, error } = await supabase
+    .from('employees')
+    .select('id,full_name,employee_no,username,is_active')
+    .eq('id', id)
+    .maybeSingle()
+
+  if (error) return { email: null, fullName: null, error: error.message }
+  if (!employee) return { email: null, fullName: null, error: 'Salesman employee not found' }
+  if (employee.is_active === false) {
+    return { email: null, fullName: String(employee.full_name ?? ''), error: 'Salesman employee is inactive' }
+  }
+
+  const fullName = String(employee.full_name ?? '').trim() || null
+  const employeeNo = String(employee.employee_no ?? '').trim()
+  const username = normalizeEmployeeUsername(String(employee.username ?? ''))
+
+  const { data: techs } = await supabase
+    .from('technicians')
+    .select('login_email,employee_id,login_username,active')
+    .eq('active', true)
+    .limit(500)
+
+  const match = ((techs ?? []) as {
+    login_email: string | null
+    employee_id: string | null
+    login_username: string | null
+  }[]).find((row) => {
+    const byNo = employeeNo && row.employee_id?.trim() === employeeNo
+    const byUser = username && normalizeEmployeeUsername(row.login_username ?? '') === username
+    return Boolean(byNo || byUser)
+  })
+
+  const techEmail = match?.login_email?.trim() || null
+  if (techEmail && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(techEmail)) {
+    return { email: techEmail, fullName, error: null }
+  }
+
+  if (username) {
+    return { email: employeeLoginEmail(username), fullName, error: null }
+  }
+
+  return { email: null, fullName, error: 'No email found for this salesman' }
 }
 
 /** Send a monthly Customer Inventory report to the assigned salesman via Messages. */

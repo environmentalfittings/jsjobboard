@@ -1,5 +1,6 @@
 import { DONE_STATUSES } from '../constants/statuses'
 import { isOtdPauseStatus } from './onTimeDelivery'
+import type { ShopTestKind } from './testKind'
 import type { Valve } from '../types'
 
 type ValveStatusContext = Pick<Valve, 'status' | 'order_type' | 'date_closed'>
@@ -8,12 +9,18 @@ type ValveStatusContext = Pick<Valve, 'status' | 'order_type' | 'date_closed'>
 export function valveStatusPatch(
   nextStatus: string,
   previousValve?: ValveStatusContext | null,
+  options?: { testKind?: ShopTestKind },
 ): Partial<Valve> {
   const today = new Date().toISOString().slice(0, 10)
   const patch: Partial<Valve> = { status: nextStatus }
 
   if (nextStatus === 'Testing') {
-    patch.date_tested = today
+    // Pre-test stamps date_pre_tested; Final (default) stamps date_tested.
+    if (options?.testKind === 'pre') {
+      patch.date_pre_tested = today
+    } else {
+      patch.date_tested = today
+    }
   }
 
   if (nextStatus === 'Completed' || nextStatus === 'Warehouse RTS') {

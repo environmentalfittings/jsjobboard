@@ -31,10 +31,15 @@ import {
   validateReliefValveFields,
   valveSizeSelectOptions,
 } from '../../lib/reliefValveTest'
+import { isPretestLogText, type ShopTestKind } from '../../lib/testKind'
 import { supabase } from '../../lib/supabase'
 import { normalizeValveId } from '../../lib/valveId'
 import { uploadTestLogReport } from '../../lib/testLogReports'
-import { isMissingTestingDetailsError, TEST_LOG_DETAILS_MIGRATION } from '../../lib/testLogSchema'
+import {
+  isMissingTestingDetailsError,
+  TEST_LOG_DETAILS_MIGRATION,
+  testLogSelectColumns,
+} from '../../lib/testLogSchema'
 import { buildTestStandardParams, type TestPhaseResult } from '../../lib/testStandardParams'
 import {
   defaultSeatTypeForValve,
@@ -162,8 +167,10 @@ export function TestLogEntryForm({
   const [entryStarted, setEntryStarted] = useState(false)
   const [loadingEntry, setLoadingEntry] = useState(false)
   const [editingId, setEditingId] = useState<number | null>(null)
+  const [shopTestKind, setShopTestKind] = useState<ShopTestKind>('final')
   const lastPrefilledValveId = useRef<string | null>(null)
   const autoOpenedFromUrl = useRef(false)
+  const autoEditFromUrl = useRef(false)
   const skipStandardsSyncRef = useRef(false)
   const formTopRef = useRef<HTMLElement | null>(null)
   const { showToast } = useToast()
@@ -433,8 +440,12 @@ export function TestLogEntryForm({
       setValveTypeLoadedFromJob(Boolean(prefill.valveType?.trim()))
       setValveLookupStatus('found')
       lastPrefilledValveId.current = prefill.valveId
+      const urlTestType = searchParams.get(TEST_LOG_PREFILL_KEYS.testType)
+      setShopTestKind(isPretestLogText(urlTestType, prefill.testType) ? 'pre' : 'final')
     } else {
       setValveLookupStatus('missing')
+      const urlTestType = searchParams.get(TEST_LOG_PREFILL_KEYS.testType)
+      setShopTestKind(isPretestLogText(urlTestType) ? 'pre' : 'final')
     }
 
     applyUrlPrefillOverrides()
@@ -443,6 +454,8 @@ export function TestLogEntryForm({
   }
 
   useEffect(() => {
+    const editRaw = searchParams.get(TEST_LOG_PREFILL_KEYS.editId)?.trim() ?? ''
+    if (editRaw) return
     const vid = searchParams.get(TEST_LOG_PREFILL_KEYS.valveId)?.trim()
     if (!vid || autoOpenedFromUrl.current || entryStarted) return
 
@@ -526,7 +539,9 @@ export function TestLogEntryForm({
     setEntryStarted(false)
     setLoadingEntry(false)
     setEditingId(null)
+    setShopTestKind('final')
     autoOpenedFromUrl.current = false
+    autoEditFromUrl.current = false
     skipStandardsSyncRef.current = false
     setSearchParams({}, { replace: true })
   }
@@ -542,6 +557,9 @@ export function TestLogEntryForm({
     setValveType(canonicalizeValveType(entry.valve_type) || entry.valve_type || '')
     setTester(entry.tester ?? '')
     setPendingReportFiles([])
+    setShopTestKind(
+      isPretestLogText(entry.test_type, entry.worked, entry.action_taken) ? 'pre' : 'final',
+    )
 
     const details = parseTestLogTestingDetails(entry.testing_details) ?? emptyTestLogTestingDetails()
     const canonicalType = canonicalizeValveType(entry.valve_type) || entry.valve_type || ''
@@ -618,6 +636,39 @@ export function TestLogEntryForm({
     void loadEditingEntry(editingEntry)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [editingEntry?.id])
+
+  useEffect(() => {
+    const editRaw = searchParams.get(TEST_LOG_PREFILL_KEYS.editId)?.trim() ?? ''
+    if (!editRaw || !/^\d+$/.test(editRaw) || autoEditFromUrl.current) return
+    if (editingEntry?.id === Number(editRaw)) {
+      autoEditFromUrl.current = true
+      return
+    }
+
+    autoEditFromUrl.current = true
+    autoOpenedFromUrl.current = true
+    void (async () => {
+      setLoadingEntry(true)
+      try {
+        const columns = await testLogSelectColumns()
+        const { data, error } = await supabase
+          .from('test_logs')
+          .select(columns)
+          .eq('id', Number(editRaw))
+          .maybeSingle()
+        if (error || !data) {
+          showToast(error?.message || 'Could not open that test log entry')
+          setLoadingEntry(false)
+          return
+        }
+        await loadEditingEntry(data as TestLogEntry)
+      } catch (error) {
+        showToast(error instanceof Error ? error.message : 'Could not open that test log entry')
+        setLoadingEntry(false)
+      }
+    })()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [searchParams, editingEntry?.id])
 
   const submit = async () => {
     const testerValue = formatTesterInitials(parseTesterInitials(tester, knownTesterInitials))
@@ -704,8 +755,9 @@ export function TestLogEntryForm({
       }
     }
 
-    // Always stamp shop date_tested from the log date so closed cards still show "Tested …".
-    // Passing tests also move open jobs to Painting (Completed stays Completed).
+    // Stamp Pre-tested or Final tested from the log so board badges stay accurate.
+    // Passing final tests also move open jobs to Painting (Completed stays Completed).
+    // Pretest passes do not auto-advance — valve usually returns to repair work.
     {
       const { data: valve } = await supabase
         .from('valves')
@@ -716,8 +768,11 @@ export function TestLogEntryForm({
         .maybeSingle()
 
       if (valve?.id) {
-        const patch: { date_tested: string; status?: string } = { date_tested: testedOn }
-        if (passFail && isPassing(passFail) && valve.status !== 'Completed') {
+        const stampPre = shopTestKind === 'pre'
+        const patch: { date_tested?: string; date_pre_tested?: string; status?: string } = stampPre
+          ? { date_pre_tested: testedOn }
+          : { date_tested: testedOn }
+        if (!stampPre && passFail && isPassing(passFail) && valve.status !== 'Completed') {
           patch.status = 'Painting'
         }
         await supabase.from('valves').update(patch).eq('id', valve.id)
@@ -963,6 +1018,27 @@ export function TestLogEntryForm({
                   Change valve
                 </button>
               )}
+            </div>
+          </div>
+
+          <div className="test-log-shop-kind" role="group" aria-label="Shop board stamp">
+            <div className="test-log-shop-kind-title">Shop board stamp</div>
+            <p className="test-log-shop-kind-hint">
+              Choose Pre-test or Final test so the job board badges update when you save.
+            </p>
+            <div className="test-log-shop-kind-options">
+              {(['pre', 'final'] as const).map((kind) => (
+                <label key={kind} className={`test-log-shop-kind-option${shopTestKind === kind ? ' is-selected' : ''}`}>
+                  <input
+                    type="radio"
+                    name="shop-test-kind"
+                    value={kind}
+                    checked={shopTestKind === kind}
+                    onChange={() => setShopTestKind(kind)}
+                  />
+                  <span>{kind === 'pre' ? 'Pre-test' : 'Final test'}</span>
+                </label>
+              ))}
             </div>
           </div>
 

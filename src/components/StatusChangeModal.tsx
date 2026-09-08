@@ -11,6 +11,7 @@ import { formatJobTestTypes, parseJobTestTypes } from '../lib/jobTestTypes'
 import { TEST_PROCEDURE_OTHER } from '../lib/testLogProcedure'
 import { buildTestLogEntryHref } from '../lib/testLogEntryPrefill'
 import { type JobCardSaveFields, toDateInputValue } from '../lib/jobCardSave'
+import { isPretestLogText, type ShopTestKind } from '../lib/testKind'
 import { supabase } from '../lib/supabase'
 import { openValveTicketPdfForPrint } from '../lib/valveTicketPrint'
 import {
@@ -104,6 +105,11 @@ interface StatusChangeModalProps {
   onCancel: () => void
   isSaving: boolean
   onSaveAll: (fields: JobCardSaveFields) => void | Promise<void>
+  /** Persist Pre-tested / Final tested dates from the Test Log tab. */
+  onUpdateShopTestDates?: (dates: {
+    date_pre_tested: string | null
+    date_tested: string | null
+  }) => void | Promise<void>
   canEditJobDetails?: boolean
   assignedTechnicianIds: number[]
   assignedTechnicianId?: number | null
@@ -127,6 +133,7 @@ export function StatusChangeModal({
   onCancel,
   isSaving,
   onSaveAll,
+  onUpdateShopTestDates,
   assignedTechnicianIds,
   assignedTechnicianId = null,
   onAssignmentsChanged,
@@ -140,6 +147,7 @@ export function StatusChangeModal({
   initialTab = 'summary',
 }: StatusChangeModalProps) {
   const navigate = useNavigate()
+  const { showToast } = useToast()
   const [activeTab, setActiveTab] = useState<JobCardTab>(initialTab)
   const [description, setDescription] = useState(valve.description ?? '')
   const [notes, setNotes] = useState(valve.notes ?? '')
@@ -183,7 +191,9 @@ export function StatusChangeModal({
   const [testTypeOptions, setTestTypeOptions] = useState<string[]>([])
   const [customers, setCustomers] = useState<{ id: number; name: string }[]>([])
   const [outsourcedSummary, setOutsourcedSummary] = useState<Omit<OutsourcedCardSummary, 'valveRowId'> | null>(null)
-  const { showToast } = useToast()
+  const [preTestedDraft, setPreTestedDraft] = useState(() => toDateInputValue(valve.date_pre_tested))
+  const [finalTestedDraft, setFinalTestedDraft] = useState(() => toDateInputValue(valve.date_tested))
+  const [savingShopTestDates, setSavingShopTestDates] = useState(false)
   const travelerValveId = (valve.valve_id ?? '').trim()
   const assignedTechKey = useMemo(() => assignedTechnicianIds.slice().sort((a, b) => a - b).join(','), [assignedTechnicianIds])
 
@@ -366,6 +376,8 @@ export function StatusChangeModal({
     setTestTypeOtherDraft(custom.join(', '))
     setMaterialSpecDraft(valve.material_spec ?? '')
     setDrawingPoNumberDraft(valve.drawing_po_number ?? '')
+    setPreTestedDraft(toDateInputValue(valve.date_pre_tested))
+    setFinalTestedDraft(toDateInputValue(valve.date_tested))
   }, [
     valve.id,
     valve.description,
@@ -382,6 +394,8 @@ export function StatusChangeModal({
     valve.test_type,
     valve.material_spec,
     valve.drawing_po_number,
+    valve.date_pre_tested,
+    valve.date_tested,
     testTypeOptions,
   ])
 
@@ -645,13 +659,132 @@ export function StatusChangeModal({
     </div>
   )
 
+  const saveShopTestDates = async (next: {
+    date_pre_tested: string | null
+    date_tested: string | null
+  }) => {
+    if (!canEditJobDetails) {
+      showToast('You do not have permission to edit this job card')
+      return
+    }
+    if (!onUpdateShopTestDates) {
+      showToast('Shop test dates cannot be updated here')
+      return
+    }
+    setSavingShopTestDates(true)
+    try {
+      await onUpdateShopTestDates(next)
+      setPreTestedDraft(toDateInputValue(next.date_pre_tested))
+      setFinalTestedDraft(toDateInputValue(next.date_tested))
+      showToast('Shop test stamps updated')
+    } catch (error) {
+      showToast(error instanceof Error ? error.message : 'Could not update shop test stamps')
+    } finally {
+      setSavingShopTestDates(false)
+    }
+  }
+
+  const stampLogAsKind = async (row: TestLogEntry, kind: ShopTestKind) => {
+    const date = toDateInputValue(row.tested_on)
+    if (!date) {
+      showToast('That test log entry has no test date')
+      return
+    }
+    const currentPre = toDateInputValue(valve.date_pre_tested) || null
+    const currentFinal = toDateInputValue(valve.date_tested) || null
+    if (kind === 'pre') {
+      await saveShopTestDates({
+        date_pre_tested: date,
+        date_tested: currentFinal === date ? null : currentFinal,
+      })
+      return
+    }
+    await saveShopTestDates({
+      date_tested: date,
+      date_pre_tested: currentPre === date ? null : currentPre,
+    })
+  }
+
   const renderTestLogBody = (compact?: boolean) => (
     <>
-      {valve.date_tested ? (
-        <p className="modal-save-hint-subtle modal-test-log-shop-date">
-          Shop “date tested” on this card: <strong>{valve.date_tested}</strong> (set when status is Testing).
+      <div className="modal-shop-test-stamps">
+        <div className="modal-shop-test-stamps-title">Shop board stamps</div>
+        <p className="modal-save-hint-subtle">
+          These drive the Pre-tested / Final tested badges. Fix a wrong stamp here without rewriting the whole card.
         </p>
-      ) : null}
+        <div className="modal-shop-test-stamps-grid">
+          <label>
+            Pre-tested
+            <input
+              type="date"
+              value={preTestedDraft}
+              onChange={(e) => setPreTestedDraft(e.target.value)}
+              disabled={isSaving || savingShopTestDates || !canEditJobDetails || !onUpdateShopTestDates}
+            />
+          </label>
+          <label>
+            Final tested
+            <input
+              type="date"
+              value={finalTestedDraft}
+              onChange={(e) => setFinalTestedDraft(e.target.value)}
+              disabled={isSaving || savingShopTestDates || !canEditJobDetails || !onUpdateShopTestDates}
+            />
+          </label>
+        </div>
+        <div className="modal-shop-test-stamps-actions">
+          <button
+            type="button"
+            className="button-secondary"
+            disabled={
+              isSaving ||
+              savingShopTestDates ||
+              !canEditJobDetails ||
+              !onUpdateShopTestDates ||
+              (preTestedDraft === toDateInputValue(valve.date_pre_tested) &&
+                finalTestedDraft === toDateInputValue(valve.date_tested))
+            }
+            onClick={() =>
+              void saveShopTestDates({
+                date_pre_tested: preTestedDraft.trim() || null,
+                date_tested: finalTestedDraft.trim() || null,
+              })
+            }
+          >
+            {savingShopTestDates ? 'Saving…' : 'Save stamps'}
+          </button>
+          {toDateInputValue(valve.date_tested) && !toDateInputValue(valve.date_pre_tested) ? (
+            <button
+              type="button"
+              className="button-secondary"
+              disabled={isSaving || savingShopTestDates || !canEditJobDetails || !onUpdateShopTestDates}
+              onClick={() =>
+                void saveShopTestDates({
+                  date_pre_tested: toDateInputValue(valve.date_tested) || null,
+                  date_tested: null,
+                })
+              }
+            >
+              Move Final → Pre-tested
+            </button>
+          ) : null}
+          {toDateInputValue(valve.date_pre_tested) && !toDateInputValue(valve.date_tested) ? (
+            <button
+              type="button"
+              className="button-secondary"
+              disabled={isSaving || savingShopTestDates || !canEditJobDetails || !onUpdateShopTestDates}
+              onClick={() =>
+                void saveShopTestDates({
+                  date_tested: toDateInputValue(valve.date_pre_tested) || null,
+                  date_pre_tested: null,
+                })
+              }
+            >
+              Move Pre → Final tested
+            </button>
+          ) : null}
+        </div>
+      </div>
       {valve.date_closed ? (
         <p className="modal-save-hint-subtle modal-test-log-shop-date">
           {valve.status === 'Completed' || valve.order_type === 'Completed' ? (
@@ -671,30 +804,74 @@ export function StatusChangeModal({
         <p className="job-card-muted">No bench/hydro entries yet.</p>
       ) : (
         <ul className={`modal-test-log-list${compact ? ' job-card-test-log-list--compact' : ''}`}>
-          {testLogRows.map((r) => (
-            <li key={r.id} className="modal-test-log-item">
-              <span className="modal-test-log-line">
-                <strong>{r.tested_on}</strong>
-                {r.test_type ? ` · ${r.test_type}` : ''}
-                {r.pass_fail ? ` · ${r.pass_fail}` : ''}
-                {r.tester ? ` · ${r.tester}` : ''}
-              </span>
-              {r.pressure ? <span className="modal-test-log-meta">Pressure: {r.pressure}</span> : null}
-              {r.worked ? <span className="modal-test-log-meta">Worked: {r.worked}</span> : null}
-              {r.action_taken ? (
-                <span className="modal-test-log-action" title={r.action_taken}>
-                  {r.action_taken}
+          {testLogRows.map((r) => {
+            const looksPre = isPretestLogText(r.test_type, r.worked, r.action_taken)
+            return (
+              <li key={r.id} className="modal-test-log-item">
+                <span className="modal-test-log-line">
+                  <strong>{r.tested_on}</strong>
+                  {r.test_type ? ` · ${r.test_type}` : ''}
+                  {r.pass_fail ? ` · ${r.pass_fail}` : ''}
+                  {r.tester ? ` · ${r.tester}` : ''}
+                  {looksPre ? <span className="modal-test-log-pre-hint"> · looks like pre-test</span> : null}
                 </span>
-              ) : null}
-            </li>
-          ))}
+                {r.pressure ? <span className="modal-test-log-meta">Pressure: {r.pressure}</span> : null}
+                {r.worked ? <span className="modal-test-log-meta">Worked: {r.worked}</span> : null}
+                {r.action_taken ? (
+                  <span className="modal-test-log-action" title={r.action_taken}>
+                    {r.action_taken}
+                  </span>
+                ) : null}
+                <div className="modal-test-log-stamp-actions">
+                  <Link
+                    to={buildTestLogEntryHref({
+                      valveId: valve.valve_id,
+                      size: valve.size,
+                      pressure: valve.pressure_class,
+                      valveType:
+                        (valveTypeUnlocked ? valveTypeDraft : (valve.valve_type ?? '')).trim() || null,
+                      testType: valve.test_type,
+                      customer: valve.customer,
+                      cell: valve.cell,
+                      description,
+                      jobStatus: selectedStatus,
+                      editId: r.id,
+                    })}
+                    className="button-secondary modal-test-log-stamp-btn"
+                  >
+                    Open in Test Log
+                  </Link>
+                  {canEditJobDetails && onUpdateShopTestDates ? (
+                    <>
+                      <button
+                        type="button"
+                        className="button-secondary modal-test-log-stamp-btn"
+                        disabled={savingShopTestDates || isSaving}
+                        onClick={() => void stampLogAsKind(r, 'pre')}
+                      >
+                        Stamp as Pre-tested
+                      </button>
+                      <button
+                        type="button"
+                        className="button-secondary modal-test-log-stamp-btn"
+                        disabled={savingShopTestDates || isSaving}
+                        onClick={() => void stampLogAsKind(r, 'final')}
+                      >
+                        Stamp as Final tested
+                      </button>
+                    </>
+                  ) : null}
+                </div>
+              </li>
+            )
+          })}
         </ul>
       )}
       <p className="modal-save-hint-subtle">
-        <Link to="/test-log-entry" className="modal-inline-link">
-          {testLogRows.length === 0 ? 'Add test log entry' : 'Open Test Log entry'}
+        <Link to={testLogEntryHref} className="modal-inline-link">
+          {testLogRows.length === 0 ? 'Add test log entry' : 'Open Test Log'}
         </Link>{' '}
-        for full history.
+        for a new entry or full history.
       </p>
     </>
   )

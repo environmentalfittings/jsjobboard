@@ -1,3 +1,4 @@
+import { JobTestBadges } from './JobTestBadges'
 import { JobCardItpStatusBar } from './JobCardItpStatusBar'
 import { STATUS_ORDER } from '../constants/statuses'
 import type { ItpCardSummary } from '../lib/itpCardSummaries'
@@ -21,19 +22,11 @@ function isOverdue(raw: string | null): boolean {
 
 export function TechJobCard({ job, readOnly = false, itpSummary, onStatusChange }: TechJobCardProps) {
   const inTesting = job.status === 'Testing'
-  const testedOn = job.date_tested?.trim() || null
   return (
     <article className={`dashboard-panel tech-job-card${inTesting ? ' tech-job-card-in-testing' : ''}`}>
       <JobCardItpStatusBar summary={itpSummary} href={`/itp/${job.id}`} />
       <h4>{job.valve_id}</h4>
-      {inTesting || testedOn ? (
-        <p className="tech-job-card-test-flags">
-          {inTesting ? <span className="job-card-testing-badge">In testing</span> : null}
-          {!inTesting && testedOn ? (
-            <span className="job-card-tested-badge">Tested {testedOn.slice(0, 10)}</span>
-          ) : null}
-        </p>
-      ) : null}
+      <JobTestBadges valve={job} className="tech-job-card-test-flags" />
       <p>
         <strong>Customer:</strong> {job.customer ?? '—'}
       </p>

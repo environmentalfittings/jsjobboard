@@ -34,6 +34,7 @@ export function buildCopiedValveInsert(source: Valve, valveId: string) {
     needs_attention: false,
     sub_status: null,
     date_tested: null,
+    date_pre_tested: null,
     date_closed: null,
   }
 }

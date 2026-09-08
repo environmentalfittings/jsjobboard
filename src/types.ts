@@ -23,7 +23,10 @@ export interface Valve {
   order_type: string | null
   due_date: string | null
   date_closed: string | null
+  /** Final / shop test date (also stamped from non-pretest test logs). */
   date_tested: string | null
+  /** As-received / pretest date (stamped when choosing Pre-test or saving a pretest log). */
+  date_pre_tested?: string | null
   description: string | null
   notes: string | null
   material_spec?: string | null
