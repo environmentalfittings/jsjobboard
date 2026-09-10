@@ -71,11 +71,11 @@ export type JobCardNameplateSource = Pick<
   | 'pressure_class'
   | 'body_material'
   | 'material_spec'
-  | 'manufacturer'
-  | 'netsuite_po_number'
   | 'drawing_po_number'
   | 'due_date'
 > & {
+  manufacturer?: string | null
+  netsuite_po_number?: string | null
   end_connection?: string | null
   figure_number?: string | null
   trim?: string | null

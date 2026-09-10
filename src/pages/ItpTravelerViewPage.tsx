@@ -183,8 +183,7 @@ export function ItpTravelerViewPage() {
           description: snap.description ?? valve.description,
           dueDate: snap.dueDate ?? valve.due_date,
           status: valve.status,
-          poNumber: valve.netsuite_po_number ?? valve.drawing_po_number ?? null,
-          manufacturer: valve.manufacturer,
+          poNumber: valve.drawing_po_number ?? null,
           templateName: plan.scopeTemplateName,
         }}
         backToItpHref={backHref}

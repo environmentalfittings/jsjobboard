@@ -169,6 +169,7 @@ function normalizeSel(raw: unknown): ItpLibraryItemSel {
     pictureLabel: String(o.pictureLabel ?? '').trim(),
     minPhotos: Number.isFinite(minPhotosRaw) && minPhotosRaw > 0 ? Math.floor(minPhotosRaw) : 1,
     measFields: normalizeMeasFields(o.measFields),
+    requireNameplate: Boolean(o.requireNameplate),
     blockNext: Boolean(o.blockNext),
     sectionId: String(o.sectionId ?? '').trim(),
     shopArea: String(o.shopArea ?? '').trim(),

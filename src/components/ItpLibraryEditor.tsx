@@ -459,7 +459,10 @@ export function ItpLibraryEditor({ valve, onClose, readOnly = false }: ItpLibrar
     return normalizeProcessSections(undefined, extraIds)
   }, [plan?.custom, scopeItems, buildScopeRowsBySection])
   const travelerReportStats = useMemo(
-    () => (plan ? buildItpTravelerReport(plan).stats : { total: 0, captured: 0, pending: 0 }),
+    () =>
+      plan
+        ? buildItpTravelerReport(plan).stats
+        : { total: 0, complete: 0, pending: 0, flagged: 0, hold: 0, captured: 0 },
     [plan],
   )
   const stats = useMemo(() => (plan ? execStats(plan) : null), [plan])

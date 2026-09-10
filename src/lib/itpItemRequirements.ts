@@ -2,6 +2,7 @@ import type { ItpLibraryItemExec, ItpLibraryItemSel } from '../types/itpLibraryP
 import {
   DEFAULT_ITP_MEAS_FIELDS,
   type ItpMeasFieldDef,
+  type ItpMeasFieldType,
 } from '../types/itpMeasFields'
 
 export type { ItpMeasFieldDef, ItpMeasFieldType }
