@@ -1526,7 +1526,7 @@ export function ItpLibraryEditor({ valve, onClose, readOnly = false }: ItpLibrar
           </p>
           <p className="itp-library-jb-note">
             Build scope on the left; the checklist on the right updates as you select items.{' '}
-            <Link to={`/itp/${valve.id}/traveler`}>View Traveler</Link>
+            <Link to={`/itp/${valve.id}/traveler`}>Open Traveler</Link>
             {travelerReportStats.total > 0 ? (
               <span className="itp-library-traveler-capture-count">
                 {' '}
@@ -1639,8 +1639,8 @@ export function ItpLibraryEditor({ valve, onClose, readOnly = false }: ItpLibrar
       {hasLegacyProcessPlan ? (
         <div className="status-breakdown-note itp-library-legacy-banner" role="status">
           A previous overall-steps / parts process plan is still saved for this valve. This page uses the new library
-          checklist. Use <Link to={`/itp/${valve.id}/traveler`}>View Traveler</Link> for captured photos and
-          measurements from Picture / Measurement requirements.
+          checklist. Use <Link to={`/itp/${valve.id}/traveler`}>Open Traveler</Link> for step-by-step work and
+          the print packet.
         </div>
       ) : null}
 

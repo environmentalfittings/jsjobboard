@@ -1,4 +1,4 @@
-/** Shop test kind for job-card badges and Testing status stamps. */
+/** Shop test kind for job-card badges and test-log stamps. */
 export type ShopTestKind = 'pre' | 'final'
 
 /** True when a test log (or related text) is a pretest / as-received test. */
@@ -16,12 +16,3 @@ export function isPretestLogText(...parts: Array<string | null | undefined>): bo
   )
 }
 
-export function defaultShopTestKind(valve: {
-  date_pre_tested?: string | null
-}): ShopTestKind {
-  return valve.date_pre_tested?.trim() ? 'final' : 'pre'
-}
-
-export function shopTestKindLabel(kind: ShopTestKind): string {
-  return kind === 'pre' ? 'Pre-test' : 'Final test'
-}

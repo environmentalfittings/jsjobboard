@@ -224,6 +224,26 @@ export function formatInventoryLocationLabel(raw: string | null | undefined): st
   return value
 }
 
+export function inventoryHasMtrPdf(row: Pick<InventoryRecord, 'document_url'>): boolean {
+  return Boolean(row.document_url?.trim())
+}
+
+export function inventoryHasTravelerLink(row: Pick<InventoryRecord, 'traveler_link'>): boolean {
+  return Boolean(row.traveler_link?.trim())
+}
+
+/** Single label for list filters: MTR PDF, traveler link, both, or none. */
+export function inventoryAttachmentLabel(
+  row: Pick<InventoryRecord, 'document_url' | 'traveler_link'>,
+): string {
+  const hasPdf = inventoryHasMtrPdf(row)
+  const hasLink = inventoryHasTravelerLink(row)
+  if (hasPdf && hasLink) return 'MTR PDF + traveler link'
+  if (hasPdf) return 'MTR PDF'
+  if (hasLink) return 'Traveler link'
+  return 'None'
+}
+
 const PRODUCTION_APP_ORIGIN = 'https://jsjobboard.vercel.app'
 
 export const INVENTORY_SELECT =
@@ -1492,6 +1512,8 @@ export function inventoryMatchesSearch(row: InventoryRecord, rawQuery: string): 
     row.repair_tag_number,
     row.document_name,
     row.traveler_link,
+    inventoryHasMtrPdf(row) ? 'mtr pdf traveler document' : '',
+    inventoryHasTravelerLink(row) ? 'traveler mtr link' : '',
     row.notes,
     row.hf_acid ? 'hf acid' : '',
     row.is_valve_part ? 'valve part part' : 'valve',

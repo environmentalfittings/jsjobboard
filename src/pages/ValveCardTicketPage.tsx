@@ -589,9 +589,16 @@ export function ValveCardTicketPage() {
                 <button
                   type="button"
                   className="button-primary"
-                  onClick={() => navigate(`/traveler/${encodeURIComponent(selected.valve_id)}`)}
+                  onClick={() => navigate(`/itp/${selected.id}/traveler`)}
                 >
                   <span aria-hidden>📄</span> Open Traveler
+                </button>
+                <button
+                  type="button"
+                  className="button-secondary"
+                  onClick={() => navigate(`/traveler/${encodeURIComponent(selected.valve_id)}`)}
+                >
+                  Shop form
                 </button>
                 <button
                   type="button"

@@ -267,6 +267,10 @@ export function countIncludedInScope(scope: ItpLibraryTemplateScope): number {
   return includedIds.size
 }
 
+export function countHoldPointsInScope(scope: ItpLibraryTemplateScope): number {
+  return Object.values(scope.sel).filter((s) => s.included && s.holdPoint).length
+}
+
 export function formatItpLibraryTemplateLabel(row: Pick<ItpLibraryTemplateRow, 'valve_type' | 'name' | 'is_default'>) {
   const suffix = row.is_default ? ' (default)' : ''
   return `${row.valve_type} — ${row.name}${suffix}`
@@ -541,6 +545,7 @@ export function applyScopeToPlan(
             ? templateSel.measFields.map((f) => ({ ...f }))
             : prev.measFields,
         blockNext: templateSel.blockNext || prev.blockNext,
+        requireNameplate: templateSel.requireNameplate || prev.requireNameplate,
         addToTraveler: templateSel.addToTraveler || prev.addToTraveler,
         travelerEntry: templateSel.travelerEntry ?? prev.travelerEntry,
         sectionId: templateSel.sectionId || prev.sectionId,

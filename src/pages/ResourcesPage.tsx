@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { EmployeeTrainingPanel } from '../components/EmployeeTrainingPanel'
 import { useToast } from '../components/ToastNotification'
+import { WpsNumberGuide } from '../components/WpsNumberGuide'
 import { useAuth } from '../contexts/AuthContext'
 import { countEmployeeTrainings } from '../lib/employeeTraining'
 import { loadCurrentUserQualityTeamLevel } from '../lib/qualityTeam'
@@ -32,6 +33,7 @@ import {
 import { supabase } from '../lib/supabase'
 import type { SpecDocumentType } from '../types/manufacturerSpec'
 import type { QualityTeamLevel } from '../types/employees'
+import { weldProcedureMatchesQuery } from '../lib/wpsNumberGuide'
 
 
 
@@ -94,6 +96,9 @@ export function ResourcesPage() {
   const [weldWpsFilter, setWeldWpsFilter] = useState<WpsType | 'all'>('all')
   const [weldProcessFilter, setWeldProcessFilter] = useState<WeldProcess | 'all'>('all')
   const [weldCategoryFilter, setWeldCategoryFilter] = useState<BaseMetalCategory | 'all'>('all')
+  const [weldTitleQuery, setWeldTitleQuery] = useState('')
+  const [weldSuggestOpen, setWeldSuggestOpen] = useState(false)
+  const weldSearchWrapRef = useRef<HTMLDivElement>(null)
 
   const loadWeldProcedures = async () => {
     setWeldLoading(true)
@@ -116,9 +121,26 @@ export function ResourcesPage() {
       const matchWps = weldWpsFilter === 'all' || r.wps_type === weldWpsFilter
       const matchProcess = weldProcessFilter === 'all' || (r.weld_processes ?? []).includes(weldProcessFilter)
       const matchCategory = weldCategoryFilter === 'all' || r.base_metal_category === weldCategoryFilter
-      return matchWps && matchProcess && matchCategory
+      return matchWps && matchProcess && matchCategory && weldProcedureMatchesQuery(r, weldTitleQuery)
     })
-  }, [weldRows, weldWpsFilter, weldProcessFilter, weldCategoryFilter])
+  }, [weldRows, weldWpsFilter, weldProcessFilter, weldCategoryFilter, weldTitleQuery])
+
+  const weldTitleSuggestions = useMemo(() => {
+    const q = weldTitleQuery.trim().toLowerCase()
+    if (q.length < 1) return []
+    return weldRows.filter((row) => weldProcedureMatchesQuery(row, weldTitleQuery)).slice(0, 10)
+  }, [weldRows, weldTitleQuery])
+
+  useEffect(() => {
+    if (!weldSuggestOpen) return
+    const onPointerDown = (event: MouseEvent) => {
+      const target = event.target as Node
+      if (weldSearchWrapRef.current?.contains(target)) return
+      setWeldSuggestOpen(false)
+    }
+    document.addEventListener('mousedown', onPointerDown)
+    return () => document.removeEventListener('mousedown', onPointerDown)
+  }, [weldSuggestOpen])
 
   useEffect(() => {
     void loadWeldProcedures()
@@ -968,10 +990,55 @@ export function ResourcesPage() {
         <div className="resources-module-header">
           <div>
             <h3 className="resources-module-title">Weld Procedures</h3>
-            <p className="placeholder-copy resources-hint">All weld procedure specifications (WPS). Filter by type or process.</p>
+            <p className="placeholder-copy resources-hint">
+              All weld procedure specifications (WPS). Search by title, or use the number lookup to decode a WPS.
+            </p>
           </div>
         </div>
-        <div className="report-filters">
+        <WpsNumberGuide />
+        <div className="report-filters weld-procedure-filters">
+          <div className="weld-title-search" ref={weldSearchWrapRef}>
+            <label htmlFor="weld-title-search">
+              Search title
+              <input
+                id="weld-title-search"
+                type="search"
+                value={weldTitleQuery}
+                placeholder="Start typing a title or number…"
+                autoComplete="off"
+                onChange={(e) => {
+                  setWeldTitleQuery(e.target.value)
+                  setWeldSuggestOpen(true)
+                }}
+                onFocus={() => {
+                  if (weldTitleQuery.trim()) setWeldSuggestOpen(true)
+                }}
+              />
+            </label>
+            {weldSuggestOpen && weldTitleSuggestions.length > 0 ? (
+              <ul className="weld-title-suggestions" role="listbox" aria-label="Matching weld procedures">
+                {weldTitleSuggestions.map((row) => (
+                  <li key={row.id}>
+                    <button
+                      type="button"
+                      className="weld-title-suggestion"
+                      onClick={() => {
+                        setWeldTitleQuery(row.title)
+                        setWeldSuggestOpen(false)
+                      }}
+                    >
+                      <span className="weld-title-suggestion-title">{row.title}</span>
+                      <span className="weld-title-suggestion-meta">
+                        {[row.wps_type, row.base_metal_category, (row.weld_processes ?? []).join(', ')]
+                          .filter(Boolean)
+                          .join(' · ')}
+                      </span>
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            ) : null}
+          </div>
           <label>
             WPS type
             <select value={weldWpsFilter} onChange={(e) => setWeldWpsFilter(e.target.value as WpsType | 'all')}>
@@ -1032,7 +1099,21 @@ export function ResourcesPage() {
             <tbody>
               {visibleWeldRows.map((row) => (
                 <tr key={row.id}>
-                  <td className="weld-col-title">{row.title}</td>
+                  <td className="weld-col-title">
+                    {row.storage_path ? (
+                      <a
+                        className="weld-title-link"
+                        href={resourceDocumentPublicUrl(row.storage_path)}
+                        target="_blank"
+                        rel="noreferrer"
+                        title={`Open ${row.file_name || 'PDF'}`}
+                      >
+                        {row.title}
+                      </a>
+                    ) : (
+                      row.title
+                    )}
+                  </td>
                   <td>{row.wps_type ?? '-'}</td>
                   <td>{row.base_metal_category ?? '-'}</td>
                   <td>{row.weld_processes?.length ? row.weld_processes.join(', ') : '-'}</td>
@@ -1060,7 +1141,7 @@ export function ResourcesPage() {
                 </tr>
               ))}
               {!weldLoading && visibleWeldRows.length === 0 ? (
-                <tr><td colSpan={15} className="table-empty-cell">No weld procedures found.</td></tr>
+                <tr><td colSpan={16} className="table-empty-cell">No weld procedures found.</td></tr>
               ) : null}
             </tbody>
           </table>

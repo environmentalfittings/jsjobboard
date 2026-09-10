@@ -1,4 +1,5 @@
 import { jsPDF } from 'jspdf'
+import { openPreviewWindow, showHtmlPreview } from './printHtml'
 import type { InventoryEvent, InventoryRecord } from './inventory'
 import { resolveInventoryPublicOrigin } from './inventory'
 import type { CustomerSalesRepRow } from './customers'
@@ -865,6 +866,7 @@ export async function buildInventoryCustomerReportHtml(options: {
 <html lang="en">
 <head>
   <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>${escapeHtml(subject)}</title>
   <style>
     :root {
@@ -885,6 +887,9 @@ export async function buildInventoryCustomerReportHtml(options: {
     }
     .sheet { padding: 0.55in 0.6in 0.7in; }
     .toolbar {
+      position: sticky;
+      top: 0;
+      z-index: 20;
       display: flex;
       gap: 0.5rem;
       justify-content: flex-end;
@@ -1059,6 +1064,13 @@ export async function buildInventoryCustomerReportHtml(options: {
       justify-content: space-between;
       gap: 1rem;
     }
+    @media (max-width: 700px) {
+      .sheet { padding: 1rem 0.85rem 1.5rem; }
+      .masthead { flex-direction: column; align-items: flex-start; }
+      .meta-block { text-align: left; }
+      .stats { grid-template-columns: 1fr 1fr; }
+      .toolbar button { min-height: 44px; padding: 0.65rem 1.1rem; }
+    }
     @media print {
       .toolbar { display: none !important; }
       .sheet { padding: 0; }
@@ -1071,9 +1083,17 @@ export async function buildInventoryCustomerReportHtml(options: {
   ${
     includeToolbar
       ? `<div class="toolbar">
-    <button type="button" onclick="window.close()">Close</button>
+    <button type="button" onclick="closePreview()">Close</button>
     <button type="button" class="primary" onclick="window.print()">Print</button>
-  </div>`
+  </div>
+  <script>
+    function closePreview() {
+      window.close();
+      setTimeout(function () {
+        if (!window.closed) history.back();
+      }, 50);
+    }
+  </script>`
       : ''
   }
   <div class="sheet">
@@ -1211,7 +1231,7 @@ export async function buildInventoryCustomerReportHtml(options: {
   return { subject, html }
 }
 
-/** Opens the printable HTML customer inventory report (same layout email downloads). */
+/** Opens the printable HTML customer inventory report in preview (same layout email downloads). */
 export async function printInventoryCustomerReport(options: {
   customer: string
   items: InventoryRecord[]
@@ -1220,17 +1240,16 @@ export async function printInventoryCustomerReport(options: {
   events?: InventoryEvent[]
   filters?: InventoryReportFilters | null
   lookupRecords?: InventoryRecord[]
+  /** Pass a window opened during the same tap so iPhone Safari does not block preview. */
+  previewWindow?: Window | null
 }): Promise<{ error: string | null }> {
-  // Do not use noopener/noreferrer — Chrome then returns null (or a window we cannot write into).
-  const popup = window.open('about:blank', '_blank', 'width=960,height=1100')
-  if (!popup) return { error: 'Allow pop-ups to print the inventory report' }
+  const preview =
+    options.previewWindow && !options.previewWindow.closed
+      ? options.previewWindow
+      : openPreviewWindow()
 
   const { html } = await buildInventoryCustomerReportHtml({ ...options, includeToolbar: true })
-  popup.document.open()
-  popup.document.write(html)
-  popup.document.close()
-  popup.focus()
-  return { error: null }
+  return showHtmlPreview(html, preview)
 }
 
 const MAILTO_BODY_SAFE_CHARS = 1600

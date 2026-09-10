@@ -25,6 +25,7 @@ import {
   INVENTORY_ORIGINS,
   INVENTORY_PART_VALVE_TYPE_LABEL,
   formatInventoryLocationLabel,
+  inventoryAttachmentLabel,
   inventoryConditionLabel,
   inventoryEventLabel,
   inventoryMatchesSearch,
@@ -65,6 +66,7 @@ import {
 } from '../lib/inventoryCustomerReport'
 import { clearInventoryMonthlyReportAlert } from '../lib/inventoryMonthlyAlert'
 import { printInventoryLabelSheet } from '../lib/inventoryLabelPrint'
+import { openPreviewWindow } from '../lib/printHtml'
 import {
   notifySalesRepCustomerInventoryReport,
   resolveEmployeeAuthUserId,
@@ -554,6 +556,8 @@ type InventorySortKey =
   | 'size'
   | 'pressure'
   | 'location'
+  | 'condition'
+  | 'attachments'
 
 type InventoryColumnFilters = {
   jsInventoryId: string[]
@@ -564,6 +568,8 @@ type InventoryColumnFilters = {
   size: string[]
   pressure: string[]
   location: string[]
+  condition: string[]
+  attachments: string[]
 }
 
 const EMPTY_INVENTORY_COLUMN_FILTERS: InventoryColumnFilters = {
@@ -575,6 +581,8 @@ const EMPTY_INVENTORY_COLUMN_FILTERS: InventoryColumnFilters = {
   size: [],
   pressure: [],
   location: [],
+  condition: [],
+  attachments: [],
 }
 
 function inventoryDisplayOrBlank(value: string | null | undefined) {
@@ -608,6 +616,10 @@ function inventorySortValue(row: InventoryRecord, key: InventorySortKey): string
       return row.pressure ?? ''
     case 'location':
       return formatInventoryLocationLabel(row.origin)
+    case 'condition':
+      return inventoryConditionLabel(row.condition)
+    case 'attachments':
+      return inventoryAttachmentLabel(row)
   }
 }
 
@@ -871,6 +883,10 @@ export function AdminInventoryPage() {
       location: inventoryUniqueSortedValues(
         searchFiltered.map((row) => inventoryDisplayOrBlank(formatInventoryLocationLabel(row.origin))),
       ),
+      condition: inventoryUniqueSortedValues(
+        searchFiltered.map((row) => inventoryDisplayOrBlank(inventoryConditionLabel(row.condition))),
+      ),
+      attachments: inventoryUniqueSortedValues(searchFiltered.map((row) => inventoryAttachmentLabel(row))),
     }),
     [searchFiltered],
   )
@@ -928,6 +944,17 @@ export function AdminInventoryPage() {
           inventoryDisplayOrBlank(formatInventoryLocationLabel(row.origin)),
         )
       ) {
+        return false
+      }
+      if (
+        !matchesInventoryColumnFilter(
+          columnFilters.condition,
+          inventoryDisplayOrBlank(inventoryConditionLabel(row.condition)),
+        )
+      ) {
+        return false
+      }
+      if (!matchesInventoryColumnFilter(columnFilters.attachments, inventoryAttachmentLabel(row))) {
         return false
       }
       return true
@@ -1669,6 +1696,8 @@ export function AdminInventoryPage() {
       showToast('No inventory items for this customer')
       return
     }
+    // Open the preview tab in this tap. iPhone blocks window.open after the events fetch.
+    const previewWindow = openPreviewWindow()
     const customerEvents = await loadInventoryEventsForCustomer(selectedCustomerGroup.customer)
     const { error } = await printInventoryCustomerReport({
       customer: selectedCustomerGroup.customer,
@@ -1677,6 +1706,7 @@ export function AdminInventoryPage() {
       salesmanName: selectedSalesmanName,
       events: customerEvents.data.length ? customerEvents.data : events,
       lookupRecords: reportLookupRecords,
+      previewWindow,
     })
     if (error) showToast(error)
   }
@@ -1881,7 +1911,7 @@ export function AdminInventoryPage() {
                 className="button-secondary"
                 onClick={printSelectedCustomerReport}
                 disabled={!selectedCustomerGroup || reportItems.length === 0}
-                title="Opens the printable HTML report"
+                title="Opens the report in preview so you can print"
               >
                 Print customer report
               </button>
@@ -2250,19 +2280,41 @@ export function AdminInventoryPage() {
                     onFilterChange={(selected) => setColumnFilter('location', selected)}
                   />
                 </th>
+                <th>
+                  <TestLogColumnHeader
+                    label="Condition"
+                    sortActive={sortKey === 'condition'}
+                    sortDirection={sortDirection}
+                    onSort={() => toggleSort('condition')}
+                    filterOptions={filterOptions.condition}
+                    selectedFilters={columnFilters.condition}
+                    onFilterChange={(selected) => setColumnFilter('condition', selected)}
+                  />
+                </th>
+                <th>
+                  <TestLogColumnHeader
+                    label="MTR / Traveler"
+                    sortActive={sortKey === 'attachments'}
+                    sortDirection={sortDirection}
+                    onSort={() => toggleSort('attachments')}
+                    filterOptions={filterOptions.attachments}
+                    selectedFilters={columnFilters.attachments}
+                    onFilterChange={(selected) => setColumnFilter('attachments', selected)}
+                  />
+                </th>
                 <th>Actions</th>
               </tr>
             </thead>
             <tbody>
               {loading ? (
                 <tr>
-                  <td colSpan={11} className="table-empty-cell">
+                  <td colSpan={13} className="table-empty-cell">
                     Loading customer inventory…
                   </td>
                 </tr>
               ) : sortedRows.length === 0 ? (
                 <tr>
-                  <td colSpan={11} className="table-empty-cell">
+                  <td colSpan={13} className="table-empty-cell">
                     {sourceRows.length === 0
                       ? listScope === 'removed'
                         ? 'No removed inventory items.'
@@ -2344,6 +2396,48 @@ export function AdminInventoryPage() {
                         <td>{display(row.size)}</td>
                         <td>{display(row.pressure)}</td>
                         <td>{display(formatInventoryLocationLabel(row.origin))}</td>
+                        <td>
+                          {row.condition === 'new' || row.condition === 'reconditioned' ? (
+                            <span
+                              className={`inventory-condition-chip inventory-condition-chip--${row.condition}`}
+                            >
+                              {inventoryConditionLabel(row.condition)}
+                            </span>
+                          ) : (
+                            <span className="inventory-doc-missing">None</span>
+                          )}
+                        </td>
+                        <td
+                          className="inventory-docs-cell"
+                          onClick={(e) => e.stopPropagation()}
+                          onKeyDown={(e) => e.stopPropagation()}
+                        >
+                          {row.document_url ? (
+                            <a
+                              className="inventory-doc-chip inventory-doc-chip--pdf"
+                              href={row.document_url}
+                              target="_blank"
+                              rel="noreferrer"
+                              title={row.document_name?.trim() || 'Open MTR / traveler PDF'}
+                            >
+                              MTR
+                            </a>
+                          ) : null}
+                          {row.traveler_link ? (
+                            <a
+                              className="inventory-doc-chip inventory-doc-chip--link"
+                              href={row.traveler_link}
+                              target="_blank"
+                              rel="noreferrer"
+                              title="Open traveler / MTR link"
+                            >
+                              Traveler
+                            </a>
+                          ) : null}
+                          {!row.document_url && !row.traveler_link ? (
+                            <span className="inventory-doc-missing">None</span>
+                          ) : null}
+                        </td>
                         <td
                           className="list-col-actions-cell"
                           onClick={(e) => e.stopPropagation()}
@@ -2398,7 +2492,7 @@ export function AdminInventoryPage() {
                       </tr>
                       {isExpanded ? (
                         <tr className="inventory-detail-row">
-                          <td colSpan={11}>
+                          <td colSpan={13}>
                             <div className="inventory-detail-panel">
                               <div className="inventory-detail-photos">
                                 <div className="inventory-detail-photo">

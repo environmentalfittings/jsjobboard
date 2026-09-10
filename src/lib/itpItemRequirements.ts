@@ -4,8 +4,15 @@ import {
   type ItpMeasFieldDef,
 } from '../types/itpMeasFields'
 
-export type { ItpMeasFieldDef }
-export { DEFAULT_ITP_MEAS_FIELDS, newMeasFieldId, normalizeMeasFields } from '../types/itpMeasFields'
+export type { ItpMeasFieldDef, ItpMeasFieldType }
+export {
+  DEFAULT_ITP_MEAS_FIELDS,
+  ITP_MEAS_FIELD_TYPE_OPTIONS,
+  emptyMeasField,
+  measFieldTypeLabel,
+  newMeasFieldId,
+  normalizeMeasFields,
+} from '../types/itpMeasFields'
 
 /** Requirement defaults stored on a master-catalog (or built-in library) item. */
 export type ItpItemRequirementDefaults = {
@@ -14,6 +21,8 @@ export type ItpItemRequirementDefaults = {
   minPhotos?: number
   requireMeasurement?: boolean
   measFields?: ItpMeasFieldDef[]
+  /** Traveler nameplate / job-card transfer requirement. */
+  requireNameplate?: boolean
   holdPoint?: boolean
   blockNext?: boolean
 }
@@ -44,6 +53,10 @@ export function getMeasValue(exec: ItpLibraryItemExec, fieldId: string): string 
   return ''
 }
 
+export function getFieldPhotos(exec: ItpLibraryItemExec, fieldId: string) {
+  return exec.fieldPhotos?.[fieldId] ?? []
+}
+
 export function patchMeasValue(
   exec: ItpLibraryItemExec,
   fieldId: string,
@@ -60,7 +73,11 @@ export function patchMeasValue(
 export function measurementsComplete(sel: ItpLibraryItemSel, exec: ItpLibraryItemExec): boolean {
   const fields = resolvedMeasFields(sel)
   if (fields.length === 0) return true
-  return fields.every((f) => getMeasValue(exec, f.id).trim().length > 0)
+  return fields.every((field) => {
+    if (field.required === false) return true
+    if (field.type === 'picture') return getFieldPhotos(exec, field.id).length > 0
+    return getMeasValue(exec, field.id).trim().length > 0
+  })
 }
 
 export function picturesComplete(sel: ItpLibraryItemSel, exec: ItpLibraryItemExec): boolean {
@@ -95,11 +112,12 @@ export function selFromRequirementDefaults(
   defaults: ItpItemRequirementDefaults | null | undefined,
 ): ItpLibraryItemSel {
   if (!defaults) return base
-  const requireMeasurement = Boolean(defaults.requireMeasurement)
+  const requireNameplate = Boolean(defaults.requireNameplate) || base.requireNameplate
+  const requireMeasurement = Boolean(defaults.requireMeasurement) || requireNameplate
   const measFields =
     defaults.measFields && defaults.measFields.length > 0
       ? defaults.measFields.map((f) => ({ ...f }))
-      : requireMeasurement
+      : requireMeasurement && !requireNameplate
         ? DEFAULT_ITP_MEAS_FIELDS.map((f) => ({ ...f }))
         : base.measFields
   return {
@@ -112,6 +130,7 @@ export function selFromRequirementDefaults(
     beforeMeas: requireMeasurement || base.beforeMeas,
     afterMeas: requireMeasurement || base.afterMeas,
     measVerify: requireMeasurement || base.measVerify,
+    requireNameplate,
     measFields: measFields.length > 0 ? measFields : base.measFields,
   }
 }

@@ -45,6 +45,11 @@ export type ItpLibraryItemSel = {
   minPhotos: number
   /** Configurable measurement / nameplate fields (empty = use legacy before/after/verify flags). */
   measFields: ItpMeasFieldDef[]
+  /**
+   * When true, the traveler step shows nameplate/basic-info fields and supports
+   * “Transfer from job card”. Required fields must be filled before complete.
+   */
+  requireNameplate: boolean
   /** When true, the next item in this section stays locked until this item is fully done. */
   blockNext: boolean
   /**
@@ -68,6 +73,10 @@ export type ItpLibraryItemExec = {
   done: boolean
   flagged: boolean
   notes: string
+  /** Traveler step result (Pass/Fail/Yes/No/N/A). */
+  result: string
+  /** Tech initials captured on the traveler step. */
+  techInitials: string
   beforeVal: string
   afterVal: string
   verifyVal: string
@@ -75,6 +84,8 @@ export type ItpLibraryItemExec = {
   measValues: Record<string, string>
   /** Photos attached to satisfy a picture requirement on this line. */
   photos: ItpLibraryAttachment[]
+  /** Photos keyed by meas/technician field id (for per-field Picture inputs). */
+  fieldPhotos: Record<string, ItpLibraryAttachment[]>
   /** HOLD POINT clicked by tech — waiting for supervisor / QC sign-off. */
   holdPending: boolean
   holdSignedOffAt: string | null
@@ -219,6 +230,7 @@ export function emptyItemSel(): ItpLibraryItemSel {
     pictureLabel: '',
     minPhotos: 1,
     measFields: [],
+    requireNameplate: false,
     blockNext: false,
     sectionId: '',
     shopArea: '',
@@ -233,11 +245,14 @@ export function emptyItemExec(): ItpLibraryItemExec {
     done: false,
     flagged: false,
     notes: '',
+    result: '',
+    techInitials: '',
     beforeVal: '',
     afterVal: '',
     verifyVal: '',
     measValues: {},
     photos: [],
+    fieldPhotos: {},
     holdPending: false,
     holdSignedOffAt: null,
     holdSignedOffByUserId: null,
@@ -478,6 +493,7 @@ function normalizeSel(raw: unknown, fallbackNotes = ''): ItpLibraryItemSel {
     pictureLabel: String(o.pictureLabel ?? '').trim(),
     minPhotos: Number.isFinite(minPhotosRaw) && minPhotosRaw > 0 ? Math.floor(minPhotosRaw) : 1,
     measFields: normalizeMeasFields(o.measFields),
+    requireNameplate: Boolean((o as { requireNameplate?: unknown }).requireNameplate),
     blockNext: Boolean(o.blockNext),
     sectionId: String(o.sectionId ?? '').trim(),
     shopArea: String(o.shopArea ?? '').trim(),
@@ -519,11 +535,14 @@ function normalizeExec(raw: unknown): ItpLibraryItemExec {
     done: Boolean(o.done),
     flagged: Boolean(o.flagged),
     notes: String(o.notes ?? ''),
+    result: String((o as { result?: unknown }).result ?? ''),
+    techInitials: String((o as { techInitials?: unknown }).techInitials ?? ''),
     beforeVal,
     afterVal,
     verifyVal,
     measValues,
     photos: normalizeAttachments((o as { photos?: unknown }).photos),
+    fieldPhotos: normalizeFieldPhotos((o as { fieldPhotos?: unknown }).fieldPhotos),
     holdPending: Boolean((o as { holdPending?: unknown }).holdPending),
     holdSignedOffAt: (o as { holdSignedOffAt?: unknown }).holdSignedOffAt
       ? String((o as { holdSignedOffAt?: unknown }).holdSignedOffAt)
@@ -596,6 +615,18 @@ function normalizeAttachment(raw: unknown): ItpLibraryAttachment | null {
 function normalizeAttachments(raw: unknown): ItpLibraryAttachment[] {
   if (!Array.isArray(raw)) return []
   return raw.map(normalizeAttachment).filter((row): row is ItpLibraryAttachment => row != null)
+}
+
+function normalizeFieldPhotos(raw: unknown): Record<string, ItpLibraryAttachment[]> {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return {}
+  const out: Record<string, ItpLibraryAttachment[]> = {}
+  for (const [key, value] of Object.entries(raw as Record<string, unknown>)) {
+    const id = String(key ?? '').trim()
+    if (!id) continue
+    const photos = normalizeAttachments(value)
+    if (photos.length > 0) out[id] = photos
+  }
+  return out
 }
 
 function normalizeChangeLogEntry(raw: unknown): ItpQcChangeLogEntry | null {

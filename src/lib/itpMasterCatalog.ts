@@ -22,6 +22,7 @@ import {
 } from './itpLibraryTemplates'
 import type { ItpItemRequirementDefaults } from './itpItemRequirements'
 import { DEFAULT_ITP_MEAS_FIELDS, normalizeMeasFields, type ItpMeasFieldDef } from '../types/itpMeasFields'
+import { NAMEPLATE_TRAVELER_FIELDS } from './itpTravelerNameplate'
 
 export type ItpMasterCatalogItem = {
   id: string
@@ -39,6 +40,8 @@ export type ItpMasterCatalogItem = {
   measFields?: ItpMeasFieldDef[]
   holdPoint?: boolean
   blockNext?: boolean
+  /** Traveler: require nameplate fields (fill or transfer from job card). */
+  requireNameplate?: boolean
 }
 
 /** Built-in requirement defaults that used to be template/hardcoded UI only. */
@@ -53,6 +56,12 @@ const BUILTIN_REQUIREMENT_DEFAULTS: Record<string, ItpItemRequirementDefaults> =
   d4: {
     holdPoint: true,
   },
+  // Check nameplate data — traveler nameplate / transfer from job card
+  r2: {
+    requireNameplate: true,
+    requireMeasurement: true,
+    measFields: NAMEPLATE_TRAVELER_FIELDS.map((f) => ({ ...f })),
+  },
 }
 
 export function requirementDefaultsFromCatalogItem(
@@ -66,6 +75,7 @@ export function requirementDefaultsFromCatalogItem(
     measFields: item.measFields,
     holdPoint: item.holdPoint,
     blockNext: item.blockNext,
+    requireNameplate: item.requireNameplate,
   }
 }
 
@@ -121,6 +131,7 @@ function applyBuiltinRequirementDefaults(item: ItpMasterCatalogItem): ItpMasterC
     pictureLabel: item.pictureLabel ?? extras.pictureLabel,
     minPhotos: item.minPhotos ?? extras.minPhotos,
     requireMeasurement: item.requireMeasurement ?? extras.requireMeasurement,
+    requireNameplate: item.requireNameplate ?? extras.requireNameplate,
     measFields:
       item.measFields && item.measFields.length > 0
         ? item.measFields
@@ -190,6 +201,7 @@ function normalizeCatalogItem(raw: unknown, fallbackOrder: number): ItpMasterCat
     measFields: measFields.length > 0 ? measFields : undefined,
     holdPoint: row.holdPoint != null ? Boolean(row.holdPoint) : undefined,
     blockNext: row.blockNext != null ? Boolean(row.blockNext) : undefined,
+    requireNameplate: row.requireNameplate != null ? Boolean(row.requireNameplate) : undefined,
   }
   return applyBuiltinRequirementDefaults(base)
 }

@@ -1596,10 +1596,19 @@ export function StatusChangeModal({
             <button
               type="button"
               className="button-primary job-card-footer-itp"
-              onClick={() => navigate(`/traveler/${encodeURIComponent(travelerValveId)}`)}
-              disabled={isSaving || !travelerValveId}
+              onClick={() => navigate(`/itp/${valve.id}/traveler`)}
+              disabled={isSaving}
             >
               Open Traveler
+            </button>
+            <button
+              type="button"
+              className="button-secondary job-card-footer-itp"
+              onClick={() => navigate(`/traveler/${encodeURIComponent(travelerValveId)}`)}
+              disabled={isSaving || !travelerValveId}
+              title="Legacy shop traveler form (welding, parts tables)"
+            >
+              Shop form
             </button>
           </div>
         </footer>

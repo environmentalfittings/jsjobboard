@@ -3,7 +3,6 @@ import type { User } from '@supabase/supabase-js'
 import { DueDateChangeModal } from '../components/DueDateChangeModal'
 import { ReworkReasonModal } from '../components/ReworkReasonModal'
 import { TechJobCard } from '../components/TechJobCard'
-import { TestingKindModal } from '../components/TestingKindModal'
 import { useToast } from '../components/ToastNotification'
 import { useAuth } from '../contexts/AuthContext'
 import { recordDueDateChange, resolveChangedByName } from '../lib/dueDateChanges'
@@ -17,7 +16,6 @@ import { canWriteShop, permissionDeniedReason } from '../lib/roles'
 import { recordStatusRework } from '../lib/statusReworkLog'
 import { isBackwardStatusMove } from '../lib/statusWorkflow'
 import { supabase } from '../lib/supabase'
-import type { ShopTestKind } from '../lib/testKind'
 import { valveStatusPatch } from '../lib/valveStatusPatch'
 import type { Technician, Valve } from '../types'
 
@@ -39,7 +37,6 @@ export function MyWorkPage({ user, onLogout }: MyWorkPageProps) {
   const [pendingRework, setPendingRework] = useState<{
     valve: Valve
     nextStatus: string
-    testKind?: ShopTestKind
     nextDueDate?: string | null
     dueDateReason?: string
   } | null>(null)
@@ -48,13 +45,6 @@ export function MyWorkPage({ user, onLogout }: MyWorkPageProps) {
     null,
   )
   const [savingResumeDueDate, setSavingResumeDueDate] = useState(false)
-  const [pendingTestingKind, setPendingTestingKind] = useState<{
-    valve: Valve
-    nextStatus: string
-    nextDueDate?: string | null
-    dueDateReason?: string
-  } | null>(null)
-  const [savingTestingKind, setSavingTestingKind] = useState(false)
 
   const todayLabel = useMemo(
     () => new Date().toLocaleDateString(undefined, { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' }),
@@ -137,11 +127,10 @@ export function MyWorkPage({ user, onLogout }: MyWorkPageProps) {
       reworkReason?: string
       nextDueDate?: string | null
       dueDateReason?: string
-      testKind?: ShopTestKind
     },
   ) => {
     const previousDueDate = job.due_date?.trim() || null
-    const patch: Partial<Valve> = valveStatusPatch(nextStatus, job, { testKind: options?.testKind })
+    const patch: Partial<Valve> = valveStatusPatch(nextStatus, job)
     const dueDateProvided = options != null && 'nextDueDate' in options
     const nextDueDate = dueDateProvided ? options.nextDueDate?.trim() || null : previousDueDate
     if (dueDateProvided) patch.due_date = nextDueDate
@@ -193,10 +182,6 @@ export function MyWorkPage({ user, onLogout }: MyWorkPageProps) {
       setPendingResumeDueDate({ valve: job, nextStatus })
       return
     }
-    if (nextStatus === 'Testing') {
-      setPendingTestingKind({ valve: job, nextStatus })
-      return
-    }
     if (isBackwardStatusMove(job.status, nextStatus)) {
       setPendingRework({ valve: job, nextStatus })
       return
@@ -210,7 +195,6 @@ export function MyWorkPage({ user, onLogout }: MyWorkPageProps) {
     try {
       const ok = await applyMyJobStatus(pendingRework.valve, pendingRework.nextStatus, {
         reworkReason: reason,
-        testKind: pendingRework.testKind,
         dueDateReason: pendingRework.dueDateReason,
         ...(pendingRework.nextDueDate !== undefined ? { nextDueDate: pendingRework.nextDueDate } : {}),
       })
@@ -220,48 +204,10 @@ export function MyWorkPage({ user, onLogout }: MyWorkPageProps) {
     }
   }
 
-  const confirmTestingKind = async (testKind: ShopTestKind) => {
-    if (!pendingTestingKind) return
-    setSavingTestingKind(true)
-    try {
-      if (isBackwardStatusMove(pendingTestingKind.valve.status, pendingTestingKind.nextStatus)) {
-        setPendingRework({
-          valve: pendingTestingKind.valve,
-          nextStatus: pendingTestingKind.nextStatus,
-          testKind,
-          nextDueDate: pendingTestingKind.nextDueDate,
-          dueDateReason: pendingTestingKind.dueDateReason,
-        })
-        setPendingTestingKind(null)
-        return
-      }
-      const ok = await applyMyJobStatus(pendingTestingKind.valve, pendingTestingKind.nextStatus, {
-        testKind,
-        dueDateReason: pendingTestingKind.dueDateReason,
-        ...(pendingTestingKind.nextDueDate !== undefined
-          ? { nextDueDate: pendingTestingKind.nextDueDate }
-          : {}),
-      })
-      if (ok) setPendingTestingKind(null)
-    } finally {
-      setSavingTestingKind(false)
-    }
-  }
-
   const confirmResumeDueDate = async (nextDueDate: string | null, reason: string) => {
     if (!pendingResumeDueDate) return
     setSavingResumeDueDate(true)
     try {
-      if (pendingResumeDueDate.nextStatus === 'Testing') {
-        setPendingResumeDueDate(null)
-        setPendingTestingKind({
-          valve: pendingResumeDueDate.valve,
-          nextStatus: pendingResumeDueDate.nextStatus,
-          nextDueDate,
-          dueDateReason: reason,
-        })
-        return
-      }
       if (isBackwardStatusMove(pendingResumeDueDate.valve.status, pendingResumeDueDate.nextStatus)) {
         setPendingResumeDueDate(null)
         setPendingRework({
@@ -385,17 +331,6 @@ export function MyWorkPage({ user, onLogout }: MyWorkPageProps) {
             if (!savingRework) setPendingRework(null)
           }}
           onConfirm={confirmPendingRework}
-        />
-      ) : null}
-
-      {pendingTestingKind ? (
-        <TestingKindModal
-          valve={pendingTestingKind.valve}
-          isSaving={savingTestingKind}
-          onCancel={() => {
-            if (!savingTestingKind) setPendingTestingKind(null)
-          }}
-          onConfirm={confirmTestingKind}
         />
       ) : null}
     </section>
