@@ -68,6 +68,42 @@ export type ResourceDocumentRow = {
   proc_category: 'Valve-Specific' | 'NDE' | 'Other' | 'Test' | 'Answer Key' | null
 }
 
+/** Title / file / notes / manufacturer / SOP search used on Resources lists. */
+export function resourceDocumentMatchesQuery(
+  row: Pick<
+    ResourceDocumentRow,
+    | 'title'
+    | 'notes'
+    | 'file_name'
+    | 'manufacturer'
+    | 'product_valve_type'
+    | 'sop_number'
+    | 'revision_number'
+    | 'proc_category'
+    | 'valve_type'
+  >,
+  rawQuery: string,
+): boolean {
+  const q = rawQuery.trim().toLowerCase()
+  if (!q) return true
+  const compactQ = q.replace(/\s+/g, '')
+  const hay = [
+    row.title,
+    row.notes,
+    row.file_name,
+    row.manufacturer,
+    row.product_valve_type,
+    row.sop_number,
+    row.revision_number,
+    row.proc_category,
+    row.valve_type,
+  ]
+    .map((value) => String(value ?? '').toLowerCase())
+    .join(' ')
+  const compactTitle = row.title.replace(/\s+/g, '').toLowerCase()
+  return hay.includes(q) || (compactQ.length >= 2 && compactTitle.includes(compactQ))
+}
+
 const MAX_BYTES = 40 * 1024 * 1024
 
 function safePathToken(input: string) {

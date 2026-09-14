@@ -15,6 +15,7 @@ import {
   type WeldMode,
   type WeldProcess,
   type WpsType,
+  resourceDocumentMatchesQuery,
   uploadResourceDocument,
   BASE_METAL_CATEGORIES,
   WELD_MODES,
@@ -867,13 +868,31 @@ export function ResourcesPage() {
   // ── IOM filters ──────────────────────────────────────────────────────────
   const [iomMfgFilter, setIomMfgFilter] = useState('')
   const [iomVtFilter, setIomVtFilter] = useState('')
+  const [sectionSearchQuery, setSectionSearchQuery] = useState('')
+  const [sectionSuggestOpen, setSectionSuggestOpen] = useState(false)
+  const sectionSearchWrapRef = useRef<HTMLDivElement>(null)
 
   // ── Procedure category filter (also driven by stats chips) ───────────────
   const [procCategoryFilter, setProcCategoryFilter] = useState<ProcStatFilter>('all')
 
   useEffect(() => {
     setProcCategoryFilter('all')
+    setSectionSearchQuery('')
+    setSectionSuggestOpen(false)
+    setIomMfgFilter('')
+    setIomVtFilter('')
   }, [activeModule])
+
+  useEffect(() => {
+    if (!sectionSuggestOpen) return
+    const onPointerDown = (event: MouseEvent) => {
+      const target = event.target as Node
+      if (sectionSearchWrapRef.current?.contains(target)) return
+      setSectionSuggestOpen(false)
+    }
+    document.addEventListener('mousedown', onPointerDown)
+    return () => document.removeEventListener('mousedown', onPointerDown)
+  }, [sectionSuggestOpen])
 
   // ── Procedure details dialog (test + answer key quick access) ───────────
   const [procedureDialogDoc, setProcedureDialogDoc] = useState<ResourceDocumentRow | null>(null)
@@ -1180,13 +1199,24 @@ export function ResourcesPage() {
                 return d.proc_category === procCategoryFilter
               })
             : allDocs
-        const docs = isProcedureLike ? [...baseDocs].sort(compareProcedureDocs) : baseDocs
+        const searchedDocs = baseDocs.filter((d) => resourceDocumentMatchesQuery(d, sectionSearchQuery))
+        const docs = isProcedureLike ? [...searchedDocs].sort(compareProcedureDocs) : searchedDocs
+        const sectionSuggestions = sectionSearchQuery.trim()
+          ? allDocs.filter((d) => resourceDocumentMatchesQuery(d, sectionSearchQuery)).slice(0, 10)
+          : []
+        const searchPlaceholder = isManufacturerFiltered
+          ? 'Title, manufacturer, valve type, file…'
+          : isProcedureLike
+            ? 'Title, SOP #, category, file…'
+            : 'Start typing a title or file name…'
         return (
           <section className="dashboard-panel resources-panel">
             <div className="resources-module-header">
               <div>
                 <h3 className="resources-module-title">{activeSimpleSection.title}</h3>
-                <p className="placeholder-copy resources-hint">{activeSimpleSection.description}</p>
+                <p className="placeholder-copy resources-hint">
+                  {activeSimpleSection.description} Search by title, file name, or related fields.
+                </p>
               </div>
               <button
                 type="button"
@@ -1232,6 +1262,61 @@ export function ResourcesPage() {
                 ) : null}
               </div>
             ) : null}
+
+            <div className="iom-filter-row resources-section-search-row">
+              <div className="weld-title-search" ref={sectionSearchWrapRef}>
+                <label htmlFor="resources-section-search">
+                  Search
+                  <input
+                    id="resources-section-search"
+                    type="search"
+                    value={sectionSearchQuery}
+                    placeholder={searchPlaceholder}
+                    autoComplete="off"
+                    onChange={(e) => {
+                      setSectionSearchQuery(e.target.value)
+                      setSectionSuggestOpen(true)
+                    }}
+                    onFocus={() => {
+                      if (sectionSearchQuery.trim()) setSectionSuggestOpen(true)
+                    }}
+                  />
+                </label>
+                {sectionSuggestOpen && sectionSuggestions.length > 0 ? (
+                  <ul className="weld-title-suggestions" role="listbox" aria-label="Matching documents">
+                    {sectionSuggestions.map((row) => (
+                      <li key={row.id}>
+                        <button
+                          type="button"
+                          className="weld-title-suggestion"
+                          onClick={() => {
+                            setSectionSearchQuery(row.title)
+                            setSectionSuggestOpen(false)
+                            if (isManufacturerFiltered) {
+                              setIomMfgFilter('')
+                              setIomVtFilter('')
+                            }
+                          }}
+                        >
+                          <span className="weld-title-suggestion-title">{row.title}</span>
+                          <span className="weld-title-suggestion-meta">
+                            {[
+                              row.manufacturer,
+                              row.product_valve_type,
+                              row.sop_number,
+                              row.proc_category,
+                              row.file_name,
+                            ]
+                              .filter(Boolean)
+                              .join(' · ')}
+                          </span>
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+                ) : null}
+              </div>
+            </div>
 
             <div className="resources-upload-trigger-row">
               {!(isReliefSpecBooks && !canCatalogSpecs) ? (

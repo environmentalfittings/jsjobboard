@@ -95,6 +95,15 @@ function errorMessage(error: unknown, fallback: string) {
   return fallback
 }
 
+function textMatchesQuery(rawQuery: string, ...parts: Array<string | null | undefined>) {
+  const q = rawQuery.trim().toLowerCase()
+  if (!q) return true
+  return parts
+    .map((value) => String(value ?? '').toLowerCase())
+    .join(' ')
+    .includes(q)
+}
+
 export function EmployeeTrainingPanel({ canWrite, onCountsChange }: EmployeeTrainingPanelProps) {
   const { showToast } = useToast()
   const { employees } = useEmployees()
@@ -160,6 +169,8 @@ export function EmployeeTrainingPanel({ canWrite, onCountsChange }: EmployeeTrai
   const [certUploadTrainingId, setCertUploadTrainingId] = useState<number | null>(null)
   const [expiringWindow, setExpiringWindow] = useState<ExpiringWindow>('90')
   const [expiringSearch, setExpiringSearch] = useState('')
+  const [sessionSearch, setSessionSearch] = useState('')
+  const [librarySearch, setLibrarySearch] = useState('')
 
   const selected = useMemo(() => rows.find((r) => r.id === selectedId) ?? null, [rows, selectedId])
 
@@ -188,14 +199,34 @@ export function EmployeeTrainingPanel({ canWrite, onCountsChange }: EmployeeTrai
   )
 
   const filteredGeneralLibraryFiles = useMemo(() => {
-    if (libraryFilter === 'all') return generalLibraryFiles
-    return generalLibraryFiles.filter((file) => file.kind === libraryFilter)
-  }, [generalLibraryFiles, libraryFilter])
+    const byKind =
+      libraryFilter === 'all' ? generalLibraryFiles : generalLibraryFiles.filter((file) => file.kind === libraryFilter)
+    return byKind.filter((file) =>
+      textMatchesQuery(librarySearch, file.title, file.file_name, file.notes, file.kind, file.external_url),
+    )
+  }, [generalLibraryFiles, libraryFilter, librarySearch])
 
-  const selectedCourseSections = useMemo(
-    () => groupTrainingFilesBySection(selectedCourseFiles),
-    [selectedCourseFiles],
-  )
+  const selectedCourseSections = useMemo(() => {
+    const files = selectedCourseFiles.filter((file) =>
+      textMatchesQuery(librarySearch, file.title, file.file_name, file.notes, file.kind, file.external_url),
+    )
+    return groupTrainingFilesBySection(files)
+  }, [librarySearch, selectedCourseFiles])
+
+  const visibleCourses = useMemo(() => {
+    return courses.filter((course) => {
+      if (
+        textMatchesQuery(librarySearch, course.title, course.description)
+      ) {
+        return true
+      }
+      return libraryFiles.some(
+        (file) =>
+          file.course_id === course.id &&
+          textMatchesQuery(librarySearch, file.title, file.file_name, file.notes, file.kind, file.external_url),
+      )
+    })
+  }, [courses, libraryFiles, librarySearch])
 
   const linkedCourse = useMemo(
     () => (draft.course_id ? courses.find((course) => course.id === draft.course_id) ?? null : null),
@@ -221,6 +252,38 @@ export function EmployeeTrainingPanel({ canWrite, onCountsChange }: EmployeeTrai
     [rows],
   )
   const logRows = useMemo(() => rows.filter((r) => r.status === 'completed' || r.status === 'cancelled'), [rows])
+  const visibleScheduledRows = useMemo(
+    () =>
+      scheduledRows.filter((row) =>
+        textMatchesQuery(
+          sessionSearch,
+          row.record_no,
+          row.title,
+          row.trainer_name,
+          row.departments,
+          row.notes,
+          row.car_number,
+          trainingStatusLabel(row.status),
+        ),
+      ),
+    [scheduledRows, sessionSearch],
+  )
+  const visibleLogRows = useMemo(
+    () =>
+      logRows.filter((row) =>
+        textMatchesQuery(
+          sessionSearch,
+          row.record_no,
+          row.title,
+          row.trainer_name,
+          row.departments,
+          row.notes,
+          row.car_number,
+          trainingStatusLabel(row.status),
+        ),
+      ),
+    [logRows, sessionSearch],
+  )
 
   const availableAttendeeEmployees = useMemo(() => {
     const taken = new Set(
@@ -1823,9 +1886,18 @@ export function EmployeeTrainingPanel({ canWrite, onCountsChange }: EmployeeTrai
             <div className="training-list-toolbar">
               <p className="status-breakdown-note">
                 {tab === 'schedule'
-                  ? `${scheduledRows.length} scheduled / in progress`
-                  : `${logRows.length} completed / cancelled`}
+                  ? `${visibleScheduledRows.length} of ${scheduledRows.length} scheduled / in progress`
+                  : `${visibleLogRows.length} of ${logRows.length} completed / cancelled`}
               </p>
+              <label>
+                Search
+                <input
+                  type="search"
+                  value={sessionSearch}
+                  onChange={(e) => setSessionSearch(e.target.value)}
+                  placeholder="Title, record #, trainer…"
+                />
+              </label>
               {canWrite ? (
                 <button
                   type="button"
@@ -1841,7 +1913,7 @@ export function EmployeeTrainingPanel({ canWrite, onCountsChange }: EmployeeTrai
             </div>
             {loading ? <p className="placeholder-copy">Loading…</p> : null}
             {renderTrainingTable(
-              tab === 'schedule' ? scheduledRows : logRows,
+              tab === 'schedule' ? visibleScheduledRows : visibleLogRows,
               tab === 'schedule' ? 'No scheduled trainings.' : 'No completed trainings yet.',
             )}
           </div>
@@ -2185,6 +2257,15 @@ export function EmployeeTrainingPanel({ canWrite, onCountsChange }: EmployeeTrai
                   <p className="training-library-course-count">
                     {selectedCourseFiles.length} resource{selectedCourseFiles.length === 1 ? '' : 's'}
                   </p>
+                  <label>
+                    Search this course
+                    <input
+                      type="search"
+                      value={librarySearch}
+                      onChange={(e) => setLibrarySearch(e.target.value)}
+                      placeholder="File, notes…"
+                    />
+                  </label>
                 </div>
                 {canWrite ? (
                   <div className="training-library-course-edit">
@@ -2251,6 +2332,15 @@ export function EmployeeTrainingPanel({ canWrite, onCountsChange }: EmployeeTrai
                     ))}
                   </select>
                 </label>
+                <label>
+                  Search
+                  <input
+                    type="search"
+                    value={librarySearch}
+                    onChange={(e) => setLibrarySearch(e.target.value)}
+                    placeholder="Course, file, notes…"
+                  />
+                </label>
               </div>
               <p className="placeholder-copy resources-hint">
                 Create a course package to hold materials, agenda, tests, and links for a class like Gate Valve
@@ -2292,7 +2382,7 @@ export function EmployeeTrainingPanel({ canWrite, onCountsChange }: EmployeeTrai
                 </div>
               ) : null}
               <div className="training-library-course-grid">
-                {courses.map((course) => (
+                {visibleCourses.map((course) => (
                   <button
                     key={course.id}
                     type="button"
@@ -2308,9 +2398,11 @@ export function EmployeeTrainingPanel({ canWrite, onCountsChange }: EmployeeTrai
                     </em>
                   </button>
                 ))}
-                {courses.length === 0 ? (
+                {visibleCourses.length === 0 ? (
                   <p className="placeholder-copy training-library-empty-courses">
-                    No courses yet. Create one to start building a class material package.
+                    {courses.length === 0
+                      ? 'No courses yet. Create one to start building a class material package.'
+                      : 'No courses match this search.'}
                   </p>
                 ) : null}
               </div>

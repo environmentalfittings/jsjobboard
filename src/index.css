@@ -13305,6 +13305,14 @@ tbody tr:hover {
   margin: 4px 0 12px;
 }
 
+.resources-section-search-row {
+  margin: 0 0 12px;
+}
+
+.resources-section-search-row .weld-title-search {
+  max-width: 520px;
+}
+
 .iom-filter-label {
   display: flex;
   flex-direction: column;
