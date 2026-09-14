@@ -11,7 +11,20 @@ export type ResourceDocumentCategory =
   | 'maintenance_manual'
   | 'employee_training'
   | 'relief_valve_spec_book'
+  | 'mtr'
   | 'other'
+
+export const MTR_KINDS = [
+  { value: 'valve', label: 'Valves' },
+  { value: 'filler_metal', label: 'Filler Metals' },
+  { value: 'material', label: 'Material' },
+] as const
+export type MtrKind = (typeof MTR_KINDS)[number]['value']
+
+export function mtrKindLabel(kind: string | null | undefined): string {
+  const found = MTR_KINDS.find((row) => row.value === kind)
+  return found?.label ?? (String(kind ?? '').trim() || '—')
+}
 
 export const WPS_TYPES = ['Joint', 'Corrosion Resistant Overlay', 'Hardface Overlay'] as const
 export type WpsType = (typeof WPS_TYPES)[number]
@@ -66,6 +79,8 @@ export type ResourceDocumentRow = {
   revision_number: string | null
   date_updated: string | null
   proc_category: 'Valve-Specific' | 'NDE' | 'Other' | 'Test' | 'Answer Key' | null
+  mtr_kind: MtrKind | null
+  heat_lot: string | null
 }
 
 /** Title / file / notes / manufacturer / SOP search used on Resources lists. */
@@ -81,6 +96,9 @@ export function resourceDocumentMatchesQuery(
     | 'revision_number'
     | 'proc_category'
     | 'valve_type'
+    | 'mtr_kind'
+    | 'heat_lot'
+    | 'filler_metal'
   >,
   rawQuery: string,
 ): boolean {
@@ -97,6 +115,10 @@ export function resourceDocumentMatchesQuery(
     row.revision_number,
     row.proc_category,
     row.valve_type,
+    row.mtr_kind,
+    mtrKindLabel(row.mtr_kind),
+    row.heat_lot,
+    row.filler_metal,
   ]
     .map((value) => String(value ?? '').toLowerCase())
     .join(' ')
@@ -151,6 +173,8 @@ export async function uploadResourceDocument(args: {
   revisionNumber?: string
   dateUpdated?: string | null
   procCategory?: 'Valve-Specific' | 'NDE' | 'Other' | 'Test' | 'Answer Key' | null
+  mtrKind?: MtrKind | null
+  heatLot?: string | null
 }): Promise<{ error: string | null }> {
   const { file, scope, category } = args
   const title = args.title.trim()
@@ -172,6 +196,7 @@ export async function uploadResourceDocument(args: {
 
   const isWeld = category === 'weld_procedure'
   const isProc = category === 'general' || category === 'quality_control'
+  const isMtr = category === 'mtr'
   const { error: rowErr } = await supabase.from('resource_documents').insert({
     scope,
     valve_type: scope === 'general' ? null : valveType,
@@ -184,7 +209,7 @@ export async function uploadResourceDocument(args: {
     wps_type: isWeld ? (args.wpsType ?? null) : null,
     weld_processes: isWeld ? (args.weldProcesses ?? []) : [],
     weld_modes: isWeld ? (args.weldModes ?? []) : [],
-    filler_metal: isWeld ? ((args.fillerMetal ?? '').trim() || null) : null,
+    filler_metal: isWeld || isMtr ? ((args.fillerMetal ?? '').trim() || null) : null,
     base_metal_category: isWeld ? (args.baseMetalCategory ?? null) : null,
     manufacturer: args.manufacturer ?? null,
     product_valve_type: args.productValveType ?? null,
@@ -198,11 +223,16 @@ export async function uploadResourceDocument(args: {
     revision_number: isProc ? ((args.revisionNumber ?? '').trim() || null) : null,
     date_updated: isProc ? (args.dateUpdated || null) : null,
     proc_category: isProc ? (args.procCategory ?? null) : null,
+    mtr_kind: isMtr ? (args.mtrKind ?? null) : null,
+    heat_lot: isMtr ? ((args.heatLot ?? '').trim() || null) : null,
   })
 
   if (rowErr) {
     await supabase.storage.from(RESOURCE_DOCS_BUCKET).remove([storagePath])
     const isdup = rowErr.code === '23505' || /duplicate|unique/i.test(rowErr.message)
+    if (/mtr_kind|heat_lot|resource_documents_category_check/i.test(rowErr.message)) {
+      return { error: 'Run supabase/migration-resource-documents-mtrs.sql in Supabase SQL Editor first.' }
+    }
     return { error: isdup ? `A document named "${title}" already exists in this section. Each title must be unique.` : rowErr.message || 'Could not save document record.' }
   }
 

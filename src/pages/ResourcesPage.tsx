@@ -12,12 +12,15 @@ import {
   type ResourceDocumentCategory,
   type ResourceDocumentRow,
   type BaseMetalCategory,
+  type MtrKind,
   type WeldMode,
   type WeldProcess,
   type WpsType,
   resourceDocumentMatchesQuery,
   uploadResourceDocument,
   BASE_METAL_CATEGORIES,
+  MTR_KINDS,
+  mtrKindLabel,
   WELD_MODES,
   WELD_PROCESSES,
   WPS_TYPES,
@@ -40,6 +43,8 @@ import { weldProcedureMatchesQuery } from '../lib/wpsNumberGuide'
 
 const RESOURCE_DOC_SELECT =
   'id,scope,valve_type,category,title,notes,storage_path,file_name,mime_type,created_at,updated_at,wps_type,base_metal_category,weld_processes,weld_modes,filler_metal,base_metal_thickness_qualified,filler_metal_thickness_qualified,post_weld_heat_treat_required,pwht_temperature,pwht_time,hf_approved,manufacturer,product_valve_type,sop_number,revision_number,date_updated,proc_category'
+const RESOURCE_DOC_SELECT_MTR =
+  'id,scope,valve_type,category,title,notes,storage_path,file_name,mime_type,created_at,updated_at,wps_type,base_metal_category,weld_processes,weld_modes,filler_metal,base_metal_thickness_qualified,filler_metal_thickness_qualified,post_weld_heat_treat_required,pwht_temperature,pwht_time,hf_approved,manufacturer,product_valve_type,sop_number,revision_number,date_updated,proc_category,mtr_kind,heat_lot'
 const PROCEDURE_COMPANION_SELECT =
   'id,scope,valve_type,category,title,notes,storage_path,file_name,mime_type,created_at,updated_at,sop_number,revision_number,date_updated,proc_category'
 const PROC_STAT_CATEGORIES = ['Valve-Specific', 'NDE', 'Other', 'Test', 'Answer Key'] as const
@@ -178,6 +183,13 @@ export function ResourcesPage() {
       addLabel: '+ Add training document',
     },
     {
+      key: 'mtrs',
+      title: 'MTRs',
+      description: 'Mill test reports for valves, filler metals, and material.',
+      categories: ['mtr'] as ResourceDocumentCategory[],
+      addLabel: '+ Add MTR',
+    },
+    {
       key: 'relief_valve_spec_books',
       title: 'Relief Valve Spec Books',
       description: 'Manufacturer relief valve specification books and reference data.',
@@ -198,18 +210,32 @@ export function ResourcesPage() {
 
   const loadSection = async (key: string, categories: readonly ResourceDocumentCategory[]) => {
     setSectionLoading((prev) => ({ ...prev, [key]: true }))
-    const { data, error } = await supabase
-      .from('resource_documents')
-      .select(RESOURCE_DOC_SELECT)
-      .in('category', [...categories])
-      .order('title', { ascending: true })
-      .limit(400)
+    const result =
+      key === 'mtrs'
+        ? await supabase
+            .from('resource_documents')
+            .select(RESOURCE_DOC_SELECT_MTR)
+            .in('category', [...categories])
+            .order('title', { ascending: true })
+            .limit(400)
+        : await supabase
+            .from('resource_documents')
+            .select(RESOURCE_DOC_SELECT)
+            .in('category', [...categories])
+            .order('title', { ascending: true })
+            .limit(400)
+    const { data, error } = result
     setSectionLoading((prev) => ({ ...prev, [key]: false }))
     if (error) {
+      if (key === 'mtrs' && /mtr_kind|heat_lot|schema cache|column/i.test(error.message)) {
+        showToast('Run supabase/migration-resource-documents-mtrs.sql in Supabase SQL Editor first.')
+        setSectionDocs((prev) => ({ ...prev, [key]: [] }))
+        return
+      }
       showToast(`Could not load documents: ${error.message}`)
       return
     }
-    setSectionDocs((prev) => ({ ...prev, [key]: (data ?? []) as ResourceDocumentRow[] }))
+    setSectionDocs((prev) => ({ ...prev, [key]: (data ?? []) as unknown as ResourceDocumentRow[] }))
   }
 
   const loadAllSections = () => {
@@ -260,6 +286,8 @@ export function ResourcesPage() {
   const [revisionNumber, setRevisionNumber] = useState('')
   const [dateUpdated, setDateUpdated] = useState('')
   const [procCategory, setProcCategory] = useState<'Valve-Specific' | 'NDE' | 'Other' | 'Test' | 'Answer Key' | ''>('')
+  const [mtrKind, setMtrKind] = useState<MtrKind | ''>('')
+  const [heatLot, setHeatLot] = useState('')
   // Relief Valve Spec Books catalog fields
   const [manufacturerId, setManufacturerId] = useState('')
   const [specDocType, setSpecDocType] = useState<SpecDocumentType | ''>('')
@@ -330,6 +358,8 @@ export function ResourcesPage() {
       if (norm(revisionNumber) !== norm(editingDoc.revision_number)) return true
       if ((dateUpdated || '') !== (editingDoc.date_updated ?? '')) return true
       if ((procCategory || '') !== (editingDoc.proc_category ?? '')) return true
+      if ((mtrKind || '') !== (editingDoc.mtr_kind ?? '')) return true
+      if (norm(heatLot) !== norm(editingDoc.heat_lot)) return true
       if (editingDoc.category === 'relief_valve_spec_book') {
         if (manufacturerId !== resolveManufacturerIdFromName(editingDoc.manufacturer)) return true
         if (specDocType || editionLabel.trim() || revisionLabel.trim() || effectiveDate || pageCount.trim()) {
@@ -342,6 +372,7 @@ export function ResourcesPage() {
     if (trimmed(uploadTitle)) return true
     if (trimmed(uploadNotes)) return true
     if (trimmed(sopNumber) || trimmed(revisionNumber) || dateUpdated || procCategory) return true
+    if (mtrKind || trimmed(heatLot) || trimmed(fillerMetal)) return true
     if (manufacturer || manufacturerId || productValveType) return true
     if (specDocType || editionLabel.trim() || revisionLabel.trim() || effectiveDate || pageCount.trim()) return true
     if (wpsType || baseMetalCategory) return true
@@ -375,6 +406,8 @@ export function ResourcesPage() {
     revisionNumber,
     dateUpdated,
     procCategory,
+    mtrKind,
+    heatLot,
     specDocType,
     editionLabel,
     revisionLabel,
@@ -407,6 +440,8 @@ export function ResourcesPage() {
     setRevisionNumber('')
     setDateUpdated('')
     setProcCategory('')
+    setMtrKind('')
+    setHeatLot('')
     setSpecDocType('')
     setEditionLabel('')
     setRevisionLabel('')
@@ -444,6 +479,8 @@ export function ResourcesPage() {
     setRevisionNumber(row.revision_number ?? '')
     setDateUpdated(row.date_updated ?? '')
     setProcCategory((row.proc_category as 'Valve-Specific' | 'NDE' | 'Other' | 'Test' | 'Answer Key' | '') ?? '')
+    setMtrKind(row.mtr_kind ?? '')
+    setHeatLot(row.heat_lot ?? '')
     setSpecDocType('')
     setEditionLabel('')
     setRevisionLabel('')
@@ -463,7 +500,7 @@ export function ResourcesPage() {
     setUploadModalOpen(true)
   }
 
-  const openSimpleUploadModal = (category: ResourceDocumentCategory) => {
+  const openSimpleUploadModal = (category: ResourceDocumentCategory, options?: { mtrKind?: MtrKind }) => {
     if (category === 'relief_valve_spec_book') {
       if (!canCatalogSpecs) {
         showToast('Only Quality Admin or Manager can add spec books.')
@@ -476,6 +513,7 @@ export function ResourcesPage() {
     resetModalState()
     setModalMode('general')
     setUploadCategory(category)
+    if (options?.mtrKind) setMtrKind(options.mtrKind)
     setUploadModalOpen(true)
   }
 
@@ -525,6 +563,10 @@ export function ResourcesPage() {
       return
     }
     if (!uploadTitle.trim()) { showToast('Enter a document title'); return }
+    if ((uploadCategory === 'mtr' || editingDoc?.category === 'mtr') && !mtrKind) {
+      showToast('Choose whether this MTR is for valves, filler metals, or material')
+      return
+    }
 
     setUploading(true)
 
@@ -580,6 +622,8 @@ export function ResourcesPage() {
         revision_number: revisionNumber.trim() || null,
         date_updated: dateUpdated || null,
         proc_category: procCategory || null,
+        mtr_kind: editingDoc.category === 'mtr' ? mtrKind || null : editingDoc.mtr_kind ?? null,
+        heat_lot: editingDoc.category === 'mtr' ? (heatLot.trim() || null) : editingDoc.heat_lot ?? null,
       }
       if (newStoragePath) {
         patch.storage_path = newStoragePath
@@ -595,7 +639,13 @@ export function ResourcesPage() {
       if (patchErr) {
         setUploading(false)
         const isdup = patchErr.code === '23505' || /duplicate|unique/i.test(patchErr.message)
-        showToast(isdup ? `A document named "${uploadTitle.trim()}" already exists in this section.` : patchErr.message || 'Could not save changes')
+        showToast(
+          /mtr_kind|heat_lot|resource_documents_category_check/i.test(patchErr.message)
+            ? 'Run supabase/migration-resource-documents-mtrs.sql in Supabase SQL Editor first.'
+            : isdup
+              ? `A document named "${uploadTitle.trim()}" already exists in this section.`
+              : patchErr.message || 'Could not save changes',
+        )
         return
       }
 
@@ -718,6 +768,8 @@ export function ResourcesPage() {
       revisionNumber: revisionNumber.trim() || undefined,
       dateUpdated: dateUpdated || null,
       procCategory: procCategory || null,
+      mtrKind: mtrKind || null,
+      heatLot: heatLot.trim() || null,
     })
     setUploading(false)
     if (error) { showToast(error); return }
@@ -842,6 +894,16 @@ export function ResourcesPage() {
       count: (sectionDocs['qaqc'] ?? []).length,
     },
     {
+      key: 'mtrs' as const,
+      title: 'MTRs',
+      description: 'Mill test reports for valves, filler metals, and material.',
+      icon: '📑',
+      color: '#334155',
+      bg: '#f1f5f9',
+      border: '#64748b',
+      count: (sectionDocs['mtrs'] ?? []).length,
+    },
+    {
       key: 'employee_training' as const,
       title: 'Employee Training',
       description: 'Schedule sessions, training log, employee records, materials and tests.',
@@ -874,9 +936,11 @@ export function ResourcesPage() {
 
   // ── Procedure category filter (also driven by stats chips) ───────────────
   const [procCategoryFilter, setProcCategoryFilter] = useState<ProcStatFilter>('all')
+  const [mtrKindFilter, setMtrKindFilter] = useState<MtrKind | 'all'>('all')
 
   useEffect(() => {
     setProcCategoryFilter('all')
+    setMtrKindFilter('all')
     setSectionSearchQuery('')
     setSectionSuggestOpen(false)
     setIomMfgFilter('')
@@ -1178,6 +1242,7 @@ export function ResourcesPage() {
         const loading = sectionLoading[activeSimpleSection.key] ?? false
         const isIom = activeSimpleSection.key === 'iom'
         const isReliefSpecBooks = activeSimpleSection.key === 'relief_valve_spec_books'
+        const isMtr = activeSimpleSection.key === 'mtrs'
         const isManufacturerFiltered = isIom || isReliefSpecBooks
         const isProcedureLike = activeSimpleSection.key === 'procedures' || activeSimpleSection.key === 'qaqc'
         const procedureCategoryCounts = PROC_STAT_CATEGORIES.map((cat) => ({
@@ -1186,6 +1251,11 @@ export function ResourcesPage() {
           count: allDocs.filter((d) => d.proc_category === cat).length,
         }))
         const uncategorizedCount = allDocs.filter((d) => !(d.proc_category ?? '').trim()).length
+        const mtrKindCounts = MTR_KINDS.map((kind) => ({
+          key: kind.value,
+          label: kind.label,
+          count: allDocs.filter((d) => d.mtr_kind === kind.value).length,
+        }))
         const baseDocs = isManufacturerFiltered
           ? allDocs.filter((d) => {
               if (iomMfgFilter && (d.manufacturer ?? '') !== iomMfgFilter) return false
@@ -1198,7 +1268,9 @@ export function ResourcesPage() {
                 if (procCategoryFilter === 'uncategorized') return !(d.proc_category ?? '').trim()
                 return d.proc_category === procCategoryFilter
               })
-            : allDocs
+            : isMtr
+              ? allDocs.filter((d) => mtrKindFilter === 'all' || d.mtr_kind === mtrKindFilter)
+              : allDocs
         const searchedDocs = baseDocs.filter((d) => resourceDocumentMatchesQuery(d, sectionSearchQuery))
         const docs = isProcedureLike ? [...searchedDocs].sort(compareProcedureDocs) : searchedDocs
         const sectionSuggestions = sectionSearchQuery.trim()
@@ -1208,7 +1280,9 @@ export function ResourcesPage() {
           ? 'Title, manufacturer, valve type, file…'
           : isProcedureLike
             ? 'Title, SOP #, category, file…'
-            : 'Start typing a title or file name…'
+            : isMtr
+              ? 'Title, heat/lot, manufacturer, spec…'
+              : 'Start typing a title or file name…'
         return (
           <section className="dashboard-panel resources-panel">
             <div className="resources-module-header">
@@ -1263,6 +1337,30 @@ export function ResourcesPage() {
               </div>
             ) : null}
 
+            {isMtr ? (
+              <div className="resources-section-stats" aria-label="MTR types">
+                <button
+                  type="button"
+                  className={`resources-section-stat${mtrKindFilter === 'all' ? ' resources-section-stat--active' : ''}`}
+                  onClick={() => setMtrKindFilter('all')}
+                >
+                  <span className="resources-section-stat-value">{allDocs.length}</span>
+                  <span className="resources-section-stat-label">Total</span>
+                </button>
+                {mtrKindCounts.map((stat) => (
+                  <button
+                    key={stat.key}
+                    type="button"
+                    className={`resources-section-stat${mtrKindFilter === stat.key ? ' resources-section-stat--active' : ''}`}
+                    onClick={() => setMtrKindFilter(stat.key)}
+                  >
+                    <span className="resources-section-stat-value">{stat.count}</span>
+                    <span className="resources-section-stat-label">{stat.label}</span>
+                  </button>
+                ))}
+              </div>
+            ) : null}
+
             <div className="iom-filter-row resources-section-search-row">
               <div className="weld-title-search" ref={sectionSearchWrapRef}>
                 <label htmlFor="resources-section-search">
@@ -1305,6 +1403,8 @@ export function ResourcesPage() {
                               row.product_valve_type,
                               row.sop_number,
                               row.proc_category,
+                              row.mtr_kind ? mtrKindLabel(row.mtr_kind) : '',
+                              row.heat_lot,
                               row.file_name,
                             ]
                               .filter(Boolean)
@@ -1323,7 +1423,12 @@ export function ResourcesPage() {
                 <button
                   type="button"
                   className="button-primary"
-                  onClick={() => openSimpleUploadModal(activeSimpleSection.categories[0])}
+                  onClick={() =>
+                    openSimpleUploadModal(
+                      activeSimpleSection.categories[0],
+                      isMtr && mtrKindFilter !== 'all' ? { mtrKind: mtrKindFilter } : undefined,
+                    )
+                  }
                 >
                   {activeSimpleSection.addLabel}
                 </button>
@@ -1393,6 +1498,14 @@ export function ResourcesPage() {
                         <th>Category</th>
                       </>
                     ) : null}
+                    {isMtr ? (
+                      <>
+                        <th>Type</th>
+                        <th>Manufacturer</th>
+                        <th>Heat / lot</th>
+                        <th>Spec</th>
+                      </>
+                    ) : null}
                     <th>File</th>
                     <th>Notes</th>
                     <th>Updated</th>
@@ -1408,6 +1521,14 @@ export function ResourcesPage() {
                             type="button"
                             className="resources-procedure-link-btn"
                             onClick={() => void openProcedureDialog(row)}
+                          >
+                            {row.title}
+                          </button>
+                        ) : isMtr ? (
+                          <button
+                            type="button"
+                            className="resources-procedure-link-btn"
+                            onClick={() => void openSpecBookFile(row)}
                           >
                             {row.title}
                           </button>
@@ -1427,6 +1548,18 @@ export function ResourcesPage() {
                           <td>{row.revision_number ?? '-'}</td>
                           <td>{row.date_updated ? new Date(row.date_updated).toLocaleDateString() : '-'}</td>
                           <td>{row.proc_category ?? '-'}</td>
+                        </>
+                      ) : null}
+                      {isMtr ? (
+                        <>
+                          <td>{mtrKindLabel(row.mtr_kind)}</td>
+                          <td>{row.manufacturer ?? '-'}</td>
+                          <td>{row.heat_lot ?? '-'}</td>
+                          <td>
+                            {row.mtr_kind === 'valve'
+                              ? row.product_valve_type ?? '-'
+                              : row.filler_metal ?? '-'}
+                          </td>
                         </>
                       ) : null}
                       <td>
@@ -1653,7 +1786,13 @@ export function ResourcesPage() {
                 className="modal-status-select"
                 value={uploadTitle}
                 onChange={(e) => setUploadTitle(e.target.value)}
-                placeholder={modalMode === 'weld' ? 'e.g. WPS-017 Carbon Steel Joint' : 'e.g. ISO 9001 Quality Manual'}
+                placeholder={
+                  modalMode === 'weld'
+                    ? 'e.g. WPS-017 Carbon Steel Joint'
+                    : uploadCategory === 'mtr'
+                      ? 'e.g. Heat 4521 A105 body'
+                      : 'e.g. ISO 9001 Quality Manual'
+                }
                 disabled={uploading}
                 autoFocus
               />
@@ -1835,6 +1974,97 @@ export function ResourcesPage() {
                   </select>
                 </>
               )}
+
+              {uploadCategory === 'mtr' ? (
+                <>
+                  <div className="weld-fields-divider">MTR details</div>
+
+                  <label className="modal-label" htmlFor="upload-mtr-kind">
+                    Used for <span className="required-star">*</span>
+                  </label>
+                  <select
+                    id="upload-mtr-kind"
+                    className="modal-status-select"
+                    value={mtrKind}
+                    onChange={(e) => setMtrKind(e.target.value as MtrKind | '')}
+                    disabled={uploading}
+                  >
+                    <option value="">— Select type —</option>
+                    {MTR_KINDS.map((kind) => (
+                      <option key={kind.value} value={kind.value}>{kind.label}</option>
+                    ))}
+                  </select>
+
+                  <label className="modal-label" htmlFor="upload-mtr-manufacturer">Manufacturer</label>
+                  <select
+                    id="upload-mtr-manufacturer"
+                    className="modal-status-select"
+                    value={manufacturer}
+                    onChange={(e) => setManufacturer(e.target.value)}
+                    disabled={uploading}
+                  >
+                    <option value="">— Select manufacturer —</option>
+                    {manufacturers.map((m) => <option key={m} value={m}>{m}</option>)}
+                  </select>
+
+                  <label className="modal-label" htmlFor="upload-heat-lot">Heat / lot</label>
+                  <input
+                    id="upload-heat-lot"
+                    type="text"
+                    className="modal-status-select"
+                    value={heatLot}
+                    onChange={(e) => setHeatLot(e.target.value)}
+                    placeholder="e.g. 4521, heat lot, mill heat"
+                    disabled={uploading}
+                  />
+
+                  {mtrKind === 'valve' ? (
+                    <>
+                      <label className="modal-label" htmlFor="upload-mtr-valve-type">Valve type</label>
+                      <select
+                        id="upload-mtr-valve-type"
+                        className="modal-status-select"
+                        value={productValveType}
+                        onChange={(e) => setProductValveType(e.target.value)}
+                        disabled={uploading}
+                      >
+                        <option value="">— Select valve type —</option>
+                        {valveTypeOptions.map((t) => <option key={t} value={t}>{t}</option>)}
+                      </select>
+                    </>
+                  ) : null}
+
+                  {mtrKind === 'filler_metal' ? (
+                    <>
+                      <label className="modal-label" htmlFor="upload-mtr-filler">Filler metal / classification</label>
+                      <input
+                        id="upload-mtr-filler"
+                        type="text"
+                        className="modal-status-select"
+                        value={fillerMetal}
+                        onChange={(e) => setFillerMetal(e.target.value)}
+                        placeholder="e.g. ER70S-2, E309L-16"
+                        disabled={uploading}
+                      />
+                    </>
+                  ) : null}
+
+                  {mtrKind === 'material' ? (
+                    <>
+                      <label className="modal-label" htmlFor="upload-mtr-material">Material spec / grade</label>
+                      <input
+                        id="upload-mtr-material"
+                        type="text"
+                        className="modal-status-select"
+                        value={fillerMetal}
+                        onChange={(e) => setFillerMetal(e.target.value)}
+                        placeholder="e.g. A105, F91, 316L"
+                        disabled={uploading}
+                      />
+                    </>
+                  ) : null}
+                </>
+              ) : null}
 
               <label className="modal-label" htmlFor="upload-notes">Notes (optional)</label>
               <input
