@@ -29,7 +29,7 @@ import {
   type QualityTeamLevel,
 } from '../types/employees'
 import { getExec, type ItpLibraryPlanPayload, type ItpQcReviewStatus } from '../types/itpLibraryPlan'
-import type { QualityIncr } from '../types/qualityIncr'
+import { formatIncrMoney, incrCostOfQuality, type QualityIncr } from '../types/qualityIncr'
 
 type StatusFilter = 'all' | ItpQcReviewStatus
 type FlagFilter = 'open' | 'resolved' | 'all'
@@ -217,13 +217,15 @@ export function QualityTeamPage() {
     let closed = 0
     let voided = 0
     let corporate = 0
+    let costOfQuality = 0
     for (const row of incrRows) {
       if (row.status === 'open') open += 1
       else if (row.status === 'closed') closed += 1
       else if (row.status === 'void') voided += 1
       if (row.requires_corporate_ncr) corporate += 1
+      costOfQuality += incrCostOfQuality(row)
     }
-    return { open, closed, voided, corporate, total: incrRows.length }
+    return { open, closed, voided, corporate, total: incrRows.length, costOfQuality }
   }, [incrRows])
 
   const filteredIncrRows = useMemo(() => {
@@ -709,6 +711,13 @@ export function QualityTeamPage() {
             <strong>{incrStats.total}</strong>
             <span>Total</span>
           </button>
+          <div
+            className="quality-incr-stat quality-incr-stat--coq"
+            title="Labor + material on open and closed INCRs. Voided reports are not included."
+          >
+            <strong>{formatIncrMoney(incrStats.costOfQuality)}</strong>
+            <span>Cost of quality</span>
+          </div>
         </div>
 
         {incrError ? <p className="placeholder-copy text-red">{incrError}</p> : null}

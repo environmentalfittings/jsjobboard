@@ -15845,7 +15845,7 @@ tbody tr:hover {
 
 .quality-incr-stats {
   display: grid;
-  grid-template-columns: repeat(5, minmax(0, 1fr));
+  grid-template-columns: repeat(6, minmax(0, 1fr));
   gap: 10px;
   margin: 0 0 14px;
 }
@@ -15901,6 +15901,22 @@ tbody tr:hover {
   box-shadow: 0 0 0 1px #dc2626 inset;
 }
 
+.quality-incr-stat--coq {
+  cursor: default;
+  background: #fffbeb;
+  border-color: #fde68a;
+}
+
+.quality-incr-stat--coq:hover {
+  border-color: #fbbf24;
+  box-shadow: none;
+}
+
+.quality-incr-stat--coq strong {
+  font-size: 1.2rem;
+  color: #b45309;
+}
+
 .quality-incr-table tbody tr.quality-incr-row--open {
   background: #fef2f2;
 }
@@ -15940,7 +15956,13 @@ tbody tr:hover {
   text-decoration: underline;
 }
 
-@media (max-width: 900px) {
+@media (max-width: 1100px) {
+  .quality-incr-stats {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 700px) {
   .quality-incr-stats {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }

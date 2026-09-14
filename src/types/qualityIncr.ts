@@ -176,6 +176,30 @@ export function qualityIncrToForm(row: QualityIncr): QualityIncrFormState {
   }
 }
 
+/** Parse labor/material cost fields that may include `$`, commas, or blanks. */
+export function parseIncrMoney(raw: string | null | undefined): number {
+  if (raw == null) return 0
+  const cleaned = String(raw).replace(/[^0-9.-]/g, '')
+  if (!cleaned || cleaned === '-' || cleaned === '.' || cleaned === '-.') return 0
+  const n = Number(cleaned)
+  return Number.isFinite(n) ? n : 0
+}
+
+/** Labor + material for one INCR. Voided reports do not count toward cost of quality. */
+export function incrCostOfQuality(row: Pick<QualityIncr, 'labor_cost' | 'material_cost' | 'status'>): number {
+  if (row.status === 'void') return 0
+  return parseIncrMoney(row.labor_cost) + parseIncrMoney(row.material_cost)
+}
+
+export function formatIncrMoney(amount: number): string {
+  return new Intl.NumberFormat('en-US', {
+    style: 'currency',
+    currency: 'USD',
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  }).format(amount)
+}
+
 export function hasFinalIncrApproval(
   form: Pick<QualityIncrFormState, 'final_approval_name' | 'final_approval_date'>,
 ): boolean {
