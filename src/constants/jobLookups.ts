@@ -141,6 +141,40 @@ export const BODY_MATERIALS = [
   'Monel', 'Hastelloy', 'Alloy 400', 'Alloy C276',
 ] as const
 
+/** AWS filler classifications used as fallback when DB lookup_values is empty. */
+export const FILLER_CLASSIFICATIONS = [
+  'ER70S-2',
+  'ER70S-6',
+  'E7018',
+  'E6010',
+  'ER80S-B2',
+  'ER90S-B3',
+  'ER90S-B9',
+  'E309L-16',
+  'ER309L',
+  'E316L-16',
+  'ER316L',
+  'ER308L',
+  'ER347',
+  'ENiCrMo-3',
+  'ERNiCrMo-3',
+  'ERNiCr-3',
+  'Stellite 6',
+  'Stellite 21',
+] as const
+
+/** Filler rod / wire diameters used as fallback when DB lookup_values is empty. */
+export const FILLER_SIZES = [
+  '0.035"',
+  '0.045"',
+  '1/16"',
+  '3/32"',
+  '1/8"',
+  '5/32"',
+  '3/16"',
+  '1/4"',
+] as const
+
 /** Always shown first in API trim dropdowns (inventory + Manage lists fallback). */
 export const PRIORITY_API_TRIMS = ['UOP', 'Phillips Spec'] as const
 

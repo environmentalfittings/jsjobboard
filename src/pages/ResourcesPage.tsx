@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { EmployeeTrainingPanel } from '../components/EmployeeTrainingPanel'
+import { LookupAddSelect } from '../components/LookupAddSelect'
 import { useToast } from '../components/ToastNotification'
 import { WpsNumberGuide } from '../components/WpsNumberGuide'
 import { useAuth } from '../contexts/AuthContext'
@@ -18,6 +19,13 @@ import {
   type WpsType,
   resourceDocumentMatchesQuery,
   uploadResourceDocument,
+  allocateMtrNumber,
+  buildMtrColumnPayload,
+  compareMtrDocuments,
+  formatMtrDetails,
+  nextMtrNumber,
+  normalizeMtrNumber,
+  validateMtrDetails,
   BASE_METAL_CATEGORIES,
   MTR_KINDS,
   mtrKindLabel,
@@ -26,6 +34,8 @@ import {
   WPS_TYPES,
 } from '../lib/resourceDocuments'
 import { canWriteShop, permissionDeniedReason } from '../lib/roles'
+import { loadLookupOptionsMap, addLookupValue } from '../lib/lookupValues'
+import type { LookupCategory } from '../constants/lookupCategories'
 import {
   SPEC_DOCUMENTS_BUCKET,
   SPEC_DOC_TYPES,
@@ -44,11 +54,41 @@ import { weldProcedureMatchesQuery } from '../lib/wpsNumberGuide'
 const RESOURCE_DOC_SELECT =
   'id,scope,valve_type,category,title,notes,storage_path,file_name,mime_type,created_at,updated_at,wps_type,base_metal_category,weld_processes,weld_modes,filler_metal,base_metal_thickness_qualified,filler_metal_thickness_qualified,post_weld_heat_treat_required,pwht_temperature,pwht_time,hf_approved,manufacturer,product_valve_type,sop_number,revision_number,date_updated,proc_category'
 const RESOURCE_DOC_SELECT_MTR =
+  'id,scope,valve_type,category,title,notes,storage_path,file_name,mime_type,created_at,updated_at,wps_type,base_metal_category,weld_processes,weld_modes,filler_metal,base_metal_thickness_qualified,filler_metal_thickness_qualified,post_weld_heat_treat_required,pwht_temperature,pwht_time,hf_approved,manufacturer,product_valve_type,sop_number,revision_number,date_updated,proc_category,mtr_kind,heat_lot,mtr_number,mtr_size,mtr_pressure,mtr_body_heat,mtr_bonnet_heat,mtr_material,mtr_length,mtr_od,mtr_inside_dia'
+const RESOURCE_DOC_SELECT_MTR_LEGACY =
+  'id,scope,valve_type,category,title,notes,storage_path,file_name,mime_type,created_at,updated_at,wps_type,base_metal_category,weld_processes,weld_modes,filler_metal,base_metal_thickness_qualified,filler_metal_thickness_qualified,post_weld_heat_treat_required,pwht_temperature,pwht_time,hf_approved,manufacturer,product_valve_type,sop_number,revision_number,date_updated,proc_category,mtr_kind,heat_lot,mtr_number'
+const RESOURCE_DOC_SELECT_MTR_BARE =
   'id,scope,valve_type,category,title,notes,storage_path,file_name,mime_type,created_at,updated_at,wps_type,base_metal_category,weld_processes,weld_modes,filler_metal,base_metal_thickness_qualified,filler_metal_thickness_qualified,post_weld_heat_treat_required,pwht_temperature,pwht_time,hf_approved,manufacturer,product_valve_type,sop_number,revision_number,date_updated,proc_category,mtr_kind,heat_lot'
 const PROCEDURE_COMPANION_SELECT =
   'id,scope,valve_type,category,title,notes,storage_path,file_name,mime_type,created_at,updated_at,sop_number,revision_number,date_updated,proc_category'
 const PROC_STAT_CATEGORIES = ['Valve-Specific', 'NDE', 'Other', 'Test', 'Answer Key'] as const
 type ProcStatFilter = 'all' | (typeof PROC_STAT_CATEGORIES)[number] | 'uncategorized'
+
+function mtrSchemaOrDuplicateError(message: string, assignedNumber?: string): string | null {
+  if (
+    /uq_resource_documents_mtr_number/i.test(message) ||
+    (/mtr_number/i.test(message) && /duplicate|unique/i.test(message))
+  ) {
+    return assignedNumber ? `${assignedNumber} is already used.` : 'That MTR number is already used.'
+  }
+  if (/mtr_number/i.test(message) && /schema cache|column|does not exist/i.test(message)) {
+    return 'Run supabase/migration-resource-documents-mtr-numbers.sql in Supabase SQL Editor first.'
+  }
+  if (/mtr_size|mtr_pressure|mtr_body_heat|mtr_bonnet_heat|mtr_material|mtr_length|mtr_od|mtr_inside_dia/i.test(message)) {
+    return 'Run supabase/migration-resource-documents-mtr-details.sql in Supabase SQL Editor first.'
+  }
+  if (/mtr_kind|heat_lot|resource_documents_category_check/i.test(message)) {
+    return 'Run supabase/migration-resource-documents-mtrs.sql in Supabase SQL Editor first.'
+  }
+  return null
+}
+
+function optionsWithCurrent(options: readonly string[], current: string) {
+  const trimmed = current.trim()
+  if (!trimmed) return [...options]
+  if (options.some((value) => value.toLowerCase() === trimmed.toLowerCase())) return [...options]
+  return [trimmed, ...options]
+}
 
 export function ResourcesPage() {
   const { showToast } = useToast()
@@ -61,6 +101,7 @@ export function ResourcesPage() {
   const [manufacturers, setManufacturers] = useState<string[]>([])
   const [manufacturerOptions, setManufacturerOptions] = useState<ManufacturerOption[]>([])
   const [valveTypeOptions, setValveTypeOptions] = useState<string[]>([])
+  const [lookupOptions, setLookupOptions] = useState<Partial<Record<LookupCategory, string[]>>>({})
 
   useEffect(() => {
     void loadCurrentUserQualityTeamLevel({ userId: user?.id, username }).then(setQualityTeamLevel)
@@ -68,26 +109,10 @@ export function ResourcesPage() {
 
   useEffect(() => {
     void (async () => {
-      const [mfgRes, vtRes, catalogMfg] = await Promise.all([
-        supabase
-          .from('lookup_values')
-          .select('value')
-          .eq('category', 'manufacturer')
-          .order('value', { ascending: true }),
-        supabase
-          .from('lookup_values')
-          .select('value')
-          .eq('category', 'valve_type')
-          .order('sort_order', { ascending: true })
-          .order('id', { ascending: true }),
-        loadManufacturerOptions(),
-      ])
-      if (!mfgRes.error && mfgRes.data?.length) {
-        setManufacturers(mfgRes.data.map((r: { value: string }) => r.value))
-      }
-      if (!vtRes.error && vtRes.data?.length) {
-        setValveTypeOptions(vtRes.data.map((r: { value: string }) => r.value))
-      }
+      const [map, catalogMfg] = await Promise.all([loadLookupOptionsMap(), loadManufacturerOptions()])
+      setLookupOptions(map)
+      setManufacturers(map.manufacturer ?? [])
+      setValveTypeOptions(map.valve_type ?? [])
       if (catalogMfg.error) {
         showToast(`Could not load manufacturers: ${catalogMfg.error}`)
       } else {
@@ -95,6 +120,27 @@ export function ResourcesPage() {
       }
     })()
   }, [showToast])
+
+  const persistMtrLookup = useCallback(
+    async (category: LookupCategory, raw: string, apply: (saved: string) => void) => {
+      try {
+        const saved = await addLookupValue(category, raw)
+        setLookupOptions((prev) => ({
+          ...prev,
+          [category]: optionsWithCurrent(prev[category] ?? [], saved),
+        }))
+        if (category === 'manufacturer') {
+          setManufacturers((prev) => optionsWithCurrent(prev, saved))
+        }
+        apply(saved)
+        showToast(`Added “${saved}”`)
+      } catch (error) {
+        showToast(error instanceof Error ? error.message : 'Could not add that option')
+        throw error
+      }
+    },
+    [showToast],
+  )
 
   // ── Weld procedures section ──────────────────────────────────────────────
   const [weldRows, setWeldRows] = useState<ResourceDocumentRow[]>([])
@@ -136,6 +182,20 @@ export function ResourcesPage() {
     if (q.length < 1) return []
     return weldRows.filter((row) => weldProcedureMatchesQuery(row, weldTitleQuery)).slice(0, 10)
   }, [weldRows, weldTitleQuery])
+
+  const fillerClassificationOptions = useMemo(() => {
+    const seen = new Set<string>()
+    const out: string[] = []
+    for (const value of [...(lookupOptions.filler_classification ?? []), ...weldRows.map((row) => row.filler_metal ?? '')]) {
+      const trimmed = value.trim()
+      if (!trimmed) continue
+      const key = trimmed.toLowerCase()
+      if (seen.has(key)) continue
+      seen.add(key)
+      out.push(trimmed)
+    }
+    return out
+  }, [lookupOptions.filler_classification, weldRows])
 
   useEffect(() => {
     if (!weldSuggestOpen) return
@@ -210,20 +270,48 @@ export function ResourcesPage() {
 
   const loadSection = async (key: string, categories: readonly ResourceDocumentCategory[]) => {
     setSectionLoading((prev) => ({ ...prev, [key]: true }))
-    const result =
+    let result =
       key === 'mtrs'
         ? await supabase
             .from('resource_documents')
             .select(RESOURCE_DOC_SELECT_MTR)
             .in('category', [...categories])
             .order('title', { ascending: true })
-            .limit(400)
+            .limit(2000)
         : await supabase
             .from('resource_documents')
             .select(RESOURCE_DOC_SELECT)
             .in('category', [...categories])
             .order('title', { ascending: true })
             .limit(400)
+    if (
+      key === 'mtrs' &&
+      result.error &&
+      /mtr_size|mtr_pressure|mtr_body_heat|mtr_bonnet_heat|mtr_material|mtr_length|mtr_od|mtr_inside_dia/i.test(result.error.message) &&
+      /schema cache|column|does not exist/i.test(result.error.message)
+    ) {
+      showToast('Run supabase/migration-resource-documents-mtr-details.sql in Supabase SQL Editor first.')
+      result = await supabase
+        .from('resource_documents')
+        .select(RESOURCE_DOC_SELECT_MTR_LEGACY)
+        .in('category', [...categories])
+        .order('title', { ascending: true })
+        .limit(2000)
+    }
+    if (
+      key === 'mtrs' &&
+      result.error &&
+      /mtr_number/i.test(result.error.message) &&
+      /schema cache|column|does not exist/i.test(result.error.message)
+    ) {
+      showToast('Run supabase/migration-resource-documents-mtr-numbers.sql in Supabase SQL Editor first.')
+      result = await supabase
+        .from('resource_documents')
+        .select(RESOURCE_DOC_SELECT_MTR_BARE)
+        .in('category', [...categories])
+        .order('title', { ascending: true })
+        .limit(2000)
+    }
     const { data, error } = result
     setSectionLoading((prev) => ({ ...prev, [key]: false }))
     if (error) {
@@ -235,7 +323,20 @@ export function ResourcesPage() {
       showToast(`Could not load documents: ${error.message}`)
       return
     }
-    setSectionDocs((prev) => ({ ...prev, [key]: (data ?? []) as unknown as ResourceDocumentRow[] }))
+    const rows = ((data ?? []) as unknown as ResourceDocumentRow[]).map((row) => ({
+      ...row,
+      mtr_number: row.mtr_number ?? null,
+      mtr_size: row.mtr_size ?? null,
+      mtr_pressure: row.mtr_pressure ?? null,
+      mtr_body_heat: row.mtr_body_heat ?? null,
+      mtr_bonnet_heat: row.mtr_bonnet_heat ?? null,
+      mtr_material: row.mtr_material ?? null,
+      mtr_length: row.mtr_length ?? null,
+      mtr_od: row.mtr_od ?? null,
+      mtr_inside_dia: row.mtr_inside_dia ?? null,
+    }))
+    if (key === 'mtrs') rows.sort(compareMtrDocuments)
+    setSectionDocs((prev) => ({ ...prev, [key]: rows }))
   }
 
   const loadAllSections = () => {
@@ -288,6 +389,15 @@ export function ResourcesPage() {
   const [procCategory, setProcCategory] = useState<'Valve-Specific' | 'NDE' | 'Other' | 'Test' | 'Answer Key' | ''>('')
   const [mtrKind, setMtrKind] = useState<MtrKind | ''>('')
   const [heatLot, setHeatLot] = useState('')
+  const [mtrNumber, setMtrNumber] = useState('')
+  const [mtrSize, setMtrSize] = useState('')
+  const [mtrPressure, setMtrPressure] = useState('')
+  const [mtrBodyHeat, setMtrBodyHeat] = useState('')
+  const [mtrBonnetHeat, setMtrBonnetHeat] = useState('')
+  const [mtrMaterial, setMtrMaterial] = useState('')
+  const [mtrLength, setMtrLength] = useState('')
+  const [mtrOd, setMtrOd] = useState('')
+  const [mtrInsideDia, setMtrInsideDia] = useState('')
   // Relief Valve Spec Books catalog fields
   const [manufacturerId, setManufacturerId] = useState('')
   const [specDocType, setSpecDocType] = useState<SpecDocumentType | ''>('')
@@ -360,6 +470,15 @@ export function ResourcesPage() {
       if ((procCategory || '') !== (editingDoc.proc_category ?? '')) return true
       if ((mtrKind || '') !== (editingDoc.mtr_kind ?? '')) return true
       if (norm(heatLot) !== norm(editingDoc.heat_lot)) return true
+      if (norm(mtrNumber) !== norm(editingDoc.mtr_number)) return true
+      if (norm(mtrSize) !== norm(editingDoc.mtr_size)) return true
+      if (norm(mtrPressure) !== norm(editingDoc.mtr_pressure)) return true
+      if (norm(mtrBodyHeat) !== norm(editingDoc.mtr_body_heat || editingDoc.heat_lot)) return true
+      if (norm(mtrBonnetHeat) !== norm(editingDoc.mtr_bonnet_heat)) return true
+      if (norm(mtrMaterial) !== norm(editingDoc.mtr_material || (editingDoc.mtr_kind === 'material' ? editingDoc.filler_metal : ''))) return true
+      if (norm(mtrLength) !== norm(editingDoc.mtr_length)) return true
+      if (norm(mtrOd) !== norm(editingDoc.mtr_od)) return true
+      if (norm(mtrInsideDia) !== norm(editingDoc.mtr_inside_dia)) return true
       if (editingDoc.category === 'relief_valve_spec_book') {
         if (manufacturerId !== resolveManufacturerIdFromName(editingDoc.manufacturer)) return true
         if (specDocType || editionLabel.trim() || revisionLabel.trim() || effectiveDate || pageCount.trim()) {
@@ -372,7 +491,9 @@ export function ResourcesPage() {
     if (trimmed(uploadTitle)) return true
     if (trimmed(uploadNotes)) return true
     if (trimmed(sopNumber) || trimmed(revisionNumber) || dateUpdated || procCategory) return true
-    if (mtrKind || trimmed(heatLot) || trimmed(fillerMetal)) return true
+    if (mtrKind || trimmed(heatLot) || trimmed(mtrNumber) || trimmed(fillerMetal)) return true
+    if (trimmed(mtrSize) || trimmed(mtrPressure) || trimmed(mtrBodyHeat) || trimmed(mtrBonnetHeat)) return true
+    if (trimmed(mtrMaterial) || trimmed(mtrLength) || trimmed(mtrOd) || trimmed(mtrInsideDia)) return true
     if (manufacturer || manufacturerId || productValveType) return true
     if (specDocType || editionLabel.trim() || revisionLabel.trim() || effectiveDate || pageCount.trim()) return true
     if (wpsType || baseMetalCategory) return true
@@ -408,6 +529,15 @@ export function ResourcesPage() {
     procCategory,
     mtrKind,
     heatLot,
+    mtrNumber,
+    mtrSize,
+    mtrPressure,
+    mtrBodyHeat,
+    mtrBonnetHeat,
+    mtrMaterial,
+    mtrLength,
+    mtrOd,
+    mtrInsideDia,
     specDocType,
     editionLabel,
     revisionLabel,
@@ -442,6 +572,15 @@ export function ResourcesPage() {
     setProcCategory('')
     setMtrKind('')
     setHeatLot('')
+    setMtrNumber('')
+    setMtrSize('')
+    setMtrPressure('')
+    setMtrBodyHeat('')
+    setMtrBonnetHeat('')
+    setMtrMaterial('')
+    setMtrLength('')
+    setMtrOd('')
+    setMtrInsideDia('')
     setSpecDocType('')
     setEditionLabel('')
     setRevisionLabel('')
@@ -468,7 +607,7 @@ export function ResourcesPage() {
     setBaseMetalCategory(row.base_metal_category ?? '')
     setWeldProcesses((row.weld_processes ?? []) as WeldProcess[])
     setWeldModes((row.weld_modes ?? []) as WeldMode[])
-    setFillerMetal(row.filler_metal ?? '')
+    setFillerMetal(row.mtr_kind === 'filler_metal' || row.category === 'weld_procedure' ? (row.filler_metal ?? '') : '')
     setBaseMetalThicknessQualified(row.base_metal_thickness_qualified ?? '')
     setFillerMetalThicknessQualified(row.filler_metal_thickness_qualified ?? '')
     setPostWeldHeatTreatRequired(row.post_weld_heat_treat_required ?? false)
@@ -481,6 +620,15 @@ export function ResourcesPage() {
     setProcCategory((row.proc_category as 'Valve-Specific' | 'NDE' | 'Other' | 'Test' | 'Answer Key' | '') ?? '')
     setMtrKind(row.mtr_kind ?? '')
     setHeatLot(row.heat_lot ?? '')
+    setMtrNumber(row.mtr_number ?? '')
+    setMtrSize(row.mtr_size ?? '')
+    setMtrPressure(row.mtr_pressure ?? '')
+    setMtrBodyHeat(row.mtr_body_heat || row.heat_lot || '')
+    setMtrBonnetHeat(row.mtr_bonnet_heat ?? '')
+    setMtrMaterial(row.mtr_material || (row.mtr_kind === 'material' ? row.filler_metal : '') || '')
+    setMtrLength(row.mtr_length ?? '')
+    setMtrOd(row.mtr_od ?? '')
+    setMtrInsideDia(row.mtr_inside_dia ?? '')
     setSpecDocType('')
     setEditionLabel('')
     setRevisionLabel('')
@@ -563,15 +711,43 @@ export function ResourcesPage() {
       return
     }
     if (!uploadTitle.trim()) { showToast('Enter a document title'); return }
-    if ((uploadCategory === 'mtr' || editingDoc?.category === 'mtr') && !mtrKind) {
-      showToast('Choose whether this MTR is for valves, filler metals, or material')
-      return
+    const isMtrUpload = uploadCategory === 'mtr' || editingDoc?.category === 'mtr'
+    const mtrFields = {
+      size: mtrSize,
+      pressure: mtrPressure,
+      bodyHeat: mtrBodyHeat,
+      bonnetHeat: mtrBonnetHeat,
+      material: mtrMaterial,
+      length: mtrLength,
+      od: mtrOd,
+      insideDia: mtrInsideDia,
+      fillerClassification: fillerMetal,
+      valveType: productValveType,
+    }
+    if (isMtrUpload) {
+      const mtrError = validateMtrDetails(mtrKind, mtrFields)
+      if (mtrError) {
+        showToast(mtrError)
+        return
+      }
     }
 
     setUploading(true)
 
     // ── Edit mode: update existing row (file replacement is optional) ─────────
     if (editingDoc) {
+      let resolvedMtrNumber = editingDoc.mtr_number ?? null
+      if (editingDoc.category === 'mtr') {
+        if (mtrNumber.trim()) {
+          const allocated = await allocateMtrNumber(mtrNumber, { excludeId: editingDoc.id })
+          if (allocated.error) {
+            setUploading(false)
+            showToast(allocated.error)
+            return
+          }
+          resolvedMtrNumber = allocated.number
+        }
+      }
       // If a new file was chosen, upload it first and swap the storage path
       let newStoragePath: string | undefined
       let newFileName: string | undefined
@@ -624,6 +800,8 @@ export function ResourcesPage() {
         proc_category: procCategory || null,
         mtr_kind: editingDoc.category === 'mtr' ? mtrKind || null : editingDoc.mtr_kind ?? null,
         heat_lot: editingDoc.category === 'mtr' ? (heatLot.trim() || null) : editingDoc.heat_lot ?? null,
+        mtr_number: editingDoc.category === 'mtr' ? resolvedMtrNumber : editingDoc.mtr_number ?? null,
+        ...(editingDoc.category === 'mtr' ? buildMtrColumnPayload(mtrKind, mtrFields) : {}),
       }
       if (newStoragePath) {
         patch.storage_path = newStoragePath
@@ -640,11 +818,10 @@ export function ResourcesPage() {
         setUploading(false)
         const isdup = patchErr.code === '23505' || /duplicate|unique/i.test(patchErr.message)
         showToast(
-          /mtr_kind|heat_lot|resource_documents_category_check/i.test(patchErr.message)
-            ? 'Run supabase/migration-resource-documents-mtrs.sql in Supabase SQL Editor first.'
-            : isdup
+          mtrSchemaOrDuplicateError(patchErr.message, resolvedMtrNumber ?? undefined) ??
+            (isdup
               ? `A document named "${uploadTitle.trim()}" already exists in this section.`
-              : patchErr.message || 'Could not save changes',
+              : patchErr.message || 'Could not save changes'),
         )
         return
       }
@@ -744,6 +921,17 @@ export function ResourcesPage() {
       return
     }
 
+    let resolvedMtrNumber: string | null = null
+    if (uploadCategory === 'mtr') {
+      const allocated = await allocateMtrNumber(mtrNumber)
+      if (allocated.error) {
+        setUploading(false)
+        showToast(allocated.error)
+        return
+      }
+      resolvedMtrNumber = allocated.number
+    }
+
     const { error } = await uploadResourceDocument({
       file: uploadFile,
       scope: 'general',
@@ -770,12 +958,14 @@ export function ResourcesPage() {
       procCategory: procCategory || null,
       mtrKind: mtrKind || null,
       heatLot: heatLot.trim() || null,
+      mtrNumber: resolvedMtrNumber,
+      mtrDetails: mtrFields,
     })
     setUploading(false)
     if (error) { showToast(error); return }
     setUploadModalOpen(false)
     resetModalState()
-    showToast('Document uploaded')
+    showToast(resolvedMtrNumber ? `Document uploaded as ${resolvedMtrNumber}` : 'Document uploaded')
     if (modalMode === 'weld') {
       void loadWeldProcedures()
     } else {
@@ -1272,7 +1462,11 @@ export function ResourcesPage() {
               ? allDocs.filter((d) => mtrKindFilter === 'all' || d.mtr_kind === mtrKindFilter)
               : allDocs
         const searchedDocs = baseDocs.filter((d) => resourceDocumentMatchesQuery(d, sectionSearchQuery))
-        const docs = isProcedureLike ? [...searchedDocs].sort(compareProcedureDocs) : searchedDocs
+        const docs = isProcedureLike
+          ? [...searchedDocs].sort(compareProcedureDocs)
+          : isMtr
+            ? [...searchedDocs].sort(compareMtrDocuments)
+            : searchedDocs
         const sectionSuggestions = sectionSearchQuery.trim()
           ? allDocs.filter((d) => resourceDocumentMatchesQuery(d, sectionSearchQuery)).slice(0, 10)
           : []
@@ -1281,7 +1475,7 @@ export function ResourcesPage() {
           : isProcedureLike
             ? 'Title, SOP #, category, file…'
             : isMtr
-              ? 'Title, heat/lot, manufacturer, spec…'
+              ? 'MTR #, size, heat, material, classification…'
               : 'Start typing a title or file name…'
         return (
           <section className="dashboard-panel resources-panel">
@@ -1399,12 +1593,14 @@ export function ResourcesPage() {
                           <span className="weld-title-suggestion-title">{row.title}</span>
                           <span className="weld-title-suggestion-meta">
                             {[
+                              row.mtr_number,
                               row.manufacturer,
-                              row.product_valve_type,
+                              isMtr ? formatMtrDetails(row) : row.product_valve_type,
                               row.sop_number,
                               row.proc_category,
                               row.mtr_kind ? mtrKindLabel(row.mtr_kind) : '',
-                              row.heat_lot,
+                              row.mtr_body_heat || row.heat_lot,
+                              row.mtr_bonnet_heat,
                               row.file_name,
                             ]
                               .filter(Boolean)
@@ -1499,12 +1695,41 @@ export function ResourcesPage() {
                       </>
                     ) : null}
                     {isMtr ? (
-                      <>
-                        <th>Type</th>
-                        <th>Manufacturer</th>
-                        <th>Heat / lot</th>
-                        <th>Spec</th>
-                      </>
+                      mtrKindFilter === 'valve' ? (
+                        <>
+                          <th>MTR #</th>
+                          <th>Size</th>
+                          <th>Pressure</th>
+                          <th>Type</th>
+                          <th>Body heat</th>
+                          <th>Bonnet heat</th>
+                          <th>Manufacturer</th>
+                        </>
+                      ) : mtrKindFilter === 'material' ? (
+                        <>
+                          <th>MTR #</th>
+                          <th>Material type</th>
+                          <th>Length</th>
+                          <th>OD</th>
+                          <th>ID</th>
+                          <th>Manufacturer</th>
+                        </>
+                      ) : mtrKindFilter === 'filler_metal' ? (
+                        <>
+                          <th>MTR #</th>
+                          <th>Classification</th>
+                          <th>Material</th>
+                          <th>Size</th>
+                          <th>Manufacturer</th>
+                        </>
+                      ) : (
+                        <>
+                          <th>MTR #</th>
+                          <th>Material Type</th>
+                          <th>Manufacturer</th>
+                          <th>Details</th>
+                        </>
+                      )
                     ) : null}
                     <th>File</th>
                     <th>Notes</th>
@@ -1551,16 +1776,41 @@ export function ResourcesPage() {
                         </>
                       ) : null}
                       {isMtr ? (
-                        <>
-                          <td>{mtrKindLabel(row.mtr_kind)}</td>
-                          <td>{row.manufacturer ?? '-'}</td>
-                          <td>{row.heat_lot ?? '-'}</td>
-                          <td>
-                            {row.mtr_kind === 'valve'
-                              ? row.product_valve_type ?? '-'
-                              : row.filler_metal ?? '-'}
-                          </td>
-                        </>
+                        mtrKindFilter === 'valve' ? (
+                          <>
+                            <td style={{ fontWeight: 600, whiteSpace: 'nowrap' }}>{row.mtr_number || '—'}</td>
+                            <td>{row.mtr_size ?? '-'}</td>
+                            <td>{row.mtr_pressure ?? '-'}</td>
+                            <td>{row.product_valve_type ?? '-'}</td>
+                            <td>{row.mtr_body_heat || row.heat_lot || '-'}</td>
+                            <td>{row.mtr_bonnet_heat ?? '-'}</td>
+                            <td>{row.manufacturer ?? '-'}</td>
+                          </>
+                        ) : mtrKindFilter === 'material' ? (
+                          <>
+                            <td style={{ fontWeight: 600, whiteSpace: 'nowrap' }}>{row.mtr_number || '—'}</td>
+                            <td>{row.mtr_material || row.filler_metal || '-'}</td>
+                            <td>{row.mtr_length ?? '-'}</td>
+                            <td>{row.mtr_od ?? '-'}</td>
+                            <td>{row.mtr_inside_dia ?? '-'}</td>
+                            <td>{row.manufacturer ?? '-'}</td>
+                          </>
+                        ) : mtrKindFilter === 'filler_metal' ? (
+                          <>
+                            <td style={{ fontWeight: 600, whiteSpace: 'nowrap' }}>{row.mtr_number || '—'}</td>
+                            <td>{row.filler_metal ?? '-'}</td>
+                            <td>{row.mtr_material ?? '-'}</td>
+                            <td>{row.mtr_size ?? '-'}</td>
+                            <td>{row.manufacturer ?? '-'}</td>
+                          </>
+                        ) : (
+                          <>
+                            <td style={{ fontWeight: 600, whiteSpace: 'nowrap' }}>{row.mtr_number || '—'}</td>
+                            <td>{mtrKindLabel(row.mtr_kind)}</td>
+                            <td>{row.manufacturer ?? '-'}</td>
+                            <td>{formatMtrDetails(row)}</td>
+                          </>
+                        )
                       ) : null}
                       <td>
                         <button
@@ -1979,48 +2229,107 @@ export function ResourcesPage() {
                 <>
                   <div className="weld-fields-divider">MTR details</div>
 
+                  <label className="modal-label" htmlFor="upload-mtr-number">MTR #</label>
+                  <input
+                    id="upload-mtr-number"
+                    type="text"
+                    className="modal-status-select"
+                    value={mtrNumber}
+                    onChange={(e) => setMtrNumber(e.target.value)}
+                    onBlur={() => setMtrNumber((prev) => (prev.trim() ? normalizeMtrNumber(prev) : prev))}
+                    placeholder={
+                      editingDoc
+                        ? editingDoc.mtr_number || 'Keep existing number'
+                        : `Leave blank to assign ${nextMtrNumber((sectionDocs.mtrs ?? []).map((row) => row.mtr_number))}`
+                    }
+                    disabled={uploading}
+                  />
+                  <p className="placeholder-copy resources-hint" style={{ marginTop: '-0.15rem' }}>
+                    {editingDoc
+                      ? 'Enter the assigned MTR number, or leave as-is.'
+                      : 'Type an existing number (47 or MTR-47). Leave blank and new reports get the next MTR-000001+ number.'}
+                  </p>
+
                   <label className="modal-label" htmlFor="upload-mtr-kind">
-                    Used for <span className="required-star">*</span>
+                    Material Type <span className="required-star">*</span>
                   </label>
                   <select
                     id="upload-mtr-kind"
                     className="modal-status-select"
                     value={mtrKind}
-                    onChange={(e) => setMtrKind(e.target.value as MtrKind | '')}
+                    onChange={(e) => {
+                      const next = e.target.value as MtrKind | ''
+                      setMtrKind(next)
+                      setMtrSize('')
+                      setMtrPressure('')
+                      setProductValveType('')
+                      setMtrBodyHeat('')
+                      setMtrBonnetHeat('')
+                      setMtrMaterial('')
+                      setMtrLength('')
+                      setMtrOd('')
+                      setMtrInsideDia('')
+                      setFillerMetal('')
+                      setHeatLot('')
+                    }}
                     disabled={uploading}
                   >
-                    <option value="">— Select type —</option>
+                    <option value="">— Select material type —</option>
                     {MTR_KINDS.map((kind) => (
                       <option key={kind.value} value={kind.value}>{kind.label}</option>
                     ))}
                   </select>
 
-                  <label className="modal-label" htmlFor="upload-mtr-manufacturer">Manufacturer</label>
-                  <select
+                  <LookupAddSelect
                     id="upload-mtr-manufacturer"
-                    className="modal-status-select"
+                    label="Manufacturer"
                     value={manufacturer}
-                    onChange={(e) => setManufacturer(e.target.value)}
+                    options={manufacturers}
+                    emptyOption="— Select manufacturer —"
+                    addLabel="+ Add manufacturer"
+                    addPlaceholder="New manufacturer"
                     disabled={uploading}
-                  >
-                    <option value="">— Select manufacturer —</option>
-                    {manufacturers.map((m) => <option key={m} value={m}>{m}</option>)}
-                  </select>
-
-                  <label className="modal-label" htmlFor="upload-heat-lot">Heat / lot</label>
-                  <input
-                    id="upload-heat-lot"
-                    type="text"
-                    className="modal-status-select"
-                    value={heatLot}
-                    onChange={(e) => setHeatLot(e.target.value)}
-                    placeholder="e.g. 4521, heat lot, mill heat"
-                    disabled={uploading}
+                    onChange={setManufacturer}
+                    onAdd={(next) => persistMtrLookup('manufacturer', next, setManufacturer)}
                   />
 
                   {mtrKind === 'valve' ? (
                     <>
-                      <label className="modal-label" htmlFor="upload-mtr-valve-type">Valve type</label>
+                      <label className="modal-label" htmlFor="upload-mtr-size">
+                        Size <span className="required-star">*</span>
+                      </label>
+                      <select
+                        id="upload-mtr-size"
+                        className="modal-status-select"
+                        value={mtrSize}
+                        onChange={(e) => setMtrSize(e.target.value)}
+                        disabled={uploading}
+                      >
+                        <option value="">— Select size —</option>
+                        {optionsWithCurrent(lookupOptions.valve_size ?? [], mtrSize).map((value) => (
+                          <option key={value} value={value}>{value}</option>
+                        ))}
+                      </select>
+
+                      <label className="modal-label" htmlFor="upload-mtr-pressure">
+                        Pressure <span className="required-star">*</span>
+                      </label>
+                      <select
+                        id="upload-mtr-pressure"
+                        className="modal-status-select"
+                        value={mtrPressure}
+                        onChange={(e) => setMtrPressure(e.target.value)}
+                        disabled={uploading}
+                      >
+                        <option value="">— Select pressure —</option>
+                        {optionsWithCurrent(lookupOptions.pressure_class ?? [], mtrPressure).map((value) => (
+                          <option key={value} value={value}>{value}</option>
+                        ))}
+                      </select>
+
+                      <label className="modal-label" htmlFor="upload-mtr-valve-type">
+                        Type <span className="required-star">*</span>
+                      </label>
                       <select
                         id="upload-mtr-valve-type"
                         className="modal-status-select"
@@ -2028,22 +2337,35 @@ export function ResourcesPage() {
                         onChange={(e) => setProductValveType(e.target.value)}
                         disabled={uploading}
                       >
-                        <option value="">— Select valve type —</option>
-                        {valveTypeOptions.map((t) => <option key={t} value={t}>{t}</option>)}
+                        <option value="">— Select type —</option>
+                        {optionsWithCurrent(valveTypeOptions, productValveType).map((t) => (
+                          <option key={t} value={t}>{t}</option>
+                        ))}
                       </select>
-                    </>
-                  ) : null}
 
-                  {mtrKind === 'filler_metal' ? (
-                    <>
-                      <label className="modal-label" htmlFor="upload-mtr-filler">Filler metal / classification</label>
+                      <label className="modal-label" htmlFor="upload-mtr-body-heat">
+                        Body heat number <span className="required-star">*</span>
+                      </label>
                       <input
-                        id="upload-mtr-filler"
+                        id="upload-mtr-body-heat"
                         type="text"
                         className="modal-status-select"
-                        value={fillerMetal}
-                        onChange={(e) => setFillerMetal(e.target.value)}
-                        placeholder="e.g. ER70S-2, E309L-16"
+                        value={mtrBodyHeat}
+                        onChange={(e) => setMtrBodyHeat(e.target.value)}
+                        placeholder="Body mill heat"
+                        disabled={uploading}
+                      />
+
+                      <label className="modal-label" htmlFor="upload-mtr-bonnet-heat">
+                        Bonnet heat number <span className="required-star">*</span>
+                      </label>
+                      <input
+                        id="upload-mtr-bonnet-heat"
+                        type="text"
+                        className="modal-status-select"
+                        value={mtrBonnetHeat}
+                        onChange={(e) => setMtrBonnetHeat(e.target.value)}
+                        placeholder="Bonnet mill heat"
                         disabled={uploading}
                       />
                     </>
@@ -2051,31 +2373,133 @@ export function ResourcesPage() {
 
                   {mtrKind === 'material' ? (
                     <>
-                      <label className="modal-label" htmlFor="upload-mtr-material">Material spec / grade</label>
-                      <input
+                      <LookupAddSelect
                         id="upload-mtr-material"
+                        label="Material type"
+                        required
+                        value={mtrMaterial}
+                        options={lookupOptions.body_material ?? []}
+                        emptyOption="— Select material type —"
+                        addLabel="+ Add material"
+                        addPlaceholder="New material"
+                        disabled={uploading}
+                        onChange={setMtrMaterial}
+                        onAdd={(next) => persistMtrLookup('body_material', next, setMtrMaterial)}
+                      />
+
+                      <label className="modal-label" htmlFor="upload-mtr-length">
+                        Length <span className="required-star">*</span>
+                      </label>
+                      <input
+                        id="upload-mtr-length"
                         type="text"
                         className="modal-status-select"
-                        value={fillerMetal}
-                        onChange={(e) => setFillerMetal(e.target.value)}
-                        placeholder="e.g. A105, F91, 316L"
+                        value={mtrLength}
+                        onChange={(e) => setMtrLength(e.target.value)}
+                        placeholder="e.g. 12 ft, 144 in"
                         disabled={uploading}
                       />
+
+                      <label className="modal-label" htmlFor="upload-mtr-od">
+                        OD <span className="required-star">*</span>
+                      </label>
+                      <input
+                        id="upload-mtr-od"
+                        type="text"
+                        className="modal-status-select"
+                        value={mtrOd}
+                        onChange={(e) => setMtrOd(e.target.value)}
+                        placeholder="Outside diameter"
+                        disabled={uploading}
+                      />
+
+                      <label className="modal-label" htmlFor="upload-mtr-id">
+                        ID <span className="required-star">*</span>
+                      </label>
+                      <input
+                        id="upload-mtr-id"
+                        type="text"
+                        className="modal-status-select"
+                        value={mtrInsideDia}
+                        onChange={(e) => setMtrInsideDia(e.target.value)}
+                        placeholder="Inside diameter"
+                        disabled={uploading}
+                      />
+                    </>
+                  ) : null}
+
+                  {mtrKind === 'filler_metal' ? (
+                    <>
+                      <LookupAddSelect
+                        id="upload-mtr-filler"
+                        label="Filler classification"
+                        required
+                        value={fillerMetal}
+                        options={fillerClassificationOptions}
+                        emptyOption="— Select classification —"
+                        addLabel="+ Add classification"
+                        addPlaceholder="New classification"
+                        disabled={uploading}
+                        onChange={setFillerMetal}
+                        onAdd={(next) => persistMtrLookup('filler_classification', next, setFillerMetal)}
+                      />
+
+                      <LookupAddSelect
+                        id="upload-mtr-filler-material"
+                        label="Material"
+                        required
+                        value={mtrMaterial}
+                        options={lookupOptions.body_material ?? []}
+                        emptyOption="— Select material —"
+                        addLabel="+ Add material"
+                        addPlaceholder="New material"
+                        disabled={uploading}
+                        onChange={setMtrMaterial}
+                        onAdd={(next) => persistMtrLookup('body_material', next, setMtrMaterial)}
+                      />
+
+                      <label className="modal-label" htmlFor="upload-mtr-filler-size">
+                        Size <span className="required-star">*</span>
+                      </label>
+                      <select
+                        id="upload-mtr-filler-size"
+                        className="modal-status-select"
+                        value={mtrSize}
+                        onChange={(e) => setMtrSize(e.target.value)}
+                        disabled={uploading}
+                      >
+                        <option value="">— Select size —</option>
+                        {optionsWithCurrent(lookupOptions.filler_size ?? [], mtrSize).map((value) => (
+                          <option key={value} value={value}>{value}</option>
+                        ))}
+                      </select>
                     </>
                   ) : null}
                 </>
               ) : null}
 
-              <label className="modal-label" htmlFor="upload-notes">Notes (optional)</label>
-              <input
-                id="upload-notes"
-                type="text"
-                className="modal-status-select"
-                value={uploadNotes}
-                onChange={(e) => setUploadNotes(e.target.value)}
-                placeholder="Short description or revision note"
-                disabled={uploading}
-              />
+              <label className="modal-label" htmlFor="upload-notes">Notes{uploadCategory === 'mtr' ? '' : ' (optional)'}</label>
+              {uploadCategory === 'mtr' ? (
+                <textarea
+                  id="upload-notes"
+                  className="modal-status-select"
+                  value={uploadNotes}
+                  onChange={(e) => setUploadNotes(e.target.value)}
+                  placeholder="Notes for this MTR"
+                  disabled={uploading}
+                  rows={3}
+                />
+              ) : (
+                <input
+                  id="upload-notes"
+                  type="text"
+                  className="modal-status-select"
+                  value={uploadNotes}
+                  onChange={(e) => setUploadNotes(e.target.value)}
+                  placeholder="Short description or revision note"
+                  disabled={uploading}
+                />
+              )}
 
               {/* Weld-specific fields — always shown in weld mode */}
               {modalMode === 'weld' ? (

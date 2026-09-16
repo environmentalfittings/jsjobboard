@@ -1,6 +1,8 @@
 import {
   API_TRIMS,
   BODY_MATERIALS,
+  FILLER_CLASSIFICATIONS,
+  FILLER_SIZES,
   FINISH_CELLS,
   ORDER_TYPES,
   PRESSURE_CLASSES,
@@ -25,6 +27,8 @@ export type LookupCategory =
   | 'manufacturer'
   | 'vendor'
   | 'inventory_part_type'
+  | 'filler_classification'
+  | 'filler_size'
 
 export const INVENTORY_PART_TYPES = ['Plug', 'Kit', 'Ball', 'Bellows', 'Sleeve'] as const
 
@@ -46,4 +50,6 @@ export const LOOKUP_CATEGORY_DEFS: readonly {
   { key: 'manufacturer', label: 'Manufacturer', fallback: [] },
   { key: 'vendor', label: 'Vendor', fallback: [] },
   { key: 'inventory_part_type', label: 'Inventory part type', fallback: INVENTORY_PART_TYPES },
+  { key: 'filler_classification', label: 'Filler classification', fallback: FILLER_CLASSIFICATIONS },
+  { key: 'filler_size', label: 'Filler size', fallback: FILLER_SIZES },
 ]

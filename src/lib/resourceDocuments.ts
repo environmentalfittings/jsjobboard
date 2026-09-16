@@ -26,6 +26,246 @@ export function mtrKindLabel(kind: string | null | undefined): string {
   return found?.label ?? (String(kind ?? '').trim() || '—')
 }
 
+/** Normalize typed MTR numbers. `47` and `mtr-47` become `MTR-000047`. */
+export function normalizeMtrNumber(raw: string | null | undefined): string {
+  const trimmed = String(raw ?? '').trim()
+  if (!trimmed) return ''
+  const match = /^(?:mtr[\s-]*)?(\d+)$/i.exec(trimmed)
+  if (match) return `MTR-${match[1].padStart(6, '0')}`
+  return trimmed.replace(/\s+/g, ' ')
+}
+
+export function parseMtrSequence(raw: string | null | undefined): number | null {
+  const normalized = normalizeMtrNumber(raw)
+  const match = /^MTR-(\d+)$/i.exec(normalized)
+  if (!match) return null
+  const n = Number(match[1])
+  return Number.isFinite(n) ? n : null
+}
+
+export function nextMtrNumber(existing: Array<string | null | undefined>): string {
+  let max = 0
+  for (const value of existing) {
+    const n = parseMtrSequence(value)
+    if (n != null && n > max) max = n
+  }
+  return `MTR-${String(max + 1).padStart(6, '0')}`
+}
+
+export async function allocateMtrNumber(
+  manual?: string | null,
+  options?: { excludeId?: number | string },
+): Promise<{ number: string; error: string | null }> {
+  const typed = normalizeMtrNumber(manual)
+  const { data, error } = await supabase
+    .from('resource_documents')
+    .select('id,mtr_number')
+    .eq('category', 'mtr')
+    .limit(2000)
+  if (error) {
+    if (/mtr_number|schema cache|column/i.test(error.message)) {
+      return {
+        number: '',
+        error: 'Run supabase/migration-resource-documents-mtr-numbers.sql in Supabase SQL Editor first.',
+      }
+    }
+    return { number: '', error: error.message }
+  }
+  const rows = (data ?? []) as Array<{ id?: number | string; mtr_number?: string | null }>
+  const existing = rows
+    .filter((row) => String(row.id ?? '') !== String(options?.excludeId ?? ''))
+    .map((row) => String(row.mtr_number ?? ''))
+  if (typed) {
+    const clash = existing.some((value) => {
+      const other = normalizeMtrNumber(value)
+      return Boolean(other) && other.toLowerCase() === typed.toLowerCase()
+    })
+    if (clash) return { number: '', error: `${typed} is already used.` }
+    return { number: typed, error: null }
+  }
+  return { number: nextMtrNumber(existing), error: null }
+}
+
+export function compareMtrDocuments(
+  a: { mtr_number?: string | null; title: string },
+  b: { mtr_number?: string | null; title: string },
+): number {
+  const aSeq = parseMtrSequence(a.mtr_number)
+  const bSeq = parseMtrSequence(b.mtr_number)
+  if (aSeq != null && bSeq != null && aSeq !== bSeq) return aSeq - bSeq
+  if (aSeq != null && bSeq == null) return -1
+  if (aSeq == null && bSeq != null) return 1
+  const byNumber = String(a.mtr_number ?? '').localeCompare(String(b.mtr_number ?? ''), undefined, {
+    numeric: true,
+    sensitivity: 'base',
+  })
+  if (byNumber !== 0) return byNumber
+  return a.title.localeCompare(b.title, undefined, { numeric: true, sensitivity: 'base' })
+}
+
+function trimOrNull(value: string | null | undefined): string | null {
+  const trimmed = String(value ?? '').trim()
+  return trimmed || null
+}
+
+export type MtrDetailFields = {
+  size?: string | null
+  pressure?: string | null
+  bodyHeat?: string | null
+  bonnetHeat?: string | null
+  material?: string | null
+  length?: string | null
+  od?: string | null
+  insideDia?: string | null
+  fillerClassification?: string | null
+  valveType?: string | null
+}
+
+export function buildMtrColumnPayload(kind: MtrKind | '' | null | undefined, fields: MtrDetailFields) {
+  const size = trimOrNull(fields.size)
+  const pressure = trimOrNull(fields.pressure)
+  const bodyHeat = trimOrNull(fields.bodyHeat)
+  const bonnetHeat = trimOrNull(fields.bonnetHeat)
+  const material = trimOrNull(fields.material)
+  const length = trimOrNull(fields.length)
+  const od = trimOrNull(fields.od)
+  const insideDia = trimOrNull(fields.insideDia)
+  const fillerClassification = trimOrNull(fields.fillerClassification)
+  const valveType = trimOrNull(fields.valveType)
+
+  if (kind === 'valve') {
+    return {
+      product_valve_type: valveType,
+      filler_metal: null as string | null,
+      heat_lot: bodyHeat,
+      mtr_size: size,
+      mtr_pressure: pressure,
+      mtr_body_heat: bodyHeat,
+      mtr_bonnet_heat: bonnetHeat,
+      mtr_material: null as string | null,
+      mtr_length: null as string | null,
+      mtr_od: null as string | null,
+      mtr_inside_dia: null as string | null,
+    }
+  }
+  if (kind === 'filler_metal') {
+    return {
+      product_valve_type: null as string | null,
+      filler_metal: fillerClassification,
+      heat_lot: null as string | null,
+      mtr_size: size,
+      mtr_pressure: null as string | null,
+      mtr_body_heat: null as string | null,
+      mtr_bonnet_heat: null as string | null,
+      mtr_material: material,
+      mtr_length: null as string | null,
+      mtr_od: null as string | null,
+      mtr_inside_dia: null as string | null,
+    }
+  }
+  if (kind === 'material') {
+    return {
+      product_valve_type: null as string | null,
+      filler_metal: material,
+      heat_lot: null as string | null,
+      mtr_size: null as string | null,
+      mtr_pressure: null as string | null,
+      mtr_body_heat: null as string | null,
+      mtr_bonnet_heat: null as string | null,
+      mtr_material: material,
+      mtr_length: length,
+      mtr_od: od,
+      mtr_inside_dia: insideDia,
+    }
+  }
+  return {
+    product_valve_type: null as string | null,
+    filler_metal: null as string | null,
+    heat_lot: null as string | null,
+    mtr_size: null as string | null,
+    mtr_pressure: null as string | null,
+    mtr_body_heat: null as string | null,
+    mtr_bonnet_heat: null as string | null,
+    mtr_material: null as string | null,
+    mtr_length: null as string | null,
+    mtr_od: null as string | null,
+    mtr_inside_dia: null as string | null,
+  }
+}
+
+export function validateMtrDetails(kind: MtrKind | '' | null | undefined, fields: MtrDetailFields): string | null {
+  if (!kind) return 'Choose a material type'
+  if (kind === 'valve') {
+    if (
+      !trimOrNull(fields.size) ||
+      !trimOrNull(fields.pressure) ||
+      !trimOrNull(fields.valveType) ||
+      !trimOrNull(fields.bodyHeat) ||
+      !trimOrNull(fields.bonnetHeat)
+    ) {
+      return 'Valve MTRs need size, pressure, type, body heat number, and bonnet heat number'
+    }
+    return null
+  }
+  if (kind === 'material') {
+    if (!trimOrNull(fields.material) || !trimOrNull(fields.length) || !trimOrNull(fields.od) || !trimOrNull(fields.insideDia)) {
+      return 'Material MTRs need material type, length, OD, and ID'
+    }
+    return null
+  }
+  if (kind === 'filler_metal') {
+    if (!trimOrNull(fields.fillerClassification) || !trimOrNull(fields.material) || !trimOrNull(fields.size)) {
+      return 'Filler metal MTRs need filler classification, material, and size'
+    }
+    return null
+  }
+  return 'Choose a material type'
+}
+
+export function formatMtrDetails(
+  row: Pick<
+    ResourceDocumentRow,
+    | 'mtr_kind'
+    | 'product_valve_type'
+    | 'filler_metal'
+    | 'heat_lot'
+    | 'mtr_size'
+    | 'mtr_pressure'
+    | 'mtr_body_heat'
+    | 'mtr_bonnet_heat'
+    | 'mtr_material'
+    | 'mtr_length'
+    | 'mtr_od'
+    | 'mtr_inside_dia'
+  >,
+): string {
+  if (row.mtr_kind === 'valve') {
+    const parts = [
+      row.mtr_size,
+      row.mtr_pressure,
+      row.product_valve_type,
+      row.mtr_body_heat ? `body ${row.mtr_body_heat}` : row.heat_lot ? `heat ${row.heat_lot}` : '',
+      row.mtr_bonnet_heat ? `bonnet ${row.mtr_bonnet_heat}` : '',
+    ]
+    return parts.filter((value) => String(value ?? '').trim()).join(' · ') || '—'
+  }
+  if (row.mtr_kind === 'material') {
+    const grade = row.mtr_material || row.filler_metal
+    const parts = [
+      grade,
+      row.mtr_length ? `L ${row.mtr_length}` : '',
+      row.mtr_od ? `OD ${row.mtr_od}` : '',
+      row.mtr_inside_dia ? `ID ${row.mtr_inside_dia}` : '',
+    ]
+    return parts.filter((value) => String(value ?? '').trim()).join(' · ') || '—'
+  }
+  if (row.mtr_kind === 'filler_metal') {
+    const parts = [row.filler_metal, row.mtr_material, row.mtr_size]
+    return parts.filter((value) => String(value ?? '').trim()).join(' · ') || '—'
+  }
+  return '—'
+}
+
 export const WPS_TYPES = ['Joint', 'Corrosion Resistant Overlay', 'Hardface Overlay'] as const
 export type WpsType = (typeof WPS_TYPES)[number]
 
@@ -81,6 +321,15 @@ export type ResourceDocumentRow = {
   proc_category: 'Valve-Specific' | 'NDE' | 'Other' | 'Test' | 'Answer Key' | null
   mtr_kind: MtrKind | null
   heat_lot: string | null
+  mtr_number: string | null
+  mtr_size: string | null
+  mtr_pressure: string | null
+  mtr_body_heat: string | null
+  mtr_bonnet_heat: string | null
+  mtr_material: string | null
+  mtr_length: string | null
+  mtr_od: string | null
+  mtr_inside_dia: string | null
 }
 
 /** Title / file / notes / manufacturer / SOP search used on Resources lists. */
@@ -99,6 +348,15 @@ export function resourceDocumentMatchesQuery(
     | 'mtr_kind'
     | 'heat_lot'
     | 'filler_metal'
+    | 'mtr_number'
+    | 'mtr_size'
+    | 'mtr_pressure'
+    | 'mtr_body_heat'
+    | 'mtr_bonnet_heat'
+    | 'mtr_material'
+    | 'mtr_length'
+    | 'mtr_od'
+    | 'mtr_inside_dia'
   >,
   rawQuery: string,
 ): boolean {
@@ -119,6 +377,15 @@ export function resourceDocumentMatchesQuery(
     mtrKindLabel(row.mtr_kind),
     row.heat_lot,
     row.filler_metal,
+    row.mtr_number,
+    row.mtr_size,
+    row.mtr_pressure,
+    row.mtr_body_heat,
+    row.mtr_bonnet_heat,
+    row.mtr_material,
+    row.mtr_length,
+    row.mtr_od,
+    row.mtr_inside_dia,
   ]
     .map((value) => String(value ?? '').toLowerCase())
     .join(' ')
@@ -175,6 +442,8 @@ export async function uploadResourceDocument(args: {
   procCategory?: 'Valve-Specific' | 'NDE' | 'Other' | 'Test' | 'Answer Key' | null
   mtrKind?: MtrKind | null
   heatLot?: string | null
+  mtrNumber?: string | null
+  mtrDetails?: MtrDetailFields
 }): Promise<{ error: string | null }> {
   const { file, scope, category } = args
   const title = args.title.trim()
@@ -197,6 +466,7 @@ export async function uploadResourceDocument(args: {
   const isWeld = category === 'weld_procedure'
   const isProc = category === 'general' || category === 'quality_control'
   const isMtr = category === 'mtr'
+  const mtrColumns = isMtr ? buildMtrColumnPayload(args.mtrKind, args.mtrDetails ?? {}) : null
   const { error: rowErr } = await supabase.from('resource_documents').insert({
     scope,
     valve_type: scope === 'general' ? null : valveType,
@@ -209,10 +479,10 @@ export async function uploadResourceDocument(args: {
     wps_type: isWeld ? (args.wpsType ?? null) : null,
     weld_processes: isWeld ? (args.weldProcesses ?? []) : [],
     weld_modes: isWeld ? (args.weldModes ?? []) : [],
-    filler_metal: isWeld || isMtr ? ((args.fillerMetal ?? '').trim() || null) : null,
+    filler_metal: isWeld ? ((args.fillerMetal ?? '').trim() || null) : (mtrColumns?.filler_metal ?? null),
     base_metal_category: isWeld ? (args.baseMetalCategory ?? null) : null,
     manufacturer: args.manufacturer ?? null,
-    product_valve_type: args.productValveType ?? null,
+    product_valve_type: isMtr ? (mtrColumns?.product_valve_type ?? null) : (args.productValveType ?? null),
     base_metal_thickness_qualified: isWeld ? ((args.baseMetalThicknessQualified ?? '').trim() || null) : null,
     filler_metal_thickness_qualified: isWeld ? ((args.fillerMetalThicknessQualified ?? '').trim() || null) : null,
     post_weld_heat_treat_required: isWeld ? (args.postWeldHeatTreatRequired ?? false) : false,
@@ -224,14 +494,33 @@ export async function uploadResourceDocument(args: {
     date_updated: isProc ? (args.dateUpdated || null) : null,
     proc_category: isProc ? (args.procCategory ?? null) : null,
     mtr_kind: isMtr ? (args.mtrKind ?? null) : null,
-    heat_lot: isMtr ? ((args.heatLot ?? '').trim() || null) : null,
+    heat_lot: isMtr ? (mtrColumns?.heat_lot ?? ((args.heatLot ?? '').trim() || null)) : null,
+    mtr_number: isMtr ? ((args.mtrNumber ?? '').trim() || null) : null,
+    mtr_size: isMtr ? (mtrColumns?.mtr_size ?? null) : null,
+    mtr_pressure: isMtr ? (mtrColumns?.mtr_pressure ?? null) : null,
+    mtr_body_heat: isMtr ? (mtrColumns?.mtr_body_heat ?? null) : null,
+    mtr_bonnet_heat: isMtr ? (mtrColumns?.mtr_bonnet_heat ?? null) : null,
+    mtr_material: isMtr ? (mtrColumns?.mtr_material ?? null) : null,
+    mtr_length: isMtr ? (mtrColumns?.mtr_length ?? null) : null,
+    mtr_od: isMtr ? (mtrColumns?.mtr_od ?? null) : null,
+    mtr_inside_dia: isMtr ? (mtrColumns?.mtr_inside_dia ?? null) : null,
   })
 
   if (rowErr) {
     await supabase.storage.from(RESOURCE_DOCS_BUCKET).remove([storagePath])
     const isdup = rowErr.code === '23505' || /duplicate|unique/i.test(rowErr.message)
-    if (/mtr_kind|heat_lot|resource_documents_category_check/i.test(rowErr.message)) {
-      return { error: 'Run supabase/migration-resource-documents-mtrs.sql in Supabase SQL Editor first.' }
+    if (/mtr_kind|heat_lot|mtr_number|mtr_size|mtr_pressure|mtr_body_heat|mtr_bonnet_heat|mtr_material|mtr_length|mtr_od|mtr_inside_dia|resource_documents_category_check|uq_resource_documents_mtr_number/i.test(rowErr.message)) {
+      if (/uq_resource_documents_mtr_number/i.test(rowErr.message) || (/mtr_number/i.test(rowErr.message) && isdup)) {
+        return { error: `${((args.mtrNumber ?? '').trim() || 'That MTR number')} is already used.` }
+      }
+      if (/mtr_size|mtr_pressure|mtr_body_heat|mtr_bonnet_heat|mtr_material|mtr_length|mtr_od|mtr_inside_dia/i.test(rowErr.message)) {
+        return { error: 'Run supabase/migration-resource-documents-mtr-details.sql in Supabase SQL Editor first.' }
+      }
+      return {
+        error: /mtr_number/i.test(rowErr.message)
+          ? 'Run supabase/migration-resource-documents-mtr-numbers.sql in Supabase SQL Editor first.'
+          : 'Run supabase/migration-resource-documents-mtrs.sql in Supabase SQL Editor first.',
+      }
     }
     return { error: isdup ? `A document named "${title}" already exists in this section. Each title must be unique.` : rowErr.message || 'Could not save document record.' }
   }

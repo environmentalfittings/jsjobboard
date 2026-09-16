@@ -10060,6 +10060,56 @@ tbody tr:hover {
   margin-bottom: 4px;
 }
 
+textarea.modal-status-select {
+  min-height: 88px;
+  resize: vertical;
+}
+
+.mtr-lookup-label-row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.mtr-lookup-label-row .modal-label {
+  margin-bottom: 0;
+}
+
+.mtr-lookup-add-toggle {
+  border: none;
+  background: transparent;
+  color: #2563eb;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 700;
+  cursor: pointer;
+  padding: 0;
+  white-space: nowrap;
+}
+
+.mtr-lookup-add-toggle:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.mtr-lookup-add-row {
+  display: flex;
+  gap: 8px;
+  align-items: flex-start;
+  margin: 0 0 8px;
+}
+
+.mtr-lookup-add-row .modal-status-select {
+  flex: 1;
+  margin-bottom: 0;
+}
+
+.mtr-lookup-add-row .button-primary {
+  flex: 0 0 auto;
+  margin-top: 0;
+}
+
 .modal-header-with-close {
   display: flex;
   justify-content: space-between;
