@@ -8366,6 +8366,15 @@ a.test-log-reports-item-name:hover {
   background: #cf222e;
 }
 
+.job-card-itp-bar--resolved .job-card-itp-bar-label,
+.job-card-itp-bar--resolved .job-card-itp-bar-meta {
+  color: #047857;
+}
+
+.job-card-itp-bar--resolved .job-card-itp-bar-fill {
+  background: #059669;
+}
+
 .job-card-itp-bar--review .job-card-itp-bar-label,
 .job-card-itp-bar--review .job-card-itp-bar-meta {
   color: #6d28d9;
@@ -17037,6 +17046,10 @@ textarea.modal-status-select {
   background: #fff5f5;
 }
 
+.itp-library-exec-row.flag-resolved {
+  background: #f0fdf4;
+}
+
 .itp-library-exec-row.hold-point {
   border-left: 3px solid var(--itp-lib-hp);
 }
@@ -17140,6 +17153,12 @@ textarea.modal-status-select {
   background: #ffebe9;
   border-color: #ff8182;
   color: var(--itp-lib-fail);
+}
+
+.itp-library-flag-btn.resolved {
+  background: #ecfdf5;
+  border-color: #6ee7b7;
+  color: #047857;
 }
 
 .itp-library-flag-detail {
@@ -19582,6 +19601,11 @@ body.shop-tv-fullscreen-active .page-content {
 .shop-tv-board--fullscreen .shop-tv-card .job-card-itp-bar--flagged .job-card-itp-bar-label,
 .shop-tv-board--fullscreen .shop-tv-card .job-card-itp-bar--flagged .job-card-itp-bar-meta {
   color: #fca5a5;
+}
+
+.shop-tv-board--fullscreen .shop-tv-card .job-card-itp-bar--resolved .job-card-itp-bar-label,
+.shop-tv-board--fullscreen .shop-tv-card .job-card-itp-bar--resolved .job-card-itp-bar-meta {
+  color: #6ee7b7;
 }
 
 .shop-tv-board--fullscreen .shop-tv-card .job-card-itp-bar--review .job-card-itp-bar-label,

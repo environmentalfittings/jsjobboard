@@ -72,6 +72,8 @@ import {
   execStats,
   getExec,
   getSel,
+  isOpenItpFlag,
+  isResolvedItpFlag,
   type ItpLibraryAttachment,
   type ItpLibraryItemSel,
   type ItpLibraryPlanPayload,
@@ -2094,7 +2096,7 @@ export function ItpLibraryEditor({ valve, onClose, readOnly = false }: ItpLibrar
                   const items = scopeItems.filter((it) => it.secId === section.id)
                   if (!items.length) return null
                   const secDone = items.filter((it) => getExec(plan, it.id).done).length
-                  const secFlag = items.filter((it) => getExec(plan, it.id).flagged).length
+                  const secFlag = items.filter((it) => isOpenItpFlag(getExec(plan, it.id))).length
 
                   return (
                     <div key={section.id} className="itp-library-itp-sec">
@@ -2155,7 +2157,7 @@ export function ItpLibraryEditor({ valve, onClose, readOnly = false }: ItpLibrar
                               </div>
                             ) : null}
                             <div
-                              className={`itp-library-exec-row${ex.done ? ' done' : ''}${ex.holdPending ? ' hold-pending' : ''}${ex.flagged ? ' flagged' : ''}${sel.holdPoint ? ' hold-point' : ''}${itemLocked ? ' is-locked' : ''}`}
+                              className={`itp-library-exec-row${ex.done ? ' done' : ''}${ex.holdPending ? ' hold-pending' : ''}${isOpenItpFlag(ex) ? ' flagged' : ''}${isResolvedItpFlag(ex) ? ' flag-resolved' : ''}${sel.holdPoint ? ' hold-point' : ''}${itemLocked ? ' is-locked' : ''}`}
                             >
                               <div className="itp-library-exec-top">
                                 <button
@@ -2398,9 +2400,15 @@ export function ItpLibraryEditor({ valve, onClose, readOnly = false }: ItpLibrar
                                 <div className="itp-library-exec-acts">
                                   <button
                                     type="button"
-                                    className={`itp-library-flag-btn${ex.flagged ? ' on' : ''}`}
+                                    className={`itp-library-flag-btn${isOpenItpFlag(ex) ? ' on' : ''}${isResolvedItpFlag(ex) ? ' resolved' : ''}`}
                                     disabled={controlsDisabled}
-                                    title="Flag issue"
+                                    title={
+                                      isOpenItpFlag(ex)
+                                        ? 'Open flag — still needs QC resolution'
+                                        : isResolvedItpFlag(ex)
+                                          ? 'Flag resolved by Quality Team'
+                                          : 'Flag issue'
+                                    }
                                     onClick={() => toggleFlag(it.id, it.name)}
                                   >
                                     ⚑

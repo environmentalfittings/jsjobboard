@@ -15,6 +15,7 @@ import {
   allScopeItems,
   getExec,
   getSel,
+  isOpenItpFlag,
   normalizeItpLibraryPlan,
   type ItpLibraryAttachment,
   type ItpLibraryPlanPayload,
@@ -335,7 +336,7 @@ export type QualityTeamItpRow = {
 }
 
 function planHasOpenFlags(plan: ItpLibraryPlanPayload): boolean {
-  return Object.values(plan.exec ?? {}).some((ex) => Boolean(ex?.flagged) && !String(ex.flagResolution ?? '').trim())
+  return Object.values(plan.exec ?? {}).some((ex) => isOpenItpFlag(ex))
 }
 
 async function fetchAllValveItpRows(): Promise<{

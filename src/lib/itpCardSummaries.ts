@@ -6,13 +6,16 @@ export type ItpCardSummary = {
   valveRowId: number
   total: number
   done: number
+  /** Open flags that still need QC resolution. */
   flagged: number
+  /** Flags that already have a QC resolution. */
+  resolved: number
   open: number
   pct: number
   qcStatus: ItpQcReviewStatus
 }
 
-export type ItpCardBarTone = 'empty' | 'progress' | 'complete' | 'flagged' | 'review' | 'accepted'
+export type ItpCardBarTone = 'empty' | 'progress' | 'complete' | 'flagged' | 'resolved' | 'review' | 'accepted'
 
 function normalizeQcStatus(value: unknown): ItpQcReviewStatus {
   if (value === 'pending_review' || value === 'accepted' || value === 'draft') return value
@@ -34,6 +37,7 @@ function summaryFromRow(valveRowId: number, itpData: unknown): ItpCardSummary | 
       total: stats.total,
       done: stats.done,
       flagged: stats.flagged,
+      resolved: stats.resolved,
       open: stats.open,
       pct: stats.pct,
       qcStatus: normalizeQcStatus(plan.qcReview?.status),
@@ -49,6 +53,7 @@ export function itpCardBarTone(summary: ItpCardSummary | null | undefined): ItpC
   if (summary.qcStatus === 'accepted') return 'accepted'
   if (summary.qcStatus === 'pending_review') return 'review'
   if (summary.pct >= 100) return 'complete'
+  if (summary.resolved > 0) return 'resolved'
   return 'progress'
 }
 
@@ -81,7 +86,7 @@ export function formatItpCardStatus(summary: ItpCardSummary | null | undefined):
       pct: summary.pct,
       label: `ITP ${summary.pct}%`,
       meta: `⚑ ${summary.flagged} flagged`,
-      title: `ITP ${summary.pct}% complete · ${counts} items · ${summary.flagged} flagged`,
+      title: `ITP ${summary.pct}% complete · ${counts} items · ${summary.flagged} open flag${summary.flagged === 1 ? '' : 's'}`,
     }
   }
   if (summary.qcStatus === 'accepted') {
@@ -106,6 +111,14 @@ export function formatItpCardStatus(summary: ItpCardSummary | null | undefined):
       label: 'ITP 100%',
       meta: 'Complete',
       title: `ITP complete · ${counts} items`,
+    }
+  }
+  if (summary.resolved > 0) {
+    return {
+      pct: summary.pct,
+      label: `ITP ${summary.pct}%`,
+      meta: `✓ ${summary.resolved} resolved`,
+      title: `ITP ${summary.pct}% complete · ${counts} items · ${summary.resolved} flag${summary.resolved === 1 ? '' : 's'} resolved`,
     }
   }
   return {

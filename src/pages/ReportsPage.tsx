@@ -976,31 +976,48 @@ export function ReportsPage() {
   const runReport = async () => {
     if (!startDate || !endDate) return
     setLoading(true)
-    let query = supabase
-      .from('valves')
-      .select(VALVE_LIST_SELECT)
-      .eq('status', 'Completed')
-      .gte('date_closed', startDate)
-      .lte('date_closed', endDate)
-    if (completedTurnaroundFilter === 'turnaround') {
-      query = query.eq('is_turnaround', true)
-    } else if (completedTurnaroundFilter === 'not_turnaround') {
-      query = query.or('is_turnaround.is.null,is_turnaround.eq.false')
+    const pageSize = 1000
+    const collected: Valve[] = []
+    let from = 0
+    while (true) {
+      let query = supabase
+        .from('valves')
+        .select(VALVE_LIST_SELECT)
+        .eq('status', 'Completed')
+        .gte('date_closed', startDate)
+        .lte('date_closed', endDate)
+      if (completedTurnaroundFilter === 'turnaround') {
+        query = query.eq('is_turnaround', true)
+      } else if (completedTurnaroundFilter === 'not_turnaround') {
+        query = query.or('is_turnaround.is.null,is_turnaround.eq.false')
+      }
+      if (completedJobTypeFilter !== 'all') {
+        query = query.eq('job_type', completedJobTypeFilter)
+      }
+      const { data, error } = await query
+        .order('date_closed', { ascending: false })
+        .order('valve_id', { ascending: true })
+        .range(from, from + pageSize - 1)
+      if (error) {
+        showToast(`Report failed: ${error.message}`)
+        setRows([])
+        setLoading(false)
+        return
+      }
+      if (!data?.length) break
+      collected.push(...(data as Valve[]))
+      if (data.length < pageSize) break
+      from += pageSize
     }
-    if (completedJobTypeFilter !== 'all') {
-      query = query.eq('job_type', completedJobTypeFilter)
-    }
-    const { data, error } = await query
-      .order('date_closed', { ascending: false })
-      .order('valve_id', { ascending: true })
-    if (error) {
-      showToast(`Report failed: ${error.message}`)
-      setRows([])
-    } else {
-      setRows((data as Valve[]) ?? [])
-    }
+    setRows(collected)
     setLoading(false)
   }
+
+  useEffect(() => {
+    void runReport()
+    // Initial this-week completed jobs so the table is populated on open.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   const loadActiveTurnarounds = async () => {
     setActiveTurnaroundLoading(true)

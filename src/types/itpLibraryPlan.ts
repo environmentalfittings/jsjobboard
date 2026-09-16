@@ -395,20 +395,32 @@ export function allScopeItems(plan: ItpLibraryPlanPayload): ItpLibraryScopeItem[
   })
 }
 
+/** Open flag: technician raised it and QC has not written a resolution yet. */
+export function isOpenItpFlag(ex: ItpLibraryItemExec | null | undefined): boolean {
+  return Boolean(ex?.flagged) && !String(ex?.flagResolution ?? '').trim()
+}
+
+/** Flag still on the line, but QC already recorded a resolution. */
+export function isResolvedItpFlag(ex: ItpLibraryItemExec | null | undefined): boolean {
+  return Boolean(ex?.flagged) && Boolean(String(ex?.flagResolution ?? '').trim())
+}
+
 export function execStats(plan: ItpLibraryPlanPayload) {
   const items = allScopeItems(plan)
   let done = 0
   let flagged = 0
+  let resolved = 0
   let holdPts = 0
   for (const item of items) {
     const ex = getExec(plan, item.id)
     if (ex.done) done += 1
-    if (ex.flagged) flagged += 1
+    if (isOpenItpFlag(ex)) flagged += 1
+    else if (isResolvedItpFlag(ex)) resolved += 1
     if (item.sel.holdPoint) holdPts += 1
   }
   const total = items.length
   const pct = total ? Math.round((done / total) * 100) : 0
-  return { total, done, flagged, open: total - done, holdPts, pct }
+  return { total, done, flagged, resolved, open: total - done, holdPts, pct }
 }
 
 export function applyLibraryTemplate(plan: ItpLibraryPlanPayload): ItpLibraryPlanPayload {

@@ -57,28 +57,23 @@ function valveIdFromJson(
 }
 
 /**
- * Jobs closed yesterday whose closing status belongs to the selected departments.
- * Prefer matching `status` at close time; fall back to order_type Completed / Junked / Replaced.
+ * Jobs closed yesterday (`date_closed`). Closed jobs leave Teardown / Machine / etc.,
+ * so this recap is shop-wide — not limited to the department currently on the handout.
+ * Finish-cell filters still apply when the worksheet has cells selected.
  */
 export function filterClosedYesterday(
   valves: Valve[],
-  departmentIds: readonly string[],
+  selectedCells: readonly string[] = [],
   yesterdayDate = localYesterdayDateString(),
 ): YesterdayClosedJob[] {
-  const statusSet = new Set(statusesForDepartments(departmentIds))
-  if (!statusSet.size) return []
+  const cellSet = new Set(selectedCells.map((c) => c.trim()).filter(Boolean))
 
   return valves
     .filter((v) => {
       const closed = (v.date_closed ?? '').trim().slice(0, 10)
       if (closed !== yesterdayDate) return false
-      const status = (v.status ?? '').trim()
-      if (statusSet.has(status)) return true
-      // Completed department often uses order_type while shop status may linger.
-      if (statusSet.has('Completed') && (v.order_type === 'Completed' || status === 'Completed')) {
-        return true
-      }
-      return false
+      if (cellSet.size && !cellSet.has((v.cell ?? '').trim())) return false
+      return true
     })
     .map((v) => ({
       valve_id: v.valve_id,
@@ -110,18 +105,29 @@ export async function loadYesterdayStatusMoves(
   if (!statusSet.size) return { moves: [], error: null }
 
   const { startIso, endIso } = localYesterdayBounds(now)
-  const { data, error } = await supabase
-    .from('valve_change_log')
-    .select('valve_id,valve_row_id,changed_at,old_row,new_row')
-    .eq('action', 'update')
-    .gte('changed_at', startIso)
-    .lt('changed_at', endIso)
-    .order('changed_at', { ascending: true })
+  const pageSize = 1000
+  const rows: ChangeLogRow[] = []
+  let from = 0
 
-  if (error) return { moves: [], error: error.message }
+  while (true) {
+    const { data, error } = await supabase
+      .from('valve_change_log')
+      .select('valve_id,valve_row_id,changed_at,old_row,new_row')
+      .eq('action', 'update')
+      .gte('changed_at', startIso)
+      .lt('changed_at', endIso)
+      .order('changed_at', { ascending: true })
+      .range(from, from + pageSize - 1)
+
+    if (error) return { moves: [], error: error.message }
+    if (!data?.length) break
+    rows.push(...(data as ChangeLogRow[]))
+    if (data.length < pageSize) break
+    from += pageSize
+  }
 
   const moves: YesterdayStatusMove[] = []
-  for (const raw of (data ?? []) as ChangeLogRow[]) {
+  for (const raw of rows) {
     const fromStatus = statusFromJson(raw.old_row)
     const toStatus = statusFromJson(raw.new_row)
     if (!fromStatus && !toStatus) continue

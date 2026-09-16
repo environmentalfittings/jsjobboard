@@ -40,7 +40,7 @@ export const PRIORITY_DEPARTMENTS: readonly PriorityDepartment[] = [
   {
     id: 'teardown',
     label: 'Teardown',
-    statuses: ['Teardown'],
+    statuses: ['Teardown', 'PRV Teardown'],
     breakOutByCell: false,
   },
   {
@@ -58,7 +58,7 @@ export const PRIORITY_DEPARTMENTS: readonly PriorityDepartment[] = [
   {
     id: 'finish-cell',
     label: 'Finish cell',
-    statuses: ['Assembly'],
+    statuses: ['Assembly', 'PRV Assembly'],
     breakOutByCell: true,
   },
   {

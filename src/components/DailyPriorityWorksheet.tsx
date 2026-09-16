@@ -160,7 +160,7 @@ export function DailyPriorityWorksheet({
   const applyScope = useCallback(
     async (allValves: Valve[]) => {
       const inScope = valvesForHandoutFilters(allValves, departmentIds, selectedCells)
-      setYesterdayClosed(filterClosedYesterday(allValves, departmentIds))
+      setYesterdayClosed(filterClosedYesterday(allValves, selectedCells))
       const byWo = new Map(allValves.map((v) => [v.valve_id, v]))
       const { moves, error: movesError } = await loadYesterdayStatusMoves(departmentIds, byWo)
       if (movesError) {
@@ -599,7 +599,8 @@ export function DailyPriorityWorksheet({
         <section className="dashboard-panel daily-priority-yesterday">
           <h3>Yesterday — completed ({yesterdayLabel})</h3>
           <p className="placeholder-copy resources-hint">
-            Jobs closed yesterday in the selected departments.
+            Jobs closed yesterday (Completed, Warehouse RTS, Junked, or Replaced). Finish-cell
+            filters apply when selected.
           </p>
           {yesterdayClosed.length === 0 ? (
             <p className="placeholder-copy">None</p>

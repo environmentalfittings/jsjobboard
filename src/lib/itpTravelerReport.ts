@@ -1,6 +1,7 @@
 import {
   allScopeItems,
   getExec,
+  isOpenItpFlag,
   type ItpLibraryAttachment,
   type ItpLibraryPlanPayload,
   type ItpLibraryScopeItem,
@@ -78,7 +79,7 @@ export function isTravelerReportItem(sel: ItpLibraryScopeItem['sel']): boolean {
 export function travelerItemStatus(
   exec: ReturnType<typeof getExec>,
 ): ItpTravelerReportStatus {
-  if (exec.flagged) return 'flagged'
+  if (isOpenItpFlag(exec)) return 'flagged'
   if (exec.holdPending && !exec.done) return 'hold'
   if (exec.done) return 'complete'
   return 'pending'
