@@ -41,6 +41,10 @@ create table if not exists public.daily_notes (
   is_done boolean not null default false,
   completed_at timestamptz,
   assigned_to text,
+  estimated_completion_date date,
+  add_to_rail boolean not null default false,
+  created_by text,
+  rail_added_by text,
   sort_order integer not null default 0,
   source text not null default 'app',
   created_at timestamptz not null default now(),
@@ -286,6 +290,9 @@ create index if not exists idx_valves_assigned_technician_id on public.valves(as
 create index if not exists idx_priority_queue_valve_id on public.priority_queue(valve_id);
 create index if not exists idx_daily_notes_open on public.daily_notes (is_done, note_date desc);
 create index if not exists idx_daily_notes_note_date on public.daily_notes (note_date desc);
+create index if not exists idx_daily_notes_rail
+  on public.daily_notes (add_to_rail, estimated_completion_date)
+  where add_to_rail = true;
 create index if not exists idx_test_logs_valve_id on public.test_logs(valve_id);
 create index if not exists idx_test_logs_tested_on on public.test_logs(tested_on desc);
 create index if not exists idx_test_log_reports_test_log_id on public.test_log_reports(test_log_id);

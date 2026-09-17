@@ -7405,13 +7405,26 @@ a.test-log-reports-item-name:hover {
   gap: 10px;
 }
 
+.daily-note-controls {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 6px;
+}
+
+.daily-note-assign-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 10px;
+}
+
 .daily-note-assign-field {
   display: flex;
   flex-direction: column;
   gap: 4px;
   font-size: 11px;
   color: #64748b;
-  margin-top: 6px;
 }
 
 .daily-note-assign-field.inline {
@@ -7420,7 +7433,12 @@ a.test-log-reports-item-name:hover {
   margin-top: 0;
 }
 
-.daily-note-assign-field select {
+.daily-note-date-field {
+  min-width: 180px;
+}
+
+.daily-note-assign-field select,
+.daily-note-assign-field input[type='date'] {
   border: 1px solid #dbe4ef;
   border-radius: 8px;
   padding: 6px 8px;
@@ -7428,6 +7446,36 @@ a.test-log-reports-item-name:hover {
   font-size: 13px;
   background: #fff;
   color: #0f172a;
+}
+
+.daily-note-rail-check {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  color: #0f172a;
+  font-weight: 600;
+  cursor: pointer;
+  width: fit-content;
+}
+
+.daily-note-rail-check input {
+  width: 16px;
+  height: 16px;
+  margin: 0;
+}
+
+.daily-note-rail-badge {
+  display: inline-flex;
+  align-items: center;
+  background: #0f766e;
+  color: #fff;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  border-radius: 999px;
+  padding: 1px 8px;
+  font-size: 10px;
+  text-transform: uppercase;
 }
 
 .daily-note-assignee {

@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import { DailyPriorityWorksheet } from '../components/DailyPriorityWorksheet'
 import { FinishCellBadge } from '../components/FinishCellBadge'
+import { RailReportPanel } from '../components/RailReportPanel'
 import { ReceivedValvesReportPanel } from '../components/ReceivedValvesReportPanel'
 import { useToast } from '../components/ToastNotification'
 import { VALVE_TYPES } from '../constants/jobLookups'
@@ -2092,6 +2093,8 @@ export function ReportsPage() {
       </section>
 
       <DailyPriorityWorksheet />
+
+      <RailReportPanel />
 
       <section className="dashboard-panel">
         <h3>Completed jobs report</h3>
