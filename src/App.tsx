@@ -1,5 +1,6 @@
 import { Navigate, Route, Routes, useNavigate } from 'react-router-dom'
 import { NavBar } from './components/NavBar'
+import { ReadOnlyBanner } from './components/ReadOnlyBanner'
 import { ToastProvider } from './components/ToastNotification'
 import { AuthProvider, useAuth } from './contexts/AuthContext'
 import { DashboardPage } from './pages/DashboardPage'
@@ -71,7 +72,10 @@ function AppRoutes() {
   return (
     <div className="app-shell">
       {loading ? null : role && isShopRole(role) ? (
-        <NavBar role={role} username={username} userId={user?.id ?? null} onLogout={() => void handleLogout()} />
+        <>
+          <NavBar role={role} username={username} userId={user?.id ?? null} onLogout={() => void handleLogout()} />
+          {role === 'viewer' ? <ReadOnlyBanner /> : null}
+        </>
       ) : null}
       <main className="page-content">
         {loading ? (

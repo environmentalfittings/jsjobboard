@@ -75,6 +75,10 @@ export function DashboardPage() {
   }, [canManageInventory])
 
   const clearInventoryAlert = () => {
+    if (!canWrite) {
+      showToast(permissionDeniedReason('shopWrite'))
+      return
+    }
     clearInventoryMonthlyReportAlert()
     setShowInventoryMonthlyAlert(false)
     showToast('Monthly inventory reminder cleared for this month')
@@ -339,6 +343,7 @@ export function DashboardPage() {
               <input
                 type="checkbox"
                 checked={false}
+                disabled={!canWrite}
                 onChange={(e) => {
                   if (e.target.checked) clearInventoryAlert()
                 }}
@@ -663,7 +668,7 @@ export function DashboardPage() {
                         e.stopPropagation()
                         void movePriority(row.valve_id, -1)
                       }}
-                      disabled={index === 0 || savingPriority}
+                      disabled={!canWrite || index === 0 || savingPriority}
                     >
                       ▲
                     </button>
@@ -674,7 +679,7 @@ export function DashboardPage() {
                         e.stopPropagation()
                         void movePriority(row.valve_id, 1)
                       }}
-                      disabled={index === priorityRows.length - 1 || savingPriority}
+                      disabled={!canWrite || index === priorityRows.length - 1 || savingPriority}
                     >
                       ▼
                     </button>

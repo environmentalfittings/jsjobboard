@@ -28,6 +28,8 @@ import {
 } from '../lib/toolCalibrationSopPoints'
 import { openToolCalibrationsReportPrint } from '../lib/toolCalibrationsReportPrint'
 import { belongsOnTestGaugesList } from '../lib/moveToolGaugesToTestGauges'
+import { canWriteShop, permissionDeniedReason } from '../lib/roles'
+import { useAuth } from '../contexts/AuthContext'
 import {
   emptyToolCalibrationForm,
   isExternalCalibrationCategory,
@@ -352,6 +354,8 @@ function sortValue(row: ToolCalibration, key: SortKey): string | null {
 
 export function ToolCalibrationsPanel() {
   const { showToast } = useToast()
+  const { role } = useAuth()
+  const canWrite = canWriteShop(role)
   const [rows, setRows] = useState<ToolCalibration[]>([])
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
@@ -399,6 +403,10 @@ export function ToolCalibrationsPanel() {
   }
 
   const openAddForm = () => {
+    if (!canWrite) {
+      showToast(permissionDeniedReason('shopWrite'))
+      return
+    }
     setEditingId(null)
     setForm(emptyToolCalibrationForm())
     setFormOpen(true)
@@ -415,6 +423,10 @@ export function ToolCalibrationsPanel() {
   }
 
   const saveRow = async () => {
+    if (!canWrite) {
+      showToast(permissionDeniedReason('shopWrite'))
+      return
+    }
     setSaving(true)
     if (editingId != null) {
       const previous = rows.find((row) => row.id === editingId) ?? null
@@ -906,7 +918,7 @@ export function ToolCalibrationsPanel() {
       </div>
 
       <div className="test-gauge-admin-actions" style={{ marginBottom: 12 }}>
-        {!(formOpen && editingId == null) ? (
+        {canWrite && !(formOpen && editingId == null) ? (
           <button type="button" className="button-primary" onClick={openAddForm}>
             Add tool
           </button>

@@ -13,6 +13,7 @@ import {
 } from '../lib/feedbackResolutionPhotos'
 import { supabase } from '../lib/supabase'
 import { createFeedbackResolvedNotification } from '../lib/messages'
+import { canWriteShop, permissionDeniedReason } from '../lib/roles'
 import type { User } from '@supabase/supabase-js'
 
 function usernameFromUser(user: User) {
@@ -120,7 +121,8 @@ function FeedbackPhotoGallery({
 
 export function FeedbackInboxPage() {
   const { showToast } = useToast()
-  const { user } = useAuth()
+  const { user, role } = useAuth()
+  const canWrite = canWriteShop(role)
   const [rows, setRows] = useState<FeedbackRow[]>([])
   const [loading, setLoading] = useState(true)
   const [filter, setFilter] = useState<'open' | 'resolved' | 'all'>('open')
@@ -239,6 +241,10 @@ export function FeedbackInboxPage() {
   }
 
   const markResolved = async (row: FeedbackRow) => {
+    if (!canWrite) {
+      showToast(permissionDeniedReason('shopWrite'))
+      return
+    }
     const resolutionNotes = (resolutionDrafts[row.id] ?? '').trim()
     if (!resolutionNotes) {
       showToast('Add a short note on what was done to fix this before marking resolved')
@@ -321,6 +327,10 @@ export function FeedbackInboxPage() {
   }
 
   const reopen = async (row: FeedbackRow) => {
+    if (!canWrite) {
+      showToast(permissionDeniedReason('shopWrite'))
+      return
+    }
     setSavingId(row.id)
     const { error: deleteError } = await deleteFeedbackResolutionPhotos(row.resolution_images)
     if (deleteError) {

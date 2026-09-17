@@ -2,6 +2,7 @@ import { useEffect, useState, type ReactNode } from 'react'
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { useToast } from '../components/ToastNotification'
 import { useAuth } from '../contexts/AuthContext'
+import { canWriteShop, permissionDeniedReason } from '../lib/roles'
 import {
   buildIncrFormFromRework,
   buildIncrFormFromValveRowId,
@@ -45,7 +46,8 @@ export function QualityIncrFormPage() {
   const [searchParams] = useSearchParams()
   const navigate = useNavigate()
   const { showToast } = useToast()
-  const { user, username } = useAuth()
+  const { user, username, role } = useAuth()
+  const canWrite = canWriteShop(role)
   const editingId = id && id !== 'new' ? Number(id) : null
   const reworkIdRaw = searchParams.get('reworkId')
   const reworkId = reworkIdRaw ? Number(reworkIdRaw) : null
@@ -164,6 +166,10 @@ export function QualityIncrFormPage() {
   }
 
   const save = async (nextForm?: QualityIncrFormState) => {
+    if (!canWrite) {
+      showToast(permissionDeniedReason('shopWrite'))
+      return
+    }
     const draft = syncIncrStatusWithApprovals(nextForm ?? form)
     if (draft !== form && !nextForm) setForm(draft)
     if (!draft.nonconformance_details.trim() && !draft.discrepancy_description.trim()) {

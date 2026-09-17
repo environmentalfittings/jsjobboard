@@ -278,7 +278,7 @@ export function NavBar({ role, username, userId, onLogout }: NavBarProps) {
         </nav>
 
         <div className="nav-session">
-          <FeedbackButton username={username} role={role} />
+          {role !== 'viewer' ? <FeedbackButton username={username} role={role} /> : null}
           {!isMobileNav ? messagesMenu : null}
           <span className="username-pill">{username}</span>
           <span className="role-pill">{formatRolePillLabel(role)}</span>

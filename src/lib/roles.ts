@@ -1,7 +1,7 @@
 import type { UserRole } from '../pages/LoginPage'
 
-/** Shop app roles — Admin, Manager, Technician only. */
-export const APP_ROLES = ['admin', 'manager', 'technician'] as const
+/** Shop app roles — Admin, Manager, Technician, and shareable read-only Viewer. */
+export const APP_ROLES = ['admin', 'manager', 'technician', 'viewer'] as const
 
 export type AppPermission =
   | 'createJob'
@@ -41,6 +41,12 @@ const ROLE_PERMISSIONS: Record<UserRole, ReadonlySet<AppPermission>> = {
     'shopWrite',
   ]),
   technician: new Set([]),
+  viewer: new Set([
+    'viewReports',
+    'openAdminTools',
+    'manageLists',
+    'feedbackInbox',
+  ]),
 }
 
 /** Map legacy DB / metadata roles onto the three app roles. */
@@ -50,6 +56,9 @@ export function normalizeAppRole(role: string | null | undefined): UserRole {
     .toLowerCase()
   if (value === 'admin') return 'admin'
   if (value === 'manager' || value === 'supervisor') return 'manager'
+  if (value === 'viewer' || value === 'readonly' || value === 'read-only' || value === 'guest') {
+    return 'viewer'
+  }
   if (value === 'technician' || value === 'tech' || value === 'sales') return 'technician'
   return 'technician'
 }
@@ -59,14 +68,14 @@ export function can(role: UserRole | null | undefined, permission: AppPermission
   return ROLE_PERMISSIONS[normalizeAppRole(role)]?.has(permission) ?? false
 }
 
-/** Technicians are view-only. Admin and Manager may change shop data. */
+/** Technicians and Viewer are view-only. Admin and Manager may change shop data. */
 export function canWriteShop(role: UserRole | null | undefined): boolean {
   return can(role, 'shopWrite')
 }
 
 /** Any signed-in shop role can open the shared app shell. */
 export function isShopRole(role: UserRole | null | undefined): boolean {
-  return role === 'admin' || role === 'manager' || role === 'technician'
+  return role === 'admin' || role === 'manager' || role === 'technician' || role === 'viewer'
 }
 
 /** @deprecated Prefer `can(role, …)`. Kept for older call sites during migration. */
@@ -101,6 +110,7 @@ export function defaultHomePath(role: UserRole | null | undefined): string {
 export function formatRolePillLabel(role: UserRole): string {
   if (role === 'admin') return 'Admin'
   if (role === 'manager') return 'Manager'
+  if (role === 'viewer') return 'Read-only'
   return 'Technician'
 }
 

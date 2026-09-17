@@ -39,14 +39,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [loading, setLoading] = useState(true)
 
   const refreshAuth = useCallback(async () => {
-    const localDevAuthEnabled =
+    const localAuthRaw = window.localStorage.getItem(LOCAL_DEV_AUTH_KEY)
+    const genericAdminEnabled =
       import.meta.env.DEV || import.meta.env.VITE_ENABLE_GENERIC_ADMIN_LOGIN === 'true'
-    const localAuthRaw = localDevAuthEnabled ? window.localStorage.getItem(LOCAL_DEV_AUTH_KEY) : null
-    if (localAuthRaw === 'admin') {
+    if (localAuthRaw === 'viewer' || (genericAdminEnabled && localAuthRaw === 'admin')) {
+      const localRole = localAuthRaw === 'admin' ? 'admin' : 'viewer'
       setUser(null)
-      setRole('admin')
-      setProfileRole('admin')
-      setUsername('Generic Admin')
+      setRole(localRole)
+      setProfileRole(localRole === 'admin' ? 'admin' : 'viewer')
+      setUsername(localRole === 'admin' ? 'Generic Admin' : 'Read-only')
       setLoading(false)
       return
     }
@@ -151,14 +152,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const handleLogin = useCallback(
     async (options?: { localRole?: UserRole; username?: string }) => {
-      if (options?.localRole === 'admin') {
-        // Set local flag before signOut so onAuthStateChange/refreshAuth does not wipe Admin.
-        window.localStorage.setItem(LOCAL_DEV_AUTH_KEY, 'admin')
+      if (options?.localRole === 'admin' || options?.localRole === 'viewer') {
+        // Set local flag before signOut so onAuthStateChange/refreshAuth does not wipe the session.
+        window.localStorage.setItem(LOCAL_DEV_AUTH_KEY, options.localRole)
         await supabase.auth.signOut()
         setUser(null)
-        setRole('admin')
-        setProfileRole('admin')
-        setUsername(options.username ?? 'Generic Admin')
+        setRole(options.localRole)
+        setProfileRole(options.localRole === 'admin' ? 'admin' : 'viewer')
+        setUsername(
+          options.username ?? (options.localRole === 'viewer' ? 'Read-only' : 'Generic Admin'),
+        )
         setLoading(false)
         navigate('/dashboard', { replace: true })
         return

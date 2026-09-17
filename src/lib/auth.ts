@@ -29,14 +29,17 @@ export function resolveAppRole(
     .toLowerCase()
   if (tech === 'admin') return 'admin'
   if (tech === 'manager' || tech === 'supervisor') return 'manager'
+  if (tech === 'viewer' || tech === 'readonly' || tech === 'read-only' || tech === 'guest') return 'viewer'
   if (tech === 'technician' || tech === 'tech' || tech === 'sales') return 'technician'
 
   if (profileRole === 'admin') return 'admin'
   if (profileRole === 'technician') return 'technician'
+  if (profileRole === 'viewer') return 'viewer'
 
   const meta = metadataRole.trim().toLowerCase()
   if (meta === 'admin') return 'admin'
   if (meta === 'manager' || meta === 'supervisor') return 'manager'
+  if (meta === 'viewer' || meta === 'readonly' || meta === 'read-only' || meta === 'guest') return 'viewer'
   if (meta === 'technician' || meta === 'tech' || meta === 'sales') return 'technician'
 
   if (profileRole === 'viewer' || profileRole === 'customer' || !profileRole) {

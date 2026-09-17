@@ -4,7 +4,7 @@ import { getProfileRole, getShopLoginStatus, resolveAppRole, signInWithUsername 
 import { isShopRole } from '../lib/roles'
 import { supabase } from '../lib/supabase'
 
-export type UserRole = 'admin' | 'manager' | 'technician'
+export type UserRole = 'admin' | 'manager' | 'technician' | 'viewer'
 
 interface LoginPageProps {
   onLogin: (options?: { localRole?: UserRole; username?: string }) => void | Promise<void>
@@ -82,6 +82,15 @@ export function LoginPage({ onLogin }: LoginPageProps) {
       enteredPassword === genericAdminPassword
     ) {
       await onLogin({ localRole: 'admin', username: 'Generic Admin' })
+      return
+    }
+
+    const genericViewerUsername =
+      String(import.meta.env.VITE_GENERIC_VIEWER_USERNAME ?? '').trim().toLowerCase() || 'readonly'
+    const genericViewerPassword =
+      String(import.meta.env.VITE_GENERIC_VIEWER_PASSWORD ?? '').trim() || 'viewonly'
+    if (normalizedUsername === genericViewerUsername && enteredPassword === genericViewerPassword) {
+      await onLogin({ localRole: 'viewer', username: 'Read-only' })
       return
     }
 

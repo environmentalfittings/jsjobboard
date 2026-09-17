@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 import { useToast } from '../components/ToastNotification'
+import { useAuth } from '../contexts/AuthContext'
 import { ItpTemplateBuilderPanel } from '../components/ItpTemplateBuilderPanel'
 import { ShopWorkflowAdminPanel } from '../components/ShopWorkflowAdminPanel'
 import { ValveTypeProceduresPanel } from '../components/ValveTypeProceduresPanel'
@@ -37,6 +38,7 @@ import {
 } from '../lib/b1634WallThickness'
 import type { LookupValueRow } from '../lib/lookupValues'
 import { supabase } from '../lib/supabase'
+import { canWriteShop } from '../lib/roles'
 
 type Tab =
   | 'lookups'
@@ -101,9 +103,11 @@ function isAdminListTab(value: string | null): value is Tab {
 
 export function AdminListsPage() {
   const { showToast } = useToast()
+  const { role } = useAuth()
+  const canWrite = canWriteShop(role)
   const { employees } = useEmployees()
   const [searchParams, setSearchParams] = useSearchParams()
-  const [unlocked, setUnlocked] = useState(false)
+  const [unlocked, setUnlocked] = useState(() => role === 'viewer')
   const [pinDraft, setPinDraft] = useState('')
   const [pinError, setPinError] = useState(false)
 
@@ -1072,7 +1076,9 @@ export function AdminListsPage() {
       </div>
 
       <p className="placeholder-copy admin-lists-intro">
-        Admin only. Changes apply for everyone. Edit each list tab below to add, rename, or remove options. Use{' '}
+        {canWrite
+          ? 'Admin only. Changes apply for everyone. Edit each list tab below to add, rename, or remove options. Use '
+          : 'Read-only — you can browse these lists, but you cannot add, rename, or remove options. Use '}
         <strong>ITP template builder</strong> for the live ITP Build Scope masters, and <strong>Shop workflow</strong>{' '}
         for rework path order.
       </p>
@@ -1161,6 +1167,7 @@ export function AdminListsPage() {
         </button>
       </div>
 
+      <fieldset className="shop-readonly-fieldset" disabled={!canWrite}>
       {tab === 'lookups' && (
         <section className="dashboard-panel admin-lists-panel">
           <h3>Dropdown options</h3>
@@ -2027,6 +2034,7 @@ export function AdminListsPage() {
           )}
         </section>
       )}
+      </fieldset>
     </section>
   )
 }

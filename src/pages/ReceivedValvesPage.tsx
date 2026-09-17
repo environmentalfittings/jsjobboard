@@ -6,6 +6,7 @@ import { ReceivedValvePhotosEditor } from '../components/ReceivedValvePhotosEdit
 import { ReceivedValveRfqBadge } from '../components/ReceivedValveRfqBadge'
 import { TestLogColumnHeader } from '../components/testLog/TestLogColumnHeader'
 import { useToast } from '../components/ToastNotification'
+import { useAuth } from '../contexts/AuthContext'
 import {
   deleteReceivedValve,
   emptyReceivedValveForm,
@@ -28,6 +29,7 @@ import {
   type ReceivedValveStatus,
 } from '../lib/receivedValves'
 import { composeRfqEmail, getRfqEmail } from '../lib/rfqEmail'
+import { canWriteShop, permissionDeniedReason } from '../lib/roles'
 import { supabase } from '../lib/supabase'
 
 type CustomerRow = { id: number; name: string }
@@ -95,6 +97,8 @@ function detailsFromRow(row: ReceivedValveRecord) {
 
 export function ReceivedValvesPage() {
   const { showToast } = useToast()
+  const { role } = useAuth()
+  const canWrite = canWriteShop(role)
   const [form, setForm] = useState<ReceivedValveFormState>(() => emptyReceivedValveForm())
   const [photoDrafts, setPhotoDrafts] = useState<ReceivedValvePhotoDraft[]>([])
   const [rows, setRows] = useState<ReceivedValveRecord[]>([])
@@ -205,6 +209,10 @@ export function ReceivedValvesPage() {
   }
 
   const markSentToRfq = async (id: string) => {
+    if (!canWrite) {
+      showToast(permissionDeniedReason('shopWrite'))
+      return
+    }
     const sentToRfqAt = new Date().toISOString()
     const result = await updateReceivedValve(id, { sentToRfqAt })
     if (!result.ok) {
@@ -233,6 +241,10 @@ export function ReceivedValvesPage() {
 
   const onSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault()
+    if (!canWrite) {
+      showToast(permissionDeniedReason('shopWrite'))
+      return
+    }
     if (!form.customer.trim()) {
       showToast('Customer is required')
       return
@@ -298,6 +310,10 @@ export function ReceivedValvesPage() {
   }
 
   const changeStatus = async (row: ReceivedValveRecord, status: ReceivedValveStatus) => {
+    if (!canWrite) {
+      showToast(permissionDeniedReason('shopWrite'))
+      return
+    }
     if (row.status === status) return
     const result = await updateReceivedValve(row.id, { status })
     if (!result.ok) {
@@ -317,6 +333,10 @@ export function ReceivedValvesPage() {
   }
 
   const saveNotes = async (row: ReceivedValveRecord, notes: string) => {
+    if (!canWrite) {
+      showToast(permissionDeniedReason('shopWrite'))
+      return
+    }
     const nextNotes = notes.trim()
     if (nextNotes === row.notes.trim()) {
       setNotesDrafts((prev) => {
@@ -341,6 +361,10 @@ export function ReceivedValvesPage() {
   }
 
   const removeRow = async (row: ReceivedValveRecord) => {
+    if (!canWrite) {
+      showToast(permissionDeniedReason('shopWrite'))
+      return
+    }
     const result = await deleteReceivedValve(row)
     if (!result.ok) {
       showToast(result.error)

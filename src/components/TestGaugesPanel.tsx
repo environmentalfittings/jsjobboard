@@ -33,6 +33,8 @@ import {
 } from '../lib/toolCalibrationSopPoints'
 import { openTestGaugesReportPrint } from '../lib/testGaugesReportPrint'
 import { emptyTestGaugeForm, testGaugeToForm, SUGGESTED_DEPARTMENTS, type TestGauge, type TestGaugeFormState } from '../types/testGauge'
+import { useAuth } from '../contexts/AuthContext'
+import { canWriteShop, permissionDeniedReason } from '../lib/roles'
 
 const BLANK_FILTER = '(Blank)'
 const STATUS_FILTER_OPTIONS = ['Active', 'Inactive'] as const
@@ -449,6 +451,8 @@ function InlineDepartmentCell({
 
 export function TestGaugesPanel() {
   const { showToast } = useToast()
+  const { role } = useAuth()
+  const canWrite = canWriteShop(role)
   const certInputRef = useRef<HTMLInputElement>(null)
   const [rows, setRows] = useState<TestGauge[]>([])
   const [loading, setLoading] = useState(true)
@@ -502,6 +506,10 @@ export function TestGaugesPanel() {
   }
 
   const openAddForm = () => {
+    if (!canWrite) {
+      showToast(permissionDeniedReason('shopWrite'))
+      return
+    }
     setEditingId(null)
     setForm(emptyTestGaugeForm())
     setFormOpen(true)
@@ -518,6 +526,10 @@ export function TestGaugesPanel() {
   }
 
   const saveGauge = async () => {
+    if (!canWrite) {
+      showToast(permissionDeniedReason('shopWrite'))
+      return
+    }
     setSaving(true)
     if (editingId) {
       const previous = rows.find((row) => row.id === editingId) ?? null
@@ -1015,7 +1027,7 @@ export function TestGaugesPanel() {
       </div>
 
       <div className="test-gauge-admin-actions" style={{ marginBottom: 12 }}>
-        {!(formOpen && editingId == null) ? (
+        {canWrite && !(formOpen && editingId == null) ? (
           <button type="button" className="button-primary" onClick={openAddForm}>
             Add gauge
           </button>

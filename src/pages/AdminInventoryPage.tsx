@@ -72,6 +72,7 @@ import {
   resolveEmployeeAuthUserId,
   resolveSalesmanEmail,
 } from '../lib/messages'
+import { canWriteShop, permissionDeniedReason } from '../lib/roles'
 
 type ModalMode = 'create' | 'edit' | 'duplicate'
 type ListScope = 'active' | 'removed' | 'activity'
@@ -639,7 +640,8 @@ function sortInventoryRows(
 
 export function AdminInventoryPage() {
   const { showToast } = useToast()
-  const { user, username } = useAuth()
+  const { user, username, role } = useAuth()
+  const canWrite = canWriteShop(role)
   const { employees } = useEmployees()
   const [searchParams, setSearchParams] = useSearchParams()
   const [rows, setRows] = useState<InventoryRecord[]>([])
@@ -1075,6 +1077,10 @@ export function AdminInventoryPage() {
     : null
 
   const saveSelectedCustomerSalesman = async (salesRepEmployeeId: string) => {
+    if (!canWrite) {
+      showToast(permissionDeniedReason('shopWrite'))
+      return
+    }
     if (!selectedCustomerRow) {
       showToast('Add this customer under Admin → Lists → Customers first, then assign a salesman')
       return
@@ -1206,6 +1212,10 @@ export function AdminInventoryPage() {
   }
 
   const openCreate = async () => {
+    if (!canWrite) {
+      showToast(permissionDeniedReason('shopWrite'))
+      return
+    }
     setModalMode('create')
     setEditingId(null)
     setForm(emptyInventoryForm())
@@ -1227,6 +1237,10 @@ export function AdminInventoryPage() {
   }
 
   const openDuplicate = async (row: InventoryRecord) => {
+    if (!canWrite) {
+      showToast(permissionDeniedReason('shopWrite'))
+      return
+    }
     setModalMode('duplicate')
     setEditingId(null)
     const copied = inventoryToForm(row)
@@ -1290,6 +1304,10 @@ export function AdminInventoryPage() {
   }
 
   const save = async () => {
+    if (!canWrite) {
+      showToast(permissionDeniedReason('shopWrite'))
+      return
+    }
     if (!form.customer.trim()) {
       showToast('Customer is required')
       return
@@ -1419,6 +1437,10 @@ export function AdminInventoryPage() {
   }
 
   const confirmRemoveFromInventory = async () => {
+    if (!canWrite) {
+      showToast(permissionDeniedReason('shopWrite'))
+      return
+    }
     if (!qrItem) return
     if (isInventoryRemoved(qrItem)) {
       showToast('This item is already removed from inventory')
@@ -1473,6 +1495,10 @@ export function AdminInventoryPage() {
   }
 
   const confirmRestoreToInventory = async () => {
+    if (!canWrite) {
+      showToast(permissionDeniedReason('shopWrite'))
+      return
+    }
     if (!qrItem) return
     if (!isInventoryRemoved(qrItem)) {
       showToast('This item is already in active inventory')
@@ -1780,9 +1806,11 @@ export function AdminInventoryPage() {
           >
             {sendingMonthly ? 'Sending monthly reports…' : 'Send monthly reports'}
           </button>
+          {canWrite ? (
           <button type="button" className="button-primary" onClick={() => void openCreate()}>
             Add customer inventory item
           </button>
+          ) : null}
           <Link to="/dashboard" className="button-secondary">
             Back to dashboard
           </Link>
@@ -2047,6 +2075,7 @@ export function AdminInventoryPage() {
             </select>
           </label>
           <div className="inventory-toolbar-meta">
+            {canWrite ? (
             <button
               type="button"
               className="button-primary inventory-toolbar-add"
@@ -2054,6 +2083,7 @@ export function AdminInventoryPage() {
             >
               Add customer inventory item
             </button>
+            ) : null}
             <div className="inventory-toolbar-meta-end">
               <span className="inventory-toolbar-count">
                 {listScope === 'activity'
