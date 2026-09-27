@@ -188,7 +188,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       username,
       role,
       profileRole,
-      // Shop Admin role (technicians / app role) — not profiles.role alone
+      // Shop Admin App role (Employees → Shop assignment) — not profiles.role alone
       // (profiles often defaulted to admin for new Auth users).
       isAdmin: role === 'admin',
       loading,
