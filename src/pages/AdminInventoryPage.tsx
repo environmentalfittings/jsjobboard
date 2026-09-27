@@ -65,7 +65,9 @@ import {
   printInventoryCustomerReport,
 } from '../lib/inventoryCustomerReport'
 import { clearInventoryMonthlyReportAlert } from '../lib/inventoryMonthlyAlert'
+import { printInventoryQrToBixolon } from '../lib/bixolonInventoryQrPrint'
 import { printInventoryLabelSheet } from '../lib/inventoryLabelPrint'
+import { printInventoryQrSheet } from '../lib/inventoryQrPrint'
 import { openPreviewWindow } from '../lib/printHtml'
 import {
   notifySalesRepCustomerInventoryReport,
@@ -675,6 +677,7 @@ export function AdminInventoryPage() {
   const saveGenerationRef = useRef(0)
   const [qrItem, setQrItem] = useState<InventoryRecord | null>(null)
   const [selectedIds, setSelectedIds] = useState<Set<string>>(() => new Set())
+  const [printingLabel, setPrintingLabel] = useState(false)
   const [expandedRowId, setExpandedRowId] = useState<string | null>(null)
   const [sendingReport, setSendingReport] = useState(false)
   const [emailingReport, setEmailingReport] = useState(false)
@@ -1545,9 +1548,42 @@ export function AdminInventoryPage() {
     if (error) showToast(error)
   }
 
+  /** Letter-paper QR sheet (browser print window). */
+  const printSelectedQrCodes = () => {
+    const { error } = printInventoryQrSheet(selectedPrintable)
+    if (error) showToast(error)
+  }
+
+  const printBarcodeLabels = async (items: InventoryRecord[]) => {
+    setPrintingLabel(true)
+    try {
+      const result = await printInventoryQrToBixolon(items)
+      if (result.message) showToast(result.message)
+    } catch (error) {
+      showToast(error instanceof Error ? error.message : 'Could not print on barcode printer')
+    } finally {
+      setPrintingLabel(false)
+    }
+  }
+
+  const printSelectedOnBarcodePrinter = () => {
+    void printBarcodeLabels(selectedPrintable)
+  }
+
   const printQrLabel = () => {
     if (!qrItem) return
     const { error } = printInventoryLabelSheet([qrItem])
+    if (error) showToast(error)
+  }
+
+  const printQrOnBarcodePrinter = () => {
+    if (!qrItem) return
+    void printBarcodeLabels([qrItem])
+  }
+
+  const printQrSheetFromModal = () => {
+    if (!qrItem) return
+    const { error } = printInventoryQrSheet([qrItem])
     if (error) showToast(error)
   }
 
@@ -2099,10 +2135,25 @@ export function AdminInventoryPage() {
                   <button type="button" className="button-secondary" onClick={clearSelection}>
                     Clear selection
                   </button>
+                  <button type="button" className="button-secondary" onClick={printSelectedQrCodes}>
+                    Print QR sheet
+                  </button>
+                  <button
+                    type="button"
+                    className="button-secondary"
+                    disabled={printingLabel}
+                    onClick={printSelectedOnBarcodePrinter}
+                  >
+                    {printingLabel ? 'Printing…' : 'Print on barcode printer'}
+                  </button>
                   <button type="button" className="button-primary" onClick={printSelectedLabels}>
                     Print labels
                   </button>
                 </div>
+              ) : listScope === 'active' && printableFiltered.length > 0 ? (
+                <span className="inventory-toolbar-print-hint">
+                  Select rows (checkbox) to print QR codes / labels
+                </span>
               ) : null}
             </div>
           </div>
@@ -3386,9 +3437,22 @@ export function AdminInventoryPage() {
                     Edit
                   </button>
                   {qrItem.qr_code_data_url ? (
-                    <button type="button" className="button-primary" onClick={printQrLabel}>
-                      Print label
-                    </button>
+                    <>
+                      <button type="button" className="button-secondary" onClick={printQrSheetFromModal}>
+                        Print QR sheet
+                      </button>
+                      <button
+                        type="button"
+                        className="button-secondary"
+                        disabled={printingLabel}
+                        onClick={printQrOnBarcodePrinter}
+                      >
+                        {printingLabel ? 'Printing…' : 'Print on barcode printer'}
+                      </button>
+                      <button type="button" className="button-primary" onClick={printQrLabel}>
+                        Print label
+                      </button>
+                    </>
                   ) : null}
                 </>
               ) : null}
