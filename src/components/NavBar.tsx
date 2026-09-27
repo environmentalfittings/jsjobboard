@@ -182,12 +182,6 @@ export function NavBar({ role, username, userId, onLogout }: NavBarProps) {
       disabledReason: permissionDeniedReason('openAdminTools'),
     },
     {
-      to: '/technicians',
-      label: 'Technicians',
-      disabled: !can(role, 'manageTechnicians') && !can(role, 'openAdminTools'),
-      disabledReason: permissionDeniedReason('manageTechnicians'),
-    },
-    {
       to: '/admin/employees',
       label: 'Employees',
     },

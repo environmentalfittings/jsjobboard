@@ -23,7 +23,7 @@ export function resolveAppRole(
   metadataRole: string,
   technicianRole?: string | null,
 ): UserRole {
-  // Technicians page is the shop source of truth when a linked row exists.
+  // Shop assignment (technicians.role) is the login-permissions source of truth when a linked row exists.
   const tech = String(technicianRole ?? '')
     .trim()
     .toLowerCase()

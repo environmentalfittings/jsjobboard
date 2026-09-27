@@ -13153,6 +13153,28 @@ textarea.modal-status-select {
   flex-wrap: wrap;
 }
 
+.admin-employees-tabs {
+  margin: 0 0 14px;
+}
+
+.admin-employees-shop-panel {
+  margin-top: 4px;
+}
+
+.admin-employees-shop-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
+.admin-employees-shop-toolbar .technicians-intro {
+  margin: 0;
+  flex: 1 1 280px;
+}
+
 .admin-employees-add-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));

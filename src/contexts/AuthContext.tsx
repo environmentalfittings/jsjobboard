@@ -105,7 +105,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         : ''
     const resolvedUsername = employeeRow?.username ?? technicianRow?.login_username ?? metadataUsername
 
-    // Keep profiles.role in sync with technicians.role (shop source of truth).
+    // Keep profiles.role in sync with technicians.role (Shop assignment App role).
     if (technicianRow?.role && nextUser.id) {
       const shopRole = String(technicianRow.role).trim().toLowerCase()
       const desiredProfileRole = shopRole === 'admin' ? 'admin' : 'viewer'
@@ -188,7 +188,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       username,
       role,
       profileRole,
-      // Shop Admin role (technicians / app role) — not profiles.role alone
+      // Shop Admin App role (Employees → Shop assignment) — not profiles.role alone
       // (profiles often defaulted to admin for new Auth users).
       isAdmin: role === 'admin',
       loading,

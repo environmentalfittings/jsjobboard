@@ -162,7 +162,9 @@ export function LoginPage({ onLogin }: LoginPageProps) {
     if (signInError) {
       const loginStatus = await getShopLoginStatus(supabase, normalizedUsername)
       if (loginStatus === 'no_account' || !technicianRow.user_id) {
-        setError('Your account has not been created yet. Ask an admin to set up your login (Technicians → Reset password).')
+        setError(
+          'Your account has not been created yet. Ask an admin to set up your login (Employees → Shop assignment → Reset password).',
+        )
         return
       }
       setError('Incorrect username or password')

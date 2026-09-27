@@ -18,7 +18,6 @@ import { AdminInventoryPage } from './pages/AdminInventoryPage'
 import { AdminEmployeesPage } from './pages/AdminEmployeesPage'
 import { AdminEmployeesPrintPage } from './pages/AdminEmployeesPrintPage'
 import { ResourcesPage } from './pages/ResourcesPage'
-import { TechniciansPage } from './pages/TechniciansPage'
 import { MyWorkPage } from './pages/MyWorkPage'
 import { ReceivedValvesPage } from './pages/ReceivedValvesPage'
 import { TravelerPage } from './pages/TravelerPage'
@@ -255,8 +254,8 @@ function AppRoutes() {
             <Route
               path="/technicians"
               element={
-                can(role, 'manageTechnicians') || can(role, 'openAdminTools') ? (
-                  <TechniciansPage />
+                canAccessEmployeesPage(role) ? (
+                  <Navigate to="/admin/employees?tab=shop" replace />
                 ) : role ? (
                   <Navigate to={defaultHomePath(role)} replace />
                 ) : (

@@ -44,7 +44,12 @@ const emptyDraft = (): Draft => ({
 
 const cloneDraft = (draft: Draft): Draft => ({ ...draft })
 
-export function TechniciansPage() {
+type TechniciansPageProps = {
+  /** When true, render as a section inside Employees (no page chrome). */
+  embedded?: boolean
+}
+
+export function TechniciansPage({ embedded = false }: TechniciansPageProps = {}) {
   const { showToast } = useToast()
   const { role } = useAuth()
   const canManage = can(role, 'manageTechnicians')
@@ -465,27 +470,46 @@ export function TechniciansPage() {
     }
   }
 
-  return (
-    <section className="dashboard-page">
-      <div className="dashboard-title-row">
-        <h2 className="dashboard-title">Technicians</h2>
-        <div className="technicians-page-actions">
+  const content = (
+    <>
+      {embedded ? (
+        <div className="admin-employees-shop-toolbar">
+          <p className="placeholder-copy technicians-intro">
+            {canManage
+              ? 'Shop assignment list used for job cards and login permissions. App role (Admin / Manager / Technician) controls what someone can do in the app — this is separate from Quality Team on the Roster tab.'
+              : 'View shop assignment here. Only Admin can add people, change app roles, reset passwords, or delete.'}
+          </p>
           {canManage ? (
             <button type="button" className="button-primary" onClick={openCreate}>
-              Add technician
+              Add shop person
             </button>
           ) : null}
-          <Link to="/job-board" className="button-secondary">
-            Back to board
-          </Link>
         </div>
-      </div>
-
-      <p className="placeholder-copy technicians-intro">
-        {canManage
-          ? 'Maintain shop technicians here. Change Role in the table (Admin / Manager / Technician). Assign them to jobs from the job card (Status board → open a job).'
-          : 'View shop technicians here. Only Admin can add people, change roles, reset passwords, or delete.'}
-      </p>
+      ) : (
+        <>
+          <div className="dashboard-title-row">
+            <h2 className="dashboard-title">Technicians</h2>
+            <div className="technicians-page-actions">
+              {canManage ? (
+                <button type="button" className="button-primary" onClick={openCreate}>
+                  Add technician
+                </button>
+              ) : null}
+              <Link to="/admin/employees?tab=shop" className="button-secondary">
+                Open in Employees
+              </Link>
+              <Link to="/job-board" className="button-secondary">
+                Back to board
+              </Link>
+            </div>
+          </div>
+          <p className="placeholder-copy technicians-intro">
+            {canManage
+              ? 'Maintain shop technicians here. Change App role in the table (Admin / Manager / Technician). Assign them to jobs from the job card (Status board → open a job).'
+              : 'View shop technicians here. Only Admin can add people, change roles, reset passwords, or delete.'}
+          </p>
+        </>
+      )}
 
       {!loading && rows.length > 0 ? (
         <label className="technicians-list-filter">
@@ -495,7 +519,7 @@ export function TechniciansPage() {
             placeholder="Search by name, username, team, role…"
             value={listFilter}
             onChange={(e) => setListFilter(e.target.value)}
-            aria-label="Search technicians"
+            aria-label="Search shop assignment"
           />
         </label>
       ) : null}
@@ -512,7 +536,7 @@ export function TechniciansPage() {
                 <th>Work cell specialties</th>
                 <th>Group / team</th>
                 <th>Active</th>
-                <th>Role</th>
+                <th title="Login permissions for the app">App role</th>
                 <th>Reports To</th>
                 <th>Username</th>
                 <th>Open jobs</th>
@@ -534,8 +558,8 @@ export function TechniciansPage() {
                         value={(t.role as ShopRole | null | undefined) ?? 'technician'}
                         disabled={roleSavingId === t.id || saving}
                         onChange={(e) => void changeRoleInline(t, e.target.value as ShopRole)}
-                        aria-label={`Change role for ${t.name}`}
-                        title="Change role"
+                        aria-label={`Change app role for ${t.name}`}
+                        title="Change app role (login permissions)"
                       >
                         <option value="technician">Technician</option>
                         <option value="manager">Manager</option>
@@ -604,9 +628,13 @@ export function TechniciansPage() {
             </tbody>
           </table>
           {rows.length === 0 ? (
-            <p className="placeholder-copy">No technicians yet. Click “Add technician”.</p>
+            <p className="placeholder-copy">
+              {canManage
+                ? `No shop people yet. Click “${embedded ? 'Add shop person' : 'Add technician'}”.`
+                : 'No shop people yet.'}
+            </p>
           ) : filteredRows.length === 0 ? (
-            <p className="placeholder-copy">No technicians match your search.</p>
+            <p className="placeholder-copy">No shop people match your search.</p>
           ) : null}
         </div>
       )}
@@ -687,7 +715,7 @@ export function TechniciansPage() {
                 <span>Active</span>
               </label>
               <label className="modal-label" htmlFor="tech-role">
-                Role
+                App role
               </label>
               <select
                 id="tech-role"
@@ -700,6 +728,9 @@ export function TechniciansPage() {
                 <option value="manager">Manager</option>
                 <option value="admin">Admin</option>
               </select>
+              <p className="status-breakdown-note">
+                App role controls login permissions. Quality Team level is set on the Employees Roster tab.
+              </p>
               <label className="modal-label" htmlFor="tech-username">
                 Username
               </label>
@@ -799,6 +830,12 @@ export function TechniciansPage() {
           </div>
         </div>
       ) : null}
-    </section>
+    </>
   )
+
+  if (embedded) {
+    return <div className="admin-employees-shop-panel">{content}</div>
+  }
+
+  return <section className="dashboard-page">{content}</section>
 }
