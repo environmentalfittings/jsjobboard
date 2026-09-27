@@ -3,6 +3,7 @@ import { NavBar } from './components/NavBar'
 import { ReadOnlyBanner } from './components/ReadOnlyBanner'
 import { ToastProvider } from './components/ToastNotification'
 import { AuthProvider, useAuth } from './contexts/AuthContext'
+import { OrganizationProvider } from './contexts/OrganizationContext'
 import { DashboardPage } from './pages/DashboardPage'
 import { JobBoardPage } from './pages/JobBoardPage'
 import { LoginPage } from './pages/LoginPage'
@@ -386,7 +387,9 @@ function App() {
   return (
     <ToastProvider>
       <AuthProvider>
-        <AppRoutes />
+        <OrganizationProvider>
+          <AppRoutes />
+        </OrganizationProvider>
       </AuthProvider>
     </ToastProvider>
   )

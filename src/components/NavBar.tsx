@@ -4,6 +4,7 @@ import type { UserRole } from '../pages/LoginPage'
 import { can, formatRolePillLabel, permissionDeniedReason, type AppPermission } from '../lib/roles'
 import { isFeedbackEnabled } from '../lib/feedbackEnabled'
 import { FeedbackButton } from './FeedbackButton'
+import { CompanySwitcher } from './CompanySwitcher'
 import { NavMessagesMenu } from './NavMessagesMenu'
 import logo from '../assets/js-logo.png'
 
@@ -272,6 +273,7 @@ export function NavBar({ role, username, userId, onLogout }: NavBarProps) {
         </nav>
 
         <div className="nav-session">
+          <CompanySwitcher />
           {role !== 'viewer' ? <FeedbackButton username={username} role={role} /> : null}
           {!isMobileNav ? messagesMenu : null}
           <span className="username-pill">{username}</span>
