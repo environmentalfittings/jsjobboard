@@ -127,7 +127,7 @@ export function permissionDeniedReason(permission: AppPermission): string {
     case 'manageLists':
       return 'Only Admin can manage lists'
     case 'manageTechnicians':
-      return 'Only Admin can manage technicians'
+      return 'Only Admin can manage shop assignment (Employees → Shop assignment)'
     case 'manageEmployeeAccounts':
       return 'Only Admin can manage employee accounts'
     case 'viewReports':

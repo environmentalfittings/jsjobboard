@@ -1,10 +1,11 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { Link } from 'react-router-dom'
+import { Link, useSearchParams } from 'react-router-dom'
 import { useToast } from '../components/ToastNotification'
 import { validateEmployeePassword } from '../lib/auth'
 import { loadEmployeeAccountStatus } from '../lib/employeeAccounts'
 import { supabase } from '../lib/supabase'
 import { useEmployees } from '../hooks/useEmployees'
+import { TechniciansPage } from './TechniciansPage'
 import type {
   Employee,
   EmployeeAccountStatus,
@@ -18,6 +19,11 @@ import {
 } from '../types/employees'
 
 type StatusFilter = 'all' | 'no_account' | 'active'
+type EmployeesTab = 'roster' | 'shop'
+
+function parseEmployeesTab(value: string | null): EmployeesTab {
+  return value === 'shop' ? 'shop' : 'roster'
+}
 
 type ManageEmployeeAccountPayload = {
   error?: string
@@ -59,6 +65,19 @@ function statusLabel(status: EmployeeAuthStatus) {
 
 export function AdminEmployeesPage({ isAdmin }: { isAdmin: boolean }) {
   const { showToast } = useToast()
+  const [searchParams, setSearchParams] = useSearchParams()
+  const activeTab = parseEmployeesTab(searchParams.get('tab'))
+  const setActiveTab = (tab: EmployeesTab) => {
+    setSearchParams(
+      (prev) => {
+        const next = new URLSearchParams(prev)
+        if (tab === 'roster') next.delete('tab')
+        else next.set('tab', tab)
+        return next
+      },
+      { replace: true },
+    )
+  }
   const { employees, loading, error, reload } = useEmployees()
   const [accountStatus, setAccountStatus] = useState<Record<string, EmployeeAccountStatus>>({})
   const [statusLoading, setStatusLoading] = useState(false)
@@ -477,31 +496,60 @@ export function AdminEmployeesPage({ isAdmin }: { isAdmin: boolean }) {
       <div className="dashboard-title-row">
         <h2 className="dashboard-title">Employees</h2>
         <div className="admin-employees-title-actions">
-          <Link to="/admin/employees/print-usernames" className="button-secondary" target="_blank">
-            Print usernames
-          </Link>
-          {isAdmin ? (
-            <button type="button" className="button-primary" disabled={busy} onClick={openAddEmployee}>
-              Add employee
-            </button>
+          {activeTab === 'roster' ? (
+            <>
+              <Link to="/admin/employees/print-usernames" className="button-secondary" target="_blank">
+                Print usernames
+              </Link>
+              {isAdmin ? (
+                <button type="button" className="button-primary" disabled={busy} onClick={openAddEmployee}>
+                  Add employee
+                </button>
+              ) : null}
+            </>
           ) : null}
         </div>
       </div>
 
       <p className="placeholder-copy">
-        {isAdmin
-          ? 'Add staff to the roster and create shop logins. Employees sign in with their username and password only.'
-          : 'Shop employee roster and login status. Contact an admin if you need a new account or a password reset.'}
+        One place for people: <strong>Roster &amp; accounts</strong> (logins, Tester, Salesman, Quality Team) and{' '}
+        <strong>Shop assignment</strong> (job-card assignees and App role for login permissions).
       </p>
 
-      {error ? <p className="admin-employees-error">{error}</p> : null}
-      <p className="admin-employees-tester-hint">
-        Check <strong>Tester</strong> for people who should appear in the Test Log tester dropdown. Check{' '}
-        <strong>Salesman</strong> for people who should appear when assigning a salesman on Inventory by Customer
-        or Admin → Lists → Customers. Use <strong>Quality Team</strong> to assign Admin, Manager, Supervisor, or
-        Technician (access by level comes later).
-      </p>
+      <div className="tabs admin-employees-tabs" role="tablist" aria-label="Employees sections">
+        <button
+          type="button"
+          role="tab"
+          className={`tab ${activeTab === 'roster' ? 'active' : ''}`}
+          aria-selected={activeTab === 'roster'}
+          onClick={() => setActiveTab('roster')}
+        >
+          Roster &amp; accounts
+        </button>
+        <button
+          type="button"
+          role="tab"
+          className={`tab ${activeTab === 'shop' ? 'active' : ''}`}
+          aria-selected={activeTab === 'shop'}
+          onClick={() => setActiveTab('shop')}
+        >
+          Shop assignment
+        </button>
+      </div>
 
+      {activeTab === 'shop' ? <TechniciansPage embedded /> : null}
+
+      {activeTab === 'roster' && error ? <p className="admin-employees-error">{error}</p> : null}
+      {activeTab === 'roster' ? (
+        <p className="admin-employees-tester-hint">
+          Check <strong>Tester</strong> for people who should appear in the Test Log tester dropdown. Check{' '}
+          <strong>Salesman</strong> for people who should appear when assigning a salesman on Inventory by Customer
+          or Admin → Lists → Customers. Use <strong>Quality Team</strong> for QC membership only — it does not change
+          App role / login permissions (set those under Shop assignment).
+        </p>
+      ) : null}
+
+      {activeTab === 'roster' ? (
       <section className="dashboard-panel admin-employees-panel">
         <div className="admin-employees-filters">
           <label>
@@ -675,6 +723,7 @@ export function AdminEmployeesPage({ isAdmin }: { isAdmin: boolean }) {
           </table>
         </div>
       </section>
+      ) : null}
 
       {isAdmin && createTarget ? (
         <div className="modal-overlay" role="presentation" onClick={() => !busy && setCreateTarget(null)}>
