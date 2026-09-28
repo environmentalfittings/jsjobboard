@@ -208,7 +208,7 @@ export function NavBar({ role, username, userId, onLogout }: NavBarProps) {
   ]
 
   const messagesMenu = userId ? <NavMessagesMenu userId={userId} username={username} /> : null
-  const { orgsEnabled, activeOrganization } = useOrganization()
+  const { orgsEnabled, activeOrganization, isOrgSuperAdmin } = useOrganization()
   const workflow = useCompanyWorkflow()
   const brandLogo = (orgsEnabled && companyLogoUrl(activeOrganization)) || logo
   const brandName = orgsEnabled && activeOrganization ? activeOrganization.name : 'JS Valve'
@@ -290,7 +290,13 @@ export function NavBar({ role, username, userId, onLogout }: NavBarProps) {
           {role !== 'viewer' ? <FeedbackButton username={username} role={role} /> : null}
           {!isMobileNav ? messagesMenu : null}
           <span className="username-pill">{username}</span>
-          <span className="role-pill">{formatRolePillLabel(role)}</span>
+          {isOrgSuperAdmin ? (
+            <span className="role-pill role-pill--superadmin" title="Can switch companies, compare reports, and assign company roles">
+              Superadmin
+            </span>
+          ) : (
+            <span className="role-pill">{formatRolePillLabel(role)}</span>
+          )}
           <button className="logout-button" type="button" onClick={onLogout}>
             Logout
           </button>

@@ -81,7 +81,7 @@ export function LoginPage({ onLogin }: LoginPageProps) {
       normalizedUsername === genericAdminUsername &&
       enteredPassword === genericAdminPassword
     ) {
-      await onLogin({ localRole: 'admin', username: 'Generic Admin' })
+      await onLogin({ localRole: 'admin', username: 'Superadmin' })
       return
     }
 

@@ -251,17 +251,22 @@ export function setLocalEmployeeOrganizationAccess(input: {
   if (!orgs.some((org) => org.id === input.organizationId)) {
     return { error: 'Company not found' }
   }
-  const role: OrganizationRole = input.role ?? 'technician'
   const members = listLocalMembers()
   const idx = members.findIndex(
     (row) => row.employee_id === input.employeeId && row.organization_id === input.organizationId,
   )
   const ts = nowIso()
+  const nextRole: OrganizationRole =
+    input.role != null
+      ? input.role
+      : idx >= 0
+        ? members[idx].role
+        : 'technician'
   if (idx >= 0) {
     members[idx] = {
       ...members[idx],
       can_access: input.canAccess,
-      role: members[idx].role === 'super_admin' ? 'super_admin' : role,
+      role: nextRole,
       updated_at: ts,
     }
   } else {
@@ -270,7 +275,7 @@ export function setLocalEmployeeOrganizationAccess(input: {
       organization_id: input.organizationId,
       user_id: null,
       employee_id: input.employeeId,
-      role,
+      role: nextRole,
       can_access: input.canAccess,
       created_at: ts,
       updated_at: ts,

@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { Link, useNavigate, useSearchParams } from 'react-router-dom'
+import { CompanyCompareReportPanel } from '../components/CompanyCompareReportPanel'
 import { DailyPriorityWorksheet } from '../components/DailyPriorityWorksheet'
 import { FinishCellBadge } from '../components/FinishCellBadge'
 import { RailReportPanel } from '../components/RailReportPanel'
@@ -1445,6 +1446,8 @@ export function ReportsPage() {
       <div className="dashboard-title-row">
         <h2 className="dashboard-title">Reports</h2>
       </div>
+
+      <CompanyCompareReportPanel />
 
       {focusReworkReport ? (
         <p className="placeholder-copy" style={{ marginTop: 0 }}>

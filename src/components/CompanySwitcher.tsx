@@ -7,20 +7,22 @@ export function CompanySwitcher() {
     orgsEnabled,
     isLocalOrganizations,
     loading,
-    memberships,
+    switchableOrganizations,
     activeOrganization,
+    isOrgSuperAdmin,
     setActiveOrganizationId,
   } = useOrganization()
 
   if (!orgsEnabled || loading) return null
-  if (!activeOrganization && memberships.length === 0) return null
+  if (!activeOrganization && switchableOrganizations.length === 0) return null
 
   const localTitle = isLocalOrganizations
     ? ' (local demo — will not delete live JS Valve data)'
     : ''
   const activeLogo = companyLogoUrl(activeOrganization)
+  const label = isOrgSuperAdmin ? 'Company (Superadmin)' : 'Company'
 
-  if (memberships.length <= 1) {
+  if (switchableOrganizations.length <= 1) {
     if (!activeOrganization) return null
     return (
       <div
@@ -31,23 +33,33 @@ export function CompanySwitcher() {
           <img src={activeLogo} alt="" className="company-switcher-logo" />
         ) : null}
         <span className="company-switcher-name">{activeOrganization.name}</span>
+        {isOrgSuperAdmin ? <span className="company-switcher-superadmin-tag">Superadmin</span> : null}
       </div>
     )
   }
 
   return (
-    <label className="company-switcher" title={isLocalOrganizations ? 'Local multi-company demo' : undefined}>
+    <label
+      className="company-switcher"
+      title={
+        isOrgSuperAdmin
+          ? 'Superadmin — switch between all companies'
+          : isLocalOrganizations
+            ? 'Local multi-company demo'
+            : undefined
+      }
+    >
       {activeLogo ? <img src={activeLogo} alt="" className="company-switcher-logo" /> : null}
-      <span className="company-switcher-label">Company</span>
+      <span className="company-switcher-label">{label}</span>
       <select
         className="company-switcher-select"
         value={activeOrganization?.id ?? ''}
         aria-label="Active company"
         onChange={(e) => setActiveOrganizationId(e.target.value)}
       >
-        {memberships.map((row) => (
-          <option key={row.organization_id} value={row.organization_id}>
-            {row.organization.name}
+        {switchableOrganizations.map((org) => (
+          <option key={org.id} value={org.id}>
+            {org.name}
           </option>
         ))}
       </select>

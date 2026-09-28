@@ -260,20 +260,44 @@ export function writeStoredActiveOrganizationId(organizationId: string | null) {
 export function pickActiveOrganization(
   memberships: OrganizationMembership[],
   preferredId?: string | null,
+  options?: { organizations?: Organization[]; isSuperAdmin?: boolean },
 ): Organization | null {
-  if (!memberships.length) return null
+  const isSuperAdmin = options?.isSuperAdmin ?? membershipIsSuperAdmin(memberships)
+  const candidates =
+    isSuperAdmin && options?.organizations?.length
+      ? options.organizations
+      : memberships.map((row) => row.organization).filter(Boolean)
+
+  if (!candidates.length) return null
   if (preferredId) {
-    const match = memberships.find((row) => row.organization_id === preferredId)
-    if (match) return match.organization
+    const match = candidates.find((org) => org.id === preferredId)
+    if (match) return match
   }
   const stored = readStoredActiveOrganizationId()
   if (stored) {
-    const match = memberships.find((row) => row.organization_id === stored)
-    if (match) return match.organization
+    const match = candidates.find((org) => org.id === stored)
+    if (match) return match
   }
-  return memberships[0]?.organization ?? null
+  return candidates[0] ?? null
 }
 
 export function membershipIsSuperAdmin(memberships: OrganizationMembership[]) {
   return memberships.some((row) => row.can_access && row.role === 'super_admin')
+}
+
+/** Companies shown in the header switcher — Superadmin sees every active company. */
+export function switchableOrganizations(
+  memberships: OrganizationMembership[],
+  organizations: Organization[],
+  isSuperAdmin: boolean,
+): Organization[] {
+  if (isSuperAdmin && organizations.length) return organizations
+  const seen = new Set<string>()
+  const list: Organization[] = []
+  for (const row of memberships) {
+    if (!row.can_access || seen.has(row.organization_id)) continue
+    seen.add(row.organization_id)
+    list.push(row.organization)
+  }
+  return list
 }

@@ -37,9 +37,18 @@ export function normalizeOrganizationRole(value: unknown): OrganizationRole {
 }
 
 export function organizationRoleLabel(role: OrganizationRole) {
-  if (role === 'super_admin') return 'Super admin'
+  if (role === 'super_admin') return 'Superadmin'
   if (role === 'admin') return 'Admin'
   if (role === 'manager') return 'Manager'
   if (role === 'viewer') return 'Viewer'
   return 'Technician'
 }
+
+/** Roles a Superadmin can assign on the Employees roster. */
+export const ORGANIZATION_ROLE_OPTIONS: { value: OrganizationRole; label: string }[] = [
+  { value: 'super_admin', label: 'Superadmin' },
+  { value: 'admin', label: 'Admin' },
+  { value: 'manager', label: 'Manager' },
+  { value: 'technician', label: 'Technician' },
+  { value: 'viewer', label: 'Viewer' },
+]

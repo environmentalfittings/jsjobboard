@@ -13154,8 +13154,15 @@ textarea.modal-status-select {
 .admin-employees-company-access {
   display: flex;
   flex-direction: column;
-  gap: 0.35rem;
-  min-width: 8.5rem;
+  gap: 0.45rem;
+  min-width: 12rem;
+}
+
+.admin-employees-company-access-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.35rem 0.5rem;
 }
 
 .admin-employees-company-access-item {
@@ -13175,6 +13182,44 @@ textarea.modal-status-select {
   height: 0.95rem;
   margin: 0;
   accent-color: #1e3a5f;
+}
+
+.admin-employees-company-role-select {
+  min-width: 7.25rem;
+  max-width: 100%;
+  padding: 3px 6px;
+  border: 1px solid #cbd5e1;
+  border-radius: 6px;
+  background: #fff;
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: #1e293b;
+}
+
+.admin-employees-company-role-select:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.role-pill--superadmin {
+  background: #0f766e;
+  color: #ecfdf5;
+}
+
+.company-switcher-superadmin-tag {
+  margin-left: 0.35rem;
+  padding: 0.1rem 0.4rem;
+  border-radius: 999px;
+  background: #0f766e;
+  color: #ecfdf5;
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+}
+
+.company-compare-report {
+  margin-bottom: 1rem;
 }
 
 .admin-employees-company-access-empty {
