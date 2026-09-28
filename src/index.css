@@ -13210,6 +13210,12 @@ textarea.modal-status-select {
   margin-bottom: 1rem;
 }
 
+.company-compare-incr-of {
+  color: #64748b;
+  font-weight: 500;
+  font-size: 0.85em;
+}
+
 .admin-employees-company-access-empty {
   color: #94a3b8;
   font-size: 0.8rem;

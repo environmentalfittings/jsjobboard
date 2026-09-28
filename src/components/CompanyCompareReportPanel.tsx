@@ -15,7 +15,14 @@ type CompanyCompareRow = {
   late: number
   otdPct: number | null
   reworkMoves: number
+  /** Rework moves with QA disposition INCR (or a linked incr_id). */
+  reworkBecameIncr: number
   activeJobs: number
+}
+
+function reworkBecameIncr(row: { qa_disposition?: string | null; incr_id?: number | null }) {
+  if (row.qa_disposition === 'incr') return true
+  return typeof row.incr_id === 'number' && Number.isFinite(row.incr_id)
 }
 
 function yearRange(year: number) {
@@ -69,9 +76,11 @@ async function loadCompareForOrganization(
     .filter((row) => !terminal.has(String(row.status ?? '')))
     .filter((row) => valveRowBelongsToCompany(row.id, scope)).length
 
-  const reworkMoves = (reworkResult.data ?? []).filter((row) =>
+  const companyRework = (reworkResult.data ?? []).filter((row) =>
     valveRowBelongsToCompany(row.valve_row_id, scope),
-  ).length
+  )
+  const reworkMoves = companyRework.length
+  const reworkBecameIncrCount = companyRework.filter(reworkBecameIncr).length
 
   return {
     organization,
@@ -80,6 +89,7 @@ async function loadCompareForOrganization(
     late,
     otdPct: withDue.length > 0 ? (onTime / withDue.length) * 100 : null,
     reworkMoves,
+    reworkBecameIncr: reworkBecameIncrCount,
     activeJobs,
   }
 }
@@ -157,39 +167,52 @@ export function CompanyCompareReportPanel() {
               <th>Late</th>
               <th>OTD %</th>
               <th>Rework moves ({year})</th>
+              <th title="Rework moves where QA selected INCR">Became INCRs</th>
+              <th title="Share of rework moves that became INCRs">INCR rate</th>
             </tr>
           </thead>
           <tbody>
             {loading && rows.length === 0 ? (
               <tr>
-                <td colSpan={7}>Loading company compare…</td>
+                <td colSpan={9}>Loading company compare…</td>
               </tr>
             ) : (
-              rows.map((row) => (
-                <tr key={row.organization.id}>
-                  <td>
-                    <strong>{row.organization.name}</strong>
-                  </td>
-                  <td>{row.activeJobs}</td>
-                  <td>{row.completedWithDue}</td>
-                  <td>{row.onTime}</td>
-                  <td>{row.late}</td>
-                  <td>
-                    {row.otdPct == null ? (
-                      '—'
-                    ) : (
-                      <span
-                        className={
-                          row.otdPct >= 90 ? 'text-green' : row.otdPct >= 75 ? 'text-yellow' : 'text-red'
-                        }
-                      >
-                        {row.otdPct.toFixed(1)}%
-                      </span>
-                    )}
-                  </td>
-                  <td>{row.reworkMoves}</td>
-                </tr>
-              ))
+              rows.map((row) => {
+                const incrRate =
+                  row.reworkMoves > 0 ? (row.reworkBecameIncr / row.reworkMoves) * 100 : null
+                return (
+                  <tr key={row.organization.id}>
+                    <td>
+                      <strong>{row.organization.name}</strong>
+                    </td>
+                    <td>{row.activeJobs}</td>
+                    <td>{row.completedWithDue}</td>
+                    <td>{row.onTime}</td>
+                    <td>{row.late}</td>
+                    <td>
+                      {row.otdPct == null ? (
+                        '—'
+                      ) : (
+                        <span
+                          className={
+                            row.otdPct >= 90 ? 'text-green' : row.otdPct >= 75 ? 'text-yellow' : 'text-red'
+                          }
+                        >
+                          {row.otdPct.toFixed(1)}%
+                        </span>
+                      )}
+                    </td>
+                    <td>{row.reworkMoves}</td>
+                    <td>
+                      {row.reworkBecameIncr}
+                      {row.reworkMoves > 0 ? (
+                        <span className="company-compare-incr-of"> of {row.reworkMoves}</span>
+                      ) : null}
+                    </td>
+                    <td>{incrRate == null ? '—' : `${incrRate.toFixed(1)}%`}</td>
+                  </tr>
+                )
+              })
             )}
           </tbody>
         </table>
