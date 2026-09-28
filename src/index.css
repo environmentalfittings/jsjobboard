@@ -13269,6 +13269,21 @@ textarea.modal-status-select {
   gap: 0.5rem;
 }
 
+.admin-employees-add-companies {
+  margin: 0.75rem 0 0;
+  padding: 0.75rem 0.85rem;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  background: #f8fafc;
+}
+
+.admin-employees-add-companies legend {
+  padding: 0 0.25rem;
+  font-size: 0.85rem;
+  font-weight: 700;
+  color: #0f172a;
+}
+
 .admin-employees-quality-select {
   min-width: 7.5rem;
   max-width: 100%;

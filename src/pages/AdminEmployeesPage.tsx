@@ -158,6 +158,10 @@ export function AdminEmployeesPage({ isAdmin }: { isAdmin: boolean }) {
     password: '',
     confirmPassword: '',
   })
+  /** Company access chosen at create time (Superadmin / multi-company). */
+  const [addCompanyAccess, setAddCompanyAccess] = useState<
+    Record<string, { canAccess: boolean; role: OrganizationRole }>
+  >({})
 
   const loadStatus = useCallback(async (rows: Employee[]) => {
     setStatusLoading(true)
@@ -382,6 +386,16 @@ export function AdminEmployeesPage({ isAdmin }: { isAdmin: boolean }) {
       password: '',
       confirmPassword: '',
     })
+    // Default new hires to JS Valve technician access; Superadmin can add VSI etc.
+    const defaults: Record<string, { canAccess: boolean; role: OrganizationRole }> = {}
+    for (const org of organizations) {
+      const isJs =
+        org.slug === 'js-valve' ||
+        org.id.includes('js-valve') ||
+        /js\s*valve/i.test(org.name)
+      defaults[org.id] = { canAccess: isJs, role: 'technician' }
+    }
+    setAddCompanyAccess(defaults)
     setAddOpen(true)
   }
 
@@ -470,6 +484,9 @@ export function AdminEmployeesPage({ isAdmin }: { isAdmin: boolean }) {
       return
     }
 
+    let authUserId: string | null = null
+    let toastMessage = `Employee added: ${full_name}`
+
     if (addForm.createLogin) {
       try {
         await invokeManageEmployeeAccount({
@@ -479,23 +496,56 @@ export function AdminEmployeesPage({ isAdmin }: { isAdmin: boolean }) {
           password: addForm.password,
           full_name: data.full_name,
         })
-        showToast(`Employee added and login created — username: ${data.username}`)
+        const { data: linked } = await supabase
+          .from('employees')
+          .select('auth_user_id')
+          .eq('id', data.id)
+          .maybeSingle()
+        authUserId = linked?.auth_user_id ? String(linked.auth_user_id) : null
+        toastMessage = `Employee added and login created — username: ${data.username}`
       } catch (err) {
         const message = err instanceof Error ? err.message : 'Login create failed'
-        showToast(
-          isDeployError(message)
-            ? `Employee added, but deploy manage-employee-account to create login for ${data.username}`
-            : `Employee added, but login failed: ${message}`,
-        )
-        setBusy(false)
-        setAddOpen(false)
-        await refreshAll()
-        return
+        toastMessage = isDeployError(message)
+          ? `Employee added, but deploy manage-employee-account to create login for ${data.username}`
+          : `Employee added, but login failed: ${message}`
       }
-    } else {
-      showToast(`Employee added: ${full_name}`)
     }
 
+    if (orgsEnabled) {
+      const selected = Object.entries(addCompanyAccess).filter(([, value]) => value.canAccess)
+      if (selected.length === 0) {
+        // Never leave a new hire with zero companies — default to JS Valve technician.
+        const jsOrg = organizations.find(
+          (org) =>
+            org.slug === 'js-valve' || org.id.includes('js-valve') || /js\s*valve/i.test(org.name),
+        )
+        if (jsOrg) {
+          selected.push([jsOrg.id, { canAccess: true, role: 'technician' }])
+        }
+      }
+      for (const [organizationId, value] of selected) {
+        const { error: accessError } = await setEmployeeOrganizationAccess({
+          employeeId: data.id,
+          organizationId,
+          canAccess: true,
+          role: value.role,
+          userId: authUserId,
+        })
+        if (accessError) {
+          toastMessage = `${toastMessage}. Company access failed: ${accessError}`
+          break
+        }
+      }
+      const companyNames = selected
+        .map(([orgId]) => organizations.find((org) => org.id === orgId)?.name)
+        .filter(Boolean)
+        .join(', ')
+      if (companyNames && !toastMessage.includes('Company access failed')) {
+        toastMessage = `${toastMessage} · ${companyNames}`
+      }
+    }
+
+    showToast(toastMessage)
     setBusy(false)
     setAddOpen(false)
     await refreshAll()
@@ -1298,6 +1348,72 @@ export function AdminEmployeesPage({ isAdmin }: { isAdmin: boolean }) {
                   Also create login account
                 </label>
               </div>
+              {orgsEnabled ? (
+                <fieldset className="admin-employees-add-companies">
+                  <legend>Companies</legend>
+                  <p className="placeholder-copy" style={{ marginTop: 0 }}>
+                    Choose which companies this person can access. Defaults to JS Valve. You can change this later on
+                    their roster row.
+                  </p>
+                  {organizations.length === 0 ? (
+                    <p className="placeholder-copy">No companies available.</p>
+                  ) : (
+                    <div className="admin-employees-company-access">
+                      {organizations.map((org) => {
+                        const entry = addCompanyAccess[org.id] ?? {
+                          canAccess: false,
+                          role: 'technician' as OrganizationRole,
+                        }
+                        return (
+                          <div key={org.id} className="admin-employees-company-access-row">
+                            <label className="admin-employees-company-access-item">
+                              <input
+                                type="checkbox"
+                                checked={entry.canAccess}
+                                disabled={busy}
+                                onChange={(e) =>
+                                  setAddCompanyAccess((prev) => ({
+                                    ...prev,
+                                    [org.id]: {
+                                      canAccess: e.target.checked,
+                                      role: prev[org.id]?.role ?? 'technician',
+                                    },
+                                  }))
+                                }
+                                aria-label={`Grant access to ${org.name}`}
+                              />
+                              <span>{org.name}</span>
+                            </label>
+                            {canAssignCompanyRoles ? (
+                              <select
+                                className="admin-employees-company-role-select"
+                                value={entry.role}
+                                disabled={!entry.canAccess || busy}
+                                aria-label={`Role at ${org.name}`}
+                                onChange={(e) =>
+                                  setAddCompanyAccess((prev) => ({
+                                    ...prev,
+                                    [org.id]: {
+                                      canAccess: prev[org.id]?.canAccess ?? true,
+                                      role: normalizeOrganizationRole(e.target.value),
+                                    },
+                                  }))
+                                }
+                              >
+                                {ORGANIZATION_ROLE_OPTIONS.map((opt) => (
+                                  <option key={opt.value} value={opt.value}>
+                                    {opt.label}
+                                  </option>
+                                ))}
+                              </select>
+                            ) : null}
+                          </div>
+                        )
+                      })}
+                    </div>
+                  )}
+                </fieldset>
+              ) : null}
               {addForm.createLogin ? (
                 <>
                   <label>
