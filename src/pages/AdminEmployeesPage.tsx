@@ -82,6 +82,7 @@ export function AdminEmployeesPage({ isAdmin }: { isAdmin: boolean }) {
   const { showToast } = useToast()
   const {
     orgsEnabled,
+    isLocalOrganizations,
     organizations,
     isOrgSuperAdmin,
     refreshOrganizations,
@@ -681,8 +682,11 @@ export function AdminEmployeesPage({ isAdmin }: { isAdmin: boolean }) {
       ) : null}
       {activeTab === 'roster' && orgsEnabled ? (
         <p className="admin-employees-orgs-note">
-          Multi-company is enabled. Use the <strong>Companies</strong> checkboxes to grant each employee access to one
-          or more companies. Users only see companies they can access in the header switcher.
+          {isLocalOrganizations
+            ? 'Local multi-company demo (Vite DEV) — companies are stored in this browser only until migration-organizations-foundation.sql is run.'
+            : 'Multi-company is enabled.'}{' '}
+          Use the <strong>Companies</strong> checkboxes to grant each employee access to one or more companies. Users
+          only see companies they can access in the header switcher.
         </p>
       ) : null}
 

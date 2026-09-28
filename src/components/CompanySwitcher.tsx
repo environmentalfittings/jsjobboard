@@ -4,6 +4,7 @@ import { useOrganization } from '../contexts/OrganizationContext'
 export function CompanySwitcher() {
   const {
     orgsEnabled,
+    isLocalOrganizations,
     loading,
     memberships,
     activeOrganization,
@@ -13,10 +14,15 @@ export function CompanySwitcher() {
   if (!orgsEnabled || loading) return null
   if (!activeOrganization && memberships.length === 0) return null
 
+  const localTitle = isLocalOrganizations ? ' (local demo)' : ''
+
   if (memberships.length <= 1) {
     if (!activeOrganization) return null
     return (
-      <div className="company-switcher company-switcher--single" title={activeOrganization.name}>
+      <div
+        className="company-switcher company-switcher--single"
+        title={`${activeOrganization.name}${localTitle}`}
+      >
         {activeOrganization.logo_url ? (
           <img src={activeOrganization.logo_url} alt="" className="company-switcher-logo" />
         ) : null}
@@ -26,7 +32,7 @@ export function CompanySwitcher() {
   }
 
   return (
-    <label className="company-switcher">
+    <label className="company-switcher" title={isLocalOrganizations ? 'Local multi-company demo' : undefined}>
       <span className="company-switcher-label">Company</span>
       <select
         className="company-switcher-select"

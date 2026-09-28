@@ -22,6 +22,8 @@ type AuthContextValue = {
   role: UserRole | null
   profileRole: string | null
   isAdmin: boolean
+  /** True for Generic Admin / read-only local bypass (no Supabase user). */
+  isLocalDevAuth: boolean
   loading: boolean
   handleLogin: (options?: { localRole?: UserRole; username?: string }) => Promise<void>
   handleLogout: () => Promise<void>
@@ -191,6 +193,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       // Shop Admin App role (Employees → Shop assignment) — not profiles.role alone
       // (profiles often defaulted to admin for new Auth users).
       isAdmin: role === 'admin',
+      isLocalDevAuth: !user && (role === 'admin' || role === 'viewer'),
       loading,
       handleLogin,
       handleLogout,

@@ -1,3 +1,12 @@
+import {
+  createLocalOrganization,
+  isLocalOrganizationsDevMode,
+  listLocalMembersForEmployees,
+  listLocalMembershipsForUser,
+  listLocalOrganizations,
+  LOCAL_DEV_ADMIN_USER_ID,
+  setLocalEmployeeOrganizationAccess,
+} from './localOrganizations'
 import { supabase } from './supabase'
 import {
   normalizeOrganizationRole,
@@ -8,6 +17,16 @@ import {
 } from '../types/organizations'
 
 export const ACTIVE_ORG_STORAGE_KEY = 'js-job-board-active-org'
+export { LOCAL_DEV_ADMIN_USER_ID }
+
+export type OrganizationsBackend = 'remote' | 'local' | 'none'
+
+/** Prefer live Supabase tables; in Vite DEV fall back to localStorage demo companies. */
+export async function resolveOrganizationsBackend(): Promise<OrganizationsBackend> {
+  if (await detectOrganizationsEnabled()) return 'remote'
+  if (isLocalOrganizationsDevMode()) return 'local'
+  return 'none'
+}
 
 function isMissingOrgRelation(message: string) {
   return /relation .*organizations.* does not exist|relation .*organization_members.* does not exist|Could not find the table|schema cache/i.test(
@@ -50,6 +69,12 @@ export async function detectOrganizationsEnabled(): Promise<boolean> {
 }
 
 export async function listOrganizations(): Promise<{ data: Organization[]; error: string | null; enabled: boolean }> {
+  const backend = await resolveOrganizationsBackend()
+  if (backend === 'none') return { data: [], error: null, enabled: false }
+  if (backend === 'local') {
+    return { data: listLocalOrganizations(), error: null, enabled: true }
+  }
+
   const { data, error } = await supabase
     .from('organizations')
     .select('id,name,slug,logo_url,is_active,created_at,updated_at')
@@ -57,7 +82,12 @@ export async function listOrganizations(): Promise<{ data: Organization[]; error
     .order('name', { ascending: true })
 
   if (error) {
-    if (isMissingOrgRelation(error.message)) return { data: [], error: null, enabled: false }
+    if (isMissingOrgRelation(error.message)) {
+      if (isLocalOrganizationsDevMode()) {
+        return { data: listLocalOrganizations(), error: null, enabled: true }
+      }
+      return { data: [], error: null, enabled: false }
+    }
     return { data: [], error: error.message, enabled: true }
   }
 
@@ -73,6 +103,12 @@ export async function listMembershipsForUser(
 ): Promise<{ data: OrganizationMembership[]; error: string | null; enabled: boolean }> {
   if (!userId) return { data: [], error: null, enabled: false }
 
+  const backend = await resolveOrganizationsBackend()
+  if (backend === 'none') return { data: [], error: null, enabled: false }
+  if (backend === 'local') {
+    return { data: listLocalMembershipsForUser(userId), error: null, enabled: true }
+  }
+
   const { data, error } = await supabase
     .from('organization_members')
     .select(
@@ -82,7 +118,12 @@ export async function listMembershipsForUser(
     .eq('can_access', true)
 
   if (error) {
-    if (isMissingOrgRelation(error.message)) return { data: [], error: null, enabled: false }
+    if (isMissingOrgRelation(error.message)) {
+      if (isLocalOrganizationsDevMode()) {
+        return { data: listLocalMembershipsForUser(userId), error: null, enabled: true }
+      }
+      return { data: [], error: null, enabled: false }
+    }
     return { data: [], error: error.message, enabled: true }
   }
 
@@ -109,13 +150,24 @@ export async function listOrganizationMembersForEmployees(
 ): Promise<{ data: OrganizationMember[]; error: string | null; enabled: boolean }> {
   if (!employeeIds.length) return { data: [], error: null, enabled: true }
 
+  const backend = await resolveOrganizationsBackend()
+  if (backend === 'none') return { data: [], error: null, enabled: false }
+  if (backend === 'local') {
+    return { data: listLocalMembersForEmployees(employeeIds), error: null, enabled: true }
+  }
+
   const { data, error } = await supabase
     .from('organization_members')
     .select('id,organization_id,user_id,employee_id,role,can_access,created_at,updated_at')
     .in('employee_id', employeeIds)
 
   if (error) {
-    if (isMissingOrgRelation(error.message)) return { data: [], error: null, enabled: false }
+    if (isMissingOrgRelation(error.message)) {
+      if (isLocalOrganizationsDevMode()) {
+        return { data: listLocalMembersForEmployees(employeeIds), error: null, enabled: true }
+      }
+      return { data: [], error: null, enabled: false }
+    }
     return { data: [], error: error.message, enabled: true }
   }
 
@@ -132,6 +184,12 @@ export async function setEmployeeOrganizationAccess(input: {
   canAccess: boolean
   role?: OrganizationRole | null
 }): Promise<{ error: string | null }> {
+  const backend = await resolveOrganizationsBackend()
+  if (backend === 'local') return setLocalEmployeeOrganizationAccess(input)
+  if (backend === 'none') {
+    return { error: 'Multi-company is not enabled yet. Run migration-organizations-foundation.sql when ready.' }
+  }
+
   const { error } = await supabase.rpc('set_employee_organization_access', {
     p_employee_id: input.employeeId,
     p_organization_id: input.organizationId,
@@ -140,6 +198,7 @@ export async function setEmployeeOrganizationAccess(input: {
   })
   if (error) {
     if (isMissingOrgRelation(error.message)) {
+      if (isLocalOrganizationsDevMode()) return setLocalEmployeeOrganizationAccess(input)
       return { error: 'Multi-company is not enabled yet. Run migration-organizations-foundation.sql when ready.' }
     }
     return { error: error.message }
@@ -152,6 +211,15 @@ export async function createOrganization(input: {
   slug: string
   logoUrl?: string | null
 }): Promise<{ data: Organization | null; error: string | null }> {
+  const backend = await resolveOrganizationsBackend()
+  if (backend === 'local') return createLocalOrganization(input)
+  if (backend === 'none') {
+    return {
+      data: null,
+      error: 'Multi-company is not enabled yet. Run migration-organizations-foundation.sql when ready.',
+    }
+  }
+
   const { data, error } = await supabase.rpc('create_organization', {
     p_name: input.name,
     p_slug: input.slug,
@@ -159,6 +227,7 @@ export async function createOrganization(input: {
   })
   if (error) {
     if (isMissingOrgRelation(error.message)) {
+      if (isLocalOrganizationsDevMode()) return createLocalOrganization(input)
       return {
         data: null,
         error: 'Multi-company is not enabled yet. Run migration-organizations-foundation.sql when ready.',

@@ -9,18 +9,21 @@ import {
 } from 'react'
 import { useAuth } from './AuthContext'
 import {
-  detectOrganizationsEnabled,
+  LOCAL_DEV_ADMIN_USER_ID,
   listMembershipsForUser,
   listOrganizations,
   membershipIsSuperAdmin,
   pickActiveOrganization,
+  resolveOrganizationsBackend,
   writeStoredActiveOrganizationId,
 } from '../lib/organizations'
 import type { Organization, OrganizationMembership } from '../types/organizations'
 
 type OrganizationContextValue = {
-  /** False when migration has not been run — app behaves as single-company. */
+  /** False when migration has not been run and local DEV fallback is off. */
   orgsEnabled: boolean
+  /** True when using localStorage demo companies (Vite DEV, SQL not applied). */
+  isLocalOrganizations: boolean
   loading: boolean
   organizations: Organization[]
   memberships: OrganizationMembership[]
@@ -33,8 +36,9 @@ type OrganizationContextValue = {
 const OrganizationContext = createContext<OrganizationContextValue | null>(null)
 
 export function OrganizationProvider({ children }: { children: ReactNode }) {
-  const { user, loading: authLoading } = useAuth()
+  const { user, role, isLocalDevAuth, loading: authLoading } = useAuth()
   const [orgsEnabled, setOrgsEnabled] = useState(false)
+  const [isLocalOrganizations, setIsLocalOrganizations] = useState(false)
   const [loading, setLoading] = useState(true)
   const [organizations, setOrganizations] = useState<Organization[]>([])
   const [memberships, setMemberships] = useState<OrganizationMembership[]>([])
@@ -42,8 +46,11 @@ export function OrganizationProvider({ children }: { children: ReactNode }) {
 
   const refreshOrganizations = useCallback(async () => {
     if (authLoading) return
-    if (!user?.id) {
+
+    const signedIn = Boolean(user?.id) || (isLocalDevAuth && Boolean(role))
+    if (!signedIn) {
       setOrgsEnabled(false)
+      setIsLocalOrganizations(false)
       setOrganizations([])
       setMemberships([])
       setActiveOrganization(null)
@@ -52,9 +59,10 @@ export function OrganizationProvider({ children }: { children: ReactNode }) {
     }
 
     setLoading(true)
-    const enabled = await detectOrganizationsEnabled()
-    if (!enabled) {
+    const backend = await resolveOrganizationsBackend()
+    if (backend === 'none') {
       setOrgsEnabled(false)
+      setIsLocalOrganizations(false)
       setOrganizations([])
       setMemberships([])
       setActiveOrganization(null)
@@ -62,13 +70,15 @@ export function OrganizationProvider({ children }: { children: ReactNode }) {
       return
     }
 
+    const membershipUserId = user?.id ?? (isLocalDevAuth ? LOCAL_DEV_ADMIN_USER_ID : '')
     const [orgResult, memberResult] = await Promise.all([
       listOrganizations(),
-      listMembershipsForUser(user.id),
+      listMembershipsForUser(membershipUserId),
     ])
 
     if (!orgResult.enabled || !memberResult.enabled) {
       setOrgsEnabled(false)
+      setIsLocalOrganizations(false)
       setOrganizations([])
       setMemberships([])
       setActiveOrganization(null)
@@ -77,6 +87,7 @@ export function OrganizationProvider({ children }: { children: ReactNode }) {
     }
 
     setOrgsEnabled(true)
+    setIsLocalOrganizations(backend === 'local')
     setOrganizations(orgResult.data)
     setMemberships(memberResult.data)
     setActiveOrganization((prev) => {
@@ -85,7 +96,7 @@ export function OrganizationProvider({ children }: { children: ReactNode }) {
       return next
     })
     setLoading(false)
-  }, [authLoading, user?.id])
+  }, [authLoading, user?.id, isLocalDevAuth, role])
 
   useEffect(() => {
     void refreshOrganizations()
@@ -110,6 +121,7 @@ export function OrganizationProvider({ children }: { children: ReactNode }) {
   const value = useMemo<OrganizationContextValue>(
     () => ({
       orgsEnabled,
+      isLocalOrganizations,
       loading,
       organizations,
       memberships,
@@ -120,6 +132,7 @@ export function OrganizationProvider({ children }: { children: ReactNode }) {
     }),
     [
       orgsEnabled,
+      isLocalOrganizations,
       loading,
       organizations,
       memberships,
