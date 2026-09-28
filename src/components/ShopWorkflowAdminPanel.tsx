@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { STATUS_ORDER } from '../constants/statuses'
+import { useOrganization } from '../contexts/OrganizationContext'
+import { useCompanyWorkflow } from '../hooks/useCompanyWorkflow'
 import {
-  DEFAULT_STATUS_WORKFLOW,
   cloneConfig,
+  defaultStatusWorkflowForCompany,
   loadStatusWorkflowConfig,
   saveStatusWorkflowConfig,
   type StatusWorkflowConfig,
@@ -23,17 +24,24 @@ function moveItem<T>(items: T[], index: number, direction: -1 | 1): T[] {
 }
 
 export function ShopWorkflowAdminPanel({ showToast }: ShopWorkflowAdminPanelProps) {
-  const [draft, setDraft] = useState<StatusWorkflowConfig>(() => cloneConfig(DEFAULT_STATUS_WORKFLOW))
+  const { activeOrganization } = useOrganization()
+  const workflow = useCompanyWorkflow()
+  const companyKey = workflow.key
+  const statusCatalog = useMemo(() => [...workflow.statusOrder], [workflow.statusOrder])
+  const defaults = useMemo(() => defaultStatusWorkflowForCompany(companyKey), [companyKey])
+
+  const [draft, setDraft] = useState<StatusWorkflowConfig>(() => cloneConfig(defaults))
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [expandedIndex, setExpandedIndex] = useState<number | null>(0)
 
   const load = useCallback(async () => {
     setLoading(true)
-    const config = await loadStatusWorkflowConfig()
+    const config = await loadStatusWorkflowConfig(companyKey)
     setDraft(cloneConfig(config))
+    setExpandedIndex(0)
     setLoading(false)
-  }, [])
+  }, [companyKey])
 
   useEffect(() => {
     void load()
@@ -49,8 +57,8 @@ export function ShopWorkflowAdminPanel({ showToast }: ShopWorkflowAdminPanelProp
   }, [draft])
 
   const unassignedStatuses = useMemo(
-    () => STATUS_ORDER.filter((status) => !assignedStatuses.has(status)),
-    [assignedStatuses],
+    () => statusCatalog.filter((status) => !assignedStatuses.has(status)),
+    [assignedStatuses, statusCatalog],
   )
 
   const updateStage = (index: number, patch: Partial<WorkflowStage>) => {
@@ -75,7 +83,9 @@ export function ShopWorkflowAdminPanel({ showToast }: ShopWorkflowAdminPanelProp
         if (checked) return { ...stage, statuses: stage.statuses.filter((s) => s !== status) }
         return stage
       })
-      const neutrals = checked ? prev.neutrals.filter((s) => s !== status) : prev.neutrals
+      // VSI keeps Staging Area / Hold / Quarantine as both stages and rework neutrals.
+      const neutrals =
+        checked && companyKey !== 'vsi' ? prev.neutrals.filter((s) => s !== status) : prev.neutrals
       return { stages, neutrals }
     })
   }
@@ -83,6 +93,12 @@ export function ShopWorkflowAdminPanel({ showToast }: ShopWorkflowAdminPanelProp
   const toggleNeutral = (status: string, checked: boolean) => {
     setDraft((prev) => {
       if (checked) {
+        if (companyKey === 'vsi') {
+          return {
+            ...prev,
+            neutrals: prev.neutrals.includes(status) ? prev.neutrals : [...prev.neutrals, status],
+          }
+        }
         return {
           stages: prev.stages.map((stage) => ({
             ...stage,
@@ -124,20 +140,28 @@ export function ShopWorkflowAdminPanel({ showToast }: ShopWorkflowAdminPanelProp
       return
     }
     setSaving(true)
-    const { error } = await saveStatusWorkflowConfig(draft)
+    const { error } = await saveStatusWorkflowConfig(draft, companyKey)
     setSaving(false)
     if (error) {
       showToast(`Could not save workflow: ${error.message}`)
       return
     }
-    setDraft(cloneConfig(await loadStatusWorkflowConfig()))
-    showToast('Shop workflow saved')
+    setDraft(cloneConfig(await loadStatusWorkflowConfig(companyKey)))
+    showToast(
+      companyKey === 'vsi'
+        ? 'VSI shop workflow saved (local demo)'
+        : 'Shop workflow saved',
+    )
   }
 
   const handleResetDefaults = () => {
-    setDraft(cloneConfig(DEFAULT_STATUS_WORKFLOW))
+    setDraft(cloneConfig(defaultStatusWorkflowForCompany(companyKey)))
     setExpandedIndex(0)
-    showToast('Draft reset to defaults — click Save to apply')
+    showToast(
+      companyKey === 'vsi'
+        ? 'Draft reset to VSI defaults (Incoming → Quarantine) — click Save to apply'
+        : 'Draft reset to defaults — click Save to apply',
+    )
   }
 
   if (loading) {
@@ -147,6 +171,12 @@ export function ShopWorkflowAdminPanel({ showToast }: ShopWorkflowAdminPanelProp
   return (
     <div className="shop-workflow-admin">
       <p className="placeholder-copy">
+        {activeOrganization ? (
+          <>
+            Editing workflow for <strong>{activeOrganization.name}</strong>
+            {companyKey === 'vsi' ? ' (departments RV / CV / UL)' : ''}.{' '}
+          </>
+        ) : null}
         This order is used to detect <strong>rework</strong> (backward status moves). Cards may skip stages. Moving to
         an earlier stage requires a reason. Hold / waiting statuses listed below do not count as forward or reverse.
       </p>
@@ -224,12 +254,11 @@ export function ShopWorkflowAdminPanel({ showToast }: ShopWorkflowAdminPanelProp
               </div>
               {expanded ? (
                 <div className="shop-workflow-status-grid">
-                  {STATUS_ORDER.map((status) => {
+                  {statusCatalog.map((status) => {
                     const checked = stage.statuses.includes(status)
+                    const inOtherStage = draft.stages.some((s, i) => i !== index && s.statuses.includes(status))
                     const takenElsewhere =
-                      !checked &&
-                      (draft.neutrals.includes(status) ||
-                        draft.stages.some((s, i) => i !== index && s.statuses.includes(status)))
+                      !checked && (inOtherStage || (companyKey !== 'vsi' && draft.neutrals.includes(status)))
                     return (
                       <label key={status} className={`shop-workflow-status-option${takenElsewhere ? ' muted' : ''}`}>
                         <input
@@ -258,10 +287,12 @@ export function ShopWorkflowAdminPanel({ showToast }: ShopWorkflowAdminPanelProp
       <div className="shop-workflow-neutrals">
         <h4>Hold / exception statuses</h4>
         <p className="job-muted">
-          Entering or leaving these does not count as rework by itself (Waiting, On Hold, Outsourced, Junked, etc.).
+          {companyKey === 'vsi'
+            ? 'Staging Area (waiting on parts / customer approval), Hold, and Quarantine do not count as rework by themselves.'
+            : 'Entering or leaving these does not count as rework by itself (Waiting, On Hold, Outsourced, Junked, etc.).'}
         </p>
         <div className="shop-workflow-status-grid">
-          {STATUS_ORDER.map((status) => {
+          {statusCatalog.map((status) => {
             const checked = draft.neutrals.includes(status)
             const inStage = draft.stages.some((s) => s.statuses.includes(status))
             return (

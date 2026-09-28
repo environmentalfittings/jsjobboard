@@ -34,6 +34,7 @@ import { ManagerDashboardPage } from './pages/ManagerDashboardPage'
 import { MteCalibrationsPage } from './pages/MteCalibrationsPage'
 import { QualityIncrFormPage } from './pages/QualityIncrFormPage'
 import { QualityTeamPage } from './pages/QualityTeamPage'
+import { useCompanyWorkflow } from './hooks/useCompanyWorkflow'
 import { can, canAccessEmployeesPage, canAccessTestLog, defaultHomePath, isShopRole } from './lib/roles'
 import { loadStatusWorkflowConfig } from './lib/statusWorkflow'
 
@@ -47,6 +48,7 @@ function ShopRoute({ children }: { children: React.ReactNode }) {
 function AppRoutes() {
   const navigate = useNavigate()
   const { user, username, role, loading, handleLogin, handleLogout } = useAuth()
+  const workflow = useCompanyWorkflow()
 
   useEffect(() => {
     if (!can(role, 'createJob')) return
@@ -66,8 +68,9 @@ function AppRoutes() {
 
   useEffect(() => {
     if (!role || !isShopRole(role)) return
-    void loadStatusWorkflowConfig()
-  }, [role])
+    // Load the active company's rework workflow (JS Valve from Supabase; VSI from local defaults).
+    void loadStatusWorkflowConfig(workflow.key)
+  }, [role, workflow.key])
 
   return (
     <div className="app-shell">

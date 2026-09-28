@@ -13,6 +13,7 @@ import {
   OTD_PAUSE_STATUS_LABEL,
   requiresDueDateUpdateWhenLeavingOtdPause,
 } from '../lib/onTimeDelivery'
+import { useCompanyWorkflow } from '../hooks/useCompanyWorkflow'
 import { recordStatusRework } from '../lib/statusReworkLog'
 import { isBackwardStatusMove } from '../lib/statusWorkflow'
 import { supabase } from '../lib/supabase'
@@ -34,6 +35,7 @@ function isOverdue(raw: string | null): boolean {
 
 export function SupervisorDashboardPage({ user, appRole, onLogout }: SupervisorDashboardPageProps) {
   const { showToast } = useToast()
+  const workflow = useCompanyWorkflow()
   const [me, setMe] = useState<Technician | null>(null)
   const [team, setTeam] = useState<Technician[]>([])
   const [unassigned, setUnassigned] = useState<Valve[]>([])
@@ -182,7 +184,7 @@ export function SupervisorDashboardPage({ user, appRole, onLogout }: SupervisorD
       setPendingResumeDueDate({ valve: job, nextStatus })
       return
     }
-    if (isBackwardStatusMove(job.status, nextStatus)) {
+    if (isBackwardStatusMove(job.status, nextStatus, workflow.key)) {
       setPendingRework({ valve: job, nextStatus })
       return
     }
@@ -208,7 +210,13 @@ export function SupervisorDashboardPage({ user, appRole, onLogout }: SupervisorD
     if (!pendingResumeDueDate) return
     setSavingResumeDueDate(true)
     try {
-      if (isBackwardStatusMove(pendingResumeDueDate.valve.status, pendingResumeDueDate.nextStatus)) {
+      if (
+        isBackwardStatusMove(
+          pendingResumeDueDate.valve.status,
+          pendingResumeDueDate.nextStatus,
+          workflow.key,
+        )
+      ) {
         setPendingResumeDueDate(null)
         setPendingRework({
           valve: pendingResumeDueDate.valve,

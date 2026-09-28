@@ -1290,6 +1290,9 @@ export function AdminListsPage() {
       {tab === 'shopWorkflow' && (
         <section className="dashboard-panel admin-lists-panel">
           <h3>Shop workflow</h3>
+          <p className="placeholder-copy" style={{ marginTop: '0.35rem' }}>
+            Company-specific — switch company in the header to edit JS Valve or VSI stages.
+          </p>
           <ShopWorkflowAdminPanel showToast={showToast} />
         </section>
       )}

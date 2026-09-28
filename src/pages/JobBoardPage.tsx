@@ -1156,7 +1156,7 @@ export function JobBoardPage({ role, username }: { role?: UserRole; username?: s
         return
       }
     }
-    if (isBackwardStatusMove(activeValve.status, selectedStatus)) {
+    if (isBackwardStatusMove(activeValve.status, selectedStatus, workflow.key)) {
       setPendingRework({
         valve: activeValve,
         nextStatus: selectedStatus,
@@ -1300,7 +1300,13 @@ export function JobBoardPage({ role, username }: { role?: UserRole; username?: s
           ...pendingResumeDueDate.modalFields,
           dueDate: nextDueDate,
         }
-        if (isBackwardStatusMove(pendingResumeDueDate.valve.status, pendingResumeDueDate.nextStatus)) {
+        if (
+          isBackwardStatusMove(
+            pendingResumeDueDate.valve.status,
+            pendingResumeDueDate.nextStatus,
+            workflow.key,
+          )
+        ) {
           setPendingResumeDueDate(null)
           setPendingRework({
             valve: pendingResumeDueDate.valve,
@@ -1320,7 +1326,13 @@ export function JobBoardPage({ role, username }: { role?: UserRole; username?: s
         )
         if (ok) setPendingResumeDueDate(null)
       } else {
-        if (isBackwardStatusMove(pendingResumeDueDate.valve.status, pendingResumeDueDate.nextStatus)) {
+        if (
+          isBackwardStatusMove(
+            pendingResumeDueDate.valve.status,
+            pendingResumeDueDate.nextStatus,
+            workflow.key,
+          )
+        ) {
           setPendingResumeDueDate(null)
           setPendingRework({
             valve: pendingResumeDueDate.valve,
@@ -1645,7 +1657,7 @@ export function JobBoardPage({ role, username }: { role?: UserRole; username?: s
       setPendingResumeDueDate({ valve, nextStatus, mode: 'status-only' })
       return
     }
-    if (isBackwardStatusMove(valve.status, nextStatus)) {
+    if (isBackwardStatusMove(valve.status, nextStatus, workflow.key)) {
       setPendingRework({ valve, nextStatus, mode: 'status-only' })
       return
     }

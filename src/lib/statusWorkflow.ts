@@ -3,9 +3,12 @@
  * Cards may skip stages; moving to a lower stage index is a backward/rework move.
  * Neutral statuses (waiting/hold/outsourced/terminal scrap) do not count as forward or reverse.
  *
- * Defaults ship in code; Manage Lists can override via status_workflow_config in Supabase.
+ * Defaults ship in code per company. JS Valve can override via status_workflow_config in Supabase.
+ * VSI uses localStorage in the multi-company demo until org-scoped DB config exists.
  */
 
+import type { CompanyWorkflowKey } from '../constants/companyWorkflows'
+import { VSI_STATUS_ORDER } from '../constants/companyWorkflows'
 import { supabase } from './supabase'
 
 export type WorkflowStage = {
@@ -62,13 +65,54 @@ export const DEFAULT_STATUS_WORKFLOW: StatusWorkflowConfig = {
   neutrals: DEFAULT_NEUTRAL_WORKFLOW_STATUSES,
 }
 
+/** VSI hold/waiting — do not count as forward or reverse for rework. */
+export const VSI_NEUTRAL_WORKFLOW_STATUSES = ['Staging Area', 'Hold', 'Quarantine'] as const
+
+/** VSI shop workflow stages matching the partner outline (RV / CV / UL departments). */
+export const DEFAULT_VSI_STATUS_WORKFLOW: StatusWorkflowConfig = {
+  stages: VSI_STATUS_ORDER.map((label, index) => ({
+    key: slugKey(label, index),
+    label,
+    statuses: [label],
+  })),
+  neutrals: [...VSI_NEUTRAL_WORKFLOW_STATUSES],
+}
+
+export function defaultStatusWorkflowForCompany(companyKey: CompanyWorkflowKey): StatusWorkflowConfig {
+  return companyKey === 'vsi' ? DEFAULT_VSI_STATUS_WORKFLOW : DEFAULT_STATUS_WORKFLOW
+}
+
 /** @deprecated Use getWorkflowStages() — kept for callers that expect the constant name. */
 export const FORWARD_WORKFLOW_STAGES = DEFAULT_FORWARD_WORKFLOW_STAGES
 
-let cachedConfig: StatusWorkflowConfig = cloneConfig(DEFAULT_STATUS_WORKFLOW)
-let statusToStageIndex = buildStatusIndex(cachedConfig)
-let neutralSet = new Set(cachedConfig.neutrals)
-let loadPromise: Promise<StatusWorkflowConfig> | null = null
+const LOCAL_VSI_WORKFLOW_KEY = 'js-job-board-status-workflow-vsi'
+
+type CompanyWorkflowCache = {
+  config: StatusWorkflowConfig
+  statusToStageIndex: Map<string, number>
+  neutralSet: Set<string>
+}
+
+const caches = new Map<CompanyWorkflowKey, CompanyWorkflowCache>()
+const loadPromises = new Map<CompanyWorkflowKey, Promise<StatusWorkflowConfig>>()
+
+function getCache(companyKey: CompanyWorkflowKey): CompanyWorkflowCache {
+  let cache = caches.get(companyKey)
+  if (!cache) {
+    cache = buildCache(defaultStatusWorkflowForCompany(companyKey))
+    caches.set(companyKey, cache)
+  }
+  return cache
+}
+
+function buildCache(config: StatusWorkflowConfig): CompanyWorkflowCache {
+  const next = normalizeConfig(config)
+  return {
+    config: next,
+    statusToStageIndex: buildStatusIndex(next),
+    neutralSet: new Set(next.neutrals),
+  }
+}
 
 function slugKey(label: string, index: number): string {
   const base = label
@@ -91,19 +135,22 @@ export function cloneConfig(config: StatusWorkflowConfig): StatusWorkflowConfig 
 }
 
 function buildStatusIndex(config: StatusWorkflowConfig): Map<string, number> {
+  const neutrals = new Set(config.neutrals)
   const map = new Map<string, number>()
   config.stages.forEach((stage, index) => {
-    for (const status of stage.statuses) map.set(status, index)
+    for (const status of stage.statuses) {
+      // Neutrals may also appear as stages in the admin list; they still do not count for rework.
+      if (neutrals.has(status)) continue
+      map.set(status, index)
+    }
   })
   return map
 }
 
-function applyConfig(config: StatusWorkflowConfig): StatusWorkflowConfig {
-  const next = normalizeConfig(config)
-  cachedConfig = next
-  statusToStageIndex = buildStatusIndex(next)
-  neutralSet = new Set(next.neutrals)
-  return next
+function applyConfig(companyKey: CompanyWorkflowKey, config: StatusWorkflowConfig): StatusWorkflowConfig {
+  const cache = buildCache(config)
+  caches.set(companyKey, cache)
+  return cloneConfig(cache.config)
 }
 
 export function normalizeConfig(config: StatusWorkflowConfig): StatusWorkflowConfig {
@@ -124,50 +171,58 @@ export function normalizeConfig(config: StatusWorkflowConfig): StatusWorkflowCon
       statuses,
     })
   })
-  const neutrals = config.neutrals
-    .map((s) => s.trim())
-    .filter((s) => s && !seen.has(s))
-  // de-dupe neutrals
-  const uniqueNeutrals = [...new Set(neutrals)]
+  // Keep neutrals even when they also appear as stages (VSI Staging Area / Hold / Quarantine).
+  const uniqueNeutrals = [...new Set(config.neutrals.map((s) => s.trim()).filter(Boolean))]
   return { stages, neutrals: uniqueNeutrals }
 }
 
-export function getStatusWorkflowConfig(): StatusWorkflowConfig {
-  return cloneConfig(cachedConfig)
+export function getStatusWorkflowConfig(companyKey: CompanyWorkflowKey = 'js-valve'): StatusWorkflowConfig {
+  return cloneConfig(getCache(companyKey).config)
 }
 
-export function getWorkflowStages(): WorkflowStage[] {
-  return cachedConfig.stages
+export function getWorkflowStages(companyKey: CompanyWorkflowKey = 'js-valve'): WorkflowStage[] {
+  return getCache(companyKey).config.stages
 }
 
-export function getNeutralWorkflowStatuses(): string[] {
-  return [...cachedConfig.neutrals]
+export function getNeutralWorkflowStatuses(companyKey: CompanyWorkflowKey = 'js-valve'): string[] {
+  return [...getCache(companyKey).config.neutrals]
 }
 
-export function setStatusWorkflowConfigLocal(config: StatusWorkflowConfig): StatusWorkflowConfig {
-  return applyConfig(config)
+export function setStatusWorkflowConfigLocal(
+  config: StatusWorkflowConfig,
+  companyKey: CompanyWorkflowKey = 'js-valve',
+): StatusWorkflowConfig {
+  return applyConfig(companyKey, config)
 }
 
-export function workflowStageIndex(status: string | null | undefined): number | null {
+export function workflowStageIndex(
+  status: string | null | undefined,
+  companyKey: CompanyWorkflowKey = 'js-valve',
+): number | null {
   if (!status) return null
-  if (neutralSet.has(status)) return null
-  return statusToStageIndex.has(status) ? (statusToStageIndex.get(status) as number) : null
+  const cache = getCache(companyKey)
+  if (cache.neutralSet.has(status)) return null
+  return cache.statusToStageIndex.has(status) ? (cache.statusToStageIndex.get(status) as number) : null
 }
 
-export function workflowStageLabel(status: string | null | undefined): string {
-  const idx = workflowStageIndex(status)
+export function workflowStageLabel(
+  status: string | null | undefined,
+  companyKey: CompanyWorkflowKey = 'js-valve',
+): string {
+  const idx = workflowStageIndex(status, companyKey)
   if (idx == null) return status?.trim() || '—'
-  return cachedConfig.stages[idx]?.label ?? status ?? '—'
+  return getCache(companyKey).config.stages[idx]?.label ?? status ?? '—'
 }
 
 /** True when moving from a later workflow stage back to an earlier one. */
 export function isBackwardStatusMove(
   fromStatus: string | null | undefined,
   toStatus: string | null | undefined,
+  companyKey: CompanyWorkflowKey = 'js-valve',
 ): boolean {
   if (!fromStatus || !toStatus || fromStatus === toStatus) return false
-  const from = workflowStageIndex(fromStatus)
-  const to = workflowStageIndex(toStatus)
+  const from = workflowStageIndex(fromStatus, companyKey)
+  const to = workflowStageIndex(toStatus, companyKey)
   if (from == null || to == null) return false
   return to < from
 }
@@ -196,9 +251,36 @@ function parseRemoteConfig(raw: unknown): StatusWorkflowConfig | null {
   return normalizeConfig({ stages, neutrals })
 }
 
-export async function loadStatusWorkflowConfig(): Promise<StatusWorkflowConfig> {
-  if (loadPromise) return loadPromise
-  loadPromise = (async () => {
+function readLocalVsiWorkflow(): StatusWorkflowConfig | null {
+  try {
+    const raw = window.localStorage.getItem(LOCAL_VSI_WORKFLOW_KEY)
+    if (!raw) return null
+    return parseRemoteConfig(JSON.parse(raw) as unknown)
+  } catch {
+    return null
+  }
+}
+
+function writeLocalVsiWorkflow(config: StatusWorkflowConfig) {
+  try {
+    window.localStorage.setItem(LOCAL_VSI_WORKFLOW_KEY, JSON.stringify(config))
+  } catch {
+    // ignore
+  }
+}
+
+export async function loadStatusWorkflowConfig(
+  companyKey: CompanyWorkflowKey = 'js-valve',
+): Promise<StatusWorkflowConfig> {
+  const existing = loadPromises.get(companyKey)
+  if (existing) return existing
+
+  const promise = (async () => {
+    if (companyKey === 'vsi') {
+      const local = readLocalVsiWorkflow()
+      return applyConfig('vsi', local ?? DEFAULT_VSI_STATUS_WORKFLOW)
+    }
+
     const { data, error } = await supabase
       .from('status_workflow_config')
       .select('stages,neutrals')
@@ -207,24 +289,34 @@ export async function loadStatusWorkflowConfig(): Promise<StatusWorkflowConfig> 
 
     if (error || !data) {
       // Table missing or empty — keep defaults; admin can seed on first save.
-      return applyConfig(DEFAULT_STATUS_WORKFLOW)
+      return applyConfig('js-valve', DEFAULT_STATUS_WORKFLOW)
     }
 
     const parsed = parseRemoteConfig({
       stages: data.stages,
       neutrals: data.neutrals,
     })
-    return applyConfig(parsed ?? DEFAULT_STATUS_WORKFLOW)
+    return applyConfig('js-valve', parsed ?? DEFAULT_STATUS_WORKFLOW)
   })().finally(() => {
-    loadPromise = null
+    loadPromises.delete(companyKey)
   })
-  return loadPromise
+
+  loadPromises.set(companyKey, promise)
+  return promise
 }
 
 export async function saveStatusWorkflowConfig(
   config: StatusWorkflowConfig,
+  companyKey: CompanyWorkflowKey = 'js-valve',
 ): Promise<{ error: Error | null }> {
   const normalized = normalizeConfig(config)
+
+  if (companyKey === 'vsi') {
+    writeLocalVsiWorkflow(normalized)
+    applyConfig('vsi', normalized)
+    return { error: null }
+  }
+
   const { error } = await supabase.from('status_workflow_config').upsert(
     {
       id: 1,
@@ -235,7 +327,7 @@ export async function saveStatusWorkflowConfig(
     { onConflict: 'id' },
   )
   if (error) return { error: new Error(error.message) }
-  applyConfig(normalized)
+  applyConfig('js-valve', normalized)
   return { error: null }
 }
 
