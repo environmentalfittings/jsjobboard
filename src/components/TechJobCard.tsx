@@ -1,6 +1,6 @@
 import { JobTestBadges } from './JobTestBadges'
 import { JobCardItpStatusBar } from './JobCardItpStatusBar'
-import { STATUS_ORDER } from '../constants/statuses'
+import { useCompanyWorkflow } from '../hooks/useCompanyWorkflow'
 import type { ItpCardSummary } from '../lib/itpCardSummaries'
 import type { Valve } from '../types'
 
@@ -21,7 +21,8 @@ function isOverdue(raw: string | null): boolean {
 }
 
 export function TechJobCard({ job, readOnly = false, itpSummary, onStatusChange }: TechJobCardProps) {
-  const inTesting = job.status === 'Testing'
+  const { statusOrder, testingStatuses } = useCompanyWorkflow()
+  const inTesting = testingStatuses.has(job.status)
   return (
     <article className={`dashboard-panel tech-job-card${inTesting ? ' tech-job-card-in-testing' : ''}`}>
       <JobCardItpStatusBar summary={itpSummary} href={`/itp/${job.id}`} />
@@ -49,11 +50,14 @@ export function TechJobCard({ job, readOnly = false, itpSummary, onStatusChange 
               void onStatusChange?.(job, e.target.value)
             }}
           >
-            {STATUS_ORDER.map((status) => (
+            {statusOrder.map((status) => (
               <option key={status} value={status}>
                 {status}
               </option>
             ))}
+            {!statusOrder.includes(job.status) && job.status ? (
+              <option value={job.status}>{job.status}</option>
+            ) : null}
           </select>
         </label>
       ) : (

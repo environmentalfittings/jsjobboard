@@ -14,11 +14,7 @@ import { normalizeJobType } from '../constants/jobTypes'
 import { ColumnFilterCombobox } from '../components/ColumnFilterCombobox'
 import { ColumnFilterStatusChecklist } from '../components/ColumnFilterStatusChecklist'
 import { WorkOrderFilterBar } from '../components/WorkOrderFilterBar'
-import {
-  DONE_STATUSES,
-  PHASES,
-  STATUS_ORDER,
-} from '../constants/statuses'
+import { useCompanyWorkflow } from '../hooks/useCompanyWorkflow'
 import { parseAssignedTechnicianIds } from '../lib/valveTechnicianIds'
 import { fetchAllValves } from '../lib/fetchAllValves'
 import { displayJobStatus, isActiveOrderType, isActiveShopWork, isClosedWorkOrder } from '../lib/jobDisplayStatus'
@@ -64,8 +60,8 @@ import type { Technician, Valve } from '../types'
 import type { UserRole } from './LoginPage'
 
 type BoardTab = 'kanban' | 'list'
-type PhaseKey = (typeof PHASES)[number]['key']
-type PhaseOrder = Record<PhaseKey, number[]>
+type PhaseKey = string
+type PhaseOrder = Record<string, number[]>
 type ScopeFilter =
   | 'all'
   | 'in-process'
@@ -199,6 +195,7 @@ interface KanbanJobCardProps {
   valve: Valve
   techIds: number[]
   phaseKey: PhaseKey
+  statusOrder: readonly string[]
   priorityIds: Set<string>
   attachmentCounts: Record<number, number>
   outsourcedSummaries: Record<number, OutsourcedCardSummary>
@@ -223,6 +220,7 @@ function KanbanJobCard({
   valve,
   techIds,
   phaseKey,
+  statusOrder,
   priorityIds,
   attachmentCounts,
   outsourcedSummaries,
@@ -427,11 +425,14 @@ function KanbanJobCard({
             title={canWrite ? undefined : 'View only — ask an Admin or Manager to make changes'}
             onChange={(e) => void onStatusChange(valve, e.target.value)}
           >
-            {STATUS_ORDER.map((status) => (
+            {statusOrder.map((status) => (
               <option key={status} value={status}>
                 {status}
               </option>
             ))}
+            {!statusOrder.includes(valve.status) && valve.status ? (
+              <option value={valve.status}>{valve.status}</option>
+            ) : null}
           </select>
         </label>
         {canWrite && phaseKey === 'incoming' && valve.status === 'Not Arrived' ? (
@@ -454,6 +455,10 @@ function KanbanJobCard({
 }
 
 export function JobBoardPage({ role, username }: { role?: UserRole; username?: string }) {
+  const workflow = useCompanyWorkflow()
+  const PHASES = workflow.phases
+  const STATUS_ORDER = workflow.statusOrder
+  const DONE_STATUSES = workflow.doneStatuses
   const navigate = useNavigate()
   const { id: routeJobId } = useParams<{ id?: string }>()
   const [searchParams, setSearchParams] = useSearchParams()
@@ -784,7 +789,7 @@ export function JobBoardPage({ role, username }: { role?: UserRole; username?: s
       .sort(byClosedDesc)
       .slice(0, 20)
     return [...recoverable, ...recentOther]
-  }, [valves])
+  }, [valves, DONE_STATUSES])
 
   const activeNonTerminal = useMemo(() => valves.filter((v) => isActiveShopWork(v)), [valves])
 
@@ -1538,7 +1543,7 @@ export function JobBoardPage({ role, username }: { role?: UserRole; username?: s
       }
       return doneLimited
     },
-    [activeNonTerminal, doneLimited, hasListTopSearch, valves],
+    [activeNonTerminal, doneLimited, hasListTopSearch, valves, DONE_STATUSES, PHASES],
   )
 
   const itemsForPhase = useCallback(
@@ -1680,7 +1685,7 @@ export function JobBoardPage({ role, username }: { role?: UserRole; username?: s
 
       return changed ? next : prev
     })
-  }, [valves, baseItemsForPhase, compareValvesForDisplay, loading])
+  }, [valves, baseItemsForPhase, compareValvesForDisplay, loading, PHASES])
 
   useEffect(() => {
     if (loading) return
@@ -1766,6 +1771,7 @@ export function JobBoardPage({ role, username }: { role?: UserRole; username?: s
                       valve={valve}
                       techIds={technicianIdsForValve(valve)}
                       phaseKey={phase.key}
+                      statusOrder={STATUS_ORDER}
                       priorityIds={priorityIds}
                       attachmentCounts={attachmentCounts}
                       outsourcedSummaries={outsourcedSummaries}

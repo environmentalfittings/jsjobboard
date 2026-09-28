@@ -11,7 +11,10 @@ export const LOCAL_ORG_MEMBERS_STORAGE_KEY = 'js-job-board-local-organization-me
 export const LOCAL_DEV_ADMIN_USER_ID = 'local-dev-admin'
 
 export const LOCAL_ORG_JS_VALVE_ID = 'local-org-js-valve'
-export const LOCAL_ORG_PARTNER_ID = 'local-org-partner'
+/** Stable local id (was Partner Shop); display name/slug are VSI. */
+export const LOCAL_ORG_PARTNER_ID = 'local-org-vsi'
+/** @deprecated Use LOCAL_ORG_PARTNER_ID */
+export const LOCAL_ORG_VSI_ID = LOCAL_ORG_PARTNER_ID
 
 function nowIso() {
   return new Date().toISOString()
@@ -31,14 +34,37 @@ function defaultOrganizations(): Organization[] {
     },
     {
       id: LOCAL_ORG_PARTNER_ID,
-      name: 'Partner Shop',
-      slug: 'partner-shop',
+      name: 'VSI',
+      slug: 'vsi',
       logo_url: null,
       is_active: true,
       created_at: ts,
       updated_at: ts,
     },
   ]
+}
+
+/** Rename legacy Partner Shop seed rows to VSI without dropping memberships. */
+function migrateLocalOrganizations(rows: Organization[]): Organization[] {
+  let changed = false
+  const next = rows.map((org) => {
+    const isLegacyPartner =
+      org.id === 'local-org-partner' ||
+      org.slug === 'partner-shop' ||
+      org.name.trim().toLowerCase() === 'partner shop'
+    if (!isLegacyPartner && !(org.id === LOCAL_ORG_PARTNER_ID && (org.slug !== 'vsi' || org.name !== 'VSI'))) {
+      return org
+    }
+    changed = true
+    return {
+      ...org,
+      id: LOCAL_ORG_PARTNER_ID,
+      name: 'VSI',
+      slug: 'vsi',
+      updated_at: nowIso(),
+    }
+  })
+  return changed ? next : rows
 }
 
 function defaultMembers(): OrganizationMember[] {
@@ -55,7 +81,7 @@ function defaultMembers(): OrganizationMember[] {
       updated_at: ts,
     },
     {
-      id: 'local-member-partner-admin',
+      id: 'local-member-vsi-admin',
       organization_id: LOCAL_ORG_PARTNER_ID,
       user_id: LOCAL_DEV_ADMIN_USER_ID,
       employee_id: null,
@@ -65,6 +91,21 @@ function defaultMembers(): OrganizationMember[] {
       updated_at: ts,
     },
   ]
+}
+
+function migrateLocalMembers(rows: OrganizationMember[]): OrganizationMember[] {
+  let changed = false
+  const next = rows.map((row) => {
+    if (row.organization_id !== 'local-org-partner') return row
+    changed = true
+    return {
+      ...row,
+      organization_id: LOCAL_ORG_PARTNER_ID,
+      id: row.id.includes('partner') ? row.id.replace('partner', 'vsi') : row.id,
+      updated_at: nowIso(),
+    }
+  })
+  return changed ? next : rows
 }
 
 function readJson<T>(key: string, fallback: T): T {
@@ -103,14 +144,20 @@ export function ensureLocalOrganizationsSeeded() {
 
 export function listLocalOrganizations(): Organization[] {
   ensureLocalOrganizationsSeeded()
-  return readJson<Organization[]>(LOCAL_ORGS_STORAGE_KEY, defaultOrganizations()).filter(
-    (org) => org.is_active !== false,
+  const migrated = migrateLocalOrganizations(
+    readJson<Organization[]>(LOCAL_ORGS_STORAGE_KEY, defaultOrganizations()),
   )
+  writeJson(LOCAL_ORGS_STORAGE_KEY, migrated)
+  return migrated.filter((org) => org.is_active !== false)
 }
 
 export function listLocalMembers(): OrganizationMember[] {
   ensureLocalOrganizationsSeeded()
-  return readJson<OrganizationMember[]>(LOCAL_ORG_MEMBERS_STORAGE_KEY, defaultMembers())
+  const migrated = migrateLocalMembers(
+    readJson<OrganizationMember[]>(LOCAL_ORG_MEMBERS_STORAGE_KEY, defaultMembers()),
+  )
+  writeJson(LOCAL_ORG_MEMBERS_STORAGE_KEY, migrated)
+  return migrated
 }
 
 function writeLocalMembers(rows: OrganizationMember[]) {

@@ -683,7 +683,7 @@ export function AdminEmployeesPage({ isAdmin }: { isAdmin: boolean }) {
       {activeTab === 'roster' && orgsEnabled ? (
         <p className="admin-employees-orgs-note">
           {isLocalOrganizations
-            ? 'Local multi-company demo (Vite DEV) — companies are stored in this browser only until migration-organizations-foundation.sql is run.'
+            ? 'Local multi-company demo (Vite DEV) — JS Valve + VSI are stored in this browser only until migration-organizations-foundation.sql is run. Switching company changes shop stages and departments (VSI: RV / CV / UL).'
             : 'Multi-company is enabled.'}{' '}
           Use the <strong>Companies</strong> checkboxes to grant each employee access to one or more companies. Users
           only see companies they can access in the header switcher.

@@ -3,7 +3,7 @@ import { Link, useNavigate } from 'react-router-dom'
 import { useToast } from '../components/ToastNotification'
 import { JOB_TYPES, isValveRelatedJobType, normalizeJobType } from '../constants/jobTypes'
 import { LOOKUP_CATEGORY_DEFS, type LookupCategory } from '../constants/lookupCategories'
-import { STATUS_ORDER } from '../constants/statuses'
+import { useCompanyWorkflow } from '../hooks/useCompanyWorkflow'
 import { loadLookupOptionsMap } from '../lib/lookupValues'
 import { hasAdminAccess } from '../lib/roles'
 import { TEST_PROCEDURE_OTHER } from '../lib/testLogProcedure'
@@ -30,6 +30,9 @@ function lookupSelectOptions(items: readonly string[]) {
 export function NewJobPage({ role }: NewJobPageProps) {
   const navigate = useNavigate()
   const { showToast } = useToast()
+  const workflow = useCompanyWorkflow()
+  const STATUS_ORDER = workflow.statusOrder
+  const defaultStatus = workflow.key === 'vsi' ? 'Incoming' : 'Arrived - Not Started'
   const [valveId, setValveId] = useState('')
   const [customer, setCustomer] = useState('')
   const [customerQuery, setCustomerQuery] = useState('')
@@ -48,7 +51,7 @@ export function NewJobPage({ role }: NewJobPageProps) {
   const [valveType, setValveType] = useState('')
   const [testTypes, setTestTypes] = useState<string[]>([])
   const [testTypeOther, setTestTypeOther] = useState('')
-  const [status, setStatus] = useState('Arrived - Not Started')
+  const [status, setStatus] = useState(defaultStatus)
   const [orderType, setOrderType] = useState('')
   const [dueDate, setDueDate] = useState('')
   const [description, setDescription] = useState('')
@@ -66,8 +69,21 @@ export function NewJobPage({ role }: NewJobPageProps) {
   )
 
   useEffect(() => {
-    loadLookupOptionsMap().then(setLookupOptions)
-  }, [])
+    loadLookupOptionsMap().then((map) => {
+      if (workflow.key === 'vsi') {
+        setLookupOptions({ ...map, finish_cell: [...workflow.workCells] })
+      } else {
+        setLookupOptions(map)
+      }
+    })
+  }, [workflow.key, workflow.workCells])
+
+  useEffect(() => {
+    setStatus((prev) => ((STATUS_ORDER as readonly string[]).includes(prev) ? prev : defaultStatus))
+    setCell((prev) =>
+      prev && !(workflow.workCells as readonly string[]).includes(prev) ? '' : prev,
+    )
+  }, [workflow.key, STATUS_ORDER, defaultStatus, workflow.workCells])
 
   const loadCustomers = useCallback(async () => {
     setLoadingCustomers(true)
@@ -137,7 +153,7 @@ export function NewJobPage({ role }: NewJobPageProps) {
     setIsTurnaround(false)
     setNeedsFailureAnalysis(false)
     setAddToPriority(false)
-    setStatus('Arrived - Not Started')
+    setStatus(defaultStatus)
   }
 
   const printCreatedWorkOrder = () => {
@@ -375,9 +391,9 @@ export function NewJobPage({ role }: NewJobPageProps) {
                 {loadingCustomers ? <span className="new-job-hint">Loading list…</span> : null}
               </label>
               <label>
-                Finish cell
+                {workflow.workCellLabel}
                 <select value={cell} onChange={(e) => setCell(e.target.value)}>
-                  <option value="">— Select finish cell —</option>
+                  <option value="">— Select {workflow.workCellLabel.toLowerCase()} —</option>
                   {lookupSelectOptions(lookupOptions.finish_cell)}
                 </select>
               </label>

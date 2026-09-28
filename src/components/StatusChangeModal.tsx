@@ -2,9 +2,9 @@ import { useEffect, useMemo, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { Link, useNavigate } from 'react-router-dom'
 import { JOB_TYPES, isValveRelatedJobType, normalizeJobType } from '../constants/jobTypes'
-import { STATUS_ORDER } from '../constants/statuses'
 import { ITP_BOWL_TYPE_OPTIONS, itpTemplateLabel } from '../constants/itpTemplates'
 import { VALVE_TYPE_EDIT_PIN } from '../constants/valveTypeEditGate'
+import { useCompanyWorkflow } from '../hooks/useCompanyWorkflow'
 import { useToast } from './ToastNotification'
 import { loadLookupOptionsMap } from '../lib/lookupValues'
 import { formatJobTestTypes, parseJobTestTypes } from '../lib/jobTestTypes'
@@ -148,6 +148,8 @@ export function StatusChangeModal({
 }: StatusChangeModalProps) {
   const navigate = useNavigate()
   const { showToast } = useToast()
+  const workflow = useCompanyWorkflow()
+  const STATUS_ORDER = workflow.statusOrder
   const [activeTab, setActiveTab] = useState<JobCardTab>(initialTab)
   const [description, setDescription] = useState(valve.description ?? '')
   const [notes, setNotes] = useState(valve.notes ?? '')
@@ -302,12 +304,14 @@ export function StatusChangeModal({
       setValveTypeOptions(map.valve_type ?? [])
       setPressureClassOptions(map.pressure_class ?? [])
       setBodyMaterialOptions(map.body_material ?? [])
-      setFinishCellOptions(map.finish_cell ?? [])
+      setFinishCellOptions(
+        workflow.key === 'vsi' ? [...workflow.workCells] : (map.finish_cell ?? [...workflow.workCells]),
+      )
       setSizeOptions(map.valve_size ?? [])
       setOrderTypeOptions(map.order_type ?? [])
       setTestTypeOptions(map.test_procedure ?? [])
     })
-  }, [])
+  }, [workflow.key, workflow.workCells])
 
   useEffect(() => {
     let cancelled = false
@@ -942,6 +946,9 @@ export function StatusChangeModal({
                         {status}
                       </option>
                     ))}
+                    {!STATUS_ORDER.includes(selectedStatus) && selectedStatus ? (
+                      <option value={selectedStatus}>{selectedStatus}</option>
+                    ) : null}
                   </select>
                 </div>
               </div>
@@ -1250,7 +1257,7 @@ export function StatusChangeModal({
                   </select>
 
                   <label className="modal-label" htmlFor="modal-cell">
-                    Finish cell
+                    {workflow.workCellLabel}
                   </label>
                   <select
                     id="modal-cell"
@@ -1259,12 +1266,15 @@ export function StatusChangeModal({
                     onChange={(e) => setCellDraft(e.target.value)}
                     disabled={isSaving}
                   >
-                    <option value="">— Select finish cell —</option>
+                    <option value="">— Select {workflow.workCellLabel.toLowerCase()} —</option>
                     {finishCellOptions.map((c) => (
                       <option key={c} value={c}>
                         {c}
                       </option>
                     ))}
+                    {cellDraft && !finishCellOptions.includes(cellDraft) ? (
+                      <option value={cellDraft}>{cellDraft}</option>
+                    ) : null}
                   </select>
 
                   <label className="modal-label" htmlFor="modal-size">
