@@ -20,11 +20,12 @@ export function CompanySwitcher() {
     ? ' (local demo — will not delete live JS Valve data)'
     : ''
   const activeLogo = companyLogoUrl(activeOrganization)
-  const switcherTitle = isOrgSuperAdmin
-    ? `Superadmin — switch between all companies${localTitle}`
-    : isLocalOrganizations
-      ? 'Local multi-company demo'
-      : undefined
+  const switcherTitle =
+    switchableOrganizations.length > 1
+      ? `Switch between companies you can access${localTitle}`
+      : isLocalOrganizations
+        ? 'Local multi-company demo'
+        : undefined
 
   if (switchableOrganizations.length <= 1) {
     if (!activeOrganization) return null
