@@ -21210,6 +21210,46 @@ body.shop-tv-fullscreen-active .page-content {
   align-items: center;
 }
 
+/* Dashboard Warehouse RTS / Shipping final approval */
+.warehouse-rts-dashboard-panel .warehouse-rts-migration-note {
+  margin: 0 0 0.65rem;
+}
+
+.warehouse-rts-table-wrap {
+  max-height: 28rem;
+  overflow: auto;
+}
+
+.warehouse-rts-table .warehouse-rts-row--pending td {
+  background: #fecaca;
+}
+
+.warehouse-rts-table .warehouse-rts-row--approved td {
+  background: #bbf7d0;
+}
+
+.warehouse-rts-table .warehouse-rts-row:hover td {
+  filter: brightness(0.97);
+}
+
+.warehouse-rts-approval-cell {
+  white-space: nowrap;
+}
+
+.warehouse-rts-approval-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.warehouse-rts-approval-label input {
+  width: 1.05rem;
+  height: 1.05rem;
+  accent-color: #15803d;
+}
+
 /* Rework report QA follow-up */
 .rework-qa-actions {
   display: flex;

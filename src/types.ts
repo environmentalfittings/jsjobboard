@@ -37,6 +37,10 @@ export interface Valve {
   needs_failure_analysis?: boolean | null
   pressure_class?: string | null
   body_material?: string | null
+  /** Dashboard final approval for Warehouse RTS / Shipping. */
+  shipment_final_approved?: boolean | null
+  shipment_final_approved_by?: string | null
+  shipment_final_approved_at?: string | null
 }
 
 export interface ValveItp {
