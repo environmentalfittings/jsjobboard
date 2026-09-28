@@ -186,7 +186,7 @@ export function DashboardPage() {
 
     setLastRefreshed(new Date())
     setLoading(false)
-  }, [showToast, workflow.key, activeOrganization])
+  }, [showToast, workflow.key, activeOrganization, isLocalOrganizations])
 
   useEffect(() => {
     void fetchData()

@@ -8,6 +8,8 @@
 -- Seeds JS Valve and grants current shop admins super_admin there.
 --
 -- App soft-fails if these tables are missing (current single-company behavior).
+-- Production Vercel also requires VITE_ENABLE_MULTI_COMPANY=true before the
+-- client uses these tables — so deploying the app alone does not change JS Valve.
 
 begin;
 

@@ -21,9 +21,24 @@ export { LOCAL_DEV_ADMIN_USER_ID }
 
 export type OrganizationsBackend = 'remote' | 'local' | 'none'
 
-/** Prefer live Supabase tables; in Vite DEV fall back to localStorage demo companies. */
+/**
+ * Prefer live Supabase tables; in Vite DEV fall back to localStorage demo companies.
+ *
+ * Production / Vercel stays single-company JS Valve unless both are true:
+ * 1) `organizations` tables exist, and
+ * 2) `VITE_ENABLE_MULTI_COMPANY=true` is set in the deployment env.
+ * SQL migrations in /supabase are never auto-applied by Vercel.
+ */
 export async function resolveOrganizationsBackend(): Promise<OrganizationsBackend> {
-  if (await detectOrganizationsEnabled()) return 'remote'
+  const tablesPresent = await detectOrganizationsEnabled()
+  if (tablesPresent) {
+    if (isLocalOrganizationsDevMode()) return 'remote'
+    const prodFlag =
+      String(import.meta.env.VITE_ENABLE_MULTI_COMPANY ?? '')
+        .trim()
+        .toLowerCase() === 'true'
+    return prodFlag ? 'remote' : 'none'
+  }
   if (isLocalOrganizationsDevMode()) return 'local'
   return 'none'
 }
