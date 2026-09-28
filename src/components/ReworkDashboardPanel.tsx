@@ -1,15 +1,20 @@
 import { useCallback, useEffect, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
-import { useToast } from './ToastNotification'
+import { useOrganization } from '../contexts/OrganizationContext'
+import { useCompanyWorkflow } from '../hooks/useCompanyWorkflow'
+import { filterRowsByCompanyValveId } from '../lib/companyDataScope'
 import {
   fetchReworkActionQueue,
   markReworkDispositionNa,
 } from '../lib/statusReworkLog'
 import type { StatusReworkRecord } from '../types'
+import { useToast } from './ToastNotification'
 
 export function ReworkDashboardPanel() {
   const navigate = useNavigate()
   const { showToast } = useToast()
+  const { activeOrganization } = useOrganization()
+  const workflow = useCompanyWorkflow()
   const [rows, setRows] = useState<StatusReworkRecord[]>([])
   const [loading, setLoading] = useState(true)
   const [actionId, setActionId] = useState<number | null>(null)
@@ -27,8 +32,13 @@ export function ReworkDashboardPanel() {
       setRows([])
       return
     }
-    setRows(data)
-  }, [showToast])
+    setRows(
+      filterRowsByCompanyValveId(data, {
+        workflowKey: workflow.key,
+        activeOrganization,
+      }),
+    )
+  }, [showToast, workflow.key, activeOrganization])
 
   useEffect(() => {
     void load()

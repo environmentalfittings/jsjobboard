@@ -8,7 +8,7 @@ import { useAuth } from '../contexts/AuthContext'
 import { useOrganization } from '../contexts/OrganizationContext'
 import { useCompanyWorkflow } from '../hooks/useCompanyWorkflow'
 import { companyLogoUrl } from '../lib/companyBranding'
-import { filterValvesForCompany } from '../lib/companyDataScope'
+import { filterRowsByCompanyValveId, filterValvesForCompany } from '../lib/companyDataScope'
 import {
   calcActiveJobsByCell,
   calcActiveStatusBreakdown,
@@ -19,7 +19,7 @@ import {
 import { fetchAllValves } from '../lib/fetchAllValves'
 import { displayJobStatus } from '../lib/jobDisplayStatus'
 import { localTodayDateString } from '../lib/managerDashboardMetrics'
-import { countStatusReworkLogInRange } from '../lib/statusReworkLog'
+import { fetchStatusReworkLog } from '../lib/statusReworkLog'
 import {
   daysUntilGaugeCalibrationDue,
   filterAllowedTestGauges,
@@ -155,11 +155,17 @@ export function DashboardPage() {
     }
 
     const today = localTodayDateString()
-    setReworkTodayCount(await countStatusReworkLogInRange(today, today))
+    const { data: reworkToday } = await fetchStatusReworkLog(today, today)
+    setReworkTodayCount(
+      filterRowsByCompanyValveId(reworkToday, {
+        workflowKey: workflow.key,
+        activeOrganization,
+      }).length,
+    )
 
     setLastRefreshed(new Date())
     setLoading(false)
-  }, [showToast])
+  }, [showToast, workflow.key, activeOrganization])
 
   useEffect(() => {
     void fetchData()
@@ -237,8 +243,6 @@ export function DashboardPage() {
     const ids = new Set(valves.map((v) => v.id))
     return recentTested.filter((row) => row.valveRowId != null && ids.has(row.valveRowId)).slice(0, 5)
   }, [recentTested, valves])
-
-  const visibleReworkTodayCount = workflow.key === 'vsi' && valves.length === 0 ? 0 : reworkTodayCount
 
   const persistPriorityOrder = async (nextOrder: string[]) => {
     if (!canWrite) {
@@ -430,7 +434,7 @@ export function DashboardPage() {
               }}
               title="Open rework / backward moves report for today"
             >
-              <div className="kpi-number slate">{visibleReworkTodayCount}</div>
+              <div className="kpi-number slate">{reworkTodayCount}</div>
               <div className="kpi-label">Rework today</div>
             </Link>
           </div>

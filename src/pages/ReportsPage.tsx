@@ -5,9 +5,12 @@ import { FinishCellBadge } from '../components/FinishCellBadge'
 import { RailReportPanel } from '../components/RailReportPanel'
 import { ReceivedValvesReportPanel } from '../components/ReceivedValvesReportPanel'
 import { useToast } from '../components/ToastNotification'
+import { useOrganization } from '../contexts/OrganizationContext'
 import { VALVE_TYPES } from '../constants/jobLookups'
 import { JOB_TYPES, normalizeJobType } from '../constants/jobTypes'
 import { TERMINAL_STATUSES } from '../constants/statuses'
+import { useCompanyWorkflow } from '../hooks/useCompanyWorkflow'
+import { filterRowsByCompanyValveId } from '../lib/companyDataScope'
 import { downloadCompletedJobsReportPdf } from '../lib/completedJobsReportPdf'
 import { loadLookupOptionsMap } from '../lib/lookupValues'
 import { supabase } from '../lib/supabase'
@@ -333,6 +336,8 @@ function getReworkDatePresetRange(preset: Exclude<ReworkDatePreset, 'custom'>, n
 }
 
 export function ReportsPage() {
+  const { activeOrganization } = useOrganization()
+  const workflow = useCompanyWorkflow()
   const navigate = useNavigate()
   const [searchParams] = useSearchParams()
   const { showToast } = useToast()
@@ -507,13 +512,19 @@ export function ReportsPage() {
       countStatusReworkLog(),
     ])
     setReworkLoading(false)
-    setReworkTotalLogged(totalLogged)
     if (error) {
       showToast(`Could not load rework log: ${error.message}`)
       setReworkRows([])
+      setReworkTotalLogged(totalLogged)
       return
     }
-    setReworkRows(data)
+    const scoped = filterRowsByCompanyValveId(data, {
+      workflowKey: workflow.key,
+      activeOrganization,
+    })
+    setReworkRows(scoped)
+    // Prefer scoped row count for the active company; all-time total stays global until org column exists.
+    setReworkTotalLogged(workflow.key === 'vsi' ? scoped.length : totalLogged)
   }
 
   const applyReworkDatePreset = (preset: ReworkDatePreset) => {
@@ -611,6 +622,12 @@ export function ReportsPage() {
   useEffect(() => {
     void loadOtdData(otdYear)
   }, [otdYear])
+
+  useEffect(() => {
+    void loadReworkLog()
+    // Reload when active company changes so VSI does not show JS Valve rework.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [workflow.key, activeOrganization?.id])
 
   useEffect(() => {
     if (!focusReworkReport || !reworkStartParam) return

@@ -44,6 +44,41 @@ function valveOrganizationId(valve: Valve): string | null {
   return typeof raw === 'string' && raw.trim() ? raw.trim() : null
 }
 
+function otherLocalValveIds(workflowKey: CompanyWorkflowKey): Set<number> {
+  const otherLocalIds = new Set<number>()
+  for (const key of ['js-valve', 'vsi'] as const) {
+    if (key === workflowKey) continue
+    for (const id of localValveIdsForCompany(key)) otherLocalIds.add(id)
+  }
+  return otherLocalIds
+}
+
+/**
+ * Whether a valve row id belongs to the active company (local / pre-migration rules).
+ * Untagged historical ids stay on JS Valve; VSI-only ids are local-tracked creates.
+ */
+export function valveRowBelongsToCompany(
+  valveRowId: number,
+  options: {
+    workflowKey: CompanyWorkflowKey
+    /** Optional org id from valves.organization_id when present. */
+    valveOrganizationId?: string | null
+    activeOrganization: Organization | null
+  },
+): boolean {
+  const { workflowKey, activeOrganization } = options
+  const orgId = options.valveOrganizationId?.trim() || null
+  if (orgId) {
+    if (!activeOrganization?.id) return workflowKey === 'js-valve'
+    return orgId === activeOrganization.id
+  }
+
+  const localIds = localValveIdsForCompany(workflowKey)
+  if (localIds.has(valveRowId)) return true
+  if (otherLocalValveIds(workflowKey).has(valveRowId)) return false
+  return workflowKey === 'js-valve'
+}
+
 /**
  * Scope shop valves to the active company.
  * - If `organization_id` exists on a row, match it to the active org.
@@ -58,25 +93,27 @@ export function filterValvesForCompany(
   },
 ): Valve[] {
   const { workflowKey, activeOrganization } = options
-  const localIds = localValveIdsForCompany(workflowKey)
-  const otherLocalIds = new Set<number>()
-  for (const key of ['js-valve', 'vsi'] as const) {
-    if (key === workflowKey) continue
-    for (const id of localValveIdsForCompany(key)) otherLocalIds.add(id)
-  }
+  return valves.filter((valve) =>
+    valveRowBelongsToCompany(valve.id, {
+      workflowKey,
+      activeOrganization,
+      valveOrganizationId: valveOrganizationId(valve),
+    }),
+  )
+}
 
-  return valves.filter((valve) => {
-    const orgId = valveOrganizationId(valve)
-    if (orgId) {
-      if (!activeOrganization?.id) return workflowKey === 'js-valve'
-      return orgId === activeOrganization.id
-    }
-
-    // Local / pre-migration tagging
-    if (localIds.has(valve.id)) return true
-    if (otherLocalIds.has(valve.id)) return false
-
-    // Untagged historical rows stay on JS Valve so VSI starts empty.
-    return workflowKey === 'js-valve'
-  })
+/** Scope rework / change-log style rows that only carry valve_row_id. */
+export function filterRowsByCompanyValveId<T extends { valve_row_id: number }>(
+  rows: T[],
+  options: {
+    workflowKey: CompanyWorkflowKey
+    activeOrganization: Organization | null
+  },
+): T[] {
+  return rows.filter((row) =>
+    valveRowBelongsToCompany(row.valve_row_id, {
+      workflowKey: options.workflowKey,
+      activeOrganization: options.activeOrganization,
+    }),
+  )
 }
