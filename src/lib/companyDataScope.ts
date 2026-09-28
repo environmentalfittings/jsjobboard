@@ -9,6 +9,9 @@ export const LOCAL_COMPANY_VALVE_IDS_KEY = 'js-job-board-local-company-valve-ids
 /** Test gauge ids created while local VSI was active (no org column in DB yet). */
 export const LOCAL_COMPANY_GAUGE_IDS_KEY = 'js-job-board-local-company-gauge-ids'
 
+/** Shop to-do (daily_notes) ids created while local VSI was active. */
+export const LOCAL_COMPANY_NOTE_IDS_KEY = 'js-job-board-local-company-note-ids'
+
 type LocalCompanyValveMap = Partial<Record<CompanyWorkflowKey, number[]>>
 
 function readLocalCompanyValveMap(): LocalCompanyValveMap {
@@ -191,6 +194,77 @@ export function filterGaugesForCompany(
 ): TestGauge[] {
   return gauges.filter((gauge) =>
     gaugeBelongsToCompany(gauge.id, {
+      workflowKey: options.workflowKey,
+      activeOrganization: options.activeOrganization,
+    }),
+  )
+}
+
+type LocalCompanyNoteMap = Partial<Record<CompanyWorkflowKey, number[]>>
+
+function readLocalCompanyNoteMap(): LocalCompanyNoteMap {
+  try {
+    const raw = window.localStorage.getItem(LOCAL_COMPANY_NOTE_IDS_KEY)
+    if (!raw) return {}
+    const parsed = JSON.parse(raw) as LocalCompanyNoteMap
+    return parsed && typeof parsed === 'object' ? parsed : {}
+  } catch {
+    return {}
+  }
+}
+
+function writeLocalCompanyNoteMap(map: LocalCompanyNoteMap) {
+  try {
+    window.localStorage.setItem(LOCAL_COMPANY_NOTE_IDS_KEY, JSON.stringify(map))
+  } catch {
+    // ignore
+  }
+}
+
+export function rememberNoteForCompany(companyKey: CompanyWorkflowKey, noteId: number) {
+  if (!Number.isFinite(noteId)) return
+  const map = readLocalCompanyNoteMap()
+  const list = new Set(map[companyKey] ?? [])
+  list.add(noteId)
+  map[companyKey] = [...list]
+  writeLocalCompanyNoteMap(map)
+}
+
+export function localNoteIdsForCompany(companyKey: CompanyWorkflowKey): Set<number> {
+  return new Set(readLocalCompanyNoteMap()[companyKey] ?? [])
+}
+
+function otherLocalNoteIds(workflowKey: CompanyWorkflowKey): Set<number> {
+  const other = new Set<number>()
+  for (const key of ['js-valve', 'vsi'] as const) {
+    if (key === workflowKey) continue
+    for (const id of localNoteIdsForCompany(key)) other.add(id)
+  }
+  return other
+}
+
+export function noteBelongsToCompany(
+  noteId: number,
+  options: {
+    workflowKey: CompanyWorkflowKey
+    activeOrganization: Organization | null
+  },
+): boolean {
+  const { workflowKey } = options
+  if (localNoteIdsForCompany(workflowKey).has(noteId)) return true
+  if (otherLocalNoteIds(workflowKey).has(noteId)) return false
+  return workflowKey === 'js-valve'
+}
+
+export function filterNotesForCompany<T extends { id: number }>(
+  notes: T[],
+  options: {
+    workflowKey: CompanyWorkflowKey
+    activeOrganization: Organization | null
+  },
+): T[] {
+  return notes.filter((note) =>
+    noteBelongsToCompany(note.id, {
       workflowKey: options.workflowKey,
       activeOrganization: options.activeOrganization,
     }),

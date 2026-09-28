@@ -1,7 +1,10 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useAuth } from '../contexts/AuthContext'
-import { useToast } from './ToastNotification'
+import { useOrganization } from '../contexts/OrganizationContext'
+import { useCompanyWorkflow } from '../hooks/useCompanyWorkflow'
+import { filterNotesForCompany, rememberNoteForCompany } from '../lib/companyDataScope'
 import { supabase } from '../lib/supabase'
+import { useToast } from './ToastNotification'
 
 export type DailyNote = {
   id: number
@@ -62,6 +65,8 @@ function normalizeNote(row: DailyNote): DailyNote {
 export function DashboardNotesPanel({ readOnly = false }: { readOnly?: boolean }) {
   const { showToast } = useToast()
   const { username } = useAuth()
+  const { activeOrganization } = useOrganization()
+  const workflow = useCompanyWorkflow()
   const [notes, setNotes] = useState<DailyNote[]>([])
   const [technicians, setTechnicians] = useState<TechnicianOption[]>([])
   const [loading, setLoading] = useState(true)
@@ -105,10 +110,16 @@ export function DashboardNotesPanel({ readOnly = false }: { readOnly?: boolean }
       }
       setNotes([])
     } else {
-      setNotes(((data as DailyNote[]) ?? []).map(normalizeNote))
+      const all = ((data as DailyNote[]) ?? []).map(normalizeNote)
+      setNotes(
+        filterNotesForCompany(all, {
+          workflowKey: workflow.key,
+          activeOrganization,
+        }),
+      )
     }
     setLoading(false)
-  }, [showToast])
+  }, [showToast, workflow.key, activeOrganization])
 
   useEffect(() => {
     void loadNotes()
@@ -179,7 +190,9 @@ export function DashboardNotesPanel({ readOnly = false }: { readOnly?: boolean }
     setAssignDraft('')
     setEstimatedDraft('')
     setRailDraft(false)
-    setNotes((prev) => [normalizeNote(data as DailyNote), ...prev])
+    const created = normalizeNote(data as DailyNote)
+    rememberNoteForCompany(workflow.key, created.id)
+    setNotes((prev) => [created, ...prev])
     showToast('Task added')
   }
 
@@ -499,7 +512,9 @@ export function DashboardNotesPanel({ readOnly = false }: { readOnly?: boolean }
 
   const panelHeader = (expanded: boolean) => (
     <div className="daily-notes-panel-head">
-      <h3 id={expanded ? 'daily-notes-popout-title' : undefined}>Shop to-do list</h3>
+      <h3 id={expanded ? 'daily-notes-popout-title' : undefined}>
+        Shop to-do list{activeOrganization ? ` · ${activeOrganization.name}` : ''}
+      </h3>
       {expanded ? (
         <button
           type="button"
