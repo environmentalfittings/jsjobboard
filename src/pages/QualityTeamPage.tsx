@@ -2,7 +2,10 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { useToast } from '../components/ToastNotification'
 import { useAuth } from '../contexts/AuthContext'
+import { useOrganization } from '../contexts/OrganizationContext'
 import { useEmployees } from '../hooks/useEmployees'
+import { useCompanyWorkflow } from '../hooks/useCompanyWorkflow'
+import { valveRowBelongsToCompany } from '../lib/companyDataScope'
 import { saveItpLibraryPlan } from '../lib/itpLibraryStorage'
 import { notifyFlaggerItpResolution } from '../lib/messages'
 import { listQualityIncrs } from '../lib/qualityIncrs'
@@ -60,6 +63,8 @@ function flagOwnerDraftEmployeeId(item: QualityTeamFlaggedItem, members: Employe
 export function QualityTeamPage() {
   const { showToast } = useToast()
   const { user, username, role } = useAuth()
+  const { activeOrganization } = useOrganization()
+  const workflow = useCompanyWorkflow()
   const { employees, error: employeesError, loading: employeesLoading, reload: reloadEmployees } =
     useEmployees()
   const [rows, setRows] = useState<QualityTeamItpRow[]>([])
@@ -84,6 +89,25 @@ export function QualityTeamPage() {
   )
   const [rtsIncludeAccepted, setRtsIncludeAccepted] = useState(false)
 
+  const companyScope = useMemo(
+    () => ({
+      workflowKey: workflow.key,
+      activeOrganization,
+    }),
+    [workflow.key, activeOrganization],
+  )
+
+  const filterByCompanyValve = useCallback(
+    <T extends { valveRowId: number }>(items: T[]) =>
+      items.filter((item) =>
+        valveRowBelongsToCompany(item.valveRowId, {
+          workflowKey: companyScope.workflowKey,
+          activeOrganization: companyScope.activeOrganization,
+        }),
+      ),
+    [companyScope],
+  )
+
   // Same roster source as Admin → Employees (Coy / Colten levels show up there).
   const members = useMemo(() => qualityTeamMembersFromEmployees(employees), [employees])
   const flagOwners = useMemo(() => qualityTeamFlagOwnersFromEmployees(employees), [employees])
@@ -98,10 +122,10 @@ export function QualityTeamPage() {
       setRtsUnsignedLoading(true)
       const rtsResult = await loadWarehouseRtsUnsignedItps({ lookback, includeAccepted })
       if (rtsResult.error) showToast(rtsResult.error)
-      setRtsUnsignedRows(rtsResult.rows)
+      setRtsUnsignedRows(filterByCompanyValve(rtsResult.rows))
       setRtsUnsignedLoading(false)
     },
-    [rtsIncludeAccepted, rtsUnsignedLookback, showToast],
+    [filterByCompanyValve, rtsIncludeAccepted, rtsUnsignedLookback, showToast],
   )
 
   const reload = useCallback(async () => {
@@ -119,43 +143,33 @@ export function QualityTeamPage() {
     await reloadEmployees()
     if (itpResult.error) showToast(itpResult.error)
     if (rtsResult.error) showToast(rtsResult.error)
-    setRows(itpResult.rows)
-    setIncrRows(incrResult.data)
+    setRows(filterByCompanyValve(itpResult.rows))
+    setIncrRows(
+      incrResult.data.filter((row) => {
+        if (row.valve_row_id == null) return companyScope.workflowKey === 'js-valve'
+        return valveRowBelongsToCompany(row.valve_row_id, {
+          workflowKey: companyScope.workflowKey,
+          activeOrganization: companyScope.activeOrganization,
+        })
+      }),
+    )
     setIncrError(incrResult.error)
-    setRtsUnsignedRows(rtsResult.rows)
+    setRtsUnsignedRows(filterByCompanyValve(rtsResult.rows))
     setLoading(false)
     setIncrLoading(false)
     setRtsUnsignedLoading(false)
-  }, [reloadEmployees, rtsIncludeAccepted, rtsUnsignedLookback, showToast])
+  }, [
+    companyScope,
+    filterByCompanyValve,
+    reloadEmployees,
+    rtsIncludeAccepted,
+    rtsUnsignedLookback,
+    showToast,
+  ])
 
   useEffect(() => {
-    let cancelled = false
-    void (async () => {
-      setLoading(true)
-      setIncrLoading(true)
-      setRtsUnsignedLoading(true)
-      const [itpResult, incrResult, rtsResult] = await Promise.all([
-        loadActiveQualityTeamItps(),
-        listQualityIncrs(),
-        loadWarehouseRtsUnsignedItps({ lookback: DEFAULT_WAREHOUSE_RTS_UNSIGNED_LOOKBACK }),
-      ])
-      if (cancelled) return
-      if (itpResult.error) showToast(itpResult.error)
-      if (rtsResult.error) showToast(rtsResult.error)
-      setRows(itpResult.rows)
-      setIncrRows(incrResult.data)
-      setIncrError(incrResult.error)
-      setRtsUnsignedRows(rtsResult.rows)
-      setLoading(false)
-      setIncrLoading(false)
-      setRtsUnsignedLoading(false)
-    })()
-    return () => {
-      cancelled = true
-    }
-    // Mount-only; Refresh uses reload().
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [])
+    void reload()
+  }, [reload])
 
   useEffect(() => {
     if (!employeesError) return
@@ -835,7 +849,9 @@ export function QualityTeamPage() {
 
       <section className="dashboard-panel">
         <div className="dashboard-title-row">
-          <h3>Warehouse RTS — ITP sign-off</h3>
+          <h3>
+            {workflow.key === 'vsi' ? 'Shipping' : 'Warehouse RTS'} — ITP sign-off
+          </h3>
           {!rtsUnsignedLoading ? (
             <span className="status-breakdown-note">
               {rtsUnsignedRows.length} job{rtsUnsignedRows.length === 1 ? '' : 's'}
@@ -843,9 +859,9 @@ export function QualityTeamPage() {
           ) : null}
         </div>
         <p className="status-breakdown-note">
-          Recent Warehouse RTS jobs whose ITP is missing, still a draft, or waiting for Quality Team Accept.
-          Checklist progress alone does not count as signed off. Older RTS jobs without a close date are hidden unless
-          you choose All dates. Check the box below to also include accepted ITPs in this date range.
+          {workflow.key === 'vsi'
+            ? 'VSI jobs in Shipping whose ITP is missing, still a draft, or waiting for Quality Team Accept. Local demo starts empty until VSI jobs reach Shipping.'
+            : 'Recent Warehouse RTS jobs whose ITP is missing, still a draft, or waiting for Quality Team Accept. Checklist progress alone does not count as signed off. Older RTS jobs without a close date are hidden unless you choose All dates. Check the box below to also include accepted ITPs in this date range.'}
         </p>
         <div className="quality-team-filters">
           <label>
