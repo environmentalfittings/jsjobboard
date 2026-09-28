@@ -3,6 +3,9 @@ import { TestLogColumnHeader } from '../components/testLog/TestLogColumnHeader'
 import { TestLogEntryForm } from '../components/testLog/TestLogEntryForm'
 import { TestLogReportsSection } from '../components/testLog/TestLogReportsSection'
 import { useAuth } from '../contexts/AuthContext'
+import { useOrganization } from '../contexts/OrganizationContext'
+import { useCompanyWorkflow } from '../hooks/useCompanyWorkflow'
+import { filterTestLogsForCompany } from '../lib/companyDataScope'
 import { canWriteShop } from '../lib/roles'
 import { normalizeValveId } from '../lib/valveId'
 import { supabase } from '../lib/supabase'
@@ -248,6 +251,8 @@ function PassFailBadge({ value }: { value: string | null | undefined }) {
 
 export function TestLogEntryPage() {
   const { role } = useAuth()
+  const { activeOrganization } = useOrganization()
+  const workflow = useCompanyWorkflow()
   const canWrite = canWriteShop(role)
   const [rows, setRows] = useState<TestLogEntry[]>([])
   const [valveSearch, setValveSearch] = useState('')
@@ -294,6 +299,24 @@ export function TestLogEntryPage() {
 
   const loadPeriodStats = async () => {
     setPeriodStats((prev) => ({ ...prev, loading: true }))
+    // VSI local demo starts with no shop valves / test history.
+    if (workflow.key === 'vsi') {
+      setPeriodStats({
+        loading: false,
+        testsThisMonth: 0,
+        testsPrevMonth: 0,
+        valvesThisMonth: 0,
+        valvesThisYear: 0,
+        monthlyVolumes: buildEmptyLast12MonthComparisons().map((bucket) => ({
+          ...bucket,
+          priorCount: 0,
+          currentCount: 0,
+          changePct: null,
+        })),
+      })
+      return
+    }
+
     const now = new Date()
     const thisMonth = monthRange(now)
     const prevMonth = previousMonthRange(now)
@@ -339,7 +362,10 @@ export function TestLogEntryPage() {
     if (filterEndDate) query = query.lte('tested_on', filterEndDate)
 
     const { data } = await query
-    const nextRows = (data as unknown as TestLogEntry[]) ?? []
+    const nextRows = await filterTestLogsForCompany((data as unknown as TestLogEntry[]) ?? [], {
+      workflowKey: workflow.key,
+      activeOrganization,
+    })
     setRows(nextRows)
     const descriptions = await fetchValveDescriptionsByIds(nextRows.map((row) => row.valve_id))
     setValveDescriptions(descriptions)
@@ -350,8 +376,9 @@ export function TestLogEntryPage() {
     void testLogHasDetailsColumn().then(setDetailsColumnReady)
     void loadRows()
     void loadPeriodStats()
+    // Reload when active company changes.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [])
+  }, [workflow.key, activeOrganization?.id])
 
   useEffect(() => {
     const run = async () => {

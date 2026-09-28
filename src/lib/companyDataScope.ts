@@ -2,6 +2,7 @@ import type { CompanyWorkflowKey } from '../constants/companyWorkflows'
 import type { TestGauge } from '../types/testGauge'
 import type { Organization } from '../types/organizations'
 import type { Valve } from '../types'
+import { supabase } from './supabase'
 
 /** Valve row ids created while local VSI was active (no org column in DB yet). */
 export const LOCAL_COMPANY_VALVE_IDS_KEY = 'js-job-board-local-company-valve-ids'
@@ -269,4 +270,43 @@ export function filterNotesForCompany<T extends { id: number }>(
       activeOrganization: options.activeOrganization,
     }),
   )
+}
+
+/** Uppercase valve_id strings owned by VSI via local create tracking. */
+async function loadLocalCompanyValveIdStrings(companyKey: CompanyWorkflowKey): Promise<Set<string>> {
+  const rowIds = [...localValveIdsForCompany(companyKey)]
+  if (!rowIds.length) return new Set()
+  const { data, error } = await supabase.from('valves').select('id,valve_id').in('id', rowIds)
+  if (error || !data?.length) return new Set()
+  const ids = new Set<string>()
+  for (const row of data) {
+    const valveId = String((row as { valve_id?: string }).valve_id ?? '')
+      .trim()
+      .toUpperCase()
+    if (valveId) ids.add(valveId)
+  }
+  return ids
+}
+
+/**
+ * Scope test_logs rows (keyed by valve_id string) to the active company.
+ * Untagged historical logs stay on JS Valve; VSI only sees logs for VSI-created valves.
+ */
+export async function filterTestLogsForCompany<T extends { valve_id: string }>(
+  rows: T[],
+  options: {
+    workflowKey: CompanyWorkflowKey
+    activeOrganization: Organization | null
+  },
+): Promise<T[]> {
+  const { workflowKey } = options
+  const vsiValveIds = await loadLocalCompanyValveIdStrings('vsi')
+
+  if (workflowKey === 'vsi') {
+    if (!vsiValveIds.size) return []
+    return rows.filter((row) => vsiValveIds.has(String(row.valve_id ?? '').trim().toUpperCase()))
+  }
+
+  if (!vsiValveIds.size) return rows
+  return rows.filter((row) => !vsiValveIds.has(String(row.valve_id ?? '').trim().toUpperCase()))
 }
