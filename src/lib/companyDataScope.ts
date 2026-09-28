@@ -13,6 +13,18 @@ export const LOCAL_COMPANY_GAUGE_IDS_KEY = 'js-job-board-local-company-gauge-ids
 /** Shop to-do (daily_notes) ids created while local VSI was active. */
 export const LOCAL_COMPANY_NOTE_IDS_KEY = 'js-job-board-local-company-note-ids'
 
+/** Employee training session ids created while local VSI was active. */
+export const LOCAL_COMPANY_TRAINING_IDS_KEY = 'js-job-board-local-company-training-ids'
+
+/** Employee training course ids created while local VSI was active. */
+export const LOCAL_COMPANY_TRAINING_COURSE_IDS_KEY = 'js-job-board-local-company-training-course-ids'
+
+/** Orphan training library/file ids created while local VSI was active (no training/course link). */
+export const LOCAL_COMPANY_TRAINING_FILE_IDS_KEY = 'js-job-board-local-company-training-file-ids'
+
+/** Employee training skill row ids created/updated while local VSI was active. */
+export const LOCAL_COMPANY_TRAINING_SKILL_IDS_KEY = 'js-job-board-local-company-training-skill-ids'
+
 type LocalCompanyValveMap = Partial<Record<CompanyWorkflowKey, number[]>>
 
 function readLocalCompanyValveMap(): LocalCompanyValveMap {
@@ -270,6 +282,160 @@ export function filterNotesForCompany<T extends { id: number }>(
       activeOrganization: options.activeOrganization,
     }),
   )
+}
+
+type LocalCompanyIdMap = Partial<Record<CompanyWorkflowKey, number[]>>
+
+function readLocalCompanyIdMap(storageKey: string): LocalCompanyIdMap {
+  try {
+    const raw = window.localStorage.getItem(storageKey)
+    if (!raw) return {}
+    const parsed = JSON.parse(raw) as LocalCompanyIdMap
+    return parsed && typeof parsed === 'object' ? parsed : {}
+  } catch {
+    return {}
+  }
+}
+
+function writeLocalCompanyIdMap(storageKey: string, map: LocalCompanyIdMap) {
+  try {
+    window.localStorage.setItem(storageKey, JSON.stringify(map))
+  } catch {
+    // ignore
+  }
+}
+
+function rememberLocalCompanyId(storageKey: string, companyKey: CompanyWorkflowKey, id: number) {
+  if (!Number.isFinite(id)) return
+  const map = readLocalCompanyIdMap(storageKey)
+  const list = new Set(map[companyKey] ?? [])
+  list.add(id)
+  map[companyKey] = [...list]
+  writeLocalCompanyIdMap(storageKey, map)
+}
+
+function localCompanyIds(storageKey: string, companyKey: CompanyWorkflowKey): Set<number> {
+  return new Set(readLocalCompanyIdMap(storageKey)[companyKey] ?? [])
+}
+
+function otherLocalCompanyIds(storageKey: string, workflowKey: CompanyWorkflowKey): Set<number> {
+  const other = new Set<number>()
+  for (const key of ['js-valve', 'vsi'] as const) {
+    if (key === workflowKey) continue
+    for (const id of localCompanyIds(storageKey, key)) other.add(id)
+  }
+  return other
+}
+
+function localIdBelongsToCompany(
+  storageKey: string,
+  id: number,
+  workflowKey: CompanyWorkflowKey,
+): boolean {
+  if (localCompanyIds(storageKey, workflowKey).has(id)) return true
+  if (otherLocalCompanyIds(storageKey, workflowKey).has(id)) return false
+  return workflowKey === 'js-valve'
+}
+
+/** Employee trainings: untagged history stays on JS Valve; VSI starts empty. */
+export function rememberTrainingForCompany(companyKey: CompanyWorkflowKey, trainingId: number) {
+  rememberLocalCompanyId(LOCAL_COMPANY_TRAINING_IDS_KEY, companyKey, trainingId)
+}
+
+export function trainingBelongsToCompany(
+  trainingId: number,
+  options: {
+    workflowKey: CompanyWorkflowKey
+    activeOrganization: Organization | null
+  },
+): boolean {
+  return localIdBelongsToCompany(LOCAL_COMPANY_TRAINING_IDS_KEY, trainingId, options.workflowKey)
+}
+
+export function filterTrainingsForCompany<T extends { id: number }>(
+  rows: T[],
+  options: {
+    workflowKey: CompanyWorkflowKey
+    activeOrganization: Organization | null
+  },
+): T[] {
+  return rows.filter((row) => trainingBelongsToCompany(row.id, options))
+}
+
+export function rememberTrainingCourseForCompany(companyKey: CompanyWorkflowKey, courseId: number) {
+  rememberLocalCompanyId(LOCAL_COMPANY_TRAINING_COURSE_IDS_KEY, companyKey, courseId)
+}
+
+export function trainingCourseBelongsToCompany(
+  courseId: number,
+  options: {
+    workflowKey: CompanyWorkflowKey
+    activeOrganization: Organization | null
+  },
+): boolean {
+  return localIdBelongsToCompany(LOCAL_COMPANY_TRAINING_COURSE_IDS_KEY, courseId, options.workflowKey)
+}
+
+export function filterTrainingCoursesForCompany<T extends { id: number }>(
+  rows: T[],
+  options: {
+    workflowKey: CompanyWorkflowKey
+    activeOrganization: Organization | null
+  },
+): T[] {
+  return rows.filter((row) => trainingCourseBelongsToCompany(row.id, options))
+}
+
+export function rememberTrainingFileForCompany(companyKey: CompanyWorkflowKey, fileId: number) {
+  rememberLocalCompanyId(LOCAL_COMPANY_TRAINING_FILE_IDS_KEY, companyKey, fileId)
+}
+
+export function trainingFileBelongsToCompany(
+  file: { id: number; training_id?: number | null; course_id?: number | null },
+  options: {
+    workflowKey: CompanyWorkflowKey
+    activeOrganization: Organization | null
+  },
+): boolean {
+  if (file.training_id != null) return trainingBelongsToCompany(file.training_id, options)
+  if (file.course_id != null) return trainingCourseBelongsToCompany(file.course_id, options)
+  return localIdBelongsToCompany(LOCAL_COMPANY_TRAINING_FILE_IDS_KEY, file.id, options.workflowKey)
+}
+
+export function filterTrainingFilesForCompany<
+  T extends { id: number; training_id?: number | null; course_id?: number | null },
+>(
+  rows: T[],
+  options: {
+    workflowKey: CompanyWorkflowKey
+    activeOrganization: Organization | null
+  },
+): T[] {
+  return rows.filter((row) => trainingFileBelongsToCompany(row, options))
+}
+
+export function rememberTrainingSkillForCompany(companyKey: CompanyWorkflowKey, skillId: number) {
+  rememberLocalCompanyId(LOCAL_COMPANY_TRAINING_SKILL_IDS_KEY, companyKey, skillId)
+}
+
+export function trainingSkillBelongsToCompany(
+  skillId: number,
+  options: {
+    workflowKey: CompanyWorkflowKey
+    activeOrganization: Organization | null
+  },
+): boolean {
+  return localIdBelongsToCompany(LOCAL_COMPANY_TRAINING_SKILL_IDS_KEY, skillId, options.workflowKey)
+}
+
+export function filterTrainingSkillsForCompany<T extends { id: number }>(
+  rows: T[],
+  options: {
+    workflowKey: CompanyWorkflowKey
+    activeOrganization: Organization | null
+  },
+): T[] {
+  return rows.filter((row) => trainingSkillBelongsToCompany(row.id, options))
 }
 
 /** Uppercase valve_id strings owned by VSI via local create tracking. */
