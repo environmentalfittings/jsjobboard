@@ -30,6 +30,21 @@ import {
   type OrganizationRole,
 } from '../types/organizations'
 
+/** Required once so Superadmin (no Supabase session) can SELECT the roster. */
+const EMPLOYEES_ANON_READ_SQL = `-- Allow Superadmin / local login to read the Employees roster
+-- Run once in Supabase → SQL Editor, then Refresh this page.
+
+begin;
+
+drop policy if exists "anon read employees" on public.employees;
+create policy "anon read employees"
+on public.employees
+for select
+to anon
+using (true);
+
+commit;`
+
 function slugifyCompanyName(value: string) {
   return value
     .trim()
@@ -748,6 +763,42 @@ export function AdminEmployeesPage({ isAdmin }: { isAdmin: boolean }) {
             ? 'Users only see companies they can access in the header switcher.'
             : 'Use the header company switcher to work inside one company at a time, or open Reports for cross-company compare.'}
         </p>
+      ) : null}
+
+      {activeTab === 'roster' && isOrgSuperAdmin && !loading && employees.length === 0 ? (
+        <section className="dashboard-panel admin-employees-superadmin-unlock" aria-live="polite">
+          <h3>Unlock Employees roster for Superadmin</h3>
+          <p>
+            Superadmin signs in without a Supabase Auth session, so Postgres RLS currently hides the{' '}
+            <code>employees</code> table. Run this once in the{' '}
+            <a
+              href="https://supabase.com/dashboard/project/vhblzjgthabvwpwixnqo/sql/new"
+              target="_blank"
+              rel="noreferrer"
+            >
+              Supabase SQL Editor
+            </a>
+            , then click Refresh. Safe to re-run. Or sign in with a normal employee admin account instead.
+          </p>
+          <pre className="admin-employees-superadmin-sql">{EMPLOYEES_ANON_READ_SQL}</pre>
+          <div className="admin-employees-superadmin-unlock-actions">
+            <button
+              type="button"
+              className="button-primary"
+              onClick={() => {
+                void navigator.clipboard.writeText(EMPLOYEES_ANON_READ_SQL).then(
+                  () => showToast('SQL copied — paste into Supabase SQL Editor and Run'),
+                  () => showToast('Could not copy — select the SQL manually'),
+                )
+              }}
+            >
+              Copy SQL
+            </button>
+            <button type="button" className="button-secondary" disabled={busy || loading} onClick={() => void refreshAll()}>
+              Refresh roster
+            </button>
+          </div>
+        </section>
       ) : null}
 
       {activeTab === 'roster' ? (

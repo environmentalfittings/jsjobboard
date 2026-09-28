@@ -13232,6 +13232,43 @@ textarea.modal-status-select {
   font-size: 0.85rem;
 }
 
+.admin-employees-superadmin-unlock {
+  margin: 0 0 1rem;
+  border: 1px solid #99f6e4;
+  background: #f0fdfa;
+}
+
+.admin-employees-superadmin-unlock h3 {
+  margin: 0 0 0.5rem;
+  font-size: 1.05rem;
+  color: #115e59;
+}
+
+.admin-employees-superadmin-unlock p {
+  margin: 0 0 0.75rem;
+  color: #334155;
+  font-size: 0.9rem;
+  line-height: 1.45;
+}
+
+.admin-employees-superadmin-sql {
+  margin: 0 0 0.75rem;
+  padding: 0.75rem 0.9rem;
+  border-radius: 8px;
+  background: #0f172a;
+  color: #e2e8f0;
+  font-size: 0.78rem;
+  line-height: 1.45;
+  overflow-x: auto;
+  white-space: pre-wrap;
+}
+
+.admin-employees-superadmin-unlock-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
 .admin-employees-quality-select {
   min-width: 7.5rem;
   max-width: 100%;
