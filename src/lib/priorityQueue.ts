@@ -1,4 +1,5 @@
 import { TERMINAL_STATUSES } from '../constants/statuses'
+import { isLocalOrganizationsDevMode } from './localOrganizations'
 import { compareValveIdSequential } from './valveWorkOrderSearch'
 import type { Valve } from '../types'
 import { supabase } from './supabase'
@@ -30,9 +31,11 @@ export function prunePriorityValveIds(valveIds: string[], valves: Valve[]): stri
 /**
  * Drop closed / ineligible queue rows so the dashboard matches live shop work.
  *
- * When `valves` is a company-scoped subset (e.g. VSI empty demo), do NOT treat
- * missing IDs as stale — that would wipe the other company's priority list.
- * Pass `pruneMissing: true` only when `valves` is the full shop dataset.
+ * Safety rules (learned the hard way against live Supabase):
+ * - When `valves` is a company-scoped subset, missing IDs are NOT stale.
+ * - Pass `pruneMissing: true` only with the full shop dataset.
+ * - Local multi-company DEV never deletes from priority_queue (read-only sync)
+ *   so switching to an empty VSI scope cannot wipe production JS priorities.
  */
 export async function syncPriorityQueueWithValves(
   valves: Valve[],
@@ -43,19 +46,27 @@ export async function syncPriorityQueueWithValves(
 
   const ordered = data.map((row: { valve_id: string }) => row.valve_id)
   const byValveId = new Map(valves.map((v) => [v.valve_id, v]))
-  const pruneMissing = options?.pruneMissing === true
+  const localDemo = isLocalOrganizationsDevMode()
+  const pruneMissing = !localDemo && options?.pruneMissing === true
 
-  const stale = ordered.filter((id) => {
-    const valve = byValveId.get(id)
-    if (valve) return !isEligiblePriorityValve(valve)
-    return pruneMissing
-  })
+  const stale = localDemo
+    ? []
+    : ordered.filter((id) => {
+        const valve = byValveId.get(id)
+        if (valve) return !isEligiblePriorityValve(valve)
+        return pruneMissing
+      })
 
   if (stale.length > 0) {
     await supabase.from('priority_queue').delete().in('valve_id', stale)
   }
 
-  return ordered.filter((id) => isEligiblePriorityValve(byValveId.get(id)))
+  return ordered.filter((id) => {
+    const valve = byValveId.get(id)
+    // Scoped / empty company views: omit rows we cannot resolve, but do not delete them.
+    if (!valve) return false
+    return isEligiblePriorityValve(valve)
+  })
 }
 
 /** Lower rank sorts first; non-priority valves follow in valve-id order. */
