@@ -188,15 +188,29 @@ function writeLocalOrganizations(rows: Organization[]) {
   writeJson(LOCAL_ORGS_STORAGE_KEY, rows)
 }
 
-export function listLocalMembershipsForUser(userId: string): OrganizationMembership[] {
+export function listLocalMembershipsForUser(
+  userId: string,
+  employeeId?: string | null,
+): OrganizationMembership[] {
   const orgs = listLocalOrganizations()
   const orgById = new Map(orgs.map((org) => [org.id, org]))
   const rows: OrganizationMembership[] = []
+  const seenOrgs = new Set<string>()
   for (const member of listLocalMembers()) {
-    if (!member.can_access || member.user_id !== userId) continue
+    if (!member.can_access) continue
+    const byUser = Boolean(userId) && member.user_id === userId
+    const byEmployee = Boolean(employeeId) && member.employee_id === employeeId
+    if (!byUser && !byEmployee) continue
+    if (seenOrgs.has(member.organization_id)) continue
     const organization = orgById.get(member.organization_id)
     if (!organization) continue
-    rows.push({ ...member, organization })
+    seenOrgs.add(member.organization_id)
+    rows.push({
+      ...member,
+      // Keep auth linkage so later logins resolve even if only employee_id was stored.
+      user_id: member.user_id ?? userId ?? null,
+      organization,
+    })
   }
   rows.sort((a, b) => a.organization.name.localeCompare(b.organization.name))
   return rows
@@ -246,6 +260,8 @@ export function setLocalEmployeeOrganizationAccess(input: {
   organizationId: string
   canAccess: boolean
   role?: OrganizationRole | null
+  /** Auth user id so the employee’s own login can resolve company memberships. */
+  userId?: string | null
 }): { error: string | null } {
   const orgs = listLocalOrganizations()
   if (!orgs.some((org) => org.id === input.organizationId)) {
@@ -262,18 +278,20 @@ export function setLocalEmployeeOrganizationAccess(input: {
       : idx >= 0
         ? members[idx].role
         : 'technician'
+  const nextUserId = input.userId?.trim() || (idx >= 0 ? members[idx].user_id : null) || null
   if (idx >= 0) {
     members[idx] = {
       ...members[idx],
       can_access: input.canAccess,
       role: nextRole,
+      user_id: nextUserId,
       updated_at: ts,
     }
   } else {
     members.push({
       id: `local-member-${input.organizationId}-${input.employeeId}`,
       organization_id: input.organizationId,
-      user_id: null,
+      user_id: nextUserId,
       employee_id: input.employeeId,
       role: nextRole,
       can_access: input.canAccess,

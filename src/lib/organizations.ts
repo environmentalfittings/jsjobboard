@@ -98,15 +98,28 @@ export async function listOrganizations(): Promise<{ data: Organization[]; error
   }
 }
 
+async function resolveEmployeeIdForAuthUser(userId: string): Promise<string | null> {
+  if (!userId || userId === LOCAL_DEV_ADMIN_USER_ID) return null
+  const { data, error } = await supabase
+    .from('employees')
+    .select('id')
+    .eq('auth_user_id', userId)
+    .maybeSingle()
+  if (error || !data?.id) return null
+  return String(data.id)
+}
+
 export async function listMembershipsForUser(
   userId: string,
+  options?: { employeeId?: string | null },
 ): Promise<{ data: OrganizationMembership[]; error: string | null; enabled: boolean }> {
   if (!userId) return { data: [], error: null, enabled: false }
 
+  const employeeId = options?.employeeId ?? (await resolveEmployeeIdForAuthUser(userId))
   const backend = await resolveOrganizationsBackend()
   if (backend === 'none') return { data: [], error: null, enabled: false }
   if (backend === 'local') {
-    return { data: listLocalMembershipsForUser(userId), error: null, enabled: true }
+    return { data: listLocalMembershipsForUser(userId, employeeId), error: null, enabled: true }
   }
 
   const { data, error } = await supabase
@@ -120,11 +133,36 @@ export async function listMembershipsForUser(
   if (error) {
     if (isMissingOrgRelation(error.message)) {
       if (isLocalOrganizationsDevMode()) {
-        return { data: listLocalMembershipsForUser(userId), error: null, enabled: true }
+        return { data: listLocalMembershipsForUser(userId, employeeId), error: null, enabled: true }
       }
       return { data: [], error: null, enabled: false }
     }
     return { data: [], error: error.message, enabled: true }
+  }
+
+  // Also pick up memberships stored by employee_id only (before auth link).
+  if (employeeId && !(data ?? []).length) {
+    const byEmployee = await supabase
+      .from('organization_members')
+      .select(
+        'id,organization_id,user_id,employee_id,role,can_access,created_at,updated_at,organization:organizations(id,name,slug,logo_url,is_active,created_at,updated_at)',
+      )
+      .eq('employee_id', employeeId)
+      .eq('can_access', true)
+    if (!byEmployee.error && byEmployee.data?.length) {
+      const rows: OrganizationMembership[] = []
+      for (const raw of byEmployee.data) {
+        const row = raw as Record<string, unknown>
+        const orgRaw = row.organization
+        const orgObj = Array.isArray(orgRaw) ? orgRaw[0] : orgRaw
+        if (!orgObj || typeof orgObj !== 'object') continue
+        const organization = mapOrganization(orgObj as Record<string, unknown>)
+        if (!organization.is_active || !organization.id) continue
+        rows.push({ ...mapMember(row), organization })
+      }
+      rows.sort((a, b) => a.organization.name.localeCompare(b.organization.name))
+      return { data: rows, error: null, enabled: true }
+    }
   }
 
   const rows: OrganizationMembership[] = []
@@ -183,6 +221,7 @@ export async function setEmployeeOrganizationAccess(input: {
   organizationId: string
   canAccess: boolean
   role?: OrganizationRole | null
+  userId?: string | null
 }): Promise<{ error: string | null }> {
   const backend = await resolveOrganizationsBackend()
   if (backend === 'local') return setLocalEmployeeOrganizationAccess(input)

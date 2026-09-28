@@ -290,6 +290,7 @@ export function AdminEmployeesPage({ isAdmin }: { isAdmin: boolean }) {
       organizationId,
       canAccess,
       role: existingRole ?? 'technician',
+      userId: employee.auth_user_id,
     })
     if (accessError) {
       setBusy(false)
@@ -321,6 +322,7 @@ export function AdminEmployeesPage({ isAdmin }: { isAdmin: boolean }) {
       organizationId,
       canAccess: true,
       role,
+      userId: employee.auth_user_id,
     })
     if (accessError) {
       setBusy(false)
@@ -746,8 +748,13 @@ export function AdminEmployeesPage({ isAdmin }: { isAdmin: boolean }) {
           {isOrgSuperAdmin ? (
             <>
               <strong>Superadmin</strong> sees every employee across all companies. Use the{' '}
-              <strong>Companies</strong> checkboxes and role menus to grant access and assign company roles
-              (including Superadmin). App login permissions stay under <strong>Shop assignment</strong>.
+              <strong>Companies</strong> checkboxes and role menus for company access (including company Superadmin).
+              The <strong>Quality Team</strong> column is QC only — it does not control login permissions. For someone
+              to save changes when they log in, set their App role under <strong>Shop assignment</strong> to Admin (or
+              grant company Superadmin, which elevates them automatically).
+              {isLocalOrganizations
+                ? ' Company roles are stored in this browser until migration-organizations-foundation.sql is run in Supabase.'
+                : ''}
             </>
           ) : isLocalOrganizations ? (
             <>
@@ -770,15 +777,8 @@ export function AdminEmployeesPage({ isAdmin }: { isAdmin: boolean }) {
           <h3>Unlock Employees roster for Superadmin</h3>
           <p>
             Superadmin signs in without a Supabase Auth session, so Postgres RLS currently hides the{' '}
-            <code>employees</code> table. Run this once in the{' '}
-            <a
-              href="https://supabase.com/dashboard/project/vhblzjgthabvwpwixnqo/sql/new"
-              target="_blank"
-              rel="noreferrer"
-            >
-              Supabase SQL Editor
-            </a>
-            , then click Refresh. Safe to re-run. Or sign in with a normal employee admin account instead.
+            <code>employees</code> table. Run this once in your Supabase project → <strong>SQL Editor</strong>, then
+            click Refresh. Safe to re-run. Or sign in with a normal employee admin account instead.
           </p>
           <pre className="admin-employees-superadmin-sql">{EMPLOYEES_ANON_READ_SQL}</pre>
           <div className="admin-employees-superadmin-unlock-actions">
