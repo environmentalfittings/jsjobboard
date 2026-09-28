@@ -14,11 +14,9 @@ import { normalizeJobType } from '../constants/jobTypes'
 import { ColumnFilterCombobox } from '../components/ColumnFilterCombobox'
 import { ColumnFilterStatusChecklist } from '../components/ColumnFilterStatusChecklist'
 import { WorkOrderFilterBar } from '../components/WorkOrderFilterBar'
-import {
-  DONE_STATUSES,
-  PHASES,
-  STATUS_ORDER,
-} from '../constants/statuses'
+import { useOrganization } from '../contexts/OrganizationContext'
+import { useCompanyWorkflow } from '../hooks/useCompanyWorkflow'
+import { filterValvesForCompany } from '../lib/companyDataScope'
 import { parseAssignedTechnicianIds } from '../lib/valveTechnicianIds'
 import { fetchAllValves } from '../lib/fetchAllValves'
 import { displayJobStatus, isActiveOrderType, isActiveShopWork, isClosedWorkOrder } from '../lib/jobDisplayStatus'
@@ -55,7 +53,15 @@ import {
 import { recordDueDateChange, resolveChangedByName } from '../lib/dueDateChanges'
 import { recordStatusRework } from '../lib/statusReworkLog'
 import { isBackwardStatusMove } from '../lib/statusWorkflow'
-import { isEligiblePriorityValve, syncPriorityQueueWithValves, compareValvesWithPriorityOrder, persistPriorityQueueOrder, reorderPriorityQueueIds } from '../lib/priorityQueue'
+import { blockSharedShopDeletes, SHARED_SHOP_DELETE_BLOCKED_MESSAGE } from '../lib/companyDataGuard'
+import {
+  compareValvesWithPriorityOrder,
+  filterPriorityIdsForValves,
+  isEligiblePriorityValve,
+  persistPriorityQueueOrder,
+  reorderPriorityQueueIds,
+  syncPriorityQueueWithValves,
+} from '../lib/priorityQueue'
 import { supabase } from '../lib/supabase'
 import type { JobCardSaveFields } from '../lib/jobCardSave'
 import { can, canWriteShop, permissionDeniedReason } from '../lib/roles'
@@ -64,8 +70,8 @@ import type { Technician, Valve } from '../types'
 import type { UserRole } from './LoginPage'
 
 type BoardTab = 'kanban' | 'list'
-type PhaseKey = (typeof PHASES)[number]['key']
-type PhaseOrder = Record<PhaseKey, number[]>
+type PhaseKey = string
+type PhaseOrder = Record<string, number[]>
 type ScopeFilter =
   | 'all'
   | 'in-process'
@@ -199,6 +205,7 @@ interface KanbanJobCardProps {
   valve: Valve
   techIds: number[]
   phaseKey: PhaseKey
+  statusOrder: readonly string[]
   priorityIds: Set<string>
   attachmentCounts: Record<number, number>
   outsourcedSummaries: Record<number, OutsourcedCardSummary>
@@ -223,6 +230,7 @@ function KanbanJobCard({
   valve,
   techIds,
   phaseKey,
+  statusOrder,
   priorityIds,
   attachmentCounts,
   outsourcedSummaries,
@@ -427,11 +435,14 @@ function KanbanJobCard({
             title={canWrite ? undefined : 'View only — ask an Admin or Manager to make changes'}
             onChange={(e) => void onStatusChange(valve, e.target.value)}
           >
-            {STATUS_ORDER.map((status) => (
+            {statusOrder.map((status) => (
               <option key={status} value={status}>
                 {status}
               </option>
             ))}
+            {!statusOrder.includes(valve.status) && valve.status ? (
+              <option value={valve.status}>{valve.status}</option>
+            ) : null}
           </select>
         </label>
         {canWrite && phaseKey === 'incoming' && valve.status === 'Not Arrived' ? (
@@ -454,6 +465,11 @@ function KanbanJobCard({
 }
 
 export function JobBoardPage({ role, username }: { role?: UserRole; username?: string }) {
+  const workflow = useCompanyWorkflow()
+  const { activeOrganization } = useOrganization()
+  const PHASES = workflow.phases
+  const STATUS_ORDER = workflow.statusOrder
+  const DONE_STATUSES = workflow.doneStatuses
   const navigate = useNavigate()
   const { id: routeJobId } = useParams<{ id?: string }>()
   const [searchParams, setSearchParams] = useSearchParams()
@@ -472,7 +488,15 @@ export function JobBoardPage({ role, username }: { role?: UserRole; username?: s
       : 'all'
 
   const [tab, setTab] = useState<BoardTab>(initialTab)
-  const [valves, setValves] = useState<Valve[]>([])
+  const [valveRows, setValveRows] = useState<Valve[]>([])
+  const valves = useMemo(
+    () =>
+      filterValvesForCompany(valveRows, {
+        workflowKey: workflow.key,
+        activeOrganization,
+      }),
+    [valveRows, workflow.key, activeOrganization],
+  )
   const [priorityQueueIds, setPriorityQueueIds] = useState<string[]>([])
   const priorityIds = useMemo(() => new Set(priorityQueueIds), [priorityQueueIds])
   const [loading, setLoading] = useState(true)
@@ -667,9 +691,15 @@ export function JobBoardPage({ role, username }: { role?: UserRole; username?: s
     if (error) {
       showToast(`Could not load valves: ${error.message}`)
     } else {
-      setValves(data)
-      const eligiblePriority = await syncPriorityQueueWithValves(data)
-      setPriorityQueueIds(eligiblePriority)
+      setValveRows(data)
+      const eligiblePriority = await syncPriorityQueueWithValves(data, {
+        pruneMissing: !blockSharedShopDeletes(),
+      })
+      const scopedForPriority = filterValvesForCompany(data, {
+        workflowKey: workflow.key,
+        activeOrganization,
+      })
+      setPriorityQueueIds(filterPriorityIdsForValves(eligiblePriority, scopedForPriority))
     }
     setLoading(false)
     void loadAttachmentCounts()
@@ -742,7 +772,7 @@ export function JobBoardPage({ role, username }: { role?: UserRole; username?: s
           const { data } = await supabase.from('valves').select(VALVE_LIST_SELECT).eq('id', row.id).single()
 
           if (!data) return
-          setValves((prev) => {
+          setValveRows((prev) => {
             const existing = prev.some((v) => v.id === data.id)
             if (!existing) return [data as Valve, ...prev]
             return prev.map((v) => (v.id === data.id ? (data as Valve) : v))
@@ -757,7 +787,7 @@ export function JobBoardPage({ role, username }: { role?: UserRole; username?: s
           if (!row?.id) return
           const { data } = await supabase.from('valves').select(VALVE_LIST_SELECT).eq('id', row.id).single()
           if (!data) return
-          setValves((prev) => [data as Valve, ...prev.filter((v) => v.id !== data.id)])
+          setValveRows((prev) => [data as Valve, ...prev.filter((v) => v.id !== data.id)])
         },
       )
       .subscribe()
@@ -784,7 +814,7 @@ export function JobBoardPage({ role, username }: { role?: UserRole; username?: s
       .sort(byClosedDesc)
       .slice(0, 20)
     return [...recoverable, ...recentOther]
-  }, [valves])
+  }, [valves, DONE_STATUSES])
 
   const activeNonTerminal = useMemo(() => valves.filter((v) => isActiveShopWork(v)), [valves])
 
@@ -1003,7 +1033,7 @@ export function JobBoardPage({ role, username }: { role?: UserRole; username?: s
       showToast('Due date updated')
     }
 
-    setValves((prev) =>
+    setValveRows((prev) =>
       prev.map((v) => (v.id === dueDateEditValve.id ? { ...v, due_date: nextDueDate } : v)),
     )
     setActiveValve((prev) =>
@@ -1119,7 +1149,7 @@ export function JobBoardPage({ role, username }: { role?: UserRole; username?: s
     }
 
     setIsSaving(false)
-    setValves((prev) => prev.map((v) => (v.id === valve.id ? { ...v, ...patch } : v)))
+    setValveRows((prev) => prev.map((v) => (v.id === valve.id ? { ...v, ...patch } : v)))
     setActiveValve((prev) => (prev && prev.id === valve.id ? { ...prev, ...patch } : prev))
     showToast('Saved')
     return true
@@ -1140,7 +1170,7 @@ export function JobBoardPage({ role, username }: { role?: UserRole; username?: s
         return
       }
     }
-    if (isBackwardStatusMove(activeValve.status, selectedStatus)) {
+    if (isBackwardStatusMove(activeValve.status, selectedStatus, workflow.key)) {
       setPendingRework({
         valve: activeValve,
         nextStatus: selectedStatus,
@@ -1172,7 +1202,7 @@ export function JobBoardPage({ role, username }: { role?: UserRole; username?: s
     }
     const dueDateChanged = dueDateProvided && (previousDueDate ?? null) !== (nextDueDate ?? null)
 
-    setValves((prev) => prev.map((v) => (v.id === valve.id ? { ...v, ...patch } : v)))
+    setValveRows((prev) => prev.map((v) => (v.id === valve.id ? { ...v, ...patch } : v)))
     if (activeValve?.id === valve.id) {
       setActiveValve((prev) => (prev && prev.id === valve.id ? { ...prev, ...patch } : prev))
       setSelectedStatus(nextStatus)
@@ -1180,7 +1210,7 @@ export function JobBoardPage({ role, username }: { role?: UserRole; username?: s
 
     const { error } = await supabase.from('valves').update(patch).eq('id', valve.id)
     if (error) {
-      setValves((prev) => prev.map((v) => (v.id === previous.id ? previous : v)))
+      setValveRows((prev) => prev.map((v) => (v.id === previous.id ? previous : v)))
       if (activeValve?.id === valve.id) {
         setActiveValve(previous)
         setSelectedStatus(previous.status)
@@ -1246,7 +1276,7 @@ export function JobBoardPage({ role, username }: { role?: UserRole; username?: s
     if (error) {
       throw new Error(error.message || 'Could not update shop test stamps')
     }
-    setValves((prev) => prev.map((v) => (v.id === activeValve.id ? { ...v, ...patch } : v)))
+    setValveRows((prev) => prev.map((v) => (v.id === activeValve.id ? { ...v, ...patch } : v)))
     setActiveValve((prev) => (prev && prev.id === activeValve.id ? { ...prev, ...patch } : prev))
   }
 
@@ -1284,7 +1314,13 @@ export function JobBoardPage({ role, username }: { role?: UserRole; username?: s
           ...pendingResumeDueDate.modalFields,
           dueDate: nextDueDate,
         }
-        if (isBackwardStatusMove(pendingResumeDueDate.valve.status, pendingResumeDueDate.nextStatus)) {
+        if (
+          isBackwardStatusMove(
+            pendingResumeDueDate.valve.status,
+            pendingResumeDueDate.nextStatus,
+            workflow.key,
+          )
+        ) {
           setPendingResumeDueDate(null)
           setPendingRework({
             valve: pendingResumeDueDate.valve,
@@ -1304,7 +1340,13 @@ export function JobBoardPage({ role, username }: { role?: UserRole; username?: s
         )
         if (ok) setPendingResumeDueDate(null)
       } else {
-        if (isBackwardStatusMove(pendingResumeDueDate.valve.status, pendingResumeDueDate.nextStatus)) {
+        if (
+          isBackwardStatusMove(
+            pendingResumeDueDate.valve.status,
+            pendingResumeDueDate.nextStatus,
+            workflow.key,
+          )
+        ) {
           setPendingResumeDueDate(null)
           setPendingRework({
             valve: pendingResumeDueDate.valve,
@@ -1381,6 +1423,10 @@ export function JobBoardPage({ role, username }: { role?: UserRole; username?: s
   const togglePriority = async (valve: Valve) => {
     if (!canWrite) {
       showToast(permissionDeniedReason('shopWrite'))
+      return
+    }
+    if (blockSharedShopDeletes()) {
+      showToast(SHARED_SHOP_DELETE_BLOCKED_MESSAGE)
       return
     }
     const currentlyPriority = priorityIds.has(valve.valve_id)
@@ -1538,7 +1584,7 @@ export function JobBoardPage({ role, username }: { role?: UserRole; username?: s
       }
       return doneLimited
     },
-    [activeNonTerminal, doneLimited, hasListTopSearch, valves],
+    [activeNonTerminal, doneLimited, hasListTopSearch, valves, DONE_STATUSES, PHASES],
   )
 
   const itemsForPhase = useCallback(
@@ -1629,7 +1675,7 @@ export function JobBoardPage({ role, username }: { role?: UserRole; username?: s
       setPendingResumeDueDate({ valve, nextStatus, mode: 'status-only' })
       return
     }
-    if (isBackwardStatusMove(valve.status, nextStatus)) {
+    if (isBackwardStatusMove(valve.status, nextStatus, workflow.key)) {
       setPendingRework({ valve, nextStatus, mode: 'status-only' })
       return
     }
@@ -1680,7 +1726,7 @@ export function JobBoardPage({ role, username }: { role?: UserRole; username?: s
 
       return changed ? next : prev
     })
-  }, [valves, baseItemsForPhase, compareValvesForDisplay, loading])
+  }, [valves, baseItemsForPhase, compareValvesForDisplay, loading, PHASES])
 
   useEffect(() => {
     if (loading) return
@@ -1766,6 +1812,7 @@ export function JobBoardPage({ role, username }: { role?: UserRole; username?: s
                       valve={valve}
                       techIds={technicianIdsForValve(valve)}
                       phaseKey={phase.key}
+                      statusOrder={STATUS_ORDER}
                       priorityIds={priorityIds}
                       attachmentCounts={attachmentCounts}
                       outsourcedSummaries={outsourcedSummaries}

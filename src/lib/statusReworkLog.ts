@@ -240,7 +240,10 @@ export function isReworkActionQueueRow(row: StatusReworkRecord): boolean {
   const disposition = row.qa_disposition ?? null
   if (!disposition || disposition === null) return true
   if (disposition === 'incr') {
-    return row.incr_status == null || row.incr_status === 'open'
+    // Only keep rows whose INCR status is explicitly open. Treating null as open
+    // falsely resurfaces closed INCRs when quality_incrs enrichment is blocked
+    // (e.g. Generic Admin / anon session with authenticated-only RLS).
+    return row.incr_status === 'open'
   }
   return false
 }

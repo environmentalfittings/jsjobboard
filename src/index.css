@@ -75,6 +75,13 @@ body {
   flex: 0 0 auto;
 }
 
+.brand-logo--vsi {
+  border-radius: 6px;
+  object-fit: contain;
+  background: #fff;
+  padding: 2px;
+}
+
 .nav-top-actions {
   display: none;
   align-items: center;
@@ -236,6 +243,66 @@ body {
   max-width: 100%;
   position: relative;
   z-index: 5;
+}
+
+.company-switcher {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 220px;
+  min-width: 0;
+  color: #e2e8f0;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.company-switcher--single {
+  padding: 5px 10px;
+  border: 1px solid #334155;
+  border-radius: 8px;
+  background: #1e293b;
+}
+
+.company-switcher-label {
+  color: #94a3b8;
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  white-space: nowrap;
+}
+
+.company-switcher-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.company-switcher-logo {
+  width: 22px;
+  height: 22px;
+  border-radius: 4px;
+  object-fit: contain;
+  flex: 0 0 auto;
+  background: #fff;
+}
+
+.company-switcher-select {
+  min-width: 0;
+  max-width: 160px;
+  border: 1px solid #475569;
+  border-radius: 8px;
+  background: #1e293b;
+  color: #f8fafc;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 700;
+  padding: 5px 8px;
+}
+
+.company-switcher-select:focus {
+  outline: 2px solid #38bdf8;
+  outline-offset: 1px;
 }
 
 .nav-feedback-button {
@@ -1477,6 +1544,14 @@ body {
   border-radius: 999px;
   object-fit: cover;
   border: 1px solid #dbe4ef;
+}
+
+.dashboard-logo--vsi {
+  border-radius: 8px;
+  object-fit: contain;
+  background: #fff;
+  border-color: #dbe4ef;
+  padding: 3px;
 }
 
 .dashboard-main-grid {
@@ -13074,6 +13149,139 @@ textarea.modal-status-select {
   height: 1rem;
   margin: 0;
   accent-color: #1e3a5f;
+}
+
+.admin-employees-company-access {
+  display: flex;
+  flex-direction: column;
+  gap: 0.45rem;
+  min-width: 12rem;
+}
+
+.admin-employees-company-access-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.35rem 0.5rem;
+}
+
+.admin-employees-company-access-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  margin: 0;
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: #334155;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.admin-employees-company-access-item input[type='checkbox'] {
+  width: 0.95rem;
+  height: 0.95rem;
+  margin: 0;
+  accent-color: #1e3a5f;
+}
+
+.admin-employees-company-role-select {
+  min-width: 7.25rem;
+  max-width: 100%;
+  padding: 3px 6px;
+  border: 1px solid #cbd5e1;
+  border-radius: 6px;
+  background: #fff;
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: #1e293b;
+}
+
+.admin-employees-company-role-select:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.role-pill--superadmin {
+  background: #0f766e;
+  color: #ecfdf5;
+}
+
+.company-compare-report {
+  margin-bottom: 1rem;
+}
+
+.company-compare-incr-of {
+  color: #64748b;
+  font-weight: 500;
+  font-size: 0.85em;
+}
+
+.admin-employees-company-access-empty {
+  color: #94a3b8;
+  font-size: 0.8rem;
+  font-weight: 600;
+}
+
+.admin-employees-orgs-note {
+  margin: 0 0 0.75rem;
+  padding: 8px 10px;
+  border-radius: 8px;
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  color: #475569;
+  font-size: 0.85rem;
+}
+
+.admin-employees-superadmin-unlock {
+  margin: 0 0 1rem;
+  border: 1px solid #99f6e4;
+  background: #f0fdfa;
+}
+
+.admin-employees-superadmin-unlock h3 {
+  margin: 0 0 0.5rem;
+  font-size: 1.05rem;
+  color: #115e59;
+}
+
+.admin-employees-superadmin-unlock p {
+  margin: 0 0 0.75rem;
+  color: #334155;
+  font-size: 0.9rem;
+  line-height: 1.45;
+}
+
+.admin-employees-superadmin-sql {
+  margin: 0 0 0.75rem;
+  padding: 0.75rem 0.9rem;
+  border-radius: 8px;
+  background: #0f172a;
+  color: #e2e8f0;
+  font-size: 0.78rem;
+  line-height: 1.45;
+  overflow-x: auto;
+  white-space: pre-wrap;
+}
+
+.admin-employees-superadmin-unlock-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.admin-employees-add-companies {
+  margin: 0.75rem 0 0;
+  padding: 0.75rem 0.85rem;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  background: #f8fafc;
+}
+
+.admin-employees-add-companies legend {
+  padding: 0 0.25rem;
+  font-size: 0.85rem;
+  font-weight: 700;
+  color: #0f172a;
 }
 
 .admin-employees-quality-select {

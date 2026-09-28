@@ -1,6 +1,9 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
+import { useOrganization } from '../contexts/OrganizationContext'
+import { useCompanyWorkflow } from '../hooks/useCompanyWorkflow'
+import { filterNotesForCompany } from '../lib/companyDataScope'
 import type { DailyNote } from './DashboardNotesPanel'
 
 function formatNoteDate(value: string | null | undefined): string {
@@ -76,6 +79,8 @@ function escapeHtml(value: string): string {
 }
 
 export function RailReportPanel() {
+  const { activeOrganization } = useOrganization()
+  const workflow = useCompanyWorkflow()
   const [rows, setRows] = useState<DailyNote[]>([])
   const [loading, setLoading] = useState(true)
   const [setupRequired, setSetupRequired] = useState(false)
@@ -97,10 +102,15 @@ export function RailReportPanel() {
       setRows([])
     } else {
       setSetupRequired(false)
-      setRows((data as DailyNote[]) ?? [])
+      setRows(
+        filterNotesForCompany((data as DailyNote[]) ?? [], {
+          workflowKey: workflow.key,
+          activeOrganization,
+        }),
+      )
     }
     setLoading(false)
-  }, [])
+  }, [workflow.key, activeOrganization])
 
   useEffect(() => {
     void loadRows()

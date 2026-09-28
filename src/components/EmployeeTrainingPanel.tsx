@@ -1,6 +1,19 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useToast } from './ToastNotification'
+import { useOrganization } from '../contexts/OrganizationContext'
+import { useCompanyWorkflow } from '../hooks/useCompanyWorkflow'
 import { useEmployees } from '../hooks/useEmployees'
+import {
+  filterTrainingCoursesForCompany,
+  filterTrainingFilesForCompany,
+  filterTrainingsForCompany,
+  filterTrainingSkillsForCompany,
+  rememberTrainingCourseForCompany,
+  rememberTrainingFileForCompany,
+  rememberTrainingForCompany,
+  rememberTrainingSkillForCompany,
+  trainingBelongsToCompany,
+} from '../lib/companyDataScope'
 import {
   TRAINING_FILE_KINDS,
   TRAINING_COURSE_SECTION_KINDS,
@@ -106,6 +119,15 @@ function textMatchesQuery(rawQuery: string, ...parts: Array<string | null | unde
 
 export function EmployeeTrainingPanel({ canWrite, onCountsChange }: EmployeeTrainingPanelProps) {
   const { showToast } = useToast()
+  const { activeOrganization } = useOrganization()
+  const workflow = useCompanyWorkflow()
+  const companyScope = useMemo(
+    () => ({
+      workflowKey: workflow.key,
+      activeOrganization,
+    }),
+    [workflow.key, activeOrganization],
+  )
   const { employees } = useEmployees()
   const activeEmployees = useMemo(
     () => employees.filter((e) => e.is_active).sort((a, b) => a.full_name.localeCompare(b.full_name)),
@@ -385,7 +407,7 @@ export function EmployeeTrainingPanel({ canWrite, onCountsChange }: EmployeeTrai
     setLoading(true)
     try {
       const list = await listEmployeeTrainings()
-      setRows(list)
+      setRows(filterTrainingsForCompany(list, companyScope))
       onCountsChange?.()
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Could not load trainings'
@@ -398,17 +420,23 @@ export function EmployeeTrainingPanel({ canWrite, onCountsChange }: EmployeeTrai
     } finally {
       setLoading(false)
     }
-  }, [onCountsChange, showToast])
+  }, [companyScope, onCountsChange, showToast])
 
   const loadDetail = useCallback(
     async (trainingId: number) => {
+      if (!trainingBelongsToCompany(trainingId, companyScope)) {
+        setAttendees([])
+        setFiles([])
+        setHourEntries([])
+        return
+      }
       try {
         const [a, f] = await Promise.all([
           listTrainingAttendees(trainingId),
           listTrainingFiles({ trainingId }),
         ])
         setAttendees(a)
-        setFiles(f)
+        setFiles(filterTrainingFilesForCompany(f, companyScope))
         try {
           setHourEntries(await listTrainingHourEntries({ trainingId }))
         } catch (error) {
@@ -423,7 +451,7 @@ export function EmployeeTrainingPanel({ canWrite, onCountsChange }: EmployeeTrai
         setHourEntries([])
       }
     },
-    [showToast],
+    [companyScope, showToast],
   )
 
   const loadLibrary = useCallback(async () => {
@@ -434,8 +462,8 @@ export function EmployeeTrainingPanel({ canWrite, onCountsChange }: EmployeeTrai
           libraryOnly: true,
         }),
       ])
-      setCourses(courseList)
-      setLibraryFiles(list)
+      setCourses(filterTrainingCoursesForCompany(courseList, companyScope))
+      setLibraryFiles(filterTrainingFilesForCompany(list, companyScope))
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Could not load library'
       setCourses([])
@@ -446,19 +474,21 @@ export function EmployeeTrainingPanel({ canWrite, onCountsChange }: EmployeeTrai
         showToast(message)
       }
     }
-  }, [showToast])
+  }, [companyScope, showToast])
 
   const loadEmployeeRoster = useCallback(async () => {
     try {
       const [skillRows, attendeeRows] = await Promise.all([listEmployeeSkills(), listAllAttendeeTrainings()])
-      setAllSkills(skillRows)
-      setAllAttendeeRows(attendeeRows)
+      setAllSkills(filterTrainingSkillsForCompany(skillRows, companyScope))
+      setAllAttendeeRows(
+        attendeeRows.filter((row) => trainingBelongsToCompany(row.training_id, companyScope)),
+      )
     } catch (error) {
       setAllSkills([])
       setAllAttendeeRows([])
       showToast(errorMessage(error, 'Could not load employee roster'))
     }
-  }, [showToast])
+  }, [companyScope, showToast])
 
   const loadEmployeeDetail = useCallback(
     async (employeeId: string) => {
@@ -476,15 +506,21 @@ export function EmployeeTrainingPanel({ canWrite, onCountsChange }: EmployeeTrai
           listAttendeeTrainingsForEmployee(employeeId),
           listTrainingFiles({ employeeId, kind: 'certificate' }),
         ])
-        setSkills(skillRows)
-        setEmployeeHistory(history)
-        setEmployeeCertificates(certificates)
+        const scopedSkills = filterTrainingSkillsForCompany(skillRows, companyScope)
+        setSkills(scopedSkills)
+        setEmployeeHistory(
+          history.filter((row) => trainingBelongsToCompany(row.training_id, companyScope)),
+        )
+        setEmployeeCertificates(filterTrainingFilesForCompany(certificates, companyScope))
         try {
-          setEmployeeHourEntries(await listTrainingHourEntries({ employeeId }))
+          const hours = await listTrainingHourEntries({ employeeId })
+          setEmployeeHourEntries(
+            hours.filter((row) => trainingBelongsToCompany(row.training_id, companyScope)),
+          )
         } catch {
           setEmployeeHourEntries([])
         }
-        setShopLocation(skillRows.find((s) => s.shop_location)?.shop_location ?? '')
+        setShopLocation(scopedSkills.find((s) => s.shop_location)?.shop_location ?? '')
       } catch (error) {
         showToast(errorMessage(error, 'Could not load employee training record'))
         setSkills([])
@@ -493,14 +529,14 @@ export function EmployeeTrainingPanel({ canWrite, onCountsChange }: EmployeeTrai
         setEmployeeHourEntries([])
       }
     },
-    [showToast],
+    [companyScope, showToast],
   )
 
   useEffect(() => {
     void listTrainingCourses()
-      .then(setCourses)
+      .then((list) => setCourses(filterTrainingCoursesForCompany(list, companyScope)))
       .catch(() => setCourses([]))
-  }, [])
+  }, [companyScope])
 
   useEffect(() => {
     if (!draft.course_id) {
@@ -508,13 +544,24 @@ export function EmployeeTrainingPanel({ canWrite, onCountsChange }: EmployeeTrai
       return
     }
     void listTrainingFiles({ courseId: draft.course_id })
-      .then(setLinkedCourseFiles)
+      .then((list) => setLinkedCourseFiles(filterTrainingFilesForCompany(list, companyScope)))
       .catch(() => setLinkedCourseFiles([]))
-  }, [draft.course_id])
+  }, [companyScope, draft.course_id])
 
   useEffect(() => {
     void loadTrainings()
   }, [loadTrainings])
+
+  // Drop in-progress selection when switching companies so JS sessions do not linger on VSI.
+  useEffect(() => {
+    setSelectedId(null)
+    setCreating(false)
+    setDraft(emptyTrainingInput())
+    setSelectedCourseId(null)
+    setAttendees([])
+    setFiles([])
+    setHourEntries([])
+  }, [workflow.key, activeOrganization?.id])
 
   useEffect(() => {
     if (selectedId != null) void loadDetail(selectedId)
@@ -572,6 +619,7 @@ export function EmployeeTrainingPanel({ canWrite, onCountsChange }: EmployeeTrai
     try {
       if (creating) {
         const created = await createEmployeeTraining(draft)
+        rememberTrainingForCompany(workflow.key, created.id)
         for (const attendee of draftAttendees) {
           await upsertTrainingAttendee({
             trainingId: created.id,
@@ -790,7 +838,7 @@ export function EmployeeTrainingPanel({ canWrite, onCountsChange }: EmployeeTrai
     setBusy(true)
     try {
       for (const file of Array.from(fileList)) {
-        await uploadTrainingFile({
+        const uploaded = await uploadTrainingFile({
           file,
           kind: libraryKind,
           title: libraryTitle.trim() || undefined,
@@ -798,6 +846,9 @@ export function EmployeeTrainingPanel({ canWrite, onCountsChange }: EmployeeTrai
           trainingId: null,
           courseId: selectedCourseId,
         })
+        if (uploaded.training_id == null && uploaded.course_id == null) {
+          rememberTrainingFileForCompany(workflow.key, uploaded.id)
+        }
       }
       showToast(fileList.length > 1 ? 'Files uploaded' : 'File uploaded')
       setLibraryTitle('')
@@ -815,7 +866,7 @@ export function EmployeeTrainingPanel({ canWrite, onCountsChange }: EmployeeTrai
     if (!canWrite || busy) return
     setBusy(true)
     try {
-      await createTrainingLibraryLink({
+      const linked = await createTrainingLibraryLink({
         url: libraryUrl,
         kind: libraryKind,
         title: libraryTitle,
@@ -823,6 +874,9 @@ export function EmployeeTrainingPanel({ canWrite, onCountsChange }: EmployeeTrai
         trainingId: null,
         courseId: selectedCourseId,
       })
+      if (linked.training_id == null && linked.course_id == null) {
+        rememberTrainingFileForCompany(workflow.key, linked.id)
+      }
       showToast('Link added to library')
       setLibraryUrl('')
       setLibraryTitle('')
@@ -844,6 +898,7 @@ export function EmployeeTrainingPanel({ canWrite, onCountsChange }: EmployeeTrai
         title: newCourseTitle,
         description: newCourseDescription,
       })
+      rememberTrainingCourseForCompany(workflow.key, created.id)
       showToast(`Course created: ${created.title}`)
       setNewCourseTitle('')
       setNewCourseDescription('')
@@ -1012,12 +1067,13 @@ export function EmployeeTrainingPanel({ canWrite, onCountsChange }: EmployeeTrai
     if (!canWrite || busy || !selectedEmployeeId) return
     setBusy(true)
     try {
-      await upsertEmployeeSkill({
+      const saved = await upsertEmployeeSkill({
         employeeId: selectedEmployeeId,
         skillKey,
         level,
         shopLocation,
       })
+      rememberTrainingSkillForCompany(workflow.key, saved.id)
       await loadEmployeeDetail(selectedEmployeeId)
       await loadEmployeeRoster()
     } catch (error) {
@@ -1033,12 +1089,13 @@ export function EmployeeTrainingPanel({ canWrite, onCountsChange }: EmployeeTrai
     try {
       // Persist shop location on every skill row (or create a placeholder for gtc_training).
       const existing = skills[0]
-      await upsertEmployeeSkill({
+      const saved = await upsertEmployeeSkill({
         employeeId: selectedEmployeeId,
         skillKey: existing?.skill_key ?? 'gtc_training',
         level: (existing?.level as TrainingSkillLevel) ?? '',
         shopLocation,
       })
+      rememberTrainingSkillForCompany(workflow.key, saved.id)
       await loadEmployeeDetail(selectedEmployeeId)
       await loadEmployeeRoster()
       showToast('Shop location saved')
@@ -1845,10 +1902,14 @@ export function EmployeeTrainingPanel({ canWrite, onCountsChange }: EmployeeTrai
     <section className="dashboard-panel resources-panel training-panel">
       <div className="resources-module-header">
         <div>
-          <h3 className="resources-module-title">Employee Training</h3>
+          <h3 className="resources-module-title">
+            Employee Training
+            {activeOrganization ? ` · ${activeOrganization.name}` : ''}
+          </h3>
           <p className="placeholder-copy resources-hint">
-            Schedule sessions, document the training log with auto TR numbers, track employee qualifications, and store
-            materials/tests.
+            {workflow.key === 'vsi'
+              ? 'VSI training starts empty in the local multi-company demo until sessions are created here. Other Resources sections stay shared.'
+              : 'Schedule sessions, document the training log with auto TR numbers, track employee qualifications, and store materials/tests. Company-specific — other Resources stay shared.'}
           </p>
         </div>
         <button type="button" className="button-secondary resources-module-refresh" disabled={loading} onClick={() => void loadTrainings()}>

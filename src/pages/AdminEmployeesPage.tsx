@@ -1,8 +1,14 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 import { useToast } from '../components/ToastNotification'
+import { useOrganization } from '../contexts/OrganizationContext'
 import { validateEmployeePassword } from '../lib/auth'
 import { loadEmployeeAccountStatus } from '../lib/employeeAccounts'
+import {
+  createOrganization,
+  listOrganizationMembersForEmployees,
+  setEmployeeOrganizationAccess,
+} from '../lib/organizations'
 import { supabase } from '../lib/supabase'
 import { useEmployees } from '../hooks/useEmployees'
 import { TechniciansPage } from './TechniciansPage'
@@ -17,6 +23,35 @@ import {
   normalizeQualityTeamLevel,
   qualityTeamLevelLabel,
 } from '../types/employees'
+import {
+  ORGANIZATION_ROLE_OPTIONS,
+  normalizeOrganizationRole,
+  type OrganizationMember,
+  type OrganizationRole,
+} from '../types/organizations'
+
+/** Required once so Superadmin (no Supabase session) can SELECT the roster. */
+const EMPLOYEES_ANON_READ_SQL = `-- Allow Superadmin / local login to read the Employees roster
+-- Run once in Supabase → SQL Editor, then Refresh this page.
+
+begin;
+
+drop policy if exists "anon read employees" on public.employees;
+create policy "anon read employees"
+on public.employees
+for select
+to anon
+using (true);
+
+commit;`
+
+function slugifyCompanyName(value: string) {
+  return value
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+}
 
 type StatusFilter = 'all' | 'no_account' | 'active'
 type EmployeesTab = 'roster' | 'shop'
@@ -65,6 +100,13 @@ function statusLabel(status: EmployeeAuthStatus) {
 
 export function AdminEmployeesPage({ isAdmin }: { isAdmin: boolean }) {
   const { showToast } = useToast()
+  const {
+    orgsEnabled,
+    isLocalOrganizations,
+    organizations,
+    isOrgSuperAdmin,
+    refreshOrganizations,
+  } = useOrganization()
   const [searchParams, setSearchParams] = useSearchParams()
   const activeTab = parseEmployeesTab(searchParams.get('tab'))
   const setActiveTab = (tab: EmployeesTab) => {
@@ -81,6 +123,8 @@ export function AdminEmployeesPage({ isAdmin }: { isAdmin: boolean }) {
   const { employees, loading, error, reload } = useEmployees()
   const [accountStatus, setAccountStatus] = useState<Record<string, EmployeeAccountStatus>>({})
   const [statusLoading, setStatusLoading] = useState(false)
+  const [orgMembers, setOrgMembers] = useState<OrganizationMember[]>([])
+  const [orgMembersLoading, setOrgMembersLoading] = useState(false)
   const [search, setSearch] = useState('')
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('all')
   const [busy, setBusy] = useState(false)
@@ -94,6 +138,11 @@ export function AdminEmployeesPage({ isAdmin }: { isAdmin: boolean }) {
   const [resetConfirm, setResetConfirm] = useState('')
 
   const [deactivateTarget, setDeactivateTarget] = useState<Employee | null>(null)
+
+  const [createCompanyOpen, setCreateCompanyOpen] = useState(false)
+  const [createCompanyName, setCreateCompanyName] = useState('')
+  const [createCompanySlug, setCreateCompanySlug] = useState('')
+  const [createCompanySlugTouched, setCreateCompanySlugTouched] = useState(false)
 
   const [addOpen, setAddOpen] = useState(false)
   const [addForm, setAddForm] = useState({
@@ -109,6 +158,10 @@ export function AdminEmployeesPage({ isAdmin }: { isAdmin: boolean }) {
     password: '',
     confirmPassword: '',
   })
+  /** Company access chosen at create time (Superadmin / multi-company). */
+  const [addCompanyAccess, setAddCompanyAccess] = useState<
+    Record<string, { canAccess: boolean; role: OrganizationRole }>
+  >({})
 
   const loadStatus = useCallback(async (rows: Employee[]) => {
     setStatusLoading(true)
@@ -146,6 +199,51 @@ export function AdminEmployeesPage({ isAdmin }: { isAdmin: boolean }) {
     void loadStatus(employees)
   }, [employees, loadStatus])
 
+  const loadOrgMembers = useCallback(async (rows: Employee[]) => {
+    if (!orgsEnabled) {
+      setOrgMembers([])
+      setOrgMembersLoading(false)
+      return
+    }
+    setOrgMembersLoading(true)
+    const result = await listOrganizationMembersForEmployees(rows.map((row) => row.id))
+    setOrgMembers(result.enabled ? result.data : [])
+    setOrgMembersLoading(false)
+  }, [orgsEnabled])
+
+  useEffect(() => {
+    if (!employees.length) {
+      setOrgMembers([])
+      return
+    }
+    void loadOrgMembers(employees)
+  }, [employees, loadOrgMembers])
+
+  const orgAccessByEmployee = useMemo(() => {
+    const map = new Map<string, Set<string>>()
+    for (const row of orgMembers) {
+      if (!row.employee_id || !row.can_access) continue
+      const set = map.get(row.employee_id) ?? new Set<string>()
+      set.add(row.organization_id)
+      map.set(row.employee_id, set)
+    }
+    return map
+  }, [orgMembers])
+
+  const orgRoleByEmployee = useMemo(() => {
+    const map = new Map<string, Map<string, OrganizationRole>>()
+    for (const row of orgMembers) {
+      if (!row.employee_id) continue
+      const byOrg = map.get(row.employee_id) ?? new Map<string, OrganizationRole>()
+      byOrg.set(row.organization_id, row.role)
+      map.set(row.employee_id, byOrg)
+    }
+    return map
+  }, [orgMembers])
+
+  const canAssignCompanyRoles = isAdmin && isOrgSuperAdmin
+  const rosterColSpan = orgsEnabled ? 11 : 10
+
   const missingAccounts = useMemo(
     () => employees.filter((employee) => employee.is_active && !employee.auth_user_id),
     [employees],
@@ -176,6 +274,102 @@ export function AdminEmployeesPage({ isAdmin }: { isAdmin: boolean }) {
 
   const refreshAll = async () => {
     await reload()
+    if (orgsEnabled) await refreshOrganizations()
+  }
+
+  const toggleCompanyAccess = async (
+    employee: Employee,
+    organizationId: string,
+    canAccess: boolean,
+  ) => {
+    if (!isAdmin) {
+      showToast('Only Admin can change company access')
+      return
+    }
+    if (!orgsEnabled) return
+    setBusy(true)
+    const existingRole = orgRoleByEmployee.get(employee.id)?.get(organizationId)
+    const { error: accessError } = await setEmployeeOrganizationAccess({
+      employeeId: employee.id,
+      organizationId,
+      canAccess,
+      role: existingRole ?? 'technician',
+      userId: employee.auth_user_id,
+    })
+    if (accessError) {
+      setBusy(false)
+      showToast(accessError)
+      return
+    }
+    await loadOrgMembers(employees)
+    setBusy(false)
+    showToast(
+      canAccess
+        ? `Granted ${employee.full_name} access`
+        : `Removed ${employee.full_name} access`,
+    )
+  }
+
+  const setCompanyRole = async (
+    employee: Employee,
+    organizationId: string,
+    role: OrganizationRole,
+  ) => {
+    if (!canAssignCompanyRoles) {
+      showToast('Only Superadmin can assign company roles')
+      return
+    }
+    if (!orgsEnabled) return
+    setBusy(true)
+    const { error: accessError } = await setEmployeeOrganizationAccess({
+      employeeId: employee.id,
+      organizationId,
+      canAccess: true,
+      role,
+      userId: employee.auth_user_id,
+    })
+    if (accessError) {
+      setBusy(false)
+      showToast(accessError)
+      return
+    }
+    await loadOrgMembers(employees)
+    setBusy(false)
+    showToast(`Set ${employee.full_name} to ${role.replace('_', ' ')}`)
+  }
+
+  const openCreateCompany = () => {
+    setCreateCompanyName('')
+    setCreateCompanySlug('')
+    setCreateCompanySlugTouched(false)
+    setCreateCompanyOpen(true)
+  }
+
+  const handleCreateCompany = async () => {
+    if (!isOrgSuperAdmin) {
+      showToast('Only a super admin can create companies')
+      return
+    }
+    const name = createCompanyName.trim()
+    const slug = (createCompanySlugTouched ? createCompanySlug : slugifyCompanyName(name)).trim()
+    if (!name) {
+      showToast('Company name is required')
+      return
+    }
+    if (!slug) {
+      showToast('Company slug is required')
+      return
+    }
+    setBusy(true)
+    const { data, error: createError } = await createOrganization({ name, slug })
+    setBusy(false)
+    if (createError || !data) {
+      showToast(createError ?? 'Could not create company')
+      return
+    }
+    setCreateCompanyOpen(false)
+    await refreshOrganizations()
+    showToast(`Company created: ${data.name}`)
   }
 
   const openAddEmployee = () => {
@@ -192,6 +386,16 @@ export function AdminEmployeesPage({ isAdmin }: { isAdmin: boolean }) {
       password: '',
       confirmPassword: '',
     })
+    // Default new hires to JS Valve technician access; Superadmin can add VSI etc.
+    const defaults: Record<string, { canAccess: boolean; role: OrganizationRole }> = {}
+    for (const org of organizations) {
+      const isJs =
+        org.slug === 'js-valve' ||
+        org.id.includes('js-valve') ||
+        /js\s*valve/i.test(org.name)
+      defaults[org.id] = { canAccess: isJs, role: 'technician' }
+    }
+    setAddCompanyAccess(defaults)
     setAddOpen(true)
   }
 
@@ -280,6 +484,9 @@ export function AdminEmployeesPage({ isAdmin }: { isAdmin: boolean }) {
       return
     }
 
+    let authUserId: string | null = null
+    let toastMessage = `Employee added: ${full_name}`
+
     if (addForm.createLogin) {
       try {
         await invokeManageEmployeeAccount({
@@ -289,23 +496,56 @@ export function AdminEmployeesPage({ isAdmin }: { isAdmin: boolean }) {
           password: addForm.password,
           full_name: data.full_name,
         })
-        showToast(`Employee added and login created — username: ${data.username}`)
+        const { data: linked } = await supabase
+          .from('employees')
+          .select('auth_user_id')
+          .eq('id', data.id)
+          .maybeSingle()
+        authUserId = linked?.auth_user_id ? String(linked.auth_user_id) : null
+        toastMessage = `Employee added and login created — username: ${data.username}`
       } catch (err) {
         const message = err instanceof Error ? err.message : 'Login create failed'
-        showToast(
-          isDeployError(message)
-            ? `Employee added, but deploy manage-employee-account to create login for ${data.username}`
-            : `Employee added, but login failed: ${message}`,
-        )
-        setBusy(false)
-        setAddOpen(false)
-        await refreshAll()
-        return
+        toastMessage = isDeployError(message)
+          ? `Employee added, but deploy manage-employee-account to create login for ${data.username}`
+          : `Employee added, but login failed: ${message}`
       }
-    } else {
-      showToast(`Employee added: ${full_name}`)
     }
 
+    if (orgsEnabled) {
+      const selected = Object.entries(addCompanyAccess).filter(([, value]) => value.canAccess)
+      if (selected.length === 0) {
+        // Never leave a new hire with zero companies — default to JS Valve technician.
+        const jsOrg = organizations.find(
+          (org) =>
+            org.slug === 'js-valve' || org.id.includes('js-valve') || /js\s*valve/i.test(org.name),
+        )
+        if (jsOrg) {
+          selected.push([jsOrg.id, { canAccess: true, role: 'technician' }])
+        }
+      }
+      for (const [organizationId, value] of selected) {
+        const { error: accessError } = await setEmployeeOrganizationAccess({
+          employeeId: data.id,
+          organizationId,
+          canAccess: true,
+          role: value.role,
+          userId: authUserId,
+        })
+        if (accessError) {
+          toastMessage = `${toastMessage}. Company access failed: ${accessError}`
+          break
+        }
+      }
+      const companyNames = selected
+        .map(([orgId]) => organizations.find((org) => org.id === orgId)?.name)
+        .filter(Boolean)
+        .join(', ')
+      if (companyNames && !toastMessage.includes('Company access failed')) {
+        toastMessage = `${toastMessage} · ${companyNames}`
+      }
+    }
+
+    showToast(toastMessage)
     setBusy(false)
     setAddOpen(false)
     await refreshAll()
@@ -501,6 +741,11 @@ export function AdminEmployeesPage({ isAdmin }: { isAdmin: boolean }) {
               <Link to="/admin/employees/print-usernames" className="button-secondary" target="_blank">
                 Print usernames
               </Link>
+              {isAdmin && orgsEnabled && isOrgSuperAdmin ? (
+                <button type="button" className="button-secondary" disabled={busy} onClick={openCreateCompany}>
+                  Create company
+                </button>
+              ) : null}
               {isAdmin ? (
                 <button type="button" className="button-primary" disabled={busy} onClick={openAddEmployee}>
                   Add employee
@@ -547,6 +792,63 @@ export function AdminEmployeesPage({ isAdmin }: { isAdmin: boolean }) {
           or Admin → Lists → Customers. Use <strong>Quality Team</strong> for QC membership only — it does not change
           App role / login permissions (set those under Shop assignment).
         </p>
+      ) : null}
+      {activeTab === 'roster' && orgsEnabled ? (
+        <p className="admin-employees-orgs-note">
+          {isOrgSuperAdmin ? (
+            <>
+              <strong>Superadmin</strong> sees every employee across all companies. Use the{' '}
+              <strong>Companies</strong> checkboxes and role menus for company access (including company Superadmin).
+              The <strong>Quality Team</strong> column is QC only — it does not control login permissions. For someone
+              to save changes when they log in, set their App role under <strong>Shop assignment</strong> to Admin (or
+              grant company Superadmin, which elevates them automatically).
+              {isLocalOrganizations
+                ? ' Company roles are stored in this browser until migration-organizations-foundation.sql is run in Supabase.'
+                : ''}
+            </>
+          ) : isLocalOrganizations ? (
+            <>
+              Local multi-company demo (Vite DEV) — JS Valve + VSI are stored in this browser only until
+              migration-organizations-foundation.sql is run. Existing staff default to JS Valve access; grant VSI with
+              the Companies checkboxes. Superadmin login needs supabase/migration-employees-anon-read.sql (or an
+              employee admin login) to load this roster.
+            </>
+          ) : (
+            <>Multi-company is enabled.</>
+          )}{' '}
+          {!isOrgSuperAdmin
+            ? 'Users only see companies they can access in the header switcher.'
+            : 'Use the header company switcher to work inside one company at a time, or open Reports for cross-company compare.'}
+        </p>
+      ) : null}
+
+      {activeTab === 'roster' && isOrgSuperAdmin && !loading && employees.length === 0 ? (
+        <section className="dashboard-panel admin-employees-superadmin-unlock" aria-live="polite">
+          <h3>Unlock Employees roster for Superadmin</h3>
+          <p>
+            Superadmin signs in without a Supabase Auth session, so Postgres RLS currently hides the{' '}
+            <code>employees</code> table. Run this once in your Supabase project → <strong>SQL Editor</strong>, then
+            click Refresh. Safe to re-run. Or sign in with a normal employee admin account instead.
+          </p>
+          <pre className="admin-employees-superadmin-sql">{EMPLOYEES_ANON_READ_SQL}</pre>
+          <div className="admin-employees-superadmin-unlock-actions">
+            <button
+              type="button"
+              className="button-primary"
+              onClick={() => {
+                void navigator.clipboard.writeText(EMPLOYEES_ANON_READ_SQL).then(
+                  () => showToast('SQL copied — paste into Supabase SQL Editor and Run'),
+                  () => showToast('Could not copy — select the SQL manually'),
+                )
+              }}
+            >
+              Copy SQL
+            </button>
+            <button type="button" className="button-secondary" disabled={busy || loading} onClick={() => void refreshAll()}>
+              Refresh roster
+            </button>
+          </div>
+        </section>
       ) : null}
 
       {activeTab === 'roster' ? (
@@ -597,6 +899,7 @@ export function AdminEmployeesPage({ isAdmin }: { isAdmin: boolean }) {
                 <th>Tester</th>
                 <th>Salesman</th>
                 <th>Quality Team</th>
+                {orgsEnabled ? <th>Companies</th> : null}
                 <th>Status</th>
                 <th>Last Sign In</th>
                 <th>Actions</th>
@@ -605,16 +908,22 @@ export function AdminEmployeesPage({ isAdmin }: { isAdmin: boolean }) {
             <tbody>
               {loading ? (
                 <tr>
-                  <td colSpan={10}>Loading employees…</td>
+                  <td colSpan={rosterColSpan}>Loading employees…</td>
                 </tr>
               ) : filteredEmployees.length === 0 ? (
                 <tr>
-                  <td colSpan={10}>No employees match your filters.</td>
+                  <td colSpan={rosterColSpan}>
+                    {employees.length === 0
+                      ? error ||
+                        'No employees loaded. Sign in with an employee admin account, or run supabase/migration-employees-anon-read.sql so Superadmin can read the roster.'
+                      : 'No employees match your filters.'}
+                  </td>
                 </tr>
               ) : (
                 filteredEmployees.map((employee) => {
                   const status = employeeStatus(employee)
                   const lastSignIn = accountStatus[employee.id]?.last_sign_in_at
+                  const accessSet = orgAccessByEmployee.get(employee.id)
                   return (
                     <tr
                       key={employee.id}
@@ -670,6 +979,60 @@ export function AdminEmployeesPage({ isAdmin }: { isAdmin: boolean }) {
                           ))}
                         </select>
                       </td>
+                      {orgsEnabled ? (
+                        <td>
+                          {orgMembersLoading && !organizations.length ? (
+                            <span className="admin-employees-company-access-empty">…</span>
+                          ) : organizations.length === 0 ? (
+                            <span className="admin-employees-company-access-empty">No companies</span>
+                          ) : (
+                            <div className="admin-employees-company-access">
+                              {organizations.map((org) => {
+                                const checked = accessSet?.has(org.id) ?? false
+                                const companyRole =
+                                  orgRoleByEmployee.get(employee.id)?.get(org.id) ?? 'technician'
+                                return (
+                                  <div key={org.id} className="admin-employees-company-access-row">
+                                    <label className="admin-employees-company-access-item">
+                                      <input
+                                        type="checkbox"
+                                        checked={checked}
+                                        disabled={!isAdmin || busy || !employee.is_active}
+                                        onChange={(e) =>
+                                          void toggleCompanyAccess(employee, org.id, e.target.checked)
+                                        }
+                                        aria-label={`${employee.full_name} access to ${org.name}`}
+                                      />
+                                      <span>{org.name}</span>
+                                    </label>
+                                    {canAssignCompanyRoles ? (
+                                      <select
+                                        className="admin-employees-company-role-select"
+                                        value={companyRole}
+                                        disabled={!checked || busy || !employee.is_active}
+                                        aria-label={`${employee.full_name} role at ${org.name}`}
+                                        onChange={(e) =>
+                                          void setCompanyRole(
+                                            employee,
+                                            org.id,
+                                            normalizeOrganizationRole(e.target.value),
+                                          )
+                                        }
+                                      >
+                                        {ORGANIZATION_ROLE_OPTIONS.map((opt) => (
+                                          <option key={opt.value} value={opt.value}>
+                                            {opt.label}
+                                          </option>
+                                        ))}
+                                      </select>
+                                    ) : null}
+                                  </div>
+                                )
+                              })}
+                            </div>
+                          )}
+                        </td>
+                      ) : null}
                       <td>{statusLabel(status)}</td>
                       <td>{statusLoading && employee.auth_user_id ? '…' : formatDateTime(lastSignIn)}</td>
                       <td>
@@ -831,6 +1194,67 @@ export function AdminEmployeesPage({ isAdmin }: { isAdmin: boolean }) {
         </div>
       ) : null}
 
+      {isAdmin && orgsEnabled && isOrgSuperAdmin && createCompanyOpen ? (
+        <div
+          className="modal-overlay"
+          role="presentation"
+          onClick={() => !busy && setCreateCompanyOpen(false)}
+        >
+          <div className="modal-card" role="dialog" aria-modal="true" onClick={(e) => e.stopPropagation()}>
+            <div className="technician-modal-head">
+              <h3>Create company</h3>
+            </div>
+            <div className="technician-modal-body">
+              <p className="placeholder-copy">
+                Creates an empty company. Grant employees access with the Companies checkboxes on the roster.
+              </p>
+              <label>
+                Company name
+                <input
+                  type="text"
+                  value={createCompanyName}
+                  autoFocus
+                  onChange={(e) => {
+                    const name = e.target.value
+                    setCreateCompanyName(name)
+                    if (!createCompanySlugTouched) setCreateCompanySlug(slugifyCompanyName(name))
+                  }}
+                />
+              </label>
+              <label>
+                Slug
+                <input
+                  type="text"
+                  value={createCompanySlug}
+                  onChange={(e) => {
+                    setCreateCompanySlugTouched(true)
+                    setCreateCompanySlug(slugifyCompanyName(e.target.value))
+                  }}
+                />
+              </label>
+            </div>
+            <div className="technician-modal-footer">
+              <button
+                type="button"
+                className="button-secondary"
+                onClick={() => setCreateCompanyOpen(false)}
+                disabled={busy}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                className="button-primary"
+                disabled={busy}
+                onClick={() => void handleCreateCompany()}
+              >
+                {busy ? 'Creating…' : 'Create company'}
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
       {isAdmin && addOpen ? (
         <div className="modal-overlay" role="presentation" onClick={() => !busy && setAddOpen(false)}>
           <div className="modal-card modal-card-wide" role="dialog" aria-modal="true" onClick={(e) => e.stopPropagation()}>
@@ -924,6 +1348,72 @@ export function AdminEmployeesPage({ isAdmin }: { isAdmin: boolean }) {
                   Also create login account
                 </label>
               </div>
+              {orgsEnabled ? (
+                <fieldset className="admin-employees-add-companies">
+                  <legend>Companies</legend>
+                  <p className="placeholder-copy" style={{ marginTop: 0 }}>
+                    Choose which companies this person can access. Defaults to JS Valve. You can change this later on
+                    their roster row.
+                  </p>
+                  {organizations.length === 0 ? (
+                    <p className="placeholder-copy">No companies available.</p>
+                  ) : (
+                    <div className="admin-employees-company-access">
+                      {organizations.map((org) => {
+                        const entry = addCompanyAccess[org.id] ?? {
+                          canAccess: false,
+                          role: 'technician' as OrganizationRole,
+                        }
+                        return (
+                          <div key={org.id} className="admin-employees-company-access-row">
+                            <label className="admin-employees-company-access-item">
+                              <input
+                                type="checkbox"
+                                checked={entry.canAccess}
+                                disabled={busy}
+                                onChange={(e) =>
+                                  setAddCompanyAccess((prev) => ({
+                                    ...prev,
+                                    [org.id]: {
+                                      canAccess: e.target.checked,
+                                      role: prev[org.id]?.role ?? 'technician',
+                                    },
+                                  }))
+                                }
+                                aria-label={`Grant access to ${org.name}`}
+                              />
+                              <span>{org.name}</span>
+                            </label>
+                            {canAssignCompanyRoles ? (
+                              <select
+                                className="admin-employees-company-role-select"
+                                value={entry.role}
+                                disabled={!entry.canAccess || busy}
+                                aria-label={`Role at ${org.name}`}
+                                onChange={(e) =>
+                                  setAddCompanyAccess((prev) => ({
+                                    ...prev,
+                                    [org.id]: {
+                                      canAccess: prev[org.id]?.canAccess ?? true,
+                                      role: normalizeOrganizationRole(e.target.value),
+                                    },
+                                  }))
+                                }
+                              >
+                                {ORGANIZATION_ROLE_OPTIONS.map((opt) => (
+                                  <option key={opt.value} value={opt.value}>
+                                    {opt.label}
+                                  </option>
+                                ))}
+                              </select>
+                            ) : null}
+                          </div>
+                        )
+                      })}
+                    </div>
+                  )}
+                </fieldset>
+              ) : null}
               {addForm.createLogin ? (
                 <>
                   <label>

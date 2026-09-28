@@ -1,4 +1,8 @@
 import { TERMINAL_STATUSES } from '../constants/statuses'
+import {
+  blockSharedShopDeletes,
+  SHARED_SHOP_DELETE_BLOCKED_MESSAGE,
+} from './companyDataGuard'
 import { compareValveIdSequential } from './valveWorkOrderSearch'
 import type { Valve } from '../types'
 import { supabase } from './supabase'
@@ -27,20 +31,51 @@ export function prunePriorityValveIds(valveIds: string[], valves: Valve[]): stri
   return valveIds.filter((id) => isEligiblePriorityValve(byValveId.get(id)))
 }
 
-/** Drop closed / ineligible queue rows so the dashboard matches live shop work. */
-export async function syncPriorityQueueWithValves(valves: Valve[]): Promise<string[]> {
+/** Keep only queue ids that belong to the provided (often company-scoped) valves. */
+export function filterPriorityIdsForValves(valveIds: readonly string[], valves: Valve[]): string[] {
+  const allowed = new Set(valves.map((v) => v.valve_id))
+  return valveIds.filter((id) => allowed.has(id))
+}
+
+/**
+ * Drop closed / ineligible queue rows so the dashboard matches live shop work.
+ *
+ * Safety rules (learned the hard way against live Supabase):
+ * - When `valves` is a company-scoped subset, missing IDs are NOT stale.
+ * - Pass `pruneMissing: true` only with the full shop dataset.
+ * - Local multi-company DEV never deletes from priority_queue (read-only sync)
+ *   so switching to an empty VSI scope cannot wipe production JS priorities.
+ */
+export async function syncPriorityQueueWithValves(
+  valves: Valve[],
+  options?: { pruneMissing?: boolean },
+): Promise<string[]> {
   const { data, error } = await supabase.from('priority_queue').select('valve_id,created_at').order('created_at')
   if (error || !data) return []
 
   const ordered = data.map((row: { valve_id: string }) => row.valve_id)
-  const eligible = prunePriorityValveIds(ordered, valves)
-  const stale = ordered.filter((id) => !eligible.includes(id))
+  const byValveId = new Map(valves.map((v) => [v.valve_id, v]))
+  const protectJs = blockSharedShopDeletes()
+  const pruneMissing = !protectJs && options?.pruneMissing === true
+
+  const stale = protectJs
+    ? []
+    : ordered.filter((id) => {
+        const valve = byValveId.get(id)
+        if (valve) return !isEligiblePriorityValve(valve)
+        return pruneMissing
+      })
 
   if (stale.length > 0) {
     await supabase.from('priority_queue').delete().in('valve_id', stale)
   }
 
-  return eligible
+  return ordered.filter((id) => {
+    const valve = byValveId.get(id)
+    // Scoped / empty company views: omit rows we cannot resolve, but do not delete them.
+    if (!valve) return false
+    return isEligiblePriorityValve(valve)
+  })
 }
 
 /** Lower rank sorts first; non-priority valves follow in valve-id order. */
@@ -89,22 +124,43 @@ export function reorderPriorityQueueIds(
   return next
 }
 
-/** Replace queue order in Supabase (uses created_at ordering). */
+/**
+ * Replace queue order in Supabase (uses created_at ordering).
+ * Only deletes ids listed in `previousOrder` — rows outside that set are preserved.
+ * Local multi-company demo blocks deletes entirely to protect live JS Valve data.
+ */
 export async function persistPriorityQueueOrder(
   previousOrder: readonly string[],
   nextOrder: readonly string[],
 ): Promise<{ error: string | null }> {
+  if (blockSharedShopDeletes()) {
+    return { error: SHARED_SHOP_DELETE_BLOCKED_MESSAGE }
+  }
+
   const unique = Array.from(new Set(nextOrder))
   const previous = [...previousOrder]
+
+  // Preserve any live queue rows that were not part of this edit set (other company / not loaded).
+  const { data: existing, error: existingError } = await supabase
+    .from('priority_queue')
+    .select('valve_id')
+    .order('created_at')
+  if (existingError) return { error: existingError.message }
+
+  const previousSet = new Set(previous)
+  const preserved = (existing ?? [])
+    .map((row: { valve_id: string }) => row.valve_id)
+    .filter((id) => !previousSet.has(id))
 
   if (previous.length > 0) {
     const { error: deleteError } = await supabase.from('priority_queue').delete().in('valve_id', previous)
     if (deleteError) return { error: deleteError.message }
   }
 
-  if (unique.length > 0) {
+  const merged = [...unique, ...preserved.filter((id) => !unique.includes(id))]
+  if (merged.length > 0) {
     const baseTime = Date.now()
-    const rows = unique.map((valveId, index) => ({
+    const rows = merged.map((valveId, index) => ({
       valve_id: valveId,
       created_at: new Date(baseTime + index * 1000).toISOString(),
     }))

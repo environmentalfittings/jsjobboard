@@ -22,6 +22,8 @@ type AuthContextValue = {
   role: UserRole | null
   profileRole: string | null
   isAdmin: boolean
+  /** True for Superadmin / read-only local bypass (no Supabase user). */
+  isLocalDevAuth: boolean
   loading: boolean
   handleLogin: (options?: { localRole?: UserRole; username?: string }) => Promise<void>
   handleLogout: () => Promise<void>
@@ -47,7 +49,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       setUser(null)
       setRole(localRole)
       setProfileRole(localRole === 'admin' ? 'admin' : 'viewer')
-      setUsername(localRole === 'admin' ? 'Generic Admin' : 'Read-only')
+      setUsername(localRole === 'admin' ? 'Superadmin' : 'Read-only')
       setLoading(false)
       return
     }
@@ -160,7 +162,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         setRole(options.localRole)
         setProfileRole(options.localRole === 'admin' ? 'admin' : 'viewer')
         setUsername(
-          options.username ?? (options.localRole === 'viewer' ? 'Read-only' : 'Generic Admin'),
+          options.username ?? (options.localRole === 'viewer' ? 'Read-only' : 'Superadmin'),
         )
         setLoading(false)
         navigate('/dashboard', { replace: true })
@@ -191,6 +193,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       // Shop Admin App role (Employees → Shop assignment) — not profiles.role alone
       // (profiles often defaulted to admin for new Auth users).
       isAdmin: role === 'admin',
+      isLocalDevAuth: !user && (role === 'admin' || role === 'viewer'),
       loading,
       handleLogin,
       handleLogout,

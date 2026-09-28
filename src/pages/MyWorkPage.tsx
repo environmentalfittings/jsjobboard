@@ -12,6 +12,7 @@ import {
   requiresDueDateUpdateWhenLeavingOtdPause,
 } from '../lib/onTimeDelivery'
 import { resolveTechnicianForUser } from '../lib/resolveTechnicianForUser'
+import { useCompanyWorkflow } from '../hooks/useCompanyWorkflow'
 import { canWriteShop, permissionDeniedReason } from '../lib/roles'
 import { recordStatusRework } from '../lib/statusReworkLog'
 import { isBackwardStatusMove } from '../lib/statusWorkflow'
@@ -27,6 +28,7 @@ interface MyWorkPageProps {
 export function MyWorkPage({ user, onLogout }: MyWorkPageProps) {
   const { showToast } = useToast()
   const { role } = useAuth()
+  const workflow = useCompanyWorkflow()
   const canWrite = canWriteShop(role)
   const [displayName, setDisplayName] = useState('Technician')
   const [profileLinked, setProfileLinked] = useState(true)
@@ -182,7 +184,7 @@ export function MyWorkPage({ user, onLogout }: MyWorkPageProps) {
       setPendingResumeDueDate({ valve: job, nextStatus })
       return
     }
-    if (isBackwardStatusMove(job.status, nextStatus)) {
+    if (isBackwardStatusMove(job.status, nextStatus, workflow.key)) {
       setPendingRework({ valve: job, nextStatus })
       return
     }
@@ -208,7 +210,13 @@ export function MyWorkPage({ user, onLogout }: MyWorkPageProps) {
     if (!pendingResumeDueDate) return
     setSavingResumeDueDate(true)
     try {
-      if (isBackwardStatusMove(pendingResumeDueDate.valve.status, pendingResumeDueDate.nextStatus)) {
+      if (
+        isBackwardStatusMove(
+          pendingResumeDueDate.valve.status,
+          pendingResumeDueDate.nextStatus,
+          workflow.key,
+        )
+      ) {
         setPendingResumeDueDate(null)
         setPendingRework({
           valve: pendingResumeDueDate.valve,

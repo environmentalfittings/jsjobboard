@@ -5,7 +5,10 @@ import { LookupAddSelect } from '../components/LookupAddSelect'
 import { useToast } from '../components/ToastNotification'
 import { WpsNumberGuide } from '../components/WpsNumberGuide'
 import { useAuth } from '../contexts/AuthContext'
-import { countEmployeeTrainings } from '../lib/employeeTraining'
+import { useOrganization } from '../contexts/OrganizationContext'
+import { useCompanyWorkflow } from '../hooks/useCompanyWorkflow'
+import { filterTrainingsForCompany } from '../lib/companyDataScope'
+import { listEmployeeTrainings } from '../lib/employeeTraining'
 import { loadCurrentUserQualityTeamLevel } from '../lib/qualityTeam'
 import {
   deleteResourceDocument,
@@ -93,6 +96,8 @@ function optionsWithCurrent(options: readonly string[], current: string) {
 export function ResourcesPage() {
   const { showToast } = useToast()
   const { role, user, username } = useAuth()
+  const { activeOrganization } = useOrganization()
+  const workflow = useCompanyWorkflow()
   const canWrite = canWriteShop(role)
   const [qualityTeamLevel, setQualityTeamLevel] = useState<QualityTeamLevel>('none')
   const canCatalogSpecs = qualityTeamLevel === 'admin' || qualityTeamLevel === 'manager'
@@ -238,7 +243,7 @@ export function ResourcesPage() {
     {
       key: 'employee_training',
       title: 'Employee Training',
-      description: 'Training materials, certifications, and employee learning documents.',
+      description: 'Company-specific training schedule, log, records, materials and tests.',
       categories: ['employee_training'] as ResourceDocumentCategory[],
       addLabel: '+ Add training document',
     },
@@ -265,8 +270,18 @@ export function ResourcesPage() {
   const [trainingCount, setTrainingCount] = useState(0)
 
   const refreshTrainingCount = useCallback(async () => {
-    setTrainingCount(await countEmployeeTrainings())
-  }, [])
+    try {
+      const list = await listEmployeeTrainings()
+      setTrainingCount(
+        filterTrainingsForCompany(list, {
+          workflowKey: workflow.key,
+          activeOrganization,
+        }).length,
+      )
+    } catch {
+      setTrainingCount(0)
+    }
+  }, [workflow.key, activeOrganization])
 
   const loadSection = async (key: string, categories: readonly ResourceDocumentCategory[]) => {
     setSectionLoading((prev) => ({ ...prev, [key]: true }))
@@ -352,9 +367,13 @@ export function ResourcesPage() {
 
   useEffect(() => {
     loadAllSections()
-    void refreshTrainingCount()
+    // Shared resource document sections reload once; training count is company-scoped.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
+
+  useEffect(() => {
+    void refreshTrainingCount()
+  }, [refreshTrainingCount])
 
   // ── Upload modal (shared, but mode-aware) ────────────────────────────────
   type ModalMode = 'general' | 'weld'
@@ -1096,7 +1115,9 @@ export function ResourcesPage() {
     {
       key: 'employee_training' as const,
       title: 'Employee Training',
-      description: 'Schedule sessions, training log, employee records, materials and tests.',
+      description: activeOrganization
+        ? `Company-specific for ${activeOrganization.name}: schedule, log, records, materials and tests.`
+        : 'Company-specific: schedule sessions, training log, employee records, materials and tests.',
       icon: '🎓',
       color: '#0f766e',
       bg: '#f0fdfa',

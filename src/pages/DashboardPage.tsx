@@ -5,6 +5,14 @@ import { ReceivedValvesDashboardPanel } from '../components/ReceivedValvesDashbo
 import { ReworkDashboardPanel } from '../components/ReworkDashboardPanel'
 import { useToast } from '../components/ToastNotification'
 import { useAuth } from '../contexts/AuthContext'
+import { useOrganization } from '../contexts/OrganizationContext'
+import { useCompanyWorkflow } from '../hooks/useCompanyWorkflow'
+import { companyLogoUrl } from '../lib/companyBranding'
+import {
+  filterGaugesForCompany,
+  filterRowsByCompanyValveId,
+  filterValvesForCompany,
+} from '../lib/companyDataScope'
 import {
   calcActiveJobsByCell,
   calcActiveStatusBreakdown,
@@ -15,7 +23,7 @@ import {
 import { fetchAllValves } from '../lib/fetchAllValves'
 import { displayJobStatus } from '../lib/jobDisplayStatus'
 import { localTodayDateString } from '../lib/managerDashboardMetrics'
-import { countStatusReworkLogInRange } from '../lib/statusReworkLog'
+import { fetchStatusReworkLog } from '../lib/statusReworkLog'
 import {
   daysUntilGaugeCalibrationDue,
   filterAllowedTestGauges,
@@ -25,7 +33,13 @@ import {
   loadActiveTestGauges,
 } from '../lib/testGaugeRegistry'
 import type { TestGauge } from '../types/testGauge'
-import { isEligiblePriorityValve, syncPriorityQueueWithValves } from '../lib/priorityQueue'
+import {
+  filterPriorityIdsForValves,
+  isEligiblePriorityValve,
+  persistPriorityQueueOrder,
+  syncPriorityQueueWithValves,
+} from '../lib/priorityQueue'
+import { blockSharedShopDeletes, SHARED_SHOP_DELETE_BLOCKED_MESSAGE } from '../lib/companyDataGuard'
 import { canWriteShop, can, permissionDeniedReason } from '../lib/roles'
 import { departmentIdForShopStatus } from '../lib/statusPriorityQueue'
 import { openShopDepartmentsParam } from '../constants/priorityDepartments'
@@ -50,9 +64,19 @@ type RecentTestedRow = {
 export function DashboardPage() {
   const navigate = useNavigate()
   const { role } = useAuth()
+  const { activeOrganization, orgsEnabled, isLocalOrganizations } = useOrganization()
+  const workflow = useCompanyWorkflow()
   const canWrite = canWriteShop(role)
   const canManageInventory = can(role, 'openAdminTools')
-  const [valves, setValves] = useState<Valve[]>([])
+  const [valveRows, setValveRows] = useState<Valve[]>([])
+  const valves = useMemo(
+    () =>
+      filterValvesForCompany(valveRows, {
+        workflowKey: workflow.key,
+        activeOrganization,
+      }),
+    [valveRows, workflow.key, activeOrganization],
+  )
   const [recentTested, setRecentTested] = useState<RecentTestedRow[]>([])
   const [priorityQueueIds, setPriorityQueueIds] = useState<string[]>([])
   const [gaugeAlertItems, setGaugeAlertItems] = useState<TestGauge[]>([])
@@ -91,7 +115,7 @@ export function DashboardPage() {
     if (valvesError) {
       showToast(`Could not load valves: ${valvesError.message}`)
     } else if (valvesData) {
-      setValves(valvesData)
+      setValveRows(valvesData)
 
       const { data: testLogRows, error: testLogError } = await supabase
         .from('test_logs')
@@ -121,13 +145,24 @@ export function DashboardPage() {
         setRecentTested(rows)
       }
 
-      const eligiblePriority = await syncPriorityQueueWithValves(valvesData)
-      setPriorityQueueIds(eligiblePriority)
+      // Full shop dataset for eligibility; UI state stays company-scoped so VSI
+      // never holds JS ids in previousOrder for a rewrite/delete.
+      const eligiblePriority = await syncPriorityQueueWithValves(valvesData, {
+        pruneMissing: !isLocalOrganizations,
+      })
+      const scopedForPriority = filterValvesForCompany(valvesData, {
+        workflowKey: workflow.key,
+        activeOrganization,
+      })
+      setPriorityQueueIds(filterPriorityIdsForValves(eligiblePriority, scopedForPriority))
     }
 
     try {
       // Active MTE gauge-tab items only; alert from 14 days before expiry until dates are updated.
-      const gauges = filterAllowedTestGauges(await loadActiveTestGauges())
+      const gauges = filterGaugesForCompany(filterAllowedTestGauges(await loadActiveTestGauges()), {
+        workflowKey: workflow.key,
+        activeOrganization,
+      })
       const alertItems = gauges
         .filter((gauge) => isGaugeCalibrationDashboardAlert(gauge))
         .sort((a, b) => {
@@ -141,11 +176,17 @@ export function DashboardPage() {
     }
 
     const today = localTodayDateString()
-    setReworkTodayCount(await countStatusReworkLogInRange(today, today))
+    const { data: reworkToday } = await fetchStatusReworkLog(today, today)
+    setReworkTodayCount(
+      filterRowsByCompanyValveId(reworkToday, {
+        workflowKey: workflow.key,
+        activeOrganization,
+      }).length,
+    )
 
     setLastRefreshed(new Date())
     setLoading(false)
-  }, [showToast])
+  }, [showToast, workflow.key, activeOrganization, isLocalOrganizations])
 
   useEffect(() => {
     void fetchData()
@@ -191,15 +232,25 @@ export function DashboardPage() {
 
   const metrics = useMemo(() => calcDashboardKpis(valves), [valves])
 
-  const cellRows = useMemo(() => calcActiveJobsByCell(valves), [valves])
+  const cellRows = useMemo(
+    () =>
+      calcActiveJobsByCell(valves, 20, {
+        ensureCells: workflow.workCells,
+        zeroOnlyEnsure: workflow.key === 'vsi',
+      }),
+    [valves, workflow.key, workflow.workCells],
+  )
 
-  const topCell = cellRows[0]?.count ?? 1
+  const topCell = Math.max(1, ...cellRows.map((row) => row.count), 1)
 
   const completedMetrics = useMemo(() => calcCompletedMetrics(valves), [valves])
 
   const completedMonthly = useMemo(() => calcCompletedMonthlyBars(valves), [valves])
 
-  const statusBreakdown = useMemo(() => calcActiveStatusBreakdown(valves), [valves])
+  const statusBreakdown = useMemo(
+    () => calcActiveStatusBreakdown(valves, workflow.statusOrder),
+    [valves, workflow.statusOrder],
+  )
 
   const priorityRows = useMemo(() => {
     const byValveId = new Map(valves.map((v) => [v.valve_id, v]))
@@ -209,9 +260,18 @@ export function DashboardPage() {
       .slice(0, 8)
   }, [priorityQueueIds, valves])
 
+  const visibleRecentTested = useMemo(() => {
+    const ids = new Set(valves.map((v) => v.id))
+    return recentTested.filter((row) => row.valveRowId != null && ids.has(row.valveRowId)).slice(0, 5)
+  }, [recentTested, valves])
+
   const persistPriorityOrder = async (nextOrder: string[]) => {
     if (!canWrite) {
       showToast(permissionDeniedReason('shopWrite'))
+      return
+    }
+    if (blockSharedShopDeletes()) {
+      showToast(SHARED_SHOP_DELETE_BLOCKED_MESSAGE)
       return
     }
     const unique = Array.from(new Set(nextOrder))
@@ -219,27 +279,12 @@ export function DashboardPage() {
     setPriorityQueueIds(unique)
     setSavingPriority(true)
 
-    const { error: deleteError } = await supabase.from('priority_queue').delete().in('valve_id', previous)
-    if (deleteError) {
+    const { error } = await persistPriorityQueueOrder(previous, unique)
+    if (error) {
       setPriorityQueueIds(previous)
       setSavingPriority(false)
-      showToast('Could not reorder priorities')
+      showToast(error)
       return
-    }
-
-    if (unique.length > 0) {
-      const baseTime = Date.now()
-      const rows = unique.map((valveId, index) => ({
-        valve_id: valveId,
-        created_at: new Date(baseTime + index * 1000).toISOString(),
-      }))
-      const { error: insertError } = await supabase.from('priority_queue').insert(rows)
-      if (insertError) {
-        setPriorityQueueIds(previous)
-        setSavingPriority(false)
-        showToast('Could not reorder priorities')
-        return
-      }
     }
 
     setSavingPriority(false)
@@ -269,7 +314,11 @@ export function DashboardPage() {
   return (
     <section className="dashboard-page">
       <div className="dashboard-title-row">
-        <img src={logo} alt="JS Valve logo" className="dashboard-logo" />
+        <img
+          src={(orgsEnabled && companyLogoUrl(activeOrganization)) || logo}
+          alt={`${activeOrganization?.name ?? 'JS Valve'} logo`}
+          className={`dashboard-logo${workflow.key === 'vsi' ? ' dashboard-logo--vsi' : ''}`}
+        />
         <h2 className="dashboard-title">Dashboard</h2>
         <div className="dashboard-refresh-row">
           <span className="dashboard-refresh-hint">{refreshHint}</span>
@@ -278,6 +327,17 @@ export function DashboardPage() {
           </button>
         </div>
       </div>
+
+      {orgsEnabled && activeOrganization ? (
+        <p className="admin-employees-orgs-note" style={{ marginTop: 0 }}>
+          Viewing <strong>{activeOrganization.name}</strong>
+          {workflow.key === 'vsi'
+            ? ` — departments ${workflow.workCells.join(', ')}; shop jobs are separate from JS Valve${
+                isLocalOrganizations ? ' (local demo starts empty until you create VSI jobs)' : ''
+              }.`
+            : ' — JS Valve shop statuses and finish cells.'}
+        </p>
+      ) : null}
 
       {!loading && gaugeAlertItems.length > 0 ? (
         <div
@@ -390,24 +450,29 @@ export function DashboardPage() {
           </div>
 
           <section className="dashboard-panel">
-            <h3>Active jobs by work cell</h3>
+            <h3>Active jobs by {workflow.workCellLabel.toLowerCase()}</h3>
             <div className="cell-bars">
               {cellRows.map((row) => (
                 <Link
                   key={row.cell}
                   className="cell-row"
                   to={`/status-priorities?departments=${encodeURIComponent(openShopDepartmentsParam())}&cell=${encodeURIComponent(row.cell)}`}
-                  title={`Daily priorities for finish cell ${row.cell} (all open departments)`}
+                  title={`Daily priorities for ${workflow.workCellLabel.toLowerCase()} ${row.cell}`}
                 >
                   <div className="cell-name">{row.cell}</div>
                   <div className="cell-bar-track">
-                    <div className="cell-bar-fill" style={{ width: `${Math.max(5, (row.count / topCell) * 100)}%` }} />
+                    <div
+                      className="cell-bar-fill"
+                      style={{ width: `${row.count === 0 ? 0 : Math.max(5, (row.count / topCell) * 100)}%` }}
+                    />
                   </div>
                   <div className="cell-count">{row.count}</div>
                 </Link>
               ))}
             </div>
-            <div className="status-breakdown-note">Click a finish cell to set and print its daily priorities.</div>
+            <div className="status-breakdown-note">
+              Click a {workflow.workCellLabel.toLowerCase()} to set and print its daily priorities.
+            </div>
           </section>
 
           <ReworkDashboardPanel />
@@ -426,7 +491,14 @@ export function DashboardPage() {
                   </tr>
                 </thead>
                 <tbody>
-                  {recentTested.map((row) => (
+                  {visibleRecentTested.length === 0 ? (
+                    <tr>
+                      <td colSpan={5} className="table-empty-cell">
+                        No recent tested valves for {activeOrganization?.name ?? 'this company'}.
+                      </td>
+                    </tr>
+                  ) : null}
+                  {visibleRecentTested.map((row) => (
                     <tr
                       key={`${row.valve_id}-${row.date_tested}`}
                       className="dashboard-table-row-open"
@@ -687,7 +759,11 @@ export function DashboardPage() {
                 </article>
               ))
             ) : (
-              <div className="priority-empty">No priority valves yet. Add valves to `priority_queue` to show them here.</div>
+              <div className="priority-empty">
+                {workflow.key === 'vsi'
+                  ? 'No VSI priority valves yet. Add jobs from the Status board while VSI is selected.'
+                  : 'No priority valves yet. Open the Status board and star jobs to build today’s list.'}
+              </div>
             )}
           </div>
           <Link className="dashboard-link-button" to="/job-board">

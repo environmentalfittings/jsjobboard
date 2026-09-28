@@ -4,7 +4,14 @@ import { Link, useSearchParams } from 'react-router-dom'
 import { TestLogColumnHeader } from '../components/testLog/TestLogColumnHeader'
 import { useToast } from '../components/ToastNotification'
 import { useAuth } from '../contexts/AuthContext'
+import { useOrganization } from '../contexts/OrganizationContext'
+import { useCompanyWorkflow } from '../hooks/useCompanyWorkflow'
 import { useEmployees } from '../hooks/useEmployees'
+import {
+  filterInventoryEventsForCompany,
+  filterInventoryForCompany,
+  rememberInventoryForCompany,
+} from '../lib/companyDataScope'
 import {
   findCustomerByName,
   loadCustomersWithSalesRep,
@@ -643,6 +650,15 @@ function sortInventoryRows(
 export function AdminInventoryPage() {
   const { showToast } = useToast()
   const { user, username, role } = useAuth()
+  const { activeOrganization } = useOrganization()
+  const workflow = useCompanyWorkflow()
+  const companyScope = useMemo(
+    () => ({
+      workflowKey: workflow.key,
+      activeOrganization,
+    }),
+    [workflow.key, activeOrganization],
+  )
   const canWrite = canWriteShop(role)
   const { employees } = useEmployees()
   const [searchParams, setSearchParams] = useSearchParams()
@@ -712,18 +728,18 @@ export function AdminInventoryPage() {
       )
       setRows([])
     } else {
-      setRows(data)
+      setRows(filterInventoryForCompany(data, companyScope))
     }
     if (removedResult.error) {
       setRemovedRows([])
     } else {
-      setRemovedRows(removedResult.data)
+      setRemovedRows(filterInventoryForCompany(removedResult.data, companyScope))
     }
     if (eventsResult.error) {
       showToast(`Could not load inventory activity: ${eventsResult.error}`)
       setEvents([])
     } else {
-      setEvents(eventsResult.data)
+      setEvents(filterInventoryEventsForCompany(eventsResult.data, companyScope))
     }
     setCustomers(options.customers)
     setManufacturers(options.manufacturers)
@@ -740,11 +756,18 @@ export function AdminInventoryPage() {
       setCustomerRows(customerResult.data)
       setSalesRepColumnMissing(customerResult.salesRepColumnMissing)
     }
-  }, [showToast])
+  }, [companyScope, showToast])
 
   useEffect(() => {
     void reload()
   }, [reload])
+
+  // Clear selection / modal when switching companies so JS items do not linger on VSI.
+  useEffect(() => {
+    setExpandedRowId(null)
+    setQrItem(null)
+    setSelectedIds(new Set())
+  }, [workflow.key, activeOrganization?.id])
 
   useEffect(() => {
     const fromQuery = searchParams.get('customer')?.trim()
@@ -812,12 +835,12 @@ export function AdminInventoryPage() {
         setReportEvents([])
         return
       }
-      setReportEvents(result.data)
+      setReportEvents(filterInventoryEventsForCompany(result.data, companyScope))
     })()
     return () => {
       cancelled = true
     }
-  }, [customerFilter])
+  }, [companyScope, customerFilter])
 
   const periodLabel = reportPeriodLabel
   const periodDateRange = useMemo(
@@ -1378,6 +1401,7 @@ export function AdminInventoryPage() {
           showToast(result.error || 'Could not create item')
           return
         }
+        rememberInventoryForCompany(workflow.key, result.data.id)
         if (result.error) showToast(result.error)
         else {
           showToast(
@@ -1636,8 +1660,9 @@ export function AdminInventoryPage() {
     }
 
     const loaded = await loadInventoryEventsForCustomer(group.customer)
-    const reportEventList = loaded.data.length
-      ? loaded.data
+    const scopedLoaded = filterInventoryEventsForCompany(loaded.data, companyScope)
+    const reportEventList = scopedLoaded.length
+      ? scopedLoaded
       : reportEvents.length
         ? reportEvents
         : events
@@ -1730,13 +1755,14 @@ export function AdminInventoryPage() {
       }
 
       const customerEvents = await loadInventoryEventsForCustomer(selectedCustomerGroup.customer)
+      const scopedEvents = filterInventoryEventsForCompany(customerEvents.data, companyScope)
       const result = await emailInventoryCustomerReport({
         toEmail,
         customer: selectedCustomerGroup.customer,
         items: reportItems,
         periodLabel,
         salesmanName: resolved.fullName || selectedSalesmanName,
-        events: customerEvents.data.length ? customerEvents.data : events,
+        events: scopedEvents.length ? scopedEvents : events,
         lookupRecords: reportLookupRecords,
       })
       if (result.error) {
@@ -1761,12 +1787,13 @@ export function AdminInventoryPage() {
     // Open the preview tab in this tap. iPhone blocks window.open after the events fetch.
     const previewWindow = openPreviewWindow()
     const customerEvents = await loadInventoryEventsForCustomer(selectedCustomerGroup.customer)
+    const scopedEvents = filterInventoryEventsForCompany(customerEvents.data, companyScope)
     const { error } = await printInventoryCustomerReport({
       customer: selectedCustomerGroup.customer,
       items: reportItems,
       periodLabel,
       salesmanName: selectedSalesmanName,
-      events: customerEvents.data.length ? customerEvents.data : events,
+      events: scopedEvents.length ? scopedEvents : events,
       lookupRecords: reportLookupRecords,
       previewWindow,
     })
@@ -1824,10 +1851,14 @@ export function AdminInventoryPage() {
     <section className="dashboard-page inventory-page">
       <div className="dashboard-title-row admin-page-heading">
         <div>
-          <h2 className="dashboard-title">Customer Inventory</h2>
+          <h2 className="dashboard-title">
+            Customer Inventory
+            {activeOrganization ? ` · ${activeOrganization.name}` : ''}
+          </h2>
           <p className="placeholder-copy">
-            Track valves held for customers outside the active job board. Each item needs a valve photo, a tag photo,
-            and gets a QR code when created.
+            {workflow.key === 'vsi'
+              ? 'VSI customer inventory starts empty in the local multi-company demo until items are added here. Track valves held for customers outside the active job board.'
+              : 'Track valves held for customers outside the active job board. Each item needs a valve photo, a tag photo, and gets a QR code when created. Company-specific — switching companies shows that company’s inventory only.'}
           </p>
         </div>
         <div className="admin-employees-title-actions">

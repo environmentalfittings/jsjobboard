@@ -5,13 +5,17 @@ import { JobCardItpStatusBar } from '../components/JobCardItpStatusBar'
 import { StatusBadge } from '../components/StatusBadge'
 import { useToast } from '../components/ToastNotification'
 import { useAuth } from '../contexts/AuthContext'
+import { useOrganization } from '../contexts/OrganizationContext'
 import { finishCellTone } from '../constants/finishCellColors'
+import { useCompanyWorkflow } from '../hooks/useCompanyWorkflow'
+import { filterValvesForCompany } from '../lib/companyDataScope'
 import { fetchAllValves } from '../lib/fetchAllValves'
 import { loadItpCardSummaries, type ItpCardSummary } from '../lib/itpCardSummaries'
 import { displayJobStatus, isActiveShopWork } from '../lib/jobDisplayStatus'
 import { localTodayBounds } from '../lib/managerDashboardMetrics'
 import {
   compareValvesWithPriorityOrder,
+  filterPriorityIdsForValves,
   isEligiblePriorityValve,
   persistPriorityQueueOrder,
   reorderPriorityQueueIds,
@@ -296,7 +300,17 @@ export function ShopTvBoardPage() {
   const { role } = useAuth()
   const canWrite = canWriteShop(role)
   const { showToast } = useToast()
-  const [valves, setValves] = useState<Valve[]>([])
+  const { activeOrganization } = useOrganization()
+  const workflow = useCompanyWorkflow()
+  const [valveRows, setValveRows] = useState<Valve[]>([])
+  const valves = useMemo(
+    () =>
+      filterValvesForCompany(valveRows, {
+        workflowKey: workflow.key,
+        activeOrganization,
+      }),
+    [valveRows, workflow.key, activeOrganization],
+  )
   const [itpSummaries, setItpSummaries] = useState<Record<number, ItpCardSummary>>({})
   const [priorityQueueIds, setPriorityQueueIds] = useState<string[]>([])
   const [movesToday, setMovesToday] = useState<ShopTvStatusMove[]>([])
@@ -330,7 +344,7 @@ export function ShopTvBoardPage() {
     const { data, error } = await fetchAllValves()
     if (error) {
       showToast(`Could not load jobs: ${error.message}`)
-      setValves([])
+      setValveRows([])
       setItpSummaries({})
       setPriorityQueueIds([])
       setMovesToday([])
@@ -339,12 +353,18 @@ export function ShopTvBoardPage() {
       return
     }
     const rows = data ?? []
-    setValves(rows)
-    setPriorityQueueIds(await syncPriorityQueueWithValves(rows))
+    setValveRows(rows)
+    const scoped = filterValvesForCompany(rows, {
+      workflowKey: workflow.key,
+      activeOrganization,
+    })
+    // Scope-only sync: never delete JS Valve priorities when VSI's valve set is empty.
+    const eligible = await syncPriorityQueueWithValves(scoped, { pruneMissing: false })
+    setPriorityQueueIds(filterPriorityIdsForValves(eligible, scoped))
 
     const { startIso, endIso } = localTodayBounds()
     const [summaries, todayRes] = await Promise.all([
-      loadItpCardSummaries(rows.map((row) => row.id)).catch(() => ({}) as Record<number, ItpCardSummary>),
+      loadItpCardSummaries(scoped.map((row) => row.id)).catch(() => ({}) as Record<number, ItpCardSummary>),
       supabase
         .from('valve_change_log')
         .select('valve_row_id,changed_at,changed_by_email,old_row,new_row')
@@ -359,14 +379,19 @@ export function ShopTvBoardPage() {
       setMovesToday([])
       setDeptLeaderboard([])
     } else {
+      const scopedIds = new Set(scoped.map((row) => row.id))
+      const scopedLog = (todayRes.data ?? []).filter((row) => {
+        const id = (row as { valve_row_id?: number }).valve_row_id
+        return typeof id === 'number' && scopedIds.has(id)
+      })
       const parsed = parseShopTvStatusMoves(
-        (todayRes.data ?? []) as Parameters<typeof parseShopTvStatusMoves>[0],
+        scopedLog as Parameters<typeof parseShopTvStatusMoves>[0],
       )
       setMovesToday(parsed.moves)
       setDeptLeaderboard(parsed.deptLeaderboard)
     }
     setLoading(false)
-  }, [showToast])
+  }, [showToast, workflow.key, activeOrganization])
 
   useEffect(() => {
     void load()

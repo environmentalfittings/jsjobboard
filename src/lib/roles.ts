@@ -68,6 +68,19 @@ export function can(role: UserRole | null | undefined, permission: AppPermission
   return ROLE_PERMISSIONS[normalizeAppRole(role)]?.has(permission) ?? false
 }
 
+/**
+ * Company Superadmin (organization_members.role) always gets full Admin app permissions,
+ * even if Shop assignment / profiles still say Read-only or Technician.
+ */
+export function effectiveAppRole(
+  role: UserRole | null | undefined,
+  isOrgSuperAdmin: boolean,
+): UserRole | null {
+  if (!role) return null
+  if (isOrgSuperAdmin) return 'admin'
+  return normalizeAppRole(role)
+}
+
 /** Technicians and Viewer are view-only. Admin and Manager may change shop data. */
 export function canWriteShop(role: UserRole | null | undefined): boolean {
   return can(role, 'shopWrite')

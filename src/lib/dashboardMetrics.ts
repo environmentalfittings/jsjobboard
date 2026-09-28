@@ -12,8 +12,12 @@ export function calcDashboardKpis(valves: Valve[]) {
   return { inProcess, onHold, waitingOnArrival, onOrder }
 }
 
-/** Active jobs by finish cell (In-Process Order only). */
-export function calcActiveJobsByCell(valves: Valve[], limit = 20) {
+/** Active jobs by finish cell / department (In-Process Order only). */
+export function calcActiveJobsByCell(
+  valves: Valve[],
+  limit = 20,
+  options?: { ensureCells?: readonly string[]; zeroOnlyEnsure?: boolean },
+) {
   const counts = new Map<string, number>()
   valves.forEach((v) => {
     if (v.order_type !== 'In-Process Order') return
@@ -21,9 +25,16 @@ export function calcActiveJobsByCell(valves: Valve[], limit = 20) {
     counts.set(v.cell, (counts.get(v.cell) ?? 0) + 1)
   })
 
-  // Always surface these cells on the dashboard even when count is 0.
-  for (const cell of ['Actuation', 'Field Service']) {
+  const ensureCells = options?.ensureCells?.length
+    ? options.ensureCells
+    : (['Actuation', 'Field Service'] as const)
+  for (const cell of ensureCells) {
     if (!counts.has(cell)) counts.set(cell, 0)
+  }
+
+  // VSI-style: show only configured departments (zeros included), not JS cells.
+  if (options?.zeroOnlyEnsure && options.ensureCells?.length) {
+    return options.ensureCells.map((cell) => ({ cell, count: counts.get(cell) ?? 0 }))
   }
 
   return [...counts.entries()]
@@ -33,23 +44,26 @@ export function calcActiveJobsByCell(valves: Valve[], limit = 20) {
 }
 
 /** Shop status counts for open work orders (excludes closed Completed order type). */
-export function calcActiveStatusBreakdown(valves: Valve[]) {
+export function calcActiveStatusBreakdown(
+  valves: Valve[],
+  statusOrder: readonly string[] = STATUS_ORDER,
+) {
   const counts = new Map<string, number>()
   // Always include configured shop statuses (e.g. Grinding) even at zero so new
   // statuses stay visible on the dashboard / priority drill-in.
-  for (const status of STATUS_ORDER) {
-    if (status === 'Completed') continue
+  for (const status of statusOrder) {
+    if (status === 'Completed' || status === 'Shipping') continue
     counts.set(status, 0)
   }
 
   valves.forEach((v) => {
     if (isClosedWorkOrder(v)) return
     const status = displayJobStatus(v)
-    if (status === 'Completed') return
+    if (status === 'Completed' || status === 'Shipping') return
     counts.set(status, (counts.get(status) ?? 0) + 1)
   })
 
-  const orderIndex = new Map<string, number>(STATUS_ORDER.map((status, index) => [status, index]))
+  const orderIndex = new Map<string, number>(statusOrder.map((status, index) => [status, index]))
   const rows = [...counts.entries()]
     .map(([status, count]) => ({
       status,

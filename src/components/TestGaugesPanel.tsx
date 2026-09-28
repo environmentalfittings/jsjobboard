@@ -34,6 +34,9 @@ import {
 import { openTestGaugesReportPrint } from '../lib/testGaugesReportPrint'
 import { emptyTestGaugeForm, testGaugeToForm, SUGGESTED_DEPARTMENTS, type TestGauge, type TestGaugeFormState } from '../types/testGauge'
 import { useAuth } from '../contexts/AuthContext'
+import { useOrganization } from '../contexts/OrganizationContext'
+import { useCompanyWorkflow } from '../hooks/useCompanyWorkflow'
+import { filterGaugesForCompany, rememberGaugeForCompany } from '../lib/companyDataScope'
 import { canWriteShop, permissionDeniedReason } from '../lib/roles'
 
 const BLANK_FILTER = '(Blank)'
@@ -452,6 +455,8 @@ function InlineDepartmentCell({
 export function TestGaugesPanel() {
   const { showToast } = useToast()
   const { role } = useAuth()
+  const { activeOrganization } = useOrganization()
+  const workflow = useCompanyWorkflow()
   const canWrite = canWriteShop(role)
   const certInputRef = useRef<HTMLInputElement>(null)
   const [rows, setRows] = useState<TestGauge[]>([])
@@ -484,14 +489,19 @@ export function TestGaugesPanel() {
           `Moved ${moved.moved} item${moved.moved === 1 ? '' : 's'} from tool log to test gauges`,
         )
       }
-      setRows(filterAllowedTestGauges(await loadTestGauges(true)))
+      setRows(
+        filterGaugesForCompany(filterAllowedTestGauges(await loadTestGauges(true)), {
+          workflowKey: workflow.key,
+          activeOrganization,
+        }),
+      )
     } catch (error) {
       showToast(error instanceof Error ? error.message : 'Could not load test gauges')
       setRows([])
     } finally {
       setLoading(false)
     }
-  }, [showToast])
+  }, [showToast, workflow.key, activeOrganization])
 
   useEffect(() => {
     void reload()
@@ -547,6 +557,7 @@ export function TestGaugesPanel() {
         showToast(error ?? 'Could not save gauge')
         return
       }
+      rememberGaugeForCompany(workflow.key, row.id)
       showToast('Test gauge added')
       if (pendingCertGaugeId === 'new' && certInputRef.current?.files?.[0]) {
         const { error: certError } = await attachTestGaugeCertificate(row, certInputRef.current.files[0])
