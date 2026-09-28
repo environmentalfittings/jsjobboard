@@ -289,9 +289,14 @@ export function NavBar({ role, username, userId, onLogout }: NavBarProps) {
           <CompanySwitcher />
           {role !== 'viewer' ? <FeedbackButton username={username} role={role} /> : null}
           {!isMobileNav ? messagesMenu : null}
-          <span className="username-pill">{username}</span>
+          {username && !(isOrgSuperAdmin && /^superadmin$/i.test(username.trim())) ? (
+            <span className="username-pill">{username}</span>
+          ) : null}
           {isOrgSuperAdmin ? (
-            <span className="role-pill role-pill--superadmin" title="Can switch companies, compare reports, and assign company roles">
+            <span
+              className="role-pill role-pill--superadmin"
+              title="Can switch companies, compare reports, and assign company roles"
+            >
               Superadmin
             </span>
           ) : (

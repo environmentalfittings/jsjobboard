@@ -13206,18 +13206,6 @@ textarea.modal-status-select {
   color: #ecfdf5;
 }
 
-.company-switcher-superadmin-tag {
-  margin-left: 0.35rem;
-  padding: 0.1rem 0.4rem;
-  border-radius: 999px;
-  background: #0f766e;
-  color: #ecfdf5;
-  font-size: 0.68rem;
-  font-weight: 700;
-  letter-spacing: 0.02em;
-  text-transform: uppercase;
-}
-
 .company-compare-report {
   margin-bottom: 1rem;
 }

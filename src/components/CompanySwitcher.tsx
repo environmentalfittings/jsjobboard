@@ -20,7 +20,11 @@ export function CompanySwitcher() {
     ? ' (local demo — will not delete live JS Valve data)'
     : ''
   const activeLogo = companyLogoUrl(activeOrganization)
-  const label = isOrgSuperAdmin ? 'Company (Superadmin)' : 'Company'
+  const switcherTitle = isOrgSuperAdmin
+    ? `Superadmin — switch between all companies${localTitle}`
+    : isLocalOrganizations
+      ? 'Local multi-company demo'
+      : undefined
 
   if (switchableOrganizations.length <= 1) {
     if (!activeOrganization) return null
@@ -33,24 +37,14 @@ export function CompanySwitcher() {
           <img src={activeLogo} alt="" className="company-switcher-logo" />
         ) : null}
         <span className="company-switcher-name">{activeOrganization.name}</span>
-        {isOrgSuperAdmin ? <span className="company-switcher-superadmin-tag">Superadmin</span> : null}
       </div>
     )
   }
 
   return (
-    <label
-      className="company-switcher"
-      title={
-        isOrgSuperAdmin
-          ? 'Superadmin — switch between all companies'
-          : isLocalOrganizations
-            ? 'Local multi-company demo'
-            : undefined
-      }
-    >
+    <label className="company-switcher" title={switcherTitle}>
       {activeLogo ? <img src={activeLogo} alt="" className="company-switcher-logo" /> : null}
-      <span className="company-switcher-label">{label}</span>
+      <span className="company-switcher-label">Company</span>
       <select
         className="company-switcher-select"
         value={activeOrganization?.id ?? ''}
