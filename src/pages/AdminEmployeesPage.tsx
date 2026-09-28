@@ -683,7 +683,7 @@ export function AdminEmployeesPage({ isAdmin }: { isAdmin: boolean }) {
       {activeTab === 'roster' && orgsEnabled ? (
         <p className="admin-employees-orgs-note">
           {isLocalOrganizations
-            ? 'Local multi-company demo (Vite DEV) — JS Valve + VSI are stored in this browser only until migration-organizations-foundation.sql is run. Switching company changes shop stages and departments (VSI: RV / CV / UL).'
+            ? 'Local multi-company demo (Vite DEV) — JS Valve + VSI are stored in this browser only until migration-organizations-foundation.sql is run. Switching company changes shop stages and departments (VSI: RV / CV / UL). Existing staff default to JS Valve access; grant VSI with the Companies checkboxes. Generic Admin needs supabase/migration-employees-anon-read.sql (or an employee admin login) to load this roster.'
             : 'Multi-company is enabled.'}{' '}
           Use the <strong>Companies</strong> checkboxes to grant each employee access to one or more companies. Users
           only see companies they can access in the header switcher.
@@ -751,7 +751,12 @@ export function AdminEmployeesPage({ isAdmin }: { isAdmin: boolean }) {
                 </tr>
               ) : filteredEmployees.length === 0 ? (
                 <tr>
-                  <td colSpan={rosterColSpan}>No employees match your filters.</td>
+                  <td colSpan={rosterColSpan}>
+                    {employees.length === 0
+                      ? error ||
+                        'No employees loaded. Sign in with an employee admin account, or run supabase/migration-employees-anon-read.sql so Generic Admin can read the roster.'
+                      : 'No employees match your filters.'}
+                  </td>
                 </tr>
               ) : (
                 filteredEmployees.map((employee) => {

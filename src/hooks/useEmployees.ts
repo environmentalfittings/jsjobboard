@@ -187,6 +187,13 @@ async function loadEmployeesSnapshot(): Promise<EmployeesSnapshot> {
     }
   }
 
+  // Generic Admin / read-only local bypass has no Supabase session. Employees RLS
+  // only grants SELECT to authenticated unless migration-employees-anon-read.sql is run.
+  if (!employees.length && !error && !userId) {
+    error =
+      'Employee roster needs a signed-in account (or run supabase/migration-employees-anon-read.sql for Generic Admin). Sign in with an employee admin login to see active staff.'
+  }
+
   return { employees, currentUserProfile, error }
 }
 

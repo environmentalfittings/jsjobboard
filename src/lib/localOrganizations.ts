@@ -208,6 +208,39 @@ export function listLocalMembersForEmployees(employeeIds: string[]): Organizatio
   return listLocalMembers().filter((row) => row.employee_id && wanted.has(row.employee_id))
 }
 
+/**
+ * Local demo: existing shop staff belong to JS Valve by default until an admin
+ * unchecks them. VSI stays opt-in via Companies checkboxes.
+ */
+export function ensureLocalJsValveAccessForEmployees(employeeIds: string[]): OrganizationMember[] {
+  if (!employeeIds.length) return []
+  ensureLocalOrganizationsSeeded()
+  const members = listLocalMembers()
+  const known = new Set(
+    members
+      .filter((row) => row.employee_id && row.organization_id === LOCAL_ORG_JS_VALVE_ID)
+      .map((row) => String(row.employee_id)),
+  )
+  const ts = nowIso()
+  let changed = false
+  for (const employeeId of employeeIds) {
+    if (known.has(employeeId)) continue
+    members.push({
+      id: `local-member-${LOCAL_ORG_JS_VALVE_ID}-${employeeId}`,
+      organization_id: LOCAL_ORG_JS_VALVE_ID,
+      user_id: null,
+      employee_id: employeeId,
+      role: 'technician',
+      can_access: true,
+      created_at: ts,
+      updated_at: ts,
+    })
+    changed = true
+  }
+  if (changed) writeLocalMembers(members)
+  return listLocalMembersForEmployees(employeeIds)
+}
+
 export function setLocalEmployeeOrganizationAccess(input: {
   employeeId: string
   organizationId: string

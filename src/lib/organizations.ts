@@ -1,7 +1,7 @@
 import {
   createLocalOrganization,
+  ensureLocalJsValveAccessForEmployees,
   isLocalOrganizationsDevMode,
-  listLocalMembersForEmployees,
   listLocalMembershipsForUser,
   listLocalOrganizations,
   LOCAL_DEV_ADMIN_USER_ID,
@@ -153,7 +153,7 @@ export async function listOrganizationMembersForEmployees(
   const backend = await resolveOrganizationsBackend()
   if (backend === 'none') return { data: [], error: null, enabled: false }
   if (backend === 'local') {
-    return { data: listLocalMembersForEmployees(employeeIds), error: null, enabled: true }
+    return { data: ensureLocalJsValveAccessForEmployees(employeeIds), error: null, enabled: true }
   }
 
   const { data, error } = await supabase
@@ -164,7 +164,7 @@ export async function listOrganizationMembersForEmployees(
   if (error) {
     if (isMissingOrgRelation(error.message)) {
       if (isLocalOrganizationsDevMode()) {
-        return { data: listLocalMembersForEmployees(employeeIds), error: null, enabled: true }
+        return { data: ensureLocalJsValveAccessForEmployees(employeeIds), error: null, enabled: true }
       }
       return { data: [], error: null, enabled: false }
     }
