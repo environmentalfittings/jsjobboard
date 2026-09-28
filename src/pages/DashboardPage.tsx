@@ -8,7 +8,11 @@ import { useAuth } from '../contexts/AuthContext'
 import { useOrganization } from '../contexts/OrganizationContext'
 import { useCompanyWorkflow } from '../hooks/useCompanyWorkflow'
 import { companyLogoUrl } from '../lib/companyBranding'
-import { filterRowsByCompanyValveId, filterValvesForCompany } from '../lib/companyDataScope'
+import {
+  filterGaugesForCompany,
+  filterRowsByCompanyValveId,
+  filterValvesForCompany,
+} from '../lib/companyDataScope'
 import {
   calcActiveJobsByCell,
   calcActiveStatusBreakdown,
@@ -141,7 +145,10 @@ export function DashboardPage() {
 
     try {
       // Active MTE gauge-tab items only; alert from 14 days before expiry until dates are updated.
-      const gauges = filterAllowedTestGauges(await loadActiveTestGauges())
+      const gauges = filterGaugesForCompany(filterAllowedTestGauges(await loadActiveTestGauges()), {
+        workflowKey: workflow.key,
+        activeOrganization,
+      })
       const alertItems = gauges
         .filter((gauge) => isGaugeCalibrationDashboardAlert(gauge))
         .sort((a, b) => {

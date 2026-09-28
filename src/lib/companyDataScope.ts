@@ -1,9 +1,13 @@
 import type { CompanyWorkflowKey } from '../constants/companyWorkflows'
+import type { TestGauge } from '../types/testGauge'
 import type { Organization } from '../types/organizations'
 import type { Valve } from '../types'
 
 /** Valve row ids created while local VSI was active (no org column in DB yet). */
 export const LOCAL_COMPANY_VALVE_IDS_KEY = 'js-job-board-local-company-valve-ids'
+
+/** Test gauge ids created while local VSI was active (no org column in DB yet). */
+export const LOCAL_COMPANY_GAUGE_IDS_KEY = 'js-job-board-local-company-gauge-ids'
 
 type LocalCompanyValveMap = Partial<Record<CompanyWorkflowKey, number[]>>
 
@@ -112,6 +116,81 @@ export function filterRowsByCompanyValveId<T extends { valve_row_id: number }>(
 ): T[] {
   return rows.filter((row) =>
     valveRowBelongsToCompany(row.valve_row_id, {
+      workflowKey: options.workflowKey,
+      activeOrganization: options.activeOrganization,
+    }),
+  )
+}
+
+type LocalCompanyGaugeMap = Partial<Record<CompanyWorkflowKey, string[]>>
+
+function readLocalCompanyGaugeMap(): LocalCompanyGaugeMap {
+  try {
+    const raw = window.localStorage.getItem(LOCAL_COMPANY_GAUGE_IDS_KEY)
+    if (!raw) return {}
+    const parsed = JSON.parse(raw) as LocalCompanyGaugeMap
+    return parsed && typeof parsed === 'object' ? parsed : {}
+  } catch {
+    return {}
+  }
+}
+
+function writeLocalCompanyGaugeMap(map: LocalCompanyGaugeMap) {
+  try {
+    window.localStorage.setItem(LOCAL_COMPANY_GAUGE_IDS_KEY, JSON.stringify(map))
+  } catch {
+    // ignore
+  }
+}
+
+export function rememberGaugeForCompany(companyKey: CompanyWorkflowKey, gaugeId: string) {
+  const id = String(gaugeId ?? '').trim()
+  if (!id) return
+  const map = readLocalCompanyGaugeMap()
+  const list = new Set(map[companyKey] ?? [])
+  list.add(id)
+  map[companyKey] = [...list]
+  writeLocalCompanyGaugeMap(map)
+}
+
+export function localGaugeIdsForCompany(companyKey: CompanyWorkflowKey): Set<string> {
+  return new Set(readLocalCompanyGaugeMap()[companyKey] ?? [])
+}
+
+function otherLocalGaugeIds(workflowKey: CompanyWorkflowKey): Set<string> {
+  const other = new Set<string>()
+  for (const key of ['js-valve', 'vsi'] as const) {
+    if (key === workflowKey) continue
+    for (const id of localGaugeIdsForCompany(key)) other.add(id)
+  }
+  return other
+}
+
+export function gaugeBelongsToCompany(
+  gaugeId: string,
+  options: {
+    workflowKey: CompanyWorkflowKey
+    activeOrganization: Organization | null
+  },
+): boolean {
+  const { workflowKey } = options
+  const id = String(gaugeId ?? '').trim()
+  if (!id) return workflowKey === 'js-valve'
+  if (localGaugeIdsForCompany(workflowKey).has(id)) return true
+  if (otherLocalGaugeIds(workflowKey).has(id)) return false
+  // Untagged historical gauges stay on JS Valve so VSI starts empty.
+  return workflowKey === 'js-valve'
+}
+
+export function filterGaugesForCompany(
+  gauges: TestGauge[],
+  options: {
+    workflowKey: CompanyWorkflowKey
+    activeOrganization: Organization | null
+  },
+): TestGauge[] {
+  return gauges.filter((gauge) =>
+    gaugeBelongsToCompany(gauge.id, {
       workflowKey: options.workflowKey,
       activeOrganization: options.activeOrganization,
     }),
