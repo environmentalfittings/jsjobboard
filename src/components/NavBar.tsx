@@ -4,6 +4,9 @@ import type { UserRole } from '../pages/LoginPage'
 import { can, formatRolePillLabel, permissionDeniedReason, type AppPermission } from '../lib/roles'
 import { isFeedbackEnabled } from '../lib/feedbackEnabled'
 import { FeedbackButton } from './FeedbackButton'
+import { useOrganization } from '../contexts/OrganizationContext'
+import { useCompanyWorkflow } from '../hooks/useCompanyWorkflow'
+import { companyLogoUrl } from '../lib/companyBranding'
 import { CompanySwitcher } from './CompanySwitcher'
 import { NavMessagesMenu } from './NavMessagesMenu'
 import logo from '../assets/js-logo.png'
@@ -205,15 +208,25 @@ export function NavBar({ role, username, userId, onLogout }: NavBarProps) {
   ]
 
   const messagesMenu = userId ? <NavMessagesMenu userId={userId} username={username} /> : null
+  const { orgsEnabled, activeOrganization } = useOrganization()
+  const workflow = useCompanyWorkflow()
+  const brandLogo = (orgsEnabled && companyLogoUrl(activeOrganization)) || logo
+  const brandName = orgsEnabled && activeOrganization ? activeOrganization.name : 'JS Valve'
+  const brandFull =
+    orgsEnabled && activeOrganization
+      ? `${activeOrganization.name} Job Board`
+      : 'JS Valve Job Board'
+  const brandLogoClass =
+    workflow.key === 'vsi' ? 'brand-logo brand-logo--vsi' : 'brand-logo'
 
   return (
     <header className={`navbar${mobileOpen ? ' navbar--menu-open' : ''}`}>
       <div className="navbar-inner">
         <div className="brand">
-          <img src={logo} alt="JS Valve logo" className="brand-logo" />
+          <img src={brandLogo} alt={`${brandName} logo`} className={brandLogoClass} />
           <span className="brand-text">
-            <span className="brand-text-full">JS Valve Job Board</span>
-            <span className="brand-text-short">JS Valve</span>
+            <span className="brand-text-full">{brandFull}</span>
+            <span className="brand-text-short">{brandName}</span>
           </span>
         </div>
 

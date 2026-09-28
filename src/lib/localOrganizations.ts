@@ -1,3 +1,4 @@
+import { defaultCompanyLogoUrl } from './companyBranding'
 import type {
   Organization,
   OrganizationMember,
@@ -27,7 +28,7 @@ function defaultOrganizations(): Organization[] {
       id: LOCAL_ORG_JS_VALVE_ID,
       name: 'JS Valve',
       slug: 'js-valve',
-      logo_url: null,
+      logo_url: defaultCompanyLogoUrl('js-valve'),
       is_active: true,
       created_at: ts,
       updated_at: ts,
@@ -36,7 +37,7 @@ function defaultOrganizations(): Organization[] {
       id: LOCAL_ORG_PARTNER_ID,
       name: 'VSI',
       slug: 'vsi',
-      logo_url: null,
+      logo_url: defaultCompanyLogoUrl('vsi'),
       is_active: true,
       created_at: ts,
       updated_at: ts,
@@ -52,17 +53,36 @@ function migrateLocalOrganizations(rows: Organization[]): Organization[] {
       org.id === 'local-org-partner' ||
       org.slug === 'partner-shop' ||
       org.name.trim().toLowerCase() === 'partner shop'
-    if (!isLegacyPartner && !(org.id === LOCAL_ORG_PARTNER_ID && (org.slug !== 'vsi' || org.name !== 'VSI'))) {
-      return org
+    const isVsi =
+      isLegacyPartner ||
+      org.id === LOCAL_ORG_PARTNER_ID ||
+      org.slug === 'vsi' ||
+      org.name.trim().toLowerCase() === 'vsi'
+    const isJs =
+      org.id === LOCAL_ORG_JS_VALVE_ID ||
+      org.slug === 'js-valve' ||
+      org.name.trim().toLowerCase() === 'js valve'
+
+    let row = org
+    if (isLegacyPartner || (org.id === LOCAL_ORG_PARTNER_ID && (org.slug !== 'vsi' || org.name !== 'VSI'))) {
+      changed = true
+      row = {
+        ...row,
+        id: LOCAL_ORG_PARTNER_ID,
+        name: 'VSI',
+        slug: 'vsi',
+        updated_at: nowIso(),
+      }
     }
-    changed = true
-    return {
-      ...org,
-      id: LOCAL_ORG_PARTNER_ID,
-      name: 'VSI',
-      slug: 'vsi',
-      updated_at: nowIso(),
+    if (isVsi && row.logo_url !== defaultCompanyLogoUrl('vsi')) {
+      changed = true
+      row = { ...row, logo_url: defaultCompanyLogoUrl('vsi'), updated_at: nowIso() }
     }
+    if (isJs && !row.logo_url) {
+      changed = true
+      row = { ...row, logo_url: defaultCompanyLogoUrl('js-valve'), updated_at: nowIso() }
+    }
+    return row
   })
   return changed ? next : rows
 }

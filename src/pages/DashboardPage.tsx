@@ -7,6 +7,7 @@ import { useToast } from '../components/ToastNotification'
 import { useAuth } from '../contexts/AuthContext'
 import { useOrganization } from '../contexts/OrganizationContext'
 import { useCompanyWorkflow } from '../hooks/useCompanyWorkflow'
+import { companyLogoUrl } from '../lib/companyBranding'
 import { filterValvesForCompany } from '../lib/companyDataScope'
 import {
   calcActiveJobsByCell,
@@ -299,7 +300,11 @@ export function DashboardPage() {
   return (
     <section className="dashboard-page">
       <div className="dashboard-title-row">
-        <img src={logo} alt="JS Valve logo" className="dashboard-logo" />
+        <img
+          src={(orgsEnabled && companyLogoUrl(activeOrganization)) || logo}
+          alt={`${activeOrganization?.name ?? 'JS Valve'} logo`}
+          className={`dashboard-logo${workflow.key === 'vsi' ? ' dashboard-logo--vsi' : ''}`}
+        />
         <h2 className="dashboard-title">Dashboard</h2>
         <div className="dashboard-refresh-row">
           <span className="dashboard-refresh-hint">{refreshHint}</span>
