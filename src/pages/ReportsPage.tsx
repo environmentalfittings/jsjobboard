@@ -10,7 +10,7 @@ import { VALVE_TYPES } from '../constants/jobLookups'
 import { JOB_TYPES, normalizeJobType } from '../constants/jobTypes'
 import { TERMINAL_STATUSES } from '../constants/statuses'
 import { useCompanyWorkflow } from '../hooks/useCompanyWorkflow'
-import { filterRowsByCompanyValveId } from '../lib/companyDataScope'
+import { filterRowsByCompanyValveId, valveRowBelongsToCompany } from '../lib/companyDataScope'
 import { downloadCompletedJobsReportPdf } from '../lib/completedJobsReportPdf'
 import { loadLookupOptionsMap } from '../lib/lookupValues'
 import { supabase } from '../lib/supabase'
@@ -427,10 +427,16 @@ export function ReportsPage() {
 
   const loadOtdData = async (year: number) => {
     setOtdLoading(true)
+    // VSI local demo starts empty (no completed VSI jobs yet).
+    if (workflow.key === 'vsi') {
+      setOtdRows([])
+      setOtdLoading(false)
+      return
+    }
     const { start, end } = getYearRange(year)
     const { data, error } = await supabase
       .from('valves')
-      .select('valve_id,date_closed,due_date,status,order_type,customer')
+      .select('id,valve_id,date_closed,due_date,status,order_type,customer')
       .in('status', ['Completed', 'Warehouse RTS'])
       .gte('date_closed', start)
       .lte('date_closed', end)
@@ -443,6 +449,7 @@ export function ReportsPage() {
     }
     const parsed: OtdRow[] = (
       (data ?? []) as {
+        id: number
         valve_id: string
         date_closed: string
         due_date: string | null
@@ -451,6 +458,12 @@ export function ReportsPage() {
         customer: string | null
       }[]
     )
+      .filter((r) =>
+        valveRowBelongsToCompany(r.id, {
+          workflowKey: workflow.key,
+          activeOrganization,
+        }),
+      )
       .filter((r) => !isExcludedFromOnTimeDelivery(r))
       .map((r) => ({
         valve_id: r.valve_id,
@@ -621,7 +634,9 @@ export function ReportsPage() {
 
   useEffect(() => {
     void loadOtdData(otdYear)
-  }, [otdYear])
+    // Reload when active company changes so VSI does not show JS Valve OTD.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [otdYear, workflow.key, activeOrganization?.id])
 
   useEffect(() => {
     void loadReworkLog()
@@ -1443,12 +1458,14 @@ export function ReportsPage() {
       <section className="dashboard-panel" id="on-time-delivery">
         <div className="training-list-toolbar" style={{ alignItems: 'flex-start' }}>
           <div>
-            <h3 style={{ margin: 0 }}>On-time delivery</h3>
+            <h3 style={{ margin: 0 }}>
+              On-time delivery
+              {activeOrganization ? ` · ${activeOrganization.name}` : ''}
+            </h3>
             <p className="placeholder-copy" style={{ marginTop: '0.35rem' }}>
-              Percentage of completed jobs closed on or before their due date. Jobs with no due date are excluded from
-              percentage calculations. {OTD_PAUSE_STATUS_LABEL} do not count against on-time delivery. Moving a job out
-              of those statuses requires a new due date before it counts again. {OTD_EXCLUDED_CUSTOMER_LABEL} jobs are
-              also excluded (internal / house work).
+              {workflow.key === 'vsi'
+                ? 'VSI on-time delivery starts empty in the local multi-company demo until VSI jobs are completed.'
+                : `Percentage of completed jobs closed on or before their due date. Jobs with no due date are excluded from percentage calculations. ${OTD_PAUSE_STATUS_LABEL} do not count against on-time delivery. Moving a job out of those statuses requires a new due date before it counts again. ${OTD_EXCLUDED_CUSTOMER_LABEL} jobs are also excluded (internal / house work).`}
             </p>
           </div>
         </div>
