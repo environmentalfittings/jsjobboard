@@ -139,7 +139,8 @@ export function DashboardPage() {
         setRecentTested(rows)
       }
 
-      const eligiblePriority = await syncPriorityQueueWithValves(valvesData)
+      // Full shop dataset — safe to prune missing / ineligible queue rows.
+      const eligiblePriority = await syncPriorityQueueWithValves(valvesData, { pruneMissing: true })
       setPriorityQueueIds(eligiblePriority)
     }
 
@@ -756,7 +757,11 @@ export function DashboardPage() {
                 </article>
               ))
             ) : (
-              <div className="priority-empty">No priority valves yet. Add valves to `priority_queue` to show them here.</div>
+              <div className="priority-empty">
+                {workflow.key === 'vsi'
+                  ? 'No VSI priority valves yet. Add jobs from the Status board while VSI is selected.'
+                  : 'No priority valves yet. Open the Status board and star jobs to build today’s list.'}
+              </div>
             )}
           </div>
           <Link className="dashboard-link-button" to="/job-board">

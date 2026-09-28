@@ -27,20 +27,35 @@ export function prunePriorityValveIds(valveIds: string[], valves: Valve[]): stri
   return valveIds.filter((id) => isEligiblePriorityValve(byValveId.get(id)))
 }
 
-/** Drop closed / ineligible queue rows so the dashboard matches live shop work. */
-export async function syncPriorityQueueWithValves(valves: Valve[]): Promise<string[]> {
+/**
+ * Drop closed / ineligible queue rows so the dashboard matches live shop work.
+ *
+ * When `valves` is a company-scoped subset (e.g. VSI empty demo), do NOT treat
+ * missing IDs as stale — that would wipe the other company's priority list.
+ * Pass `pruneMissing: true` only when `valves` is the full shop dataset.
+ */
+export async function syncPriorityQueueWithValves(
+  valves: Valve[],
+  options?: { pruneMissing?: boolean },
+): Promise<string[]> {
   const { data, error } = await supabase.from('priority_queue').select('valve_id,created_at').order('created_at')
   if (error || !data) return []
 
   const ordered = data.map((row: { valve_id: string }) => row.valve_id)
-  const eligible = prunePriorityValveIds(ordered, valves)
-  const stale = ordered.filter((id) => !eligible.includes(id))
+  const byValveId = new Map(valves.map((v) => [v.valve_id, v]))
+  const pruneMissing = options?.pruneMissing === true
+
+  const stale = ordered.filter((id) => {
+    const valve = byValveId.get(id)
+    if (valve) return !isEligiblePriorityValve(valve)
+    return pruneMissing
+  })
 
   if (stale.length > 0) {
     await supabase.from('priority_queue').delete().in('valve_id', stale)
   }
 
-  return eligible
+  return ordered.filter((id) => isEligiblePriorityValve(byValveId.get(id)))
 }
 
 /** Lower rank sorts first; non-priority valves follow in valve-id order. */

@@ -357,7 +357,8 @@ export function ShopTvBoardPage() {
       workflowKey: workflow.key,
       activeOrganization,
     })
-    setPriorityQueueIds(await syncPriorityQueueWithValves(scoped))
+    // Scope-only sync: never delete JS Valve priorities when VSI's valve set is empty.
+    setPriorityQueueIds(await syncPriorityQueueWithValves(scoped, { pruneMissing: false }))
 
     const { startIso, endIso } = localTodayBounds()
     const [summaries, todayRes] = await Promise.all([

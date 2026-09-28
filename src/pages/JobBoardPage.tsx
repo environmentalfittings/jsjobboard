@@ -684,7 +684,7 @@ export function JobBoardPage({ role, username }: { role?: UserRole; username?: s
       showToast(`Could not load valves: ${error.message}`)
     } else {
       setValveRows(data)
-      const eligiblePriority = await syncPriorityQueueWithValves(data)
+      const eligiblePriority = await syncPriorityQueueWithValves(data, { pruneMissing: true })
       setPriorityQueueIds(eligiblePriority)
     }
     setLoading(false)
