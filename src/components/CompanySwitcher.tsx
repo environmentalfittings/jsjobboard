@@ -9,7 +9,6 @@ export function CompanySwitcher() {
     loading,
     switchableOrganizations,
     activeOrganization,
-    isOrgSuperAdmin,
     setActiveOrganizationId,
   } = useOrganization()
 
