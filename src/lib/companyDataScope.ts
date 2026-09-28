@@ -25,6 +25,9 @@ export const LOCAL_COMPANY_TRAINING_FILE_IDS_KEY = 'js-job-board-local-company-t
 /** Employee training skill row ids created/updated while local VSI was active. */
 export const LOCAL_COMPANY_TRAINING_SKILL_IDS_KEY = 'js-job-board-local-company-training-skill-ids'
 
+/** Customer inventory row ids created while local VSI was active. */
+export const LOCAL_COMPANY_INVENTORY_IDS_KEY = 'js-job-board-local-company-inventory-ids'
+
 type LocalCompanyValveMap = Partial<Record<CompanyWorkflowKey, number[]>>
 
 function readLocalCompanyValveMap(): LocalCompanyValveMap {
@@ -211,6 +214,89 @@ export function filterGaugesForCompany(
       activeOrganization: options.activeOrganization,
     }),
   )
+}
+
+type LocalCompanyInventoryMap = Partial<Record<CompanyWorkflowKey, string[]>>
+
+function readLocalCompanyInventoryMap(): LocalCompanyInventoryMap {
+  try {
+    const raw = window.localStorage.getItem(LOCAL_COMPANY_INVENTORY_IDS_KEY)
+    if (!raw) return {}
+    const parsed = JSON.parse(raw) as LocalCompanyInventoryMap
+    return parsed && typeof parsed === 'object' ? parsed : {}
+  } catch {
+    return {}
+  }
+}
+
+function writeLocalCompanyInventoryMap(map: LocalCompanyInventoryMap) {
+  try {
+    window.localStorage.setItem(LOCAL_COMPANY_INVENTORY_IDS_KEY, JSON.stringify(map))
+  } catch {
+    // ignore
+  }
+}
+
+export function rememberInventoryForCompany(companyKey: CompanyWorkflowKey, inventoryId: string) {
+  const id = String(inventoryId ?? '').trim()
+  if (!id) return
+  const map = readLocalCompanyInventoryMap()
+  const list = new Set(map[companyKey] ?? [])
+  list.add(id)
+  map[companyKey] = [...list]
+  writeLocalCompanyInventoryMap(map)
+}
+
+export function localInventoryIdsForCompany(companyKey: CompanyWorkflowKey): Set<string> {
+  return new Set(readLocalCompanyInventoryMap()[companyKey] ?? [])
+}
+
+function otherLocalInventoryIds(workflowKey: CompanyWorkflowKey): Set<string> {
+  const other = new Set<string>()
+  for (const key of ['js-valve', 'vsi'] as const) {
+    if (key === workflowKey) continue
+    for (const id of localInventoryIdsForCompany(key)) other.add(id)
+  }
+  return other
+}
+
+/**
+ * Customer inventory: untagged historical rows stay on JS Valve; VSI starts empty
+ * until items are created while VSI is active.
+ */
+export function inventoryBelongsToCompany(
+  inventoryId: string,
+  options: {
+    workflowKey: CompanyWorkflowKey
+    activeOrganization: Organization | null
+  },
+): boolean {
+  const { workflowKey } = options
+  const id = String(inventoryId ?? '').trim()
+  if (!id) return workflowKey === 'js-valve'
+  if (localInventoryIdsForCompany(workflowKey).has(id)) return true
+  if (otherLocalInventoryIds(workflowKey).has(id)) return false
+  return workflowKey === 'js-valve'
+}
+
+export function filterInventoryForCompany<T extends { id: string }>(
+  rows: T[],
+  options: {
+    workflowKey: CompanyWorkflowKey
+    activeOrganization: Organization | null
+  },
+): T[] {
+  return rows.filter((row) => inventoryBelongsToCompany(row.id, options))
+}
+
+export function filterInventoryEventsForCompany<T extends { inventory_id: string }>(
+  rows: T[],
+  options: {
+    workflowKey: CompanyWorkflowKey
+    activeOrganization: Organization | null
+  },
+): T[] {
+  return rows.filter((row) => inventoryBelongsToCompany(row.inventory_id, options))
 }
 
 type LocalCompanyNoteMap = Partial<Record<CompanyWorkflowKey, number[]>>
