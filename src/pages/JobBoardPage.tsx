@@ -53,7 +53,15 @@ import {
 import { recordDueDateChange, resolveChangedByName } from '../lib/dueDateChanges'
 import { recordStatusRework } from '../lib/statusReworkLog'
 import { isBackwardStatusMove } from '../lib/statusWorkflow'
-import { isEligiblePriorityValve, syncPriorityQueueWithValves, compareValvesWithPriorityOrder, persistPriorityQueueOrder, reorderPriorityQueueIds } from '../lib/priorityQueue'
+import { blockSharedShopDeletes, SHARED_SHOP_DELETE_BLOCKED_MESSAGE } from '../lib/companyDataGuard'
+import {
+  compareValvesWithPriorityOrder,
+  filterPriorityIdsForValves,
+  isEligiblePriorityValve,
+  persistPriorityQueueOrder,
+  reorderPriorityQueueIds,
+  syncPriorityQueueWithValves,
+} from '../lib/priorityQueue'
 import { supabase } from '../lib/supabase'
 import type { JobCardSaveFields } from '../lib/jobCardSave'
 import { can, canWriteShop, permissionDeniedReason } from '../lib/roles'
@@ -684,8 +692,14 @@ export function JobBoardPage({ role, username }: { role?: UserRole; username?: s
       showToast(`Could not load valves: ${error.message}`)
     } else {
       setValveRows(data)
-      const eligiblePriority = await syncPriorityQueueWithValves(data, { pruneMissing: true })
-      setPriorityQueueIds(eligiblePriority)
+      const eligiblePriority = await syncPriorityQueueWithValves(data, {
+        pruneMissing: !blockSharedShopDeletes(),
+      })
+      const scopedForPriority = filterValvesForCompany(data, {
+        workflowKey: workflow.key,
+        activeOrganization,
+      })
+      setPriorityQueueIds(filterPriorityIdsForValves(eligiblePriority, scopedForPriority))
     }
     setLoading(false)
     void loadAttachmentCounts()
@@ -1409,6 +1423,10 @@ export function JobBoardPage({ role, username }: { role?: UserRole; username?: s
   const togglePriority = async (valve: Valve) => {
     if (!canWrite) {
       showToast(permissionDeniedReason('shopWrite'))
+      return
+    }
+    if (blockSharedShopDeletes()) {
+      showToast(SHARED_SHOP_DELETE_BLOCKED_MESSAGE)
       return
     }
     const currentlyPriority = priorityIds.has(valve.valve_id)

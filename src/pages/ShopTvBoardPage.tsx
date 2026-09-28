@@ -15,6 +15,7 @@ import { displayJobStatus, isActiveShopWork } from '../lib/jobDisplayStatus'
 import { localTodayBounds } from '../lib/managerDashboardMetrics'
 import {
   compareValvesWithPriorityOrder,
+  filterPriorityIdsForValves,
   isEligiblePriorityValve,
   persistPriorityQueueOrder,
   reorderPriorityQueueIds,
@@ -358,7 +359,8 @@ export function ShopTvBoardPage() {
       activeOrganization,
     })
     // Scope-only sync: never delete JS Valve priorities when VSI's valve set is empty.
-    setPriorityQueueIds(await syncPriorityQueueWithValves(scoped, { pruneMissing: false }))
+    const eligible = await syncPriorityQueueWithValves(scoped, { pruneMissing: false })
+    setPriorityQueueIds(filterPriorityIdsForValves(eligible, scoped))
 
     const { startIso, endIso } = localTodayBounds()
     const [summaries, todayRes] = await Promise.all([

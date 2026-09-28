@@ -33,7 +33,13 @@ import {
   loadActiveTestGauges,
 } from '../lib/testGaugeRegistry'
 import type { TestGauge } from '../types/testGauge'
-import { isEligiblePriorityValve, syncPriorityQueueWithValves } from '../lib/priorityQueue'
+import {
+  filterPriorityIdsForValves,
+  isEligiblePriorityValve,
+  persistPriorityQueueOrder,
+  syncPriorityQueueWithValves,
+} from '../lib/priorityQueue'
+import { blockSharedShopDeletes, SHARED_SHOP_DELETE_BLOCKED_MESSAGE } from '../lib/companyDataGuard'
 import { canWriteShop, can, permissionDeniedReason } from '../lib/roles'
 import { departmentIdForShopStatus } from '../lib/statusPriorityQueue'
 import { openShopDepartmentsParam } from '../constants/priorityDepartments'
@@ -139,9 +145,16 @@ export function DashboardPage() {
         setRecentTested(rows)
       }
 
-      // Full shop dataset — safe to prune missing / ineligible queue rows.
-      const eligiblePriority = await syncPriorityQueueWithValves(valvesData, { pruneMissing: true })
-      setPriorityQueueIds(eligiblePriority)
+      // Full shop dataset for eligibility; UI state stays company-scoped so VSI
+      // never holds JS ids in previousOrder for a rewrite/delete.
+      const eligiblePriority = await syncPriorityQueueWithValves(valvesData, {
+        pruneMissing: !isLocalOrganizations,
+      })
+      const scopedForPriority = filterValvesForCompany(valvesData, {
+        workflowKey: workflow.key,
+        activeOrganization,
+      })
+      setPriorityQueueIds(filterPriorityIdsForValves(eligiblePriority, scopedForPriority))
     }
 
     try {
@@ -257,32 +270,21 @@ export function DashboardPage() {
       showToast(permissionDeniedReason('shopWrite'))
       return
     }
+    if (blockSharedShopDeletes()) {
+      showToast(SHARED_SHOP_DELETE_BLOCKED_MESSAGE)
+      return
+    }
     const unique = Array.from(new Set(nextOrder))
     const previous = priorityQueueIds
     setPriorityQueueIds(unique)
     setSavingPriority(true)
 
-    const { error: deleteError } = await supabase.from('priority_queue').delete().in('valve_id', previous)
-    if (deleteError) {
+    const { error } = await persistPriorityQueueOrder(previous, unique)
+    if (error) {
       setPriorityQueueIds(previous)
       setSavingPriority(false)
-      showToast('Could not reorder priorities')
+      showToast(error)
       return
-    }
-
-    if (unique.length > 0) {
-      const baseTime = Date.now()
-      const rows = unique.map((valveId, index) => ({
-        valve_id: valveId,
-        created_at: new Date(baseTime + index * 1000).toISOString(),
-      }))
-      const { error: insertError } = await supabase.from('priority_queue').insert(rows)
-      if (insertError) {
-        setPriorityQueueIds(previous)
-        setSavingPriority(false)
-        showToast('Could not reorder priorities')
-        return
-      }
     }
 
     setSavingPriority(false)

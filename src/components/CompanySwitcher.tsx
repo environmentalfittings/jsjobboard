@@ -15,7 +15,9 @@ export function CompanySwitcher() {
   if (!orgsEnabled || loading) return null
   if (!activeOrganization && memberships.length === 0) return null
 
-  const localTitle = isLocalOrganizations ? ' (local demo)' : ''
+  const localTitle = isLocalOrganizations
+    ? ' (local demo — will not delete live JS Valve data)'
+    : ''
   const activeLogo = companyLogoUrl(activeOrganization)
 
   if (memberships.length <= 1) {

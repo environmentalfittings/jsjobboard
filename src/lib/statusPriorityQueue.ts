@@ -5,6 +5,7 @@ import {
   type PriorityDepartment,
   type PriorityDepartmentId,
 } from '../constants/priorityDepartments'
+import { blockSharedShopDeletes, SHARED_SHOP_DELETE_BLOCKED_MESSAGE } from './companyDataGuard'
 import { compareValveIdSequential } from './valveWorkOrderSearch'
 import { displayJobStatus, isActiveShopWork } from './jobDisplayStatus'
 import { supabase } from './supabase'
@@ -317,6 +318,11 @@ export async function saveHandoutAssignments(
   const key = scope.key.trim()
   if (!key) return { error: 'Department is required.' }
 
+  // Local multi-company demo must not rewrite live JS department priority queues.
+  if (blockSharedShopDeletes()) {
+    return { error: SHARED_SHOP_DELETE_BLOCKED_MESSAGE }
+  }
+
   const { error: deleteError } = await supabase
     .from('status_priority_queue')
     .delete()
@@ -369,6 +375,10 @@ export async function prunePriorityScopeQueue(
 ): Promise<string[]> {
   const saved = await loadHandoutAssignments(scope)
   const merged = mergeHandoutAssignments(saved, valvesInScope)
+  // Local multi-company demo: never delete live department/status priority rows.
+  if (blockSharedShopDeletes()) {
+    return merged.map((row) => row.valve_id)
+  }
   const keep = new Set(merged.map((row) => row.valve_id))
   const stale = saved.map((row) => row.valve_id).filter((id) => !keep.has(id))
   if (stale.length) {
