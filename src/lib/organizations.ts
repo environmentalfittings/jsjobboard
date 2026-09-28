@@ -314,13 +314,13 @@ export function writeStoredActiveOrganizationId(organizationId: string | null) {
 export function pickActiveOrganization(
   memberships: OrganizationMembership[],
   preferredId?: string | null,
-  options?: { organizations?: Organization[]; isSuperAdmin?: boolean },
+  _options?: { organizations?: Organization[]; isSuperAdmin?: boolean },
 ): Organization | null {
-  const isSuperAdmin = options?.isSuperAdmin ?? membershipIsSuperAdmin(memberships)
-  const candidates =
-    isSuperAdmin && options?.organizations?.length
-      ? options.organizations
-      : memberships.map((row) => row.organization).filter(Boolean)
+  // Only companies the user is explicitly granted (Companies checkboxes) — never every
+  // org just because they are Superadmin on one company.
+  const candidates = memberships
+    .filter((row) => row.can_access && row.organization)
+    .map((row) => row.organization)
 
   if (!candidates.length) return null
   if (preferredId) {
@@ -339,13 +339,16 @@ export function membershipIsSuperAdmin(memberships: OrganizationMembership[]) {
   return memberships.some((row) => row.can_access && row.role === 'super_admin')
 }
 
-/** Companies shown in the header switcher — Superadmin sees every active company. */
+/**
+ * Companies shown in the header switcher.
+ * Only orgs with can_access (Companies checkboxes). Superadmin on JS alone does not
+ * unlock VSI — both must be checked to switch between them.
+ */
 export function switchableOrganizations(
   memberships: OrganizationMembership[],
-  organizations: Organization[],
-  isSuperAdmin: boolean,
+  _organizations: Organization[],
+  _isSuperAdmin: boolean,
 ): Organization[] {
-  if (isSuperAdmin && organizations.length) return organizations
   const seen = new Set<string>()
   const list: Organization[] = []
   for (const row of memberships) {
@@ -354,4 +357,9 @@ export function switchableOrganizations(
     list.push(row.organization)
   }
   return list
+}
+
+/** True when the user may use the multi-company header switcher (2+ granted companies). */
+export function canSwitchCompanies(memberships: OrganizationMembership[]) {
+  return switchableOrganizations(memberships, [], false).length >= 2
 }

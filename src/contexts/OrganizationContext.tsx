@@ -117,16 +117,15 @@ export function OrganizationProvider({ children }: { children: ReactNode }) {
 
   const setActiveOrganizationId = useCallback(
     (organizationId: string) => {
-      const match = organizations.find((org) => org.id === organizationId) ?? null
+      const membership = memberships.find(
+        (row) => row.organization_id === organizationId && row.can_access,
+      )
+      const match = membership?.organization ?? null
       if (!match) return
-      const allowed =
-        isOrgSuperAdmin ||
-        memberships.some((row) => row.organization_id === organizationId && row.can_access)
-      if (!allowed) return
       setActiveOrganization(match)
       writeStoredActiveOrganizationId(match.id)
     },
-    [memberships, organizations, isOrgSuperAdmin],
+    [memberships],
   )
 
   const value = useMemo<OrganizationContextValue>(
