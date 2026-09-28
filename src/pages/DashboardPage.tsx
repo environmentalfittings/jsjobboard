@@ -5,6 +5,9 @@ import { ReceivedValvesDashboardPanel } from '../components/ReceivedValvesDashbo
 import { ReworkDashboardPanel } from '../components/ReworkDashboardPanel'
 import { useToast } from '../components/ToastNotification'
 import { useAuth } from '../contexts/AuthContext'
+import { useOrganization } from '../contexts/OrganizationContext'
+import { useCompanyWorkflow } from '../hooks/useCompanyWorkflow'
+import { filterValvesForCompany } from '../lib/companyDataScope'
 import {
   calcActiveJobsByCell,
   calcActiveStatusBreakdown,
@@ -50,9 +53,19 @@ type RecentTestedRow = {
 export function DashboardPage() {
   const navigate = useNavigate()
   const { role } = useAuth()
+  const { activeOrganization, orgsEnabled, isLocalOrganizations } = useOrganization()
+  const workflow = useCompanyWorkflow()
   const canWrite = canWriteShop(role)
   const canManageInventory = can(role, 'openAdminTools')
-  const [valves, setValves] = useState<Valve[]>([])
+  const [valveRows, setValveRows] = useState<Valve[]>([])
+  const valves = useMemo(
+    () =>
+      filterValvesForCompany(valveRows, {
+        workflowKey: workflow.key,
+        activeOrganization,
+      }),
+    [valveRows, workflow.key, activeOrganization],
+  )
   const [recentTested, setRecentTested] = useState<RecentTestedRow[]>([])
   const [priorityQueueIds, setPriorityQueueIds] = useState<string[]>([])
   const [gaugeAlertItems, setGaugeAlertItems] = useState<TestGauge[]>([])
@@ -91,7 +104,7 @@ export function DashboardPage() {
     if (valvesError) {
       showToast(`Could not load valves: ${valvesError.message}`)
     } else if (valvesData) {
-      setValves(valvesData)
+      setValveRows(valvesData)
 
       const { data: testLogRows, error: testLogError } = await supabase
         .from('test_logs')
@@ -191,15 +204,25 @@ export function DashboardPage() {
 
   const metrics = useMemo(() => calcDashboardKpis(valves), [valves])
 
-  const cellRows = useMemo(() => calcActiveJobsByCell(valves), [valves])
+  const cellRows = useMemo(
+    () =>
+      calcActiveJobsByCell(valves, 20, {
+        ensureCells: workflow.workCells,
+        zeroOnlyEnsure: workflow.key === 'vsi',
+      }),
+    [valves, workflow.key, workflow.workCells],
+  )
 
-  const topCell = cellRows[0]?.count ?? 1
+  const topCell = Math.max(1, ...cellRows.map((row) => row.count), 1)
 
   const completedMetrics = useMemo(() => calcCompletedMetrics(valves), [valves])
 
   const completedMonthly = useMemo(() => calcCompletedMonthlyBars(valves), [valves])
 
-  const statusBreakdown = useMemo(() => calcActiveStatusBreakdown(valves), [valves])
+  const statusBreakdown = useMemo(
+    () => calcActiveStatusBreakdown(valves, workflow.statusOrder),
+    [valves, workflow.statusOrder],
+  )
 
   const priorityRows = useMemo(() => {
     const byValveId = new Map(valves.map((v) => [v.valve_id, v]))
@@ -208,6 +231,13 @@ export function DashboardPage() {
       .filter((row): row is Valve => isEligiblePriorityValve(row))
       .slice(0, 8)
   }, [priorityQueueIds, valves])
+
+  const visibleRecentTested = useMemo(() => {
+    const ids = new Set(valves.map((v) => v.id))
+    return recentTested.filter((row) => row.valveRowId != null && ids.has(row.valveRowId)).slice(0, 5)
+  }, [recentTested, valves])
+
+  const visibleReworkTodayCount = workflow.key === 'vsi' && valves.length === 0 ? 0 : reworkTodayCount
 
   const persistPriorityOrder = async (nextOrder: string[]) => {
     if (!canWrite) {
@@ -278,6 +308,17 @@ export function DashboardPage() {
           </button>
         </div>
       </div>
+
+      {orgsEnabled && activeOrganization ? (
+        <p className="admin-employees-orgs-note" style={{ marginTop: 0 }}>
+          Viewing <strong>{activeOrganization.name}</strong>
+          {workflow.key === 'vsi'
+            ? ` — departments ${workflow.workCells.join(', ')}; shop jobs are separate from JS Valve${
+                isLocalOrganizations ? ' (local demo starts empty until you create VSI jobs)' : ''
+              }.`
+            : ' — JS Valve shop statuses and finish cells.'}
+        </p>
+      ) : null}
 
       {!loading && gaugeAlertItems.length > 0 ? (
         <div
@@ -384,30 +425,35 @@ export function DashboardPage() {
               }}
               title="Open rework / backward moves report for today"
             >
-              <div className="kpi-number slate">{reworkTodayCount}</div>
+              <div className="kpi-number slate">{visibleReworkTodayCount}</div>
               <div className="kpi-label">Rework today</div>
             </Link>
           </div>
 
           <section className="dashboard-panel">
-            <h3>Active jobs by work cell</h3>
+            <h3>Active jobs by {workflow.workCellLabel.toLowerCase()}</h3>
             <div className="cell-bars">
               {cellRows.map((row) => (
                 <Link
                   key={row.cell}
                   className="cell-row"
                   to={`/status-priorities?departments=${encodeURIComponent(openShopDepartmentsParam())}&cell=${encodeURIComponent(row.cell)}`}
-                  title={`Daily priorities for finish cell ${row.cell} (all open departments)`}
+                  title={`Daily priorities for ${workflow.workCellLabel.toLowerCase()} ${row.cell}`}
                 >
                   <div className="cell-name">{row.cell}</div>
                   <div className="cell-bar-track">
-                    <div className="cell-bar-fill" style={{ width: `${Math.max(5, (row.count / topCell) * 100)}%` }} />
+                    <div
+                      className="cell-bar-fill"
+                      style={{ width: `${row.count === 0 ? 0 : Math.max(5, (row.count / topCell) * 100)}%` }}
+                    />
                   </div>
                   <div className="cell-count">{row.count}</div>
                 </Link>
               ))}
             </div>
-            <div className="status-breakdown-note">Click a finish cell to set and print its daily priorities.</div>
+            <div className="status-breakdown-note">
+              Click a {workflow.workCellLabel.toLowerCase()} to set and print its daily priorities.
+            </div>
           </section>
 
           <ReworkDashboardPanel />
@@ -426,7 +472,14 @@ export function DashboardPage() {
                   </tr>
                 </thead>
                 <tbody>
-                  {recentTested.map((row) => (
+                  {visibleRecentTested.length === 0 ? (
+                    <tr>
+                      <td colSpan={5} className="table-empty-cell">
+                        No recent tested valves for {activeOrganization?.name ?? 'this company'}.
+                      </td>
+                    </tr>
+                  ) : null}
+                  {visibleRecentTested.map((row) => (
                     <tr
                       key={`${row.valve_id}-${row.date_tested}`}
                       className="dashboard-table-row-open"

@@ -14,7 +14,9 @@ import { normalizeJobType } from '../constants/jobTypes'
 import { ColumnFilterCombobox } from '../components/ColumnFilterCombobox'
 import { ColumnFilterStatusChecklist } from '../components/ColumnFilterStatusChecklist'
 import { WorkOrderFilterBar } from '../components/WorkOrderFilterBar'
+import { useOrganization } from '../contexts/OrganizationContext'
 import { useCompanyWorkflow } from '../hooks/useCompanyWorkflow'
+import { filterValvesForCompany } from '../lib/companyDataScope'
 import { parseAssignedTechnicianIds } from '../lib/valveTechnicianIds'
 import { fetchAllValves } from '../lib/fetchAllValves'
 import { displayJobStatus, isActiveOrderType, isActiveShopWork, isClosedWorkOrder } from '../lib/jobDisplayStatus'
@@ -456,6 +458,7 @@ function KanbanJobCard({
 
 export function JobBoardPage({ role, username }: { role?: UserRole; username?: string }) {
   const workflow = useCompanyWorkflow()
+  const { activeOrganization } = useOrganization()
   const PHASES = workflow.phases
   const STATUS_ORDER = workflow.statusOrder
   const DONE_STATUSES = workflow.doneStatuses
@@ -477,7 +480,15 @@ export function JobBoardPage({ role, username }: { role?: UserRole; username?: s
       : 'all'
 
   const [tab, setTab] = useState<BoardTab>(initialTab)
-  const [valves, setValves] = useState<Valve[]>([])
+  const [valveRows, setValveRows] = useState<Valve[]>([])
+  const valves = useMemo(
+    () =>
+      filterValvesForCompany(valveRows, {
+        workflowKey: workflow.key,
+        activeOrganization,
+      }),
+    [valveRows, workflow.key, activeOrganization],
+  )
   const [priorityQueueIds, setPriorityQueueIds] = useState<string[]>([])
   const priorityIds = useMemo(() => new Set(priorityQueueIds), [priorityQueueIds])
   const [loading, setLoading] = useState(true)
@@ -672,7 +683,7 @@ export function JobBoardPage({ role, username }: { role?: UserRole; username?: s
     if (error) {
       showToast(`Could not load valves: ${error.message}`)
     } else {
-      setValves(data)
+      setValveRows(data)
       const eligiblePriority = await syncPriorityQueueWithValves(data)
       setPriorityQueueIds(eligiblePriority)
     }
@@ -747,7 +758,7 @@ export function JobBoardPage({ role, username }: { role?: UserRole; username?: s
           const { data } = await supabase.from('valves').select(VALVE_LIST_SELECT).eq('id', row.id).single()
 
           if (!data) return
-          setValves((prev) => {
+          setValveRows((prev) => {
             const existing = prev.some((v) => v.id === data.id)
             if (!existing) return [data as Valve, ...prev]
             return prev.map((v) => (v.id === data.id ? (data as Valve) : v))
@@ -762,7 +773,7 @@ export function JobBoardPage({ role, username }: { role?: UserRole; username?: s
           if (!row?.id) return
           const { data } = await supabase.from('valves').select(VALVE_LIST_SELECT).eq('id', row.id).single()
           if (!data) return
-          setValves((prev) => [data as Valve, ...prev.filter((v) => v.id !== data.id)])
+          setValveRows((prev) => [data as Valve, ...prev.filter((v) => v.id !== data.id)])
         },
       )
       .subscribe()
@@ -1008,7 +1019,7 @@ export function JobBoardPage({ role, username }: { role?: UserRole; username?: s
       showToast('Due date updated')
     }
 
-    setValves((prev) =>
+    setValveRows((prev) =>
       prev.map((v) => (v.id === dueDateEditValve.id ? { ...v, due_date: nextDueDate } : v)),
     )
     setActiveValve((prev) =>
@@ -1124,7 +1135,7 @@ export function JobBoardPage({ role, username }: { role?: UserRole; username?: s
     }
 
     setIsSaving(false)
-    setValves((prev) => prev.map((v) => (v.id === valve.id ? { ...v, ...patch } : v)))
+    setValveRows((prev) => prev.map((v) => (v.id === valve.id ? { ...v, ...patch } : v)))
     setActiveValve((prev) => (prev && prev.id === valve.id ? { ...prev, ...patch } : prev))
     showToast('Saved')
     return true
@@ -1177,7 +1188,7 @@ export function JobBoardPage({ role, username }: { role?: UserRole; username?: s
     }
     const dueDateChanged = dueDateProvided && (previousDueDate ?? null) !== (nextDueDate ?? null)
 
-    setValves((prev) => prev.map((v) => (v.id === valve.id ? { ...v, ...patch } : v)))
+    setValveRows((prev) => prev.map((v) => (v.id === valve.id ? { ...v, ...patch } : v)))
     if (activeValve?.id === valve.id) {
       setActiveValve((prev) => (prev && prev.id === valve.id ? { ...prev, ...patch } : prev))
       setSelectedStatus(nextStatus)
@@ -1185,7 +1196,7 @@ export function JobBoardPage({ role, username }: { role?: UserRole; username?: s
 
     const { error } = await supabase.from('valves').update(patch).eq('id', valve.id)
     if (error) {
-      setValves((prev) => prev.map((v) => (v.id === previous.id ? previous : v)))
+      setValveRows((prev) => prev.map((v) => (v.id === previous.id ? previous : v)))
       if (activeValve?.id === valve.id) {
         setActiveValve(previous)
         setSelectedStatus(previous.status)
@@ -1251,7 +1262,7 @@ export function JobBoardPage({ role, username }: { role?: UserRole; username?: s
     if (error) {
       throw new Error(error.message || 'Could not update shop test stamps')
     }
-    setValves((prev) => prev.map((v) => (v.id === activeValve.id ? { ...v, ...patch } : v)))
+    setValveRows((prev) => prev.map((v) => (v.id === activeValve.id ? { ...v, ...patch } : v)))
     setActiveValve((prev) => (prev && prev.id === activeValve.id ? { ...prev, ...patch } : prev))
   }
 

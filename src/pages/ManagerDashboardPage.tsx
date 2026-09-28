@@ -1,6 +1,9 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { useToast } from '../components/ToastNotification'
+import { useOrganization } from '../contexts/OrganizationContext'
+import { useCompanyWorkflow } from '../hooks/useCompanyWorkflow'
+import { filterValvesForCompany } from '../lib/companyDataScope'
 import { fetchAllValves } from '../lib/fetchAllValves'
 import { displayJobStatus, isActiveShopWork } from '../lib/jobDisplayStatus'
 import {
@@ -27,7 +30,17 @@ function formatWhen(iso: string) {
 
 export function ManagerDashboardPage() {
   const { showToast } = useToast()
-  const [valves, setValves] = useState<Valve[]>([])
+  const { activeOrganization } = useOrganization()
+  const workflow = useCompanyWorkflow()
+  const [valveRows, setValveRows] = useState<Valve[]>([])
+  const valves = useMemo(
+    () =>
+      filterValvesForCompany(valveRows, {
+        workflowKey: workflow.key,
+        activeOrganization,
+      }),
+    [valveRows, workflow.key, activeOrganization],
+  )
   const [movesToday, setMovesToday] = useState<StatusMoveRow[]>([])
   const [leaderboard, setLeaderboard] = useState<MoverLeaderboardRow[]>([])
   const [statusEnteredAt, setStatusEnteredAt] = useState<Map<string, string>>(new Map())
@@ -39,7 +52,7 @@ export function ManagerDashboardPage() {
     const { data, error } = await fetchAllValves()
     if (error) {
       showToast(`Could not load valves: ${error.message}`)
-      setValves([])
+      setValveRows([])
       setMovesToday([])
       setLeaderboard([])
       setStatusEnteredAt(new Map())
@@ -47,8 +60,12 @@ export function ManagerDashboardPage() {
       return
     }
     const all = data ?? []
-    setValves(all)
-    const byWo = new Map(all.map((v) => [v.valve_id, v]))
+    setValveRows(all)
+    const scoped = filterValvesForCompany(all, {
+      workflowKey: workflow.key,
+      activeOrganization,
+    })
+    const byWo = new Map(scoped.map((v) => [v.valve_id, v]))
     const { startIso, endIso } = localTodayBounds()
 
     const todayRes = await supabase
@@ -98,7 +115,7 @@ export function ManagerDashboardPage() {
     }
 
     setLoading(false)
-  }, [showToast])
+  }, [showToast, workflow.key, activeOrganization])
 
   useEffect(() => {
     void load()

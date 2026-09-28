@@ -4,6 +4,7 @@ import { useToast } from '../components/ToastNotification'
 import { JOB_TYPES, isValveRelatedJobType, normalizeJobType } from '../constants/jobTypes'
 import { LOOKUP_CATEGORY_DEFS, type LookupCategory } from '../constants/lookupCategories'
 import { useCompanyWorkflow } from '../hooks/useCompanyWorkflow'
+import { rememberValveForCompany } from '../lib/companyDataScope'
 import { loadLookupOptionsMap } from '../lib/lookupValues'
 import { hasAdminAccess } from '../lib/roles'
 import { TEST_PROCEDURE_OTHER } from '../lib/testLogProcedure'
@@ -256,6 +257,7 @@ export function NewJobPage({ role }: NewJobPageProps) {
       return
     }
 
+    rememberValveForCompany(workflow.key, created.id)
     setCreatedJob(created)
     showToast(`Job created: ${id} — you can print the work order below`)
   }
@@ -265,6 +267,12 @@ export function NewJobPage({ role }: NewJobPageProps) {
       <div className="dashboard-title-row">
         <h2 className="dashboard-title">New job</h2>
       </div>
+      <p className="admin-employees-orgs-note">
+        Creating under <strong>{workflow.label}</strong>
+        {workflow.key === 'vsi'
+          ? ` — status list and ${workflow.workCellLabel.toLowerCase()} options are VSI (${workflow.workCells.join(', ')}).`
+          : ' — JS Valve statuses and finish cells.'}
+      </p>
 
       <section className="dashboard-panel">
         <h3>Create {normalizeJobType(jobType)} Job</h3>
