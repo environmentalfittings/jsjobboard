@@ -66,7 +66,7 @@ export function localValveIdsForCompany(companyKey: CompanyWorkflowKey): Set<num
 }
 
 function valveOrganizationId(valve: Valve): string | null {
-  const raw = (valve as Valve & { organization_id?: string | null }).organization_id
+  const raw = valve.organization_id
   return typeof raw === 'string' && raw.trim() ? raw.trim() : null
 }
 
