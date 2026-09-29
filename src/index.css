@@ -21210,6 +21210,78 @@ body.shop-tv-fullscreen-active .page-content {
   align-items: center;
 }
 
+/* Dashboard Warehouse RTS / Shipping final approval */
+.warehouse-rts-dashboard-panel .warehouse-rts-migration-note {
+  margin: 0 0 0.65rem;
+}
+
+.warehouse-rts-subpanel {
+  margin-top: 0.85rem;
+}
+
+.warehouse-rts-subpanel h4 {
+  margin: 0 0 0.35rem;
+  font-size: 0.95rem;
+  font-weight: 700;
+}
+
+.warehouse-rts-subpanel .status-breakdown-note {
+  margin: 0 0 0.5rem;
+}
+
+.warehouse-rts-subpanel--approved {
+  margin-top: 1.15rem;
+  padding: 0.75rem 0.85rem 0.85rem;
+  border: 1px solid #86efac;
+  border-radius: 10px;
+  background: #f0fdf4;
+}
+
+.warehouse-rts-table-wrap {
+  max-height: 22rem;
+  overflow: auto;
+}
+
+.warehouse-rts-table .warehouse-rts-row--pending td {
+  background: #fecaca;
+}
+
+.warehouse-rts-table .warehouse-rts-row--approved td {
+  background: #bbf7d0;
+}
+
+.warehouse-rts-table .warehouse-rts-row:hover td {
+  filter: brightness(0.97);
+}
+
+.warehouse-rts-approval-cell {
+  white-space: nowrap;
+}
+
+.warehouse-rts-approval-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.warehouse-rts-approval-label input {
+  width: 1.05rem;
+  height: 1.05rem;
+  accent-color: #15803d;
+}
+
+.warehouse-rts-ship-cell {
+  white-space: nowrap;
+}
+
+.warehouse-rts-ship-btn {
+  padding: 0.3rem 0.7rem;
+  font-size: 0.8rem;
+  min-height: 0;
+}
+
 /* Rework report QA follow-up */
 .rework-qa-actions {
   display: flex;

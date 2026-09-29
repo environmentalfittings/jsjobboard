@@ -3,6 +3,7 @@ import { Link, useNavigate } from 'react-router-dom'
 import { DashboardNotesPanel } from '../components/DashboardNotesPanel'
 import { ReceivedValvesDashboardPanel } from '../components/ReceivedValvesDashboardPanel'
 import { ReworkDashboardPanel } from '../components/ReworkDashboardPanel'
+import { WarehouseRtsDashboardPanel } from '../components/WarehouseRtsDashboardPanel'
 import { useToast } from '../components/ToastNotification'
 import { useAuth } from '../contexts/AuthContext'
 import { useOrganization } from '../contexts/OrganizationContext'
@@ -476,6 +477,8 @@ export function DashboardPage() {
           </section>
 
           <ReworkDashboardPanel />
+
+          <WarehouseRtsDashboardPanel />
 
           <section className="dashboard-panel">
             <h3>Recent tested valves (last 5)</h3>

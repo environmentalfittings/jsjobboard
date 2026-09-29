@@ -866,7 +866,8 @@ export function JobBoardPage({ role, username }: { role?: UserRole; username?: s
         (scopeFilter === 'on-hold' && isOnHoldForMetrics(v)) ||
         (scopeFilter === 'waiting-on-arrival' && v.order_type === 'Waiting on Arrival') ||
         (scopeFilter === 'on-order' && isActiveOrderType(v.order_type)) ||
-        (scopeFilter === 'ready-to-ship' && v.status === 'Warehouse RTS') ||
+        (scopeFilter === 'ready-to-ship' &&
+          (v.status === 'Warehouse RTS' || v.status === 'Shipping')) ||
         (scopeFilter === 'not-arrived' && v.status === 'Not Arrived')
       return matchesScope
     })
