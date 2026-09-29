@@ -4,13 +4,18 @@ import { useAuth } from '../contexts/AuthContext'
 import { useOrganization } from '../contexts/OrganizationContext'
 import { useCompanyWorkflow } from '../hooks/useCompanyWorkflow'
 import { filterRowsByCompanyValveId } from '../lib/companyDataScope'
+import { isActiveShopWork } from '../lib/jobDisplayStatus'
 import { canWriteShop, permissionDeniedReason } from '../lib/roles'
 import { supabase } from '../lib/supabase'
+import type { Valve } from '../types'
 import { useToast } from './ToastNotification'
 
 const APPROVAL_SELECT =
-  'id,valve_id,customer,cell,status,due_date,shipment_final_approved,shipment_final_approved_by,shipment_final_approved_at'
-const BASE_SELECT = 'id,valve_id,customer,cell,status,due_date'
+  'id,valve_id,customer,cell,status,order_type,due_date,shipment_final_approved,shipment_final_approved_by,shipment_final_approved_at'
+const BASE_SELECT = 'id,valve_id,customer,cell,status,order_type,due_date'
+
+/** Same open-work filter as Job board → Ready to ship (excludes closed Completed order types). */
+const OPEN_ORDER_TYPES = ['In-Process Order', 'On-Hold', 'Waiting on Arrival'] as const
 
 type WarehouseRtsRow = {
   id: number
@@ -18,6 +23,7 @@ type WarehouseRtsRow = {
   customer: string | null
   cell: string | null
   status: string
+  order_type: string | null
   due_date: string | null
   shipment_final_approved: boolean
   shipment_final_approved_by: string | null
@@ -35,6 +41,7 @@ function mapRow(raw: Record<string, unknown>, approvalColumnsAvailable: boolean)
     customer: (raw.customer as string | null) ?? null,
     cell: (raw.cell as string | null) ?? null,
     status: String(raw.status ?? ''),
+    order_type: (raw.order_type as string | null) ?? null,
     due_date: (raw.due_date as string | null) ?? null,
     shipment_final_approved: approvalColumnsAvailable
       ? Boolean(raw.shipment_final_approved)
@@ -81,6 +88,7 @@ export function WarehouseRtsDashboardPanel() {
       .from('valves')
       .select(APPROVAL_SELECT)
       .eq('status', status)
+      .in('order_type', [...OPEN_ORDER_TYPES])
       .order('due_date', { ascending: true, nullsFirst: false })
       .order('valve_id', { ascending: true })
 
@@ -94,6 +102,7 @@ export function WarehouseRtsDashboardPanel() {
         .from('valves')
         .select(BASE_SELECT)
         .eq('status', status)
+        .in('order_type', [...OPEN_ORDER_TYPES])
         .order('due_date', { ascending: true, nullsFirst: false })
         .order('valve_id', { ascending: true })
       data = fallback.data as Record<string, unknown>[] | null
@@ -113,7 +122,26 @@ export function WarehouseRtsDashboardPanel() {
       const item = mapRow(row, approvalColumnsAvailable)
       return { ...item, valve_row_id: item.id }
     })
-    const scoped = filterRowsByCompanyValveId(mapped, {
+    // Match Job board → Ready to ship: open work only (skip legacy Completed + Warehouse RTS rows).
+    const openOnly = mapped.filter((row) =>
+      isActiveShopWork({
+        id: row.id,
+        valve_id: row.valve_id,
+        customer: row.customer,
+        cell: row.cell,
+        size: null,
+        status: row.status,
+        order_type: row.order_type,
+        test_type: null,
+        valve_type: null,
+        due_date: row.due_date,
+        date_closed: null,
+        date_tested: null,
+        description: null,
+        notes: null,
+      } satisfies Valve),
+    )
+    const scoped = filterRowsByCompanyValveId(openOnly, {
       workflowKey: workflow.key,
       activeOrganization,
     }).map(({ valve_row_id: _valveRowId, ...row }) => row)
@@ -204,7 +232,8 @@ export function WarehouseRtsDashboardPanel() {
         <div>
           <h3>{statusLabel}</h3>
           <p className="status-breakdown-note">
-            Final approval for shipment. Unchecked rows stay red until someone signs off.
+            Open {statusLabel} jobs only (same as Job board → Ready to ship). Unchecked rows stay red
+            until someone signs off.
             {rows.length > 0 ? (
               <>
                 {' '}
