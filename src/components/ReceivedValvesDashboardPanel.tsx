@@ -4,6 +4,9 @@ import { ReceivedValveEditModal } from './ReceivedValveEditModal'
 import { ReceivedValvePhotosCell } from './ReceivedValvePhotosCell'
 import { ReceivedValveRfqBadge } from './ReceivedValveRfqBadge'
 import { useToast } from './ToastNotification'
+import { useOrganization } from '../contexts/OrganizationContext'
+import { useCompanyWorkflow } from '../hooks/useCompanyWorkflow'
+import { filterReceivedValvesForCompany } from '../lib/companyDataScope'
 import {
   isActiveReceivedValve,
   isArchivedReceivedValveStatus,
@@ -41,6 +44,12 @@ function rfqDetailsFromRecord(record: ReceivedValveRecord) {
 
 export function ReceivedValvesDashboardPanel() {
   const { showToast } = useToast()
+  const { activeOrganization } = useOrganization()
+  const workflow = useCompanyWorkflow()
+  const companyScope = useMemo(
+    () => ({ workflowKey: workflow.key, activeOrganization }),
+    [workflow.key, activeOrganization],
+  )
   const [rows, setRows] = useState<ReceivedValveRecord[]>([])
   const [loading, setLoading] = useState(true)
   const [updatingId, setUpdatingId] = useState<string | null>(null)
@@ -56,8 +65,10 @@ export function ReceivedValvesDashboardPanel() {
       setRows([])
       return
     }
-    setRows(result.rows.filter(isActiveReceivedValve))
-  }, [])
+    setRows(
+      filterReceivedValvesForCompany(result.rows.filter(isActiveReceivedValve), companyScope),
+    )
+  }, [companyScope])
 
   useEffect(() => {
     void reload()
@@ -158,9 +169,10 @@ export function ReceivedValvesDashboardPanel() {
         </Link>
       </div>
       <p className="status-breakdown-note">
-        Open received valves{rows.length ? ` · ${rows.length} active` : ''}. Use <strong>Send to RFQ</strong> on the
-        row, or open <strong>Edit</strong> to add pictures then use <strong>Save &amp; send to RFQ</strong>. Converted
-        and Lost leave this list and stay in Reports.
+        Open received valves for {activeOrganization?.name ?? 'this company'}
+        {rows.length ? ` · ${rows.length} active` : ''}. Use <strong>Send to RFQ</strong> on the row, or open{' '}
+        <strong>Edit</strong> to add pictures then use <strong>Save &amp; send to RFQ</strong>. Converted and Lost
+        leave this list and stay in Reports.
       </p>
       <div className="dashboard-table-wrap manager-dashboard-scroll">
         <table className="dashboard-table">

@@ -7,6 +7,12 @@ import { ReceivedValveRfqBadge } from '../components/ReceivedValveRfqBadge'
 import { TestLogColumnHeader } from '../components/testLog/TestLogColumnHeader'
 import { useToast } from '../components/ToastNotification'
 import { useAuth } from '../contexts/AuthContext'
+import { useOrganization } from '../contexts/OrganizationContext'
+import { useCompanyWorkflow } from '../hooks/useCompanyWorkflow'
+import {
+  filterReceivedValvesForCompany,
+  rememberReceivedValveForCompany,
+} from '../lib/companyDataScope'
 import {
   deleteReceivedValve,
   emptyReceivedValveForm,
@@ -98,6 +104,12 @@ function detailsFromRow(row: ReceivedValveRecord) {
 export function ReceivedValvesPage() {
   const { showToast } = useToast()
   const { role } = useAuth()
+  const { activeOrganization } = useOrganization()
+  const workflow = useCompanyWorkflow()
+  const companyScope = useMemo(
+    () => ({ workflowKey: workflow.key, activeOrganization }),
+    [workflow.key, activeOrganization],
+  )
   const canWrite = canWriteShop(role)
   const [form, setForm] = useState<ReceivedValveFormState>(() => emptyReceivedValveForm())
   const [photoDrafts, setPhotoDrafts] = useState<ReceivedValvePhotoDraft[]>([])
@@ -141,11 +153,11 @@ export function ReceivedValvesPage() {
       return
     }
     setMissingTable(false)
-    setRows(result.rows)
+    setRows(filterReceivedValvesForCompany(result.rows, companyScope))
     if (result.migrated > 0) {
       showToast(`Moved ${result.migrated} local received-valve entr${result.migrated === 1 ? 'y' : 'ies'} to shared storage`)
     }
-  }, [showToast])
+  }, [companyScope, showToast])
 
   useEffect(() => {
     void reloadRows()
@@ -292,7 +304,10 @@ export function ReceivedValvesPage() {
       finalized.images,
     )
 
-    const nextRow: ReceivedValveRecord = imageFields
+    const nextRow: ReceivedValveRecord = {
+      ...imageFields,
+      organizationId: activeOrganization?.id ?? null,
+    }
 
     const insertResult = await insertReceivedValve(nextRow)
     if (!insertResult.ok) {
@@ -301,6 +316,7 @@ export function ReceivedValvesPage() {
       return
     }
 
+    rememberReceivedValveForCompany(workflow.key, nextRow.id)
     setForm(emptyReceivedValveForm())
     setPhotoDrafts([])
     setRows((prev) => [nextRow, ...prev])

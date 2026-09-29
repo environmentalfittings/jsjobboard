@@ -2,6 +2,9 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { ReceivedValvePhotosCell } from './ReceivedValvePhotosCell'
 import { ReceivedValveRfqBadge } from './ReceivedValveRfqBadge'
+import { useOrganization } from '../contexts/OrganizationContext'
+import { useCompanyWorkflow } from '../hooks/useCompanyWorkflow'
+import { filterReceivedValvesForCompany } from '../lib/companyDataScope'
 import {
   isReceivedValveStatus,
   loadReceivedValveRowsShared,
@@ -16,6 +19,12 @@ import {
 type StatusFilter = 'all' | ReceivedValveStatus
 
 export function ReceivedValvesReportPanel() {
+  const { activeOrganization } = useOrganization()
+  const workflow = useCompanyWorkflow()
+  const companyScope = useMemo(
+    () => ({ workflowKey: workflow.key, activeOrganization }),
+    [workflow.key, activeOrganization],
+  )
   const [rows, setRows] = useState<ReceivedValveRecord[]>([])
   const [loading, setLoading] = useState(true)
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('all')
@@ -28,8 +37,8 @@ export function ReceivedValvesReportPanel() {
       setRows([])
       return
     }
-    setRows(result.rows)
-  }, [])
+    setRows(filterReceivedValvesForCompany(result.rows, companyScope))
+  }, [companyScope])
 
   useEffect(() => {
     void reload()
