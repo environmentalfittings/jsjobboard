@@ -10,7 +10,8 @@ import { TechnicianAvatars } from '../components/TechnicianAvatars'
 import { JobCardItpStatusBar } from '../components/JobCardItpStatusBar'
 import { StatusChangeModal, type JobCardTab } from '../components/StatusChangeModal'
 import { useToast } from '../components/ToastNotification'
-import { normalizeJobType } from '../constants/jobTypes'
+import { isValveRelatedJobType, normalizeJobType } from '../constants/jobTypes'
+import { LOOKUP_CATEGORY_DEFS, type LookupCategory } from '../constants/lookupCategories'
 import { ColumnFilterCombobox } from '../components/ColumnFilterCombobox'
 import { ColumnFilterStatusChecklist } from '../components/ColumnFilterStatusChecklist'
 import { WorkOrderFilterBar } from '../components/WorkOrderFilterBar'
@@ -62,6 +63,8 @@ import {
   reorderPriorityQueueIds,
   syncPriorityQueueWithValves,
 } from '../lib/priorityQueue'
+import { replaceJobTechnicians } from '../lib/jobTechnicianAssignments'
+import { loadLookupOptionsMap } from '../lib/lookupValues'
 import { supabase } from '../lib/supabase'
 import type { JobCardSaveFields } from '../lib/jobCardSave'
 import { can, canWriteShop, permissionDeniedReason } from '../lib/roles'
@@ -70,6 +73,13 @@ import type { Technician, Valve } from '../types'
 import type { UserRole } from './LoginPage'
 
 type BoardTab = 'kanban' | 'list'
+
+function lookupOptionsWithCurrent(options: readonly string[], current: string | null | undefined) {
+  const cur = (current ?? '').trim()
+  const list = options.map((v) => v.trim()).filter(Boolean)
+  if (cur && !list.includes(cur)) return [cur, ...list]
+  return list
+}
 type PhaseKey = string
 type PhaseOrder = Record<string, number[]>
 type ScopeFilter =
@@ -544,6 +554,13 @@ export function JobBoardPage({ role, username }: { role?: UserRole; username?: s
     modalFields?: JobCardSaveFields
   } | null>(null)
   const [savingResumeDueDate, setSavingResumeDueDate] = useState(false)
+  const [lookupOptions, setLookupOptions] = useState<Record<LookupCategory, string[]>>(() =>
+    Object.fromEntries(LOOKUP_CATEGORY_DEFS.map((d) => [d.key, [...d.fallback]])) as Record<
+      LookupCategory,
+      string[]
+    >,
+  )
+  const [savingListField, setSavingListField] = useState<string | null>(null)
   const [phaseOrder, setPhaseOrder] = useState<PhaseOrder>(() => {
     try {
       const stored = window.localStorage.getItem(ORDER_STORAGE_KEY)
@@ -562,7 +579,82 @@ export function JobBoardPage({ role, username }: { role?: UserRole; username?: s
   })
   const { showToast } = useToast()
 
+  useEffect(() => {
+    loadLookupOptionsMap().then((map) => {
+      if (workflow.key === 'vsi') {
+        setLookupOptions({ ...map, finish_cell: [...workflow.workCells] })
+      } else {
+        setLookupOptions(map)
+      }
+    })
+  }, [workflow.key, workflow.workCells])
+
+  const saveListLookupField = useCallback(
+    async (valve: Valve, field: 'cell' | 'size' | 'pressure_class', nextRaw: string) => {
+      const value = nextRaw.trim() || null
+      const current = (valve[field] ?? '').trim() || null
+      if ((current ?? '') === (value ?? '')) return
+      const saveKey = `${valve.id}:${field}`
+      setSavingListField(saveKey)
+      const patch = { [field]: value } as Pick<Valve, 'cell' | 'size' | 'pressure_class'>
+      const { error } = await supabase.from('valves').update(patch).eq('id', valve.id)
+      setSavingListField(null)
+      if (error) {
+        showToast(`Could not update ${valve.valve_id}: ${error.message}`)
+        return
+      }
+      setValveRows((prev) => prev.map((v) => (v.id === valve.id ? { ...v, ...patch } : v)))
+      setActiveValve((prev) => (prev && prev.id === valve.id ? { ...prev, ...patch } : prev))
+    },
+    [showToast],
+  )
+
+  const saveListTextField = useCallback(
+    async (valve: Valve, field: 'description' | 'notes', nextRaw: string) => {
+      const value = nextRaw.trim() || null
+      const current = (valve[field] ?? '').trim() || null
+      if ((current ?? '') === (value ?? '')) return
+      const saveKey = `${valve.id}:${field}`
+      setSavingListField(saveKey)
+      const patch = { [field]: value } as Pick<Valve, 'description' | 'notes'>
+      const { error } = await supabase.from('valves').update(patch).eq('id', valve.id)
+      setSavingListField(null)
+      if (error) {
+        showToast(`Could not update ${valve.valve_id}: ${error.message}`)
+        return
+      }
+      setValveRows((prev) => prev.map((v) => (v.id === valve.id ? { ...v, ...patch } : v)))
+      setActiveValve((prev) => (prev && prev.id === valve.id ? { ...prev, ...patch } : prev))
+    },
+    [showToast],
+  )
+
+  const saveListTurnaround = useCallback(
+    async (valve: Valve, next: boolean) => {
+      if (isTurnaroundValve(valve) === next) return
+      const saveKey = `${valve.id}:is_turnaround`
+      setSavingListField(saveKey)
+      const patch = { is_turnaround: next }
+      const { error } = await supabase.from('valves').update(patch).eq('id', valve.id)
+      setSavingListField(null)
+      if (error) {
+        showToast(`Could not update ${valve.valve_id}: ${error.message}`)
+        return
+      }
+      setValveRows((prev) => prev.map((v) => (v.id === valve.id ? { ...v, ...patch } : v)))
+      setActiveValve((prev) => (prev && prev.id === valve.id ? { ...prev, ...patch } : prev))
+    },
+    [showToast],
+  )
+
   const techniciansById = useMemo(() => new Map(technicians.map((t) => [t.id, t])), [technicians])
+  const activeTechnicians = useMemo(
+    () =>
+      [...technicians]
+        .filter((t) => t.active)
+        .sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: 'base' })),
+    [technicians],
+  )
   const compareValvesForDisplay = useCallback(
     (a: Valve, b: Valve) => compareValvesWithPriorityOrder(a, b, priorityQueueIds),
     [priorityQueueIds],
@@ -570,6 +662,49 @@ export function JobBoardPage({ role, username }: { role?: UserRole; username?: s
   const technicianIdsForValve = useCallback(
     (valve: Valve) => jobTechnicianIdsByValve[valve.id] ?? parseAssignedTechnicianIds(valve.assigned_technician_ids),
     [jobTechnicianIdsByValve],
+  )
+  const saveListTechnicians = useCallback(
+    async (valve: Valve, nextIds: number[]) => {
+      const unique = [...new Set(nextIds.filter((id) => Number.isInteger(id) && id > 0))]
+      const current = technicianIdsForValve(valve)
+      if (
+        current.length === unique.length &&
+        current.every((id) => unique.includes(id)) &&
+        unique.every((id) => current.includes(id))
+      ) {
+        return
+      }
+      const saveKey = `${valve.id}:techs`
+      setSavingListField(saveKey)
+      const { error } = await replaceJobTechnicians(valve.id, unique)
+      setSavingListField(null)
+      if (error) {
+        showToast(`Could not update technicians: ${error}`)
+        return
+      }
+      setJobTechnicianIdsByValve((prev) => ({ ...prev, [valve.id]: unique }))
+      setValveRows((prev) =>
+        prev.map((v) =>
+          v.id === valve.id
+            ? {
+                ...v,
+                assigned_technician_id: unique[0] ?? null,
+                assigned_technician_ids: unique,
+              }
+            : v,
+        ),
+      )
+      setActiveValve((prev) =>
+        prev && prev.id === valve.id
+          ? {
+              ...prev,
+              assigned_technician_id: unique[0] ?? null,
+              assigned_technician_ids: unique,
+            }
+          : prev,
+      )
+    },
+    [showToast, technicianIdsForValve],
   )
   const technicianLabelForValve = useCallback(
     (valve: Valve) =>
@@ -1980,6 +2115,16 @@ export function JobBoardPage({ role, username }: { role?: UserRole; username?: s
                     ? priorityIndex >= 0 && priorityIndex < priorityQueueIds.length - 1
                     : restIndex >= 0 && restIndex < visibleRestIds.length - 1
                   const usingCustomOrder = listSort === 'default' && listColumnSort.column === 'default'
+                  const jobType = normalizeJobType(valve.job_type ?? '')
+                  const allowNaSizeAndClass =
+                    !isValveRelatedJobType(jobType) ||
+                    (isValveRelatedJobType(jobType) && /actuator/i.test((valve.valve_type ?? '').trim()))
+                  const cellOptions = lookupOptionsWithCurrent(lookupOptions.finish_cell, valve.cell)
+                  const sizeOptions = lookupOptionsWithCurrent(lookupOptions.valve_size, valve.size)
+                  const classOptions = lookupOptionsWithCurrent(
+                    lookupOptions.pressure_class,
+                    valve.pressure_class,
+                  )
                   return (
                   <tr
                     key={valve.id}
@@ -1988,24 +2133,177 @@ export function JobBoardPage({ role, username }: { role?: UserRole; username?: s
                   >
                     <td>{valve.valve_id}</td>
                     <td>{valve.customer ?? '-'}</td>
-                    <td><FinishCellBadge cell={valve.cell} /></td>
-                    <td>{valve.size ?? '-'}</td>
-                    <td>{valve.pressure_class ?? '—'}</td>
-                    <td>{isTurnaroundValve(valve) ? 'Yes' : '—'}</td>
-                    <td>
-                      <div className="list-status-cell">
-                        <StatusBadge status={valve.status} />
-                        <JobTestBadges valve={valve} className="job-card-test-flags list-status-test-flags" />
-                      </div>
+                    <td onClick={(e) => e.stopPropagation()}>
+                      {canWrite ? (
+                        <select
+                          className="report-inline-select"
+                          value={(valve.cell ?? '').trim()}
+                          disabled={savingListField === `${valve.id}:cell`}
+                          aria-label={`${workflow.workCellLabel} for ${valve.valve_id}`}
+                          onChange={(e) => void saveListLookupField(valve, 'cell', e.target.value)}
+                        >
+                          <option value="">—</option>
+                          {cellOptions.map((opt) => (
+                            <option key={opt} value={opt}>
+                              {opt}
+                            </option>
+                          ))}
+                        </select>
+                      ) : (
+                        <FinishCellBadge cell={valve.cell} />
+                      )}
                     </td>
-                    <td>
-                      {technicianIdsForValve(valve).length > 0 ? (
+                    <td onClick={(e) => e.stopPropagation()}>
+                      {canWrite ? (
+                        <select
+                          className="report-inline-select"
+                          value={(valve.size ?? '').trim()}
+                          disabled={savingListField === `${valve.id}:size`}
+                          aria-label={`Size for ${valve.valve_id}`}
+                          onChange={(e) => void saveListLookupField(valve, 'size', e.target.value)}
+                        >
+                          <option value="">—</option>
+                          {allowNaSizeAndClass ? <option value="N/A">N/A</option> : null}
+                          {sizeOptions.map((opt) => (
+                            <option key={opt} value={opt}>
+                              {opt}
+                            </option>
+                          ))}
+                        </select>
+                      ) : (
+                        (valve.size ?? '-')
+                      )}
+                    </td>
+                    <td onClick={(e) => e.stopPropagation()}>
+                      {canWrite ? (
+                        <select
+                          className="report-inline-select"
+                          value={(valve.pressure_class ?? '').trim()}
+                          disabled={savingListField === `${valve.id}:pressure_class`}
+                          aria-label={`Class for ${valve.valve_id}`}
+                          onChange={(e) =>
+                            void saveListLookupField(valve, 'pressure_class', e.target.value)
+                          }
+                        >
+                          <option value="">—</option>
+                          {allowNaSizeAndClass ? <option value="N/A">N/A</option> : null}
+                          {classOptions.map((opt) => (
+                            <option key={opt} value={opt}>
+                              {opt}
+                            </option>
+                          ))}
+                        </select>
+                      ) : (
+                        (valve.pressure_class ?? '—')
+                      )}
+                    </td>
+                    <td onClick={(e) => e.stopPropagation()}>
+                      {canWrite ? (
+                        <select
+                          className="report-inline-select"
+                          value={isTurnaroundValve(valve) ? 'yes' : 'no'}
+                          disabled={savingListField === `${valve.id}:is_turnaround`}
+                          aria-label={`Turnaround for ${valve.valve_id}`}
+                          onChange={(e) => void saveListTurnaround(valve, e.target.value === 'yes')}
+                        >
+                          <option value="no">—</option>
+                          <option value="yes">Yes</option>
+                        </select>
+                      ) : isTurnaroundValve(valve) ? (
+                        'Yes'
+                      ) : (
+                        '—'
+                      )}
+                    </td>
+                    <td onClick={(e) => e.stopPropagation()}>
+                      {canWrite && !viewingCompletedValves ? (
+                        <div className="list-status-cell">
+                          <select
+                            className="report-inline-select"
+                            value={valve.status}
+                            aria-label={`Status for ${valve.valve_id}`}
+                            onChange={(e) => void moveValveToStatus(valve, e.target.value)}
+                          >
+                            {STATUS_ORDER.map((status) => (
+                              <option key={status} value={status}>
+                                {status}
+                              </option>
+                            ))}
+                            {!(STATUS_ORDER as readonly string[]).includes(valve.status) && valve.status ? (
+                              <option value={valve.status}>{valve.status}</option>
+                            ) : null}
+                          </select>
+                          <JobTestBadges
+                            valve={valve}
+                            className="job-card-test-flags list-status-test-flags"
+                          />
+                        </div>
+                      ) : (
+                        <div className="list-status-cell">
+                          <StatusBadge status={valve.status} />
+                          <JobTestBadges
+                            valve={valve}
+                            className="job-card-test-flags list-status-test-flags"
+                          />
+                        </div>
+                      )}
+                    </td>
+                    <td onClick={(e) => e.stopPropagation()}>
+                      {canWrite ? (
+                        <div className="job-list-techs">
+                          {technicianIdsForValve(valve).map((techId) => {
+                            const tech = techniciansById.get(techId)
+                            if (!tech) return null
+                            return (
+                              <span key={techId} className="job-list-tech-chip">
+                                <span className="job-list-tech-chip-name">{tech.name}</span>
+                                <button
+                                  type="button"
+                                  className="job-list-tech-chip-remove"
+                                  aria-label={`Remove ${tech.name}`}
+                                  disabled={savingListField === `${valve.id}:techs`}
+                                  onClick={() =>
+                                    void saveListTechnicians(
+                                      valve,
+                                      technicianIdsForValve(valve).filter((id) => id !== techId),
+                                    )
+                                  }
+                                >
+                                  ×
+                                </button>
+                              </span>
+                            )
+                          })}
+                          <select
+                            className="report-inline-select job-list-tech-add"
+                            value=""
+                            disabled={savingListField === `${valve.id}:techs`}
+                            aria-label={`Assign technician for ${valve.valve_id}`}
+                            onChange={(e) => {
+                              const nextId = Number.parseInt(e.target.value, 10)
+                              if (!Number.isFinite(nextId) || nextId <= 0) return
+                              const current = technicianIdsForValve(valve)
+                              if (current.includes(nextId)) return
+                              void saveListTechnicians(valve, [...current, nextId])
+                            }}
+                          >
+                            <option value="">Assign…</option>
+                            {activeTechnicians
+                              .filter((t) => !technicianIdsForValve(valve).includes(t.id))
+                              .map((t) => (
+                                <option key={t.id} value={t.id}>
+                                  {t.name}
+                                </option>
+                              ))}
+                          </select>
+                        </div>
+                      ) : technicianIdsForValve(valve).length > 0 ? (
                         <TechnicianAvatars ids={technicianIdsForValve(valve)} byId={techniciansById} />
                       ) : (
                         <span className="job-muted">—</span>
                       )}
                     </td>
-                    <td>
+                    <td onClick={(e) => e.stopPropagation()}>
                       {viewingCompletedValves || isClosedWorkOrder(valve) ? (
                         <span title={valve.status === 'Completed' ? 'Date completed' : 'Date closed'}>
                           {valve.date_closed ?? '—'}
@@ -2034,8 +2332,44 @@ export function JobBoardPage({ role, username }: { role?: UserRole; username?: s
                         </span>
                       )}
                     </td>
-                    <td className="table-cell-clamp">{valve.description ?? '-'}</td>
-                    <td className="table-cell-clamp">{valve.notes ?? '-'}</td>
+                    <td className="table-cell-clamp" onClick={(e) => e.stopPropagation()}>
+                      {canWrite ? (
+                        <input
+                          type="text"
+                          className="job-list-inline-input"
+                          defaultValue={valve.description ?? ''}
+                          key={`${valve.id}:description:${valve.description ?? ''}`}
+                          disabled={savingListField === `${valve.id}:description`}
+                          aria-label={`Description for ${valve.valve_id}`}
+                          placeholder="—"
+                          onBlur={(e) => void saveListTextField(valve, 'description', e.target.value)}
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter') (e.target as HTMLInputElement).blur()
+                          }}
+                        />
+                      ) : (
+                        (valve.description ?? '-')
+                      )}
+                    </td>
+                    <td className="table-cell-clamp" onClick={(e) => e.stopPropagation()}>
+                      {canWrite ? (
+                        <input
+                          type="text"
+                          className="job-list-inline-input"
+                          defaultValue={valve.notes ?? ''}
+                          key={`${valve.id}:notes:${valve.notes ?? ''}`}
+                          disabled={savingListField === `${valve.id}:notes`}
+                          aria-label={`Notes for ${valve.valve_id}`}
+                          placeholder="—"
+                          onBlur={(e) => void saveListTextField(valve, 'notes', e.target.value)}
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter') (e.target as HTMLInputElement).blur()
+                          }}
+                        />
+                      ) : (
+                        (valve.notes ?? '-')
+                      )}
+                    </td>
                     <td className="list-col-actions-cell" onClick={(e) => e.stopPropagation()}>
                       {viewingCompletedValves ? (
                         <button
