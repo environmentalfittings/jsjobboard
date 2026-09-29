@@ -28,6 +28,9 @@ export const LOCAL_COMPANY_TRAINING_SKILL_IDS_KEY = 'js-job-board-local-company-
 /** Customer inventory row ids created while local VSI was active. */
 export const LOCAL_COMPANY_INVENTORY_IDS_KEY = 'js-job-board-local-company-inventory-ids'
 
+/** Received-valve log ids created while local VSI was active. */
+export const LOCAL_COMPANY_RECEIVED_VALVE_IDS_KEY = 'js-job-board-local-company-received-valve-ids'
+
 type LocalCompanyValveMap = Partial<Record<CompanyWorkflowKey, number[]>>
 
 function readLocalCompanyValveMap(): LocalCompanyValveMap {
@@ -297,6 +300,92 @@ export function filterInventoryEventsForCompany<T extends { inventory_id: string
   },
 ): T[] {
   return rows.filter((row) => inventoryBelongsToCompany(row.inventory_id, options))
+}
+
+type LocalCompanyReceivedValveMap = Partial<Record<CompanyWorkflowKey, string[]>>
+
+function readLocalCompanyReceivedValveMap(): LocalCompanyReceivedValveMap {
+  try {
+    const raw = window.localStorage.getItem(LOCAL_COMPANY_RECEIVED_VALVE_IDS_KEY)
+    if (!raw) return {}
+    const parsed = JSON.parse(raw) as LocalCompanyReceivedValveMap
+    return parsed && typeof parsed === 'object' ? parsed : {}
+  } catch {
+    return {}
+  }
+}
+
+function writeLocalCompanyReceivedValveMap(map: LocalCompanyReceivedValveMap) {
+  try {
+    window.localStorage.setItem(LOCAL_COMPANY_RECEIVED_VALVE_IDS_KEY, JSON.stringify(map))
+  } catch {
+    // ignore
+  }
+}
+
+export function rememberReceivedValveForCompany(companyKey: CompanyWorkflowKey, receivedValveId: string) {
+  const id = String(receivedValveId ?? '').trim()
+  if (!id) return
+  const map = readLocalCompanyReceivedValveMap()
+  const list = new Set(map[companyKey] ?? [])
+  list.add(id)
+  map[companyKey] = [...list]
+  writeLocalCompanyReceivedValveMap(map)
+}
+
+export function localReceivedValveIdsForCompany(companyKey: CompanyWorkflowKey): Set<string> {
+  return new Set(readLocalCompanyReceivedValveMap()[companyKey] ?? [])
+}
+
+function otherLocalReceivedValveIds(workflowKey: CompanyWorkflowKey): Set<string> {
+  const other = new Set<string>()
+  for (const key of ['js-valve', 'vsi'] as const) {
+    if (key === workflowKey) continue
+    for (const id of localReceivedValveIdsForCompany(key)) other.add(id)
+  }
+  return other
+}
+
+/**
+ * Received valve log: untagged historical rows stay on JS Valve; VSI starts empty
+ * until items are created while VSI is active (or rows carry organization_id).
+ */
+export function receivedValveBelongsToCompany(
+  receivedValveId: string,
+  options: {
+    workflowKey: CompanyWorkflowKey
+    activeOrganization: Organization | null
+    organizationId?: string | null
+  },
+): boolean {
+  const { workflowKey, activeOrganization } = options
+  const orgId = options.organizationId?.trim() || null
+  if (orgId) {
+    if (!activeOrganization?.id) return workflowKey === 'js-valve'
+    return orgId === activeOrganization.id
+  }
+
+  const id = String(receivedValveId ?? '').trim()
+  if (!id) return workflowKey === 'js-valve'
+  if (localReceivedValveIdsForCompany(workflowKey).has(id)) return true
+  if (otherLocalReceivedValveIds(workflowKey).has(id)) return false
+  return workflowKey === 'js-valve'
+}
+
+export function filterReceivedValvesForCompany<T extends { id: string; organizationId?: string | null }>(
+  rows: T[],
+  options: {
+    workflowKey: CompanyWorkflowKey
+    activeOrganization: Organization | null
+  },
+): T[] {
+  return rows.filter((row) =>
+    receivedValveBelongsToCompany(row.id, {
+      workflowKey: options.workflowKey,
+      activeOrganization: options.activeOrganization,
+      organizationId: row.organizationId,
+    }),
+  )
 }
 
 type LocalCompanyNoteMap = Partial<Record<CompanyWorkflowKey, number[]>>

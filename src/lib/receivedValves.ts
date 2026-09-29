@@ -62,6 +62,8 @@ export type ReceivedValveRecord = {
   imageName: string | null
   /** ISO timestamp when an RFQ email was composed for this entry (optional / legacy-safe). */
   sentToRfqAt: string | null
+  /** Company id when migration-received-valves-organization.sql has been run. */
+  organizationId?: string | null
   createdAt: string
 }
 
@@ -113,6 +115,7 @@ type ReceivedValveDbRow = {
   image_name: string | null
   images: unknown
   sent_to_rfq_at: string | null
+  organization_id?: string | null
   created_at: string | null
 }
 
@@ -160,12 +163,13 @@ function dbRowToRecord(row: ReceivedValveDbRow): ReceivedValveRecord {
     imageStoragePath: legacy.imageStoragePath,
     imageName: legacy.imageName,
     sentToRfqAt: row.sent_to_rfq_at,
+    organizationId: row.organization_id ?? null,
     createdAt: row.created_at ?? '',
   }
 }
 
 function recordToDbInsert(row: ReceivedValveRecord, userId: string | null) {
-  return {
+  const payload: Record<string, unknown> = {
     id: row.id,
     received_date: emptyToNullDate(row.receivedDate) ?? todayIsoDate(),
     customer: row.customer,
@@ -186,6 +190,8 @@ function recordToDbInsert(row: ReceivedValveRecord, userId: string | null) {
     created_at: row.createdAt || new Date().toISOString(),
     updated_at: new Date().toISOString(),
   }
+  if (row.organizationId) payload.organization_id = row.organizationId
+  return payload
 }
 
 function normalizeLocalRow(row: unknown): ReceivedValveRecord | null {
@@ -221,6 +227,7 @@ function normalizeLocalRow(row: unknown): ReceivedValveRecord | null {
     imageStoragePath: legacy.imageStoragePath,
     imageName: legacy.imageName,
     sentToRfqAt: typeof r.sentToRfqAt === 'string' ? r.sentToRfqAt : null,
+    organizationId: typeof r.organizationId === 'string' ? r.organizationId : null,
     createdAt: typeof r.createdAt === 'string' ? r.createdAt : '',
   }
 }
@@ -532,19 +539,36 @@ export function receivedValveRecordWithImages(
 }
 
 const RECEIVED_VALVE_SELECT =
+  'id,received_date,customer,description,teardown_inspection_date,warehouse_check_in_date,estimate_number,sales_order_number,work_order_printed,status,notes,images,image_url,image_storage_path,image_name,sent_to_rfq_at,organization_id,created_at'
+
+const RECEIVED_VALVE_SELECT_NO_ORG =
   'id,received_date,customer,description,teardown_inspection_date,warehouse_check_in_date,estimate_number,sales_order_number,work_order_printed,status,notes,images,image_url,image_storage_path,image_name,sent_to_rfq_at,created_at'
 
 const RECEIVED_VALVE_SELECT_NO_IMAGES =
+  'id,received_date,customer,description,teardown_inspection_date,warehouse_check_in_date,estimate_number,sales_order_number,work_order_printed,status,notes,image_url,image_storage_path,image_name,sent_to_rfq_at,organization_id,created_at'
+
+const RECEIVED_VALVE_SELECT_NO_IMAGES_NO_ORG =
   'id,received_date,customer,description,teardown_inspection_date,warehouse_check_in_date,estimate_number,sales_order_number,work_order_printed,status,notes,image_url,image_storage_path,image_name,sent_to_rfq_at,created_at'
 
 const RECEIVED_VALVE_SELECT_NO_NOTES =
+  'id,received_date,customer,description,teardown_inspection_date,warehouse_check_in_date,estimate_number,sales_order_number,work_order_printed,status,images,image_url,image_storage_path,image_name,sent_to_rfq_at,organization_id,created_at'
+
+const RECEIVED_VALVE_SELECT_NO_NOTES_NO_ORG =
   'id,received_date,customer,description,teardown_inspection_date,warehouse_check_in_date,estimate_number,sales_order_number,work_order_printed,status,images,image_url,image_storage_path,image_name,sent_to_rfq_at,created_at'
 
 const RECEIVED_VALVE_SELECT_NO_NOTES_NO_IMAGES =
+  'id,received_date,customer,description,teardown_inspection_date,warehouse_check_in_date,estimate_number,sales_order_number,work_order_printed,status,image_url,image_storage_path,image_name,sent_to_rfq_at,organization_id,created_at'
+
+const RECEIVED_VALVE_SELECT_NO_NOTES_NO_IMAGES_NO_ORG =
   'id,received_date,customer,description,teardown_inspection_date,warehouse_check_in_date,estimate_number,sales_order_number,work_order_printed,status,image_url,image_storage_path,image_name,sent_to_rfq_at,created_at'
 
 const RECEIVED_VALVE_SELECT_LEGACY =
   'id,received_date,customer,description,teardown_inspection_date,warehouse_check_in_date,estimate_number,sales_order_number,work_order_printed,image_url,image_storage_path,image_name,sent_to_rfq_at,created_at'
+
+function isMissingOrganizationColumnError(error: { message?: string; code?: string } | null) {
+  if (!error) return false
+  return /organization_id/i.test(error.message ?? '') && /column|schema cache|does not exist/i.test(error.message ?? '')
+}
 
 function isMissingColumnError(error: { message?: string; code?: string } | null) {
   if (!error) return false
@@ -565,85 +589,88 @@ function isMissingTableError(error: { message?: string; code?: string } | null) 
   )
 }
 
+async function queryReceivedValveSelect(select: string): Promise<{
+  data: ReceivedValveDbRow[] | null
+  error: { message?: string; code?: string } | null
+}> {
+  const result = await supabase
+    .from('received_valves')
+    .select(select)
+    .order('received_date', { ascending: false })
+    .order('created_at', { ascending: false })
+  return {
+    data: (result.data as unknown as ReceivedValveDbRow[] | null) ?? null,
+    error: result.error,
+  }
+}
+
 export async function fetchReceivedValveRows(): Promise<
   { ok: true; rows: ReceivedValveRecord[] } | { ok: false; error: string; missingTable?: boolean }
 > {
-  const primary = await supabase
-    .from('received_valves')
-    .select(RECEIVED_VALVE_SELECT)
-    .order('received_date', { ascending: false })
-    .order('created_at', { ascending: false })
+  let primary = await queryReceivedValveSelect(RECEIVED_VALVE_SELECT)
+  let includeOrganization = true
+
+  if (primary.error && isMissingOrganizationColumnError(primary.error)) {
+    includeOrganization = false
+    primary = await queryReceivedValveSelect(RECEIVED_VALVE_SELECT_NO_ORG)
+  }
 
   if (!primary.error) {
     return {
       ok: true,
-      rows: ((primary.data ?? []) as ReceivedValveDbRow[]).map(dbRowToRecord),
+      rows: (primary.data ?? []).map(dbRowToRecord),
     }
   }
 
   if (isMissingImagesColumnError(primary.error)) {
-    const withoutImages = await supabase
-      .from('received_valves')
-      .select(RECEIVED_VALVE_SELECT_NO_IMAGES)
-      .order('received_date', { ascending: false })
-      .order('created_at', { ascending: false })
+    const withoutImages = await queryReceivedValveSelect(
+      includeOrganization ? RECEIVED_VALVE_SELECT_NO_IMAGES : RECEIVED_VALVE_SELECT_NO_IMAGES_NO_ORG,
+    )
 
     if (!withoutImages.error) {
       return {
         ok: true,
-        rows: ((withoutImages.data ?? []) as ReceivedValveDbRow[]).map((row) =>
-          dbRowToRecord({ ...row, images: [] }),
-        ),
+        rows: (withoutImages.data ?? []).map((row) => dbRowToRecord({ ...row, images: [] })),
       }
     }
   }
 
   // Notes column missing — keep status so Converted/Lost still persist in the UI.
   if (isMissingColumnError(primary.error)) {
-    const withStatus = await supabase
-      .from('received_valves')
-      .select(RECEIVED_VALVE_SELECT_NO_NOTES)
-      .order('received_date', { ascending: false })
-      .order('created_at', { ascending: false })
+    const withStatus = await queryReceivedValveSelect(
+      includeOrganization ? RECEIVED_VALVE_SELECT_NO_NOTES : RECEIVED_VALVE_SELECT_NO_NOTES_NO_ORG,
+    )
 
     if (!withStatus.error) {
       return {
         ok: true,
-        rows: ((withStatus.data ?? []) as ReceivedValveDbRow[]).map((row) =>
-          dbRowToRecord({ ...row, notes: row.notes ?? '' }),
-        ),
+        rows: (withStatus.data ?? []).map((row) => dbRowToRecord({ ...row, notes: row.notes ?? '' })),
       }
     }
 
     if (isMissingImagesColumnError(withStatus.error)) {
-      const withoutImages = await supabase
-        .from('received_valves')
-        .select(RECEIVED_VALVE_SELECT_NO_NOTES_NO_IMAGES)
-        .order('received_date', { ascending: false })
-        .order('created_at', { ascending: false })
+      const withoutImages = await queryReceivedValveSelect(
+        includeOrganization
+          ? RECEIVED_VALVE_SELECT_NO_NOTES_NO_IMAGES
+          : RECEIVED_VALVE_SELECT_NO_NOTES_NO_IMAGES_NO_ORG,
+      )
 
       if (!withoutImages.error) {
         return {
           ok: true,
-          rows: ((withoutImages.data ?? []) as ReceivedValveDbRow[]).map((row) =>
-            dbRowToRecord({ ...row, notes: '', images: [] }),
-          ),
+          rows: (withoutImages.data ?? []).map((row) => dbRowToRecord({ ...row, notes: '', images: [] })),
         }
       }
     }
 
     // Status column also missing — last-resort legacy shape.
     if (isMissingColumnError(withStatus.error)) {
-      const legacy = await supabase
-        .from('received_valves')
-        .select(RECEIVED_VALVE_SELECT_LEGACY)
-        .order('received_date', { ascending: false })
-        .order('created_at', { ascending: false })
+      const legacy = await queryReceivedValveSelect(RECEIVED_VALVE_SELECT_LEGACY)
 
       if (!legacy.error) {
         return {
           ok: true,
-          rows: ((legacy.data ?? []) as ReceivedValveDbRow[]).map((row) =>
+          rows: (legacy.data ?? []).map((row) =>
             dbRowToRecord({ ...row, status: DEFAULT_RECEIVED_VALVE_STATUS, notes: '' }),
           ),
         }
@@ -656,28 +683,38 @@ export async function fetchReceivedValveRows(): Promise<
           missingTable: true,
         }
       }
-      return { ok: false, error: legacy.error?.message || withStatus.error.message || primary.error.message }
+      return {
+        ok: false,
+        error:
+          legacy.error?.message ||
+          withStatus.error?.message ||
+          primary.error?.message ||
+          'Could not load received valves',
+      }
     }
 
     if (isMissingTableError(withStatus.error)) {
       return {
         ok: false,
-        error: withStatus.error.message || 'Could not load received valves',
+        error: withStatus.error?.message || 'Could not load received valves',
         missingTable: true,
       }
     }
-    return { ok: false, error: withStatus.error.message || primary.error.message }
+    return {
+      ok: false,
+      error: withStatus.error?.message || primary.error?.message || 'Could not load received valves',
+    }
   }
 
   if (isMissingTableError(primary.error)) {
     return {
       ok: false,
-      error: primary.error.message || 'Could not load received valves',
+      error: primary.error?.message || 'Could not load received valves',
       missingTable: true,
     }
   }
 
-  return { ok: false, error: primary.error.message || 'Could not load received valves' }
+  return { ok: false, error: primary.error?.message || 'Could not load received valves' }
 }
 
 export async function insertReceivedValve(
@@ -686,6 +723,12 @@ export async function insertReceivedValve(
   const userId = await currentUserId()
   let payload: Record<string, unknown> = recordToDbInsert(row, userId)
   let { error } = await supabase.from('received_valves').insert(payload)
+  if (error && isMissingOrganizationColumnError(error) && 'organization_id' in payload) {
+    const withoutOrg = { ...payload }
+    delete withoutOrg.organization_id
+    ;({ error } = await supabase.from('received_valves').insert(withoutOrg))
+    payload = withoutOrg
+  }
   if (error && isMissingImagesColumnError(error)) {
     const legacyPayload = { ...payload }
     delete legacyPayload.images
