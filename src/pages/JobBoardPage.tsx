@@ -10,7 +10,8 @@ import { TechnicianAvatars } from '../components/TechnicianAvatars'
 import { JobCardItpStatusBar } from '../components/JobCardItpStatusBar'
 import { StatusChangeModal, type JobCardTab } from '../components/StatusChangeModal'
 import { useToast } from '../components/ToastNotification'
-import { normalizeJobType } from '../constants/jobTypes'
+import { isValveRelatedJobType, normalizeJobType } from '../constants/jobTypes'
+import { LOOKUP_CATEGORY_DEFS, type LookupCategory } from '../constants/lookupCategories'
 import { ColumnFilterCombobox } from '../components/ColumnFilterCombobox'
 import { ColumnFilterStatusChecklist } from '../components/ColumnFilterStatusChecklist'
 import { WorkOrderFilterBar } from '../components/WorkOrderFilterBar'
@@ -62,6 +63,7 @@ import {
   reorderPriorityQueueIds,
   syncPriorityQueueWithValves,
 } from '../lib/priorityQueue'
+import { loadLookupOptionsMap } from '../lib/lookupValues'
 import { supabase } from '../lib/supabase'
 import type { JobCardSaveFields } from '../lib/jobCardSave'
 import { can, canWriteShop, permissionDeniedReason } from '../lib/roles'
@@ -70,6 +72,13 @@ import type { Technician, Valve } from '../types'
 import type { UserRole } from './LoginPage'
 
 type BoardTab = 'kanban' | 'list'
+
+function lookupOptionsWithCurrent(options: readonly string[], current: string | null | undefined) {
+  const cur = (current ?? '').trim()
+  const list = options.map((v) => v.trim()).filter(Boolean)
+  if (cur && !list.includes(cur)) return [cur, ...list]
+  return list
+}
 type PhaseKey = string
 type PhaseOrder = Record<string, number[]>
 type ScopeFilter =
@@ -544,6 +553,13 @@ export function JobBoardPage({ role, username }: { role?: UserRole; username?: s
     modalFields?: JobCardSaveFields
   } | null>(null)
   const [savingResumeDueDate, setSavingResumeDueDate] = useState(false)
+  const [lookupOptions, setLookupOptions] = useState<Record<LookupCategory, string[]>>(() =>
+    Object.fromEntries(LOOKUP_CATEGORY_DEFS.map((d) => [d.key, [...d.fallback]])) as Record<
+      LookupCategory,
+      string[]
+    >,
+  )
+  const [savingListField, setSavingListField] = useState<string | null>(null)
   const [phaseOrder, setPhaseOrder] = useState<PhaseOrder>(() => {
     try {
       const stored = window.localStorage.getItem(ORDER_STORAGE_KEY)
@@ -561,6 +577,36 @@ export function JobBoardPage({ role, username }: { role?: UserRole; username?: s
     }
   })
   const { showToast } = useToast()
+
+  useEffect(() => {
+    loadLookupOptionsMap().then((map) => {
+      if (workflow.key === 'vsi') {
+        setLookupOptions({ ...map, finish_cell: [...workflow.workCells] })
+      } else {
+        setLookupOptions(map)
+      }
+    })
+  }, [workflow.key, workflow.workCells])
+
+  const saveListLookupField = useCallback(
+    async (valve: Valve, field: 'cell' | 'size' | 'pressure_class', nextRaw: string) => {
+      const value = nextRaw.trim() || null
+      const current = (valve[field] ?? '').trim() || null
+      if ((current ?? '') === (value ?? '')) return
+      const saveKey = `${valve.id}:${field}`
+      setSavingListField(saveKey)
+      const patch = { [field]: value } as Pick<Valve, 'cell' | 'size' | 'pressure_class'>
+      const { error } = await supabase.from('valves').update(patch).eq('id', valve.id)
+      setSavingListField(null)
+      if (error) {
+        showToast(`Could not update ${valve.valve_id}: ${error.message}`)
+        return
+      }
+      setValveRows((prev) => prev.map((v) => (v.id === valve.id ? { ...v, ...patch } : v)))
+      setActiveValve((prev) => (prev && prev.id === valve.id ? { ...prev, ...patch } : prev))
+    },
+    [showToast],
+  )
 
   const techniciansById = useMemo(() => new Map(technicians.map((t) => [t.id, t])), [technicians])
   const compareValvesForDisplay = useCallback(
@@ -1980,6 +2026,16 @@ export function JobBoardPage({ role, username }: { role?: UserRole; username?: s
                     ? priorityIndex >= 0 && priorityIndex < priorityQueueIds.length - 1
                     : restIndex >= 0 && restIndex < visibleRestIds.length - 1
                   const usingCustomOrder = listSort === 'default' && listColumnSort.column === 'default'
+                  const jobType = normalizeJobType(valve.job_type ?? '')
+                  const allowNaSizeAndClass =
+                    !isValveRelatedJobType(jobType) ||
+                    (isValveRelatedJobType(jobType) && /actuator/i.test((valve.valve_type ?? '').trim()))
+                  const cellOptions = lookupOptionsWithCurrent(lookupOptions.finish_cell, valve.cell)
+                  const sizeOptions = lookupOptionsWithCurrent(lookupOptions.valve_size, valve.size)
+                  const classOptions = lookupOptionsWithCurrent(
+                    lookupOptions.pressure_class,
+                    valve.pressure_class,
+                  )
                   return (
                   <tr
                     key={valve.id}
@@ -1988,9 +2044,70 @@ export function JobBoardPage({ role, username }: { role?: UserRole; username?: s
                   >
                     <td>{valve.valve_id}</td>
                     <td>{valve.customer ?? '-'}</td>
-                    <td><FinishCellBadge cell={valve.cell} /></td>
-                    <td>{valve.size ?? '-'}</td>
-                    <td>{valve.pressure_class ?? '—'}</td>
+                    <td onClick={(e) => e.stopPropagation()}>
+                      {canWrite ? (
+                        <select
+                          className="report-inline-select"
+                          value={(valve.cell ?? '').trim()}
+                          disabled={savingListField === `${valve.id}:cell`}
+                          aria-label={`${workflow.workCellLabel} for ${valve.valve_id}`}
+                          onChange={(e) => void saveListLookupField(valve, 'cell', e.target.value)}
+                        >
+                          <option value="">—</option>
+                          {cellOptions.map((opt) => (
+                            <option key={opt} value={opt}>
+                              {opt}
+                            </option>
+                          ))}
+                        </select>
+                      ) : (
+                        <FinishCellBadge cell={valve.cell} />
+                      )}
+                    </td>
+                    <td onClick={(e) => e.stopPropagation()}>
+                      {canWrite ? (
+                        <select
+                          className="report-inline-select"
+                          value={(valve.size ?? '').trim()}
+                          disabled={savingListField === `${valve.id}:size`}
+                          aria-label={`Size for ${valve.valve_id}`}
+                          onChange={(e) => void saveListLookupField(valve, 'size', e.target.value)}
+                        >
+                          <option value="">—</option>
+                          {allowNaSizeAndClass ? <option value="N/A">N/A</option> : null}
+                          {sizeOptions.map((opt) => (
+                            <option key={opt} value={opt}>
+                              {opt}
+                            </option>
+                          ))}
+                        </select>
+                      ) : (
+                        (valve.size ?? '-')
+                      )}
+                    </td>
+                    <td onClick={(e) => e.stopPropagation()}>
+                      {canWrite ? (
+                        <select
+                          className="report-inline-select"
+                          value={(valve.pressure_class ?? '').trim()}
+                          disabled={savingListField === `${valve.id}:pressure_class`}
+                          aria-label={`Class for ${valve.valve_id}`}
+                          onChange={(e) =>
+                            void saveListLookupField(valve, 'pressure_class', e.target.value)
+                          }
+                        >
+                          <option value="">—</option>
+                          {allowNaSizeAndClass ? <option value="N/A">N/A</option> : null}
+                          {classOptions.map((opt) => (
+                            <option key={opt} value={opt}>
+                              {opt}
+                            </option>
+                          ))}
+                        </select>
+                      ) : (
+                        (valve.pressure_class ?? '—')
+                      )}
+                    </td>
                     <td>{isTurnaroundValve(valve) ? 'Yes' : '—'}</td>
                     <td>
                       <div className="list-status-cell">
