@@ -799,9 +799,10 @@ export function AdminEmployeesPage({ isAdmin }: { isAdmin: boolean }) {
             <>
               <strong>Superadmin</strong> sees every employee across all companies. Use the{' '}
               <strong>Companies</strong> checkboxes and role menus for company access (including company Superadmin).
-              The <strong>Quality Team</strong> column is QC only — it does not control login permissions. For someone
-              to save changes when they log in, set their App role under <strong>Shop assignment</strong> to Admin (or
-              grant company Superadmin, which elevates them automatically).
+              The <strong>Quality Team</strong> column is QC only — it does not control login permissions. Company{' '}
+              <strong>Admin</strong> or <strong>Manager</strong> (Companies column) elevates write access for that
+              company. You can also set App role under <strong>Shop assignment</strong> to Admin / Manager for
+              global login permissions.
               {isLocalOrganizations
                 ? ' Company roles are stored in this browser until migration-organizations-foundation.sql is run in Supabase.'
                 : ''}

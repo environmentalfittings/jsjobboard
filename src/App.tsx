@@ -56,9 +56,10 @@ function ShopRoute({ children }: { children: React.ReactNode }) {
 function AppRoutes() {
   const navigate = useNavigate()
   const { user, username, role, loading, handleLogin, handleLogout } = useAuth()
-  const { isOrgSuperAdmin } = useOrganization()
+  const { isOrgSuperAdmin, activeOrganizationRole } = useOrganization()
   const workflow = useCompanyWorkflow()
-  const appRole = effectiveAppRole(role, isOrgSuperAdmin) ?? role
+  const appRole =
+    effectiveAppRole(role, { isOrgSuperAdmin, activeOrgRole: activeOrganizationRole }) ?? role
 
   useEffect(() => {
     if (!can(appRole, 'createJob')) return
