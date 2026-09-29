@@ -20,6 +20,14 @@ from public.organizations o
 where o.slug = 'js-valve'
   and v.organization_id is null;
 
+-- Ensure VSI company row exists (import targets this slug)
+insert into public.organizations (name, slug, is_active)
+values ('VSI', 'vsi', true)
+on conflict (slug) do update
+set name = excluded.name,
+    is_active = true,
+    updated_at = now();
+
 -- 1) VSI customers (79 from Repair customers tab; excludes footer notes)
 insert into public.customers (name)
 values
