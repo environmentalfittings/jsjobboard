@@ -7,12 +7,13 @@ import { filterRowsByCompanyValveId } from '../lib/companyDataScope'
 import { isActiveShopWork } from '../lib/jobDisplayStatus'
 import { canWriteShop, permissionDeniedReason } from '../lib/roles'
 import { supabase } from '../lib/supabase'
+import { valveStatusPatch } from '../lib/valveStatusPatch'
 import type { Valve } from '../types'
 import { useToast } from './ToastNotification'
 
 const APPROVAL_SELECT =
-  'id,valve_id,customer,cell,status,order_type,due_date,shipment_final_approved,shipment_final_approved_by,shipment_final_approved_at'
-const BASE_SELECT = 'id,valve_id,customer,cell,status,order_type,due_date'
+  'id,valve_id,customer,cell,status,order_type,due_date,date_closed,shipment_final_approved,shipment_final_approved_by,shipment_final_approved_at'
+const BASE_SELECT = 'id,valve_id,customer,cell,status,order_type,due_date,date_closed'
 
 /** Same open-work filter as Job board → Ready to ship (excludes closed Completed order types). */
 const OPEN_ORDER_TYPES = ['In-Process Order', 'On-Hold', 'Waiting on Arrival'] as const
@@ -25,6 +26,7 @@ type WarehouseRtsRow = {
   status: string
   order_type: string | null
   due_date: string | null
+  date_closed: string | null
   shipment_final_approved: boolean
   shipment_final_approved_by: string | null
   shipment_final_approved_at: string | null
@@ -43,6 +45,7 @@ function mapRow(raw: Record<string, unknown>, approvalColumnsAvailable: boolean)
     status: String(raw.status ?? ''),
     order_type: (raw.order_type as string | null) ?? null,
     due_date: (raw.due_date as string | null) ?? null,
+    date_closed: (raw.date_closed as string | null) ?? null,
     shipment_final_approved: approvalColumnsAvailable
       ? Boolean(raw.shipment_final_approved)
       : false,
@@ -60,6 +63,34 @@ function formatApprovedAt(value: string | null) {
   const date = new Date(value)
   if (Number.isNaN(date.getTime())) return value
   return date.toLocaleString()
+}
+
+function sortByDueDate(rows: WarehouseRtsRow[]) {
+  return [...rows].sort((a, b) => {
+    const aDue = a.due_date ?? '9999-99-99'
+    const bDue = b.due_date ?? '9999-99-99'
+    if (aDue !== bDue) return aDue.localeCompare(bDue)
+    return a.valve_id.localeCompare(b.valve_id)
+  })
+}
+
+function asValveForActiveCheck(row: WarehouseRtsRow): Valve {
+  return {
+    id: row.id,
+    valve_id: row.valve_id,
+    customer: row.customer,
+    cell: row.cell,
+    size: null,
+    status: row.status,
+    order_type: row.order_type,
+    test_type: null,
+    valve_type: null,
+    due_date: row.due_date,
+    date_closed: row.date_closed,
+    date_tested: null,
+    description: null,
+    notes: null,
+  }
 }
 
 /** Ready-to-ship status for the active company (JS: Warehouse RTS, VSI: Shipping). */
@@ -122,25 +153,7 @@ export function WarehouseRtsDashboardPanel() {
       const item = mapRow(row, approvalColumnsAvailable)
       return { ...item, valve_row_id: item.id }
     })
-    // Match Job board → Ready to ship: open work only (skip legacy Completed + Warehouse RTS rows).
-    const openOnly = mapped.filter((row) =>
-      isActiveShopWork({
-        id: row.id,
-        valve_id: row.valve_id,
-        customer: row.customer,
-        cell: row.cell,
-        size: null,
-        status: row.status,
-        order_type: row.order_type,
-        test_type: null,
-        valve_type: null,
-        due_date: row.due_date,
-        date_closed: null,
-        date_tested: null,
-        description: null,
-        notes: null,
-      } satisfies Valve),
-    )
+    const openOnly = mapped.filter((row) => isActiveShopWork(asValveForActiveCheck(row)))
     const scoped = filterRowsByCompanyValveId(openOnly, {
       workflowKey: workflow.key,
       activeOrganization,
@@ -152,20 +165,12 @@ export function WarehouseRtsDashboardPanel() {
     void load()
   }, [load])
 
-  const sortedRows = useMemo(() => {
-    return [...rows].sort((a, b) => {
-      if (a.shipment_final_approved !== b.shipment_final_approved) {
-        return a.shipment_final_approved ? 1 : -1
-      }
-      const aDue = a.due_date ?? '9999-99-99'
-      const bDue = b.due_date ?? '9999-99-99'
-      if (aDue !== bDue) return aDue.localeCompare(bDue)
-      return a.valve_id.localeCompare(b.valve_id)
-    })
-  }, [rows])
-
-  const pendingCount = useMemo(
-    () => rows.filter((row) => !row.shipment_final_approved).length,
+  const pendingRows = useMemo(
+    () => sortByDueDate(rows.filter((row) => !row.shipment_final_approved)),
+    [rows],
+  )
+  const approvedRows = useMemo(
+    () => sortByDueDate(rows.filter((row) => row.shipment_final_approved)),
     [rows],
   )
 
@@ -221,10 +226,50 @@ export function WarehouseRtsDashboardPanel() {
     )
     showToast(
       checked
-        ? `${row.valve_id} approved for shipment by ${approvedBy}`
-        : `${row.valve_id} final approval cleared`,
+        ? `${row.valve_id} moved to Final QC Approval`
+        : `${row.valve_id} moved back to awaiting Final QC Approval`,
     )
   }
+
+  const markShipped = async (row: WarehouseRtsRow) => {
+    if (!canWrite) {
+      showToast(permissionDeniedReason('shopWrite'))
+      return
+    }
+    if (!row.shipment_final_approved) {
+      showToast('Final QC Approval must be checked before shipping.')
+      return
+    }
+
+    const patch = valveStatusPatch('Completed', {
+      status: row.status,
+      order_type: row.order_type,
+      date_closed: row.date_closed,
+    })
+
+    setSavingId(row.id)
+    const { error } = await supabase.from('valves').update(patch).eq('id', row.id)
+    setSavingId(null)
+
+    if (error) {
+      showToast(`Could not mark shipped: ${error.message}`)
+      return
+    }
+
+    setRows((prev) => prev.filter((item) => item.id !== row.id))
+    showToast(`${row.valve_id} marked shipped and removed from the dashboard`)
+  }
+
+  const renderValveCells = (row: WarehouseRtsRow) => (
+    <>
+      <td>
+        <Link to={`/job-board?open=${row.id}`}>{row.valve_id}</Link>
+      </td>
+      <td>{row.customer ?? '—'}</td>
+      <td>{row.cell ?? '—'}</td>
+      <td>{row.due_date ?? '—'}</td>
+    </>
+  )
 
   return (
     <section className="dashboard-panel warehouse-rts-dashboard-panel">
@@ -232,12 +277,13 @@ export function WarehouseRtsDashboardPanel() {
         <div>
           <h3>{statusLabel}</h3>
           <p className="status-breakdown-note">
-            Open {statusLabel} jobs only (same as Job board → Ready to ship). Unchecked rows stay red
-            until someone signs off.
+            Check <strong>Final QC Approval</strong> to move a valve into the green table below, then
+            press <strong>Shipped</strong> to close it off the dashboard.
             {rows.length > 0 ? (
               <>
                 {' '}
-                <strong>{pendingCount}</strong> waiting · <strong>{rows.length}</strong> total.
+                <strong>{pendingRows.length}</strong> awaiting · <strong>{approvedRows.length}</strong>{' '}
+                approved.
               </>
             ) : null}
           </p>
@@ -265,63 +311,118 @@ export function WarehouseRtsDashboardPanel() {
 
       {loading ? (
         <p className="placeholder-copy">Loading…</p>
-      ) : sortedRows.length === 0 ? (
-        <p className="placeholder-copy">
-          No valves in {statusLabel}
-          {activeOrganization?.name ? ` for ${activeOrganization.name}` : ''}.
-        </p>
       ) : (
-        <div className="dashboard-table-wrap warehouse-rts-table-wrap">
-          <table className="dashboard-table warehouse-rts-table">
-            <thead>
-              <tr>
-                <th>Final approval</th>
-                <th>Valve ID</th>
-                <th>Customer</th>
-                <th>{workflow.workCellLabel}</th>
-                <th>Due date</th>
-                <th>Signed off by</th>
-                <th>Signed off at</th>
-              </tr>
-            </thead>
-            <tbody>
-              {sortedRows.map((row) => {
-                const approved = row.shipment_final_approved
-                return (
-                  <tr
-                    key={row.id}
-                    className={
-                      approved
-                        ? 'warehouse-rts-row warehouse-rts-row--approved'
-                        : 'warehouse-rts-row warehouse-rts-row--pending'
-                    }
-                  >
-                    <td className="warehouse-rts-approval-cell" onClick={(e) => e.stopPropagation()}>
-                      <label className="warehouse-rts-approval-label">
-                        <input
-                          type="checkbox"
-                          checked={approved}
-                          disabled={!canWrite || !approvalEnabled || savingId === row.id}
-                          onChange={(e) => void toggleApproval(row, e.target.checked)}
-                          aria-label={`Final shipment approval for ${row.valve_id}`}
-                        />
-                        <span>{approved ? 'Approved' : 'Pending'}</span>
-                      </label>
-                    </td>
-                    <td>
-                      <Link to={`/job-board?open=${row.id}`}>{row.valve_id}</Link>
-                    </td>
-                    <td>{row.customer ?? '—'}</td>
-                    <td>{row.cell ?? '—'}</td>
-                    <td>{row.due_date ?? '—'}</td>
-                    <td>{approved ? (row.shipment_final_approved_by ?? '—') : '—'}</td>
-                    <td>{approved ? formatApprovedAt(row.shipment_final_approved_at) : '—'}</td>
-                  </tr>
-                )
-              })}
-            </tbody>
-          </table>
-        </div>
+        <>
+          <div className="warehouse-rts-subpanel">
+            <h4>Awaiting Final QC Approval</h4>
+            {pendingRows.length === 0 ? (
+              <p className="placeholder-copy">
+                No valves awaiting Final QC Approval
+                {activeOrganization?.name ? ` for ${activeOrganization.name}` : ''}.
+              </p>
+            ) : (
+              <div className="dashboard-table-wrap warehouse-rts-table-wrap">
+                <table className="dashboard-table warehouse-rts-table">
+                  <thead>
+                    <tr>
+                      <th>Final QC Approval</th>
+                      <th>Valve ID</th>
+                      <th>Customer</th>
+                      <th>{workflow.workCellLabel}</th>
+                      <th>Due date</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {pendingRows.map((row) => (
+                      <tr key={row.id} className="warehouse-rts-row warehouse-rts-row--pending">
+                        <td className="warehouse-rts-approval-cell">
+                          <label className="warehouse-rts-approval-label">
+                            <input
+                              type="checkbox"
+                              checked={false}
+                              disabled={!canWrite || !approvalEnabled || savingId === row.id}
+                              onChange={(e) => void toggleApproval(row, e.target.checked)}
+                              aria-label={`Final QC Approval for ${row.valve_id}`}
+                            />
+                            <span>Pending</span>
+                          </label>
+                        </td>
+                        {renderValveCells(row)}
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+
+          <div className="warehouse-rts-subpanel warehouse-rts-subpanel--approved">
+            <h4>Final QC Approval</h4>
+            <p className="status-breakdown-note">
+              Green = Final QC approved. Press <strong>Shipped</strong> when the valve leaves the
+              shop (requires Final QC Approval).
+            </p>
+            {approvedRows.length === 0 ? (
+              <p className="placeholder-copy">No valves with Final QC Approval yet.</p>
+            ) : (
+              <div className="dashboard-table-wrap warehouse-rts-table-wrap">
+                <table className="dashboard-table warehouse-rts-table">
+                  <thead>
+                    <tr>
+                      <th>Final QC Approval</th>
+                      <th>Valve ID</th>
+                      <th>Customer</th>
+                      <th>{workflow.workCellLabel}</th>
+                      <th>Due date</th>
+                      <th>Signed off by</th>
+                      <th>Signed off at</th>
+                      <th>Ship</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {approvedRows.map((row) => {
+                      const canShip = Boolean(row.shipment_final_approved) && canWrite
+                      return (
+                        <tr key={row.id} className="warehouse-rts-row warehouse-rts-row--approved">
+                          <td className="warehouse-rts-approval-cell">
+                            <label className="warehouse-rts-approval-label">
+                              <input
+                                type="checkbox"
+                                checked
+                                disabled={!canWrite || !approvalEnabled || savingId === row.id}
+                                onChange={(e) => void toggleApproval(row, e.target.checked)}
+                                aria-label={`Final QC Approval for ${row.valve_id}`}
+                              />
+                              <span>Approved</span>
+                            </label>
+                          </td>
+                          {renderValveCells(row)}
+                          <td>{row.shipment_final_approved_by ?? '—'}</td>
+                          <td>{formatApprovedAt(row.shipment_final_approved_at)}</td>
+                          <td className="warehouse-rts-ship-cell">
+                            <button
+                              type="button"
+                              className="button-primary warehouse-rts-ship-btn"
+                              disabled={!canShip || savingId === row.id}
+                              title={
+                                row.shipment_final_approved
+                                  ? 'Mark shipped and remove from dashboard'
+                                  : 'Final QC Approval must be checked first'
+                              }
+                              onClick={() => void markShipped(row)}
+                            >
+                              {savingId === row.id ? 'Saving…' : 'Shipped'}
+                            </button>
+                          </td>
+                        </tr>
+                      )
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+        </>
       )}
     </section>
   )

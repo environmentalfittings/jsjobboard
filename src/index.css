@@ -21215,8 +21215,30 @@ body.shop-tv-fullscreen-active .page-content {
   margin: 0 0 0.65rem;
 }
 
+.warehouse-rts-subpanel {
+  margin-top: 0.85rem;
+}
+
+.warehouse-rts-subpanel h4 {
+  margin: 0 0 0.35rem;
+  font-size: 0.95rem;
+  font-weight: 700;
+}
+
+.warehouse-rts-subpanel .status-breakdown-note {
+  margin: 0 0 0.5rem;
+}
+
+.warehouse-rts-subpanel--approved {
+  margin-top: 1.15rem;
+  padding: 0.75rem 0.85rem 0.85rem;
+  border: 1px solid #86efac;
+  border-radius: 10px;
+  background: #f0fdf4;
+}
+
 .warehouse-rts-table-wrap {
-  max-height: 28rem;
+  max-height: 22rem;
   overflow: auto;
 }
 
@@ -21248,6 +21270,16 @@ body.shop-tv-fullscreen-active .page-content {
   width: 1.05rem;
   height: 1.05rem;
   accent-color: #15803d;
+}
+
+.warehouse-rts-ship-cell {
+  white-space: nowrap;
+}
+
+.warehouse-rts-ship-btn {
+  padding: 0.3rem 0.7rem;
+  font-size: 0.8rem;
+  min-height: 0;
 }
 
 /* Rework report QA follow-up */
