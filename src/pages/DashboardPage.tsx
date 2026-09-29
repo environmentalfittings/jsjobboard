@@ -92,12 +92,13 @@ export function DashboardPage() {
   const todayIso = useMemo(() => localTodayDateString(), [refreshTick])
 
   useEffect(() => {
-    if (!canManageInventory) {
+    // VSI does not use monthly customer inventory reports — hide the dashboard reminder there.
+    if (!canManageInventory || workflow.key === 'vsi') {
       setShowInventoryMonthlyAlert(false)
       return
     }
     setShowInventoryMonthlyAlert(isInventoryMonthlyReportAlertVisible())
-  }, [canManageInventory])
+  }, [canManageInventory, workflow.key])
 
   const clearInventoryAlert = () => {
     if (!canWrite) {
