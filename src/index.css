@@ -6501,6 +6501,74 @@ a.test-log-reports-item-name:hover {
   cursor: wait;
 }
 
+.job-list-inline-input {
+  width: 100%;
+  min-width: 8rem;
+  max-width: 16rem;
+  padding: 0.3rem 0.45rem;
+  border: 1px solid #cbd5e1;
+  border-radius: 6px;
+  background: #fff;
+  font: inherit;
+  font-size: 0.875rem;
+}
+
+.job-list-inline-input:disabled {
+  opacity: 0.65;
+  cursor: wait;
+}
+
+.job-list-techs {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.3rem;
+  min-width: 8.5rem;
+}
+
+.job-list-tech-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.15rem;
+  max-width: 9rem;
+  padding: 0.1rem 0.35rem;
+  border: 1px solid #d1d5db;
+  border-radius: 999px;
+  background: #f8fafc;
+  font-size: 0.75rem;
+  line-height: 1.2;
+}
+
+.job-list-tech-chip-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.job-list-tech-chip-remove {
+  border: 0;
+  background: transparent;
+  color: #64748b;
+  cursor: pointer;
+  font-size: 0.95rem;
+  line-height: 1;
+  padding: 0 0.1rem;
+}
+
+.job-list-tech-chip-remove:hover:not(:disabled) {
+  color: #b91c1c;
+}
+
+.job-list-tech-chip-remove:disabled {
+  opacity: 0.5;
+  cursor: wait;
+}
+
+.job-list-tech-add {
+  min-width: 6.5rem;
+  max-width: 9rem;
+}
+
 .report-table-open-link {
   display: inline-block;
   text-decoration: none;
