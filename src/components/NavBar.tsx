@@ -27,7 +27,17 @@ type NavDropdownItem = {
   disabledReason?: string
 }
 
-function NavDropdown({ label, items }: { label: string; items: NavDropdownItem[] }) {
+function NavDropdown({
+  label,
+  items,
+  align = 'left',
+  triggerClassName,
+}: {
+  label: ReactNode
+  items: NavDropdownItem[]
+  align?: 'left' | 'right'
+  triggerClassName?: string
+}) {
   const menuId = useId()
   const rootRef = useRef<HTMLDivElement>(null)
   const [open, setOpen] = useState(false)
@@ -60,10 +70,10 @@ function NavDropdown({ label, items }: { label: string; items: NavDropdownItem[]
   }, [open])
 
   return (
-    <div className="nav-dropdown" ref={rootRef}>
+    <div className={`nav-dropdown${align === 'right' ? ' nav-dropdown--right' : ''}`} ref={rootRef}>
       <button
         type="button"
-        className={`nav-dropdown-trigger ${isActive ? 'active' : ''}`}
+        className={`nav-dropdown-trigger ${isActive ? 'active' : ''}${triggerClassName ? ` ${triggerClassName}` : ''}`}
         aria-expanded={open}
         aria-haspopup="menu"
         aria-controls={menuId}
@@ -90,7 +100,7 @@ function NavDropdown({ label, items }: { label: string; items: NavDropdownItem[]
               </span>
             ) : (
               <NavLink
-                key={item.to}
+                key={`${item.to}:${item.label}`}
                 to={item.to}
                 end={item.end}
                 role="menuitem"
@@ -135,6 +145,81 @@ function RestrictedNavLink({
     <NavLink to={to} className={navLinkClass}>
       {children}
     </NavLink>
+  )
+}
+
+function AccountMenu({
+  username,
+  roleLabel,
+  isOrgSuperAdmin,
+  onLogout,
+  feedback,
+}: {
+  username: string
+  roleLabel: string
+  isOrgSuperAdmin: boolean
+  onLogout: () => void
+  feedback: ReactNode
+}) {
+  const menuId = useId()
+  const rootRef = useRef<HTMLDivElement>(null)
+  const [open, setOpen] = useState(false)
+  const location = useLocation()
+
+  useEffect(() => {
+    setOpen(false)
+  }, [location.pathname])
+
+  useEffect(() => {
+    if (!open) return
+    const onPointerDown = (event: MouseEvent) => {
+      if (!rootRef.current?.contains(event.target as Node)) setOpen(false)
+    }
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setOpen(false)
+    }
+    document.addEventListener('mousedown', onPointerDown)
+    document.addEventListener('keydown', onKeyDown)
+    return () => {
+      document.removeEventListener('mousedown', onPointerDown)
+      document.removeEventListener('keydown', onKeyDown)
+    }
+  }, [open])
+
+  const displayName = username.trim() || roleLabel
+
+  return (
+    <div className="nav-dropdown nav-dropdown--right nav-account" ref={rootRef}>
+      <button
+        type="button"
+        className={`nav-dropdown-trigger nav-account-trigger${open ? ' active' : ''}`}
+        aria-expanded={open}
+        aria-haspopup="menu"
+        aria-controls={menuId}
+        onClick={() => setOpen((value) => !value)}
+        title={`${displayName} · ${roleLabel}`}
+      >
+        <span className="nav-account-name">{displayName}</span>
+        <span className={`nav-account-role${isOrgSuperAdmin ? ' nav-account-role--superadmin' : ''}`}>
+          {roleLabel}
+        </span>
+        <span className="nav-dropdown-caret" aria-hidden>
+          ▾
+        </span>
+      </button>
+      {open ? (
+        <div className="nav-dropdown-menu nav-account-menu" id={menuId} role="menu">
+          <div className="nav-account-summary">
+            <strong>{displayName}</strong>
+            <span>{roleLabel}</span>
+          </div>
+          {feedback}
+          <button type="button" className="nav-dropdown-item nav-account-logout" role="menuitem" onClick={onLogout}>
+            Logout
+          </button>
+        </div>
+      ) : null}
+    </div>
   )
 }
 
@@ -207,6 +292,12 @@ export function NavBar({ role, username, userId, onLogout }: NavBarProps) {
       : []),
   ]
 
+  const shopItems: NavDropdownItem[] = [
+    { to: '/job-board', label: 'Status board' },
+    { to: '/calendar', label: 'Calendar' },
+    { to: '/shop-tv', label: 'TV board' },
+  ]
+
   const messagesMenu = userId ? <NavMessagesMenu userId={userId} username={username} /> : null
   const { orgsEnabled, activeOrganization, isOrgSuperAdmin } = useOrganization()
   const workflow = useCompanyWorkflow()
@@ -216,8 +307,17 @@ export function NavBar({ role, username, userId, onLogout }: NavBarProps) {
     orgsEnabled && activeOrganization
       ? `${activeOrganization.name} Job Board`
       : 'JS Valve Job Board'
-  const brandLogoClass =
-    workflow.key === 'vsi' ? 'brand-logo brand-logo--vsi' : 'brand-logo'
+  const brandLogoClass = workflow.key === 'vsi' ? 'brand-logo brand-logo--vsi' : 'brand-logo'
+  const roleLabel = isOrgSuperAdmin ? 'Superadmin' : formatRolePillLabel(role)
+  const accountUsername =
+    username && !(isOrgSuperAdmin && /^superadmin$/i.test(username.trim())) ? username : roleLabel
+
+  const feedbackControl =
+    role !== 'viewer' && isFeedbackEnabled() ? (
+      <div className="nav-account-feedback">
+        <FeedbackButton username={username} role={role} />
+      </div>
+    ) : null
 
   return (
     <header className={`navbar${mobileOpen ? ' navbar--menu-open' : ''}`}>
@@ -249,17 +349,15 @@ export function NavBar({ role, username, userId, onLogout }: NavBarProps) {
         </div>
 
         <nav className="nav-main-links" id={mobilePanelId} aria-label="Main">
-          <NavLink to="/dashboard" className={navLinkClass}>
+          <NavLink to="/dashboard" className={navLinkClass} end>
             Dashboard
           </NavLink>
-          <NavLink to="/job-board" className={navLinkClass}>
-            Status board
-          </NavLink>
-          <NavLink to="/shop-tv" className={navLinkClass}>
-            TV board
-          </NavLink>
+          <NavDropdown label="Shop" items={shopItems} />
+          <RestrictedNavLink to="/new-job" role={role} permission="createJob">
+            New job
+          </RestrictedNavLink>
           <NavDropdown
-            label="Quality Team"
+            label="Quality"
             items={[
               { to: '/quality-team', label: 'ITP review & flags', end: true },
               { to: '/quality-team', label: 'INCRs' },
@@ -271,9 +369,6 @@ export function NavBar({ role, username, userId, onLogout }: NavBarProps) {
               },
             ]}
           />
-          <RestrictedNavLink to="/new-job" role={role} permission="createJob">
-            New job
-          </RestrictedNavLink>
           <NavDropdown
             label="Valves"
             items={[
@@ -287,24 +382,14 @@ export function NavBar({ role, username, userId, onLogout }: NavBarProps) {
 
         <div className="nav-session">
           <CompanySwitcher />
-          {role !== 'viewer' ? <FeedbackButton username={username} role={role} /> : null}
           {!isMobileNav ? messagesMenu : null}
-          {username && !(isOrgSuperAdmin && /^superadmin$/i.test(username.trim())) ? (
-            <span className="username-pill">{username}</span>
-          ) : null}
-          {isOrgSuperAdmin ? (
-            <span
-              className="role-pill role-pill--superadmin"
-              title="Can switch companies, compare reports, and assign company roles"
-            >
-              Superadmin
-            </span>
-          ) : (
-            <span className="role-pill">{formatRolePillLabel(role)}</span>
-          )}
-          <button className="logout-button" type="button" onClick={onLogout}>
-            Logout
-          </button>
+          <AccountMenu
+            username={accountUsername}
+            roleLabel={roleLabel}
+            isOrgSuperAdmin={isOrgSuperAdmin}
+            onLogout={onLogout}
+            feedback={feedbackControl}
+          />
         </div>
       </div>
     </header>

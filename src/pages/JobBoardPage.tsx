@@ -1891,6 +1891,9 @@ export function JobBoardPage({ role, username }: { role?: UserRole; username?: s
               <button className={`tab ${tab === 'list' ? 'active' : ''}`} onClick={() => setTab('list')}>
                 List view
               </button>
+              <Link to="/calendar" className="tab">
+                Calendar
+              </Link>
               <Link to="/shop-tv" className="tab">
                 TV board
               </Link>
