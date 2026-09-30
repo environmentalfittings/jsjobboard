@@ -171,6 +171,7 @@ export function CompanyCalendarPage() {
         showToast(usedLocal ? 'Event saved in this browser (run calendar migration to share)' : 'Event added')
       }
       setEditing(null)
+      setShowEventForm(false)
       setDraftTitle('')
       setDraftDetails('')
       await reload()
@@ -378,7 +379,7 @@ export function CompanyCalendarPage() {
             <p className="placeholder-copy">Click a day to see events, training, and job due dates. Double-click to add an event.</p>
           )}
 
-          {canWrite && (editing || draftTitle || selectedDate) ? (
+          {canWrite && showEventForm ? (
             <div className="company-calendar-event-form">
               <h4>{editing ? 'Edit event' : 'Post event'}</h4>
               <label>
@@ -411,19 +412,18 @@ export function CompanyCalendarPage() {
                 >
                   {saving ? 'Saving…' : editing ? 'Save changes' : 'Post event'}
                 </button>
-                {editing ? (
-                  <button
-                    type="button"
-                    className="button-secondary"
-                    onClick={() => {
-                      setEditing(null)
-                      setDraftTitle('')
-                      setDraftDetails('')
-                    }}
-                  >
-                    Cancel edit
-                  </button>
-                ) : null}
+                <button
+                  type="button"
+                  className="button-secondary"
+                  onClick={() => {
+                    setEditing(null)
+                    setShowEventForm(false)
+                    setDraftTitle('')
+                    setDraftDetails('')
+                  }}
+                >
+                  Cancel
+                </button>
               </div>
             </div>
           ) : null}
