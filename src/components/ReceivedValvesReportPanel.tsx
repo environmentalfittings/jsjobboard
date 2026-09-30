@@ -6,6 +6,8 @@ import { ReceivedValveRfqBadge } from './ReceivedValveRfqBadge'
 import { useOrganization } from '../contexts/OrganizationContext'
 import { useCompanyWorkflow } from '../hooks/useCompanyWorkflow'
 import { filterReceivedValvesForCompany } from '../lib/companyDataScope'
+import { printTableReport } from '../lib/reportChartsPrint'
+import { useToast } from './ToastNotification'
 import {
   isReceivedValveStatus,
   loadReceivedValveRowsShared,
@@ -20,6 +22,7 @@ import {
 type StatusFilter = 'all' | ReceivedValveStatus
 
 export function ReceivedValvesReportPanel() {
+  const { showToast } = useToast()
   const { activeOrganization } = useOrganization()
   const workflow = useCompanyWorkflow()
   const companyScope = useMemo(
@@ -63,6 +66,42 @@ export function ReceivedValvesReportPanel() {
     return next
   }, [rows])
 
+  const printReport = () => {
+    const companyLabel = activeOrganization?.name ?? workflow.label
+    const statusLabel =
+      statusFilter === 'all' ? 'All statuses' : RECEIVED_VALVE_STATUS_LABELS[statusFilter]
+    const { error } = printTableReport({
+      title: 'Received valves',
+      subtitle: `${companyLabel} · ${statusLabel}`,
+      columns: [
+        'Date',
+        'Customer',
+        'Description',
+        'Estimate #',
+        'SO #',
+        'WO printed',
+        'Status',
+        'Notes',
+        'RFQ',
+      ],
+      rows: filteredRows.map((row) => [
+        row.receivedDate || '—',
+        row.customer,
+        row.description,
+        row.estimateNumber || '—',
+        row.salesOrderNumber || '—',
+        row.workOrderPrinted ? 'Yes' : 'No',
+        receivedValveStatusLabel(row.status),
+        row.notes.trim() || '—',
+        row.sentToRfqAt ? 'Sent' : '—',
+      ]),
+      summaryLines: [`${filteredRows.length} received valve${filteredRows.length === 1 ? '' : 's'}`],
+      orientation: 'landscape',
+      frameId: 'received-valves-print-frame',
+    })
+    if (error) showToast(error)
+  }
+
   return (
     <CollapsibleReportPanel id="received-valves" title="Received valves">
       <p className="placeholder-copy">
@@ -86,6 +125,14 @@ export function ReceivedValvesReportPanel() {
             ))}
           </select>
         </label>
+        <button
+          type="button"
+          className="button-secondary"
+          onClick={printReport}
+          disabled={loading || filteredRows.length === 0}
+        >
+          Print
+        </button>
         <Link className="button-secondary" to="/received-valves">
           Open receiving log
         </Link>

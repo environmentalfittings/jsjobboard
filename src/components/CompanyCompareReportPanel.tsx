@@ -6,6 +6,7 @@ import { isExcludedFromOnTimeDelivery } from '../lib/onTimeDelivery'
 import { fetchStatusReworkLog } from '../lib/statusReworkLog'
 import { supabase } from '../lib/supabase'
 import type { Organization } from '../types/organizations'
+import { printTableReport } from '../lib/reportChartsPrint'
 import { CollapsibleReportPanel } from './CollapsibleReportPanel'
 import { useToast } from './ToastNotification'
 
@@ -126,6 +127,41 @@ export function CompanyCompareReportPanel() {
 
   if (!orgsEnabled || !isOrgSuperAdmin || organizations.length < 2) return null
 
+  const printReport = () => {
+    const { error } = printTableReport({
+      title: `Company compare · ${year}`,
+      subtitle: 'Side-by-side metrics across companies (superadmin).',
+      columns: [
+        'Company',
+        'Active jobs',
+        `Completed w/ due (${year})`,
+        'On-time',
+        'Late',
+        'OTD %',
+        `Rework moves (${year})`,
+        'Became INCRs',
+        'INCR rate',
+      ],
+      rows: rows.map((row) => {
+        const incrRate = row.reworkMoves > 0 ? (row.reworkBecameIncr / row.reworkMoves) * 100 : null
+        return [
+          row.organization.name,
+          String(row.activeJobs),
+          String(row.completedWithDue),
+          String(row.onTime),
+          String(row.late),
+          row.otdPct == null ? '—' : `${row.otdPct.toFixed(1)}%`,
+          String(row.reworkMoves),
+          String(row.reworkBecameIncr),
+          incrRate == null ? '—' : `${incrRate.toFixed(1)}%`,
+        ]
+      }),
+      orientation: 'landscape',
+      frameId: 'company-compare-print-frame',
+    })
+    if (error) showToast(error)
+  }
+
   return (
     <CollapsibleReportPanel
       id="company-compare"
@@ -153,6 +189,9 @@ export function CompanyCompareReportPanel() {
         </label>
         <button type="button" className="button-primary" disabled={loading} onClick={() => void load()}>
           {loading ? 'Loading…' : 'Refresh'}
+        </button>
+        <button type="button" className="button-secondary" disabled={loading || rows.length === 0} onClick={printReport}>
+          Print
         </button>
       </div>
 

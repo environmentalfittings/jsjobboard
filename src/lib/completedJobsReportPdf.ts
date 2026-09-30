@@ -236,14 +236,30 @@ export function buildCompletedJobsReportPdf(rows: Valve[], filters: CompletedJob
   let yCursor = startBodyY()
   for (const item of layout) {
     if (yCursor + item.height > pageHeight - 12) {
-      pages.push(current)
+      if (current.length) pages.push(current)
       current = []
       yCursor = startBodyY()
     }
     current.push(item)
     yCursor += item.height
   }
-  pages.push(current)
+  if (current.length) pages.push(current)
+
+  // Avoid a last page that only has one (or two) orphan rows.
+  const minLastPageRows = 3
+  while (pages.length > 1) {
+    const last = pages[pages.length - 1]!
+    const prev = pages[pages.length - 2]!
+    if (last.length >= minLastPageRows || prev.length <= minLastPageRows) break
+    const need = minLastPageRows - last.length
+    if (need <= 0 || prev.length <= need) break
+    const moved = prev.splice(prev.length - need, need)
+    last.unshift(...moved)
+    if (prev.length === 0) pages.splice(pages.length - 2, 1)
+    break
+  }
+
+  if (pages.length === 0) pages.push([])
 
   const totalPages = Math.max(1, pages.length)
 

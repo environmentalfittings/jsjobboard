@@ -1,4 +1,4 @@
-/** Printable pie / bar chart reports for the Reports page (hidden iframe — stays on page). */
+/** Printable pie / bar / table reports for the Reports page (hidden iframe — stays on page). */
 
 export type PieSlice = {
   label: string
@@ -28,6 +28,31 @@ const PIE_COLORS = [
   '#c2410c',
   '#15803d',
 ]
+
+/** Shared print pagination: avoid orphan rows / a last page with only one line. */
+export const REPORT_PRINT_PAGINATION_CSS = `
+  html, body { orphans: 4; widows: 4; }
+  thead { display: table-header-group; }
+  tfoot { display: table-footer-group; }
+  tr, td, th { break-inside: avoid; page-break-inside: avoid; }
+  h1, h2, h3, .meta, .summary, .legend, .dept-head {
+    break-after: avoid;
+    page-break-after: avoid;
+  }
+  .chart, .layout, .pie {
+    break-inside: avoid;
+    page-break-inside: avoid;
+  }
+  /* Keep the last few data rows together so a single row cannot land alone on a new page. */
+  tbody.report-tail {
+    break-inside: avoid;
+    page-break-inside: avoid;
+  }
+  .total, .footer-note, .keep-with-previous {
+    break-before: avoid;
+    page-break-before: avoid;
+  }
+`
 
 function escapeHtml(value: string) {
   return value
@@ -115,6 +140,16 @@ function conicGradient(slices: PieSlice[], total: number) {
   return `conic-gradient(${parts.join(', ')})`
 }
 
+function renderTableBodies(rowHtml: string[], emptyRow: string, tailCount = 3) {
+  if (rowHtml.length === 0) {
+    return `<tbody>${emptyRow}</tbody>`
+  }
+  const keep = Math.min(tailCount, rowHtml.length)
+  const head = rowHtml.slice(0, rowHtml.length - keep)
+  const tail = rowHtml.slice(rowHtml.length - keep)
+  return `${head.length ? `<tbody>${head.join('')}</tbody>` : ''}<tbody class="report-tail">${tail.join('')}</tbody>`
+}
+
 /** Printable pie chart + legend table. */
 export function printPieChartReport(options: {
   title: string
@@ -126,16 +161,14 @@ export function printPieChartReport(options: {
   const valueLabel = options.valueLabel ?? 'Items'
   const gradient = conicGradient(options.slices, total)
 
-  const legend = options.slices
-    .map((slice) => {
-      const pct = total > 0 ? ((slice.count / total) * 100).toFixed(1) : '0.0'
-      return `<tr>
+  const legendRows = options.slices.map((slice) => {
+    const pct = total > 0 ? ((slice.count / total) * 100).toFixed(1) : '0.0'
+    return `<tr>
         <td><span class="swatch" style="background:${escapeHtml(slice.color)}"></span>${escapeHtml(slice.label)}</td>
         <td>${slice.count}</td>
         <td>${pct}%</td>
       </tr>`
-    })
-    .join('')
+  })
 
   const html = `<!doctype html>
 <html lang="en">
@@ -146,7 +179,7 @@ export function printPieChartReport(options: {
     body { font-family: "Segoe UI", system-ui, sans-serif; color: #0f172a; margin: 0; padding: 0.55in; }
     h1 { font-size: 16pt; margin: 0 0 0.1in; }
     .meta { color: #475569; font-size: 10pt; margin: 0 0 0.28in; }
-    .layout { display: grid; grid-template-columns: 3.2in 1fr; gap: 0.35in; align-items: center; }
+    .layout { display: grid; grid-template-columns: 3.2in 1fr; gap: 0.35in; align-items: start; }
     .pie {
       width: 2.9in; height: 2.9in; border-radius: 50%;
       background: ${gradient};
@@ -169,6 +202,7 @@ export function printPieChartReport(options: {
     }
     .total { margin-top: 0.2in; font-weight: 700; }
     @page { size: letter; margin: 0.5in; }
+    ${REPORT_PRINT_PAGINATION_CSS}
   </style>
 </head>
 <body>
@@ -179,12 +213,14 @@ export function printPieChartReport(options: {
   </div>
   <div class="layout">
     <div class="pie${total <= 0 ? ' pie-empty' : ''}">${total <= 0 ? 'No data' : ''}</div>
-    <div>
+    <div class="report-block">
       <table>
         <thead><tr><th>Cell</th><th>${escapeHtml(valueLabel)}</th><th>Share</th></tr></thead>
-        <tbody>${legend || '<tr><td colspan="3">No rows</td></tr>'}</tbody>
+        ${renderTableBodies(legendRows, '<tr><td colspan="3">No rows</td></tr>')}
+        <tfoot>
+          <tr><td colspan="3"><strong>Total: ${total} ${escapeHtml(valueLabel.toLowerCase())}</strong></td></tr>
+        </tfoot>
       </table>
-      <p class="total">Total: ${total} ${escapeHtml(valueLabel.toLowerCase())}</p>
     </div>
   </div>
 </body>
@@ -225,18 +261,17 @@ export function printMonthlyBarsReport(options: {
     })
     .join('')
 
-  const tableRows = options.bars
-    .map((bar) => {
-      const prior = bar.priorYearCount ?? 0
-      const delta = bar.count - prior
-      const deltaLabel = delta === 0 ? '—' : delta > 0 ? `+${delta}` : String(delta)
-      return `<tr>
+  const colSpan = showPrior ? 4 : 2
+  const tableRows = options.bars.map((bar) => {
+    const prior = bar.priorYearCount ?? 0
+    const delta = bar.count - prior
+    const deltaLabel = delta === 0 ? '—' : delta > 0 ? `+${delta}` : String(delta)
+    return `<tr>
         <td>${escapeHtml(bar.label)}</td>
         <td>${bar.count}</td>
         ${showPrior ? `<td>${prior}</td><td>${deltaLabel}</td>` : ''}
       </tr>`
-    })
-    .join('')
+  })
 
   const total = options.bars.reduce((sum, b) => sum + b.count, 0)
 
@@ -272,8 +307,8 @@ export function printMonthlyBarsReport(options: {
     th, td { border: 1px solid #cbd5e1; padding: 0.08in 0.1in; text-align: left; }
     th { background: #f1f5f9; }
     td:nth-child(n+2), th:nth-child(n+2) { text-align: right; }
-    .total { margin-top: 0.18in; font-weight: 700; }
     @page { size: letter; margin: 0.5in; }
+    ${REPORT_PRINT_PAGINATION_CSS}
   </style>
 </head>
 <body>
@@ -288,38 +323,52 @@ export function printMonthlyBarsReport(options: {
       : ''
   }
   <div class="chart">${chartCols || '<p>No data</p>'}</div>
-  <table>
-    <thead>
-      <tr>
-        <th>Month</th>
-        <th>${escapeHtml(valueLabel)}</th>
-        ${showPrior ? '<th>Prior year</th><th>Δ</th>' : ''}
-      </tr>
-    </thead>
-    <tbody>${tableRows || `<tr><td colspan="${showPrior ? 4 : 2}">No rows</td></tr>`}</tbody>
-  </table>
-  <p class="total">Total (${options.bars.length} months): ${total} ${escapeHtml(valueLabel.toLowerCase())}</p>
+  <div class="report-block">
+    <table>
+      <thead>
+        <tr>
+          <th>Month</th>
+          <th>${escapeHtml(valueLabel)}</th>
+          ${showPrior ? '<th>Prior year</th><th>Δ</th>' : ''}
+        </tr>
+      </thead>
+      ${renderTableBodies(tableRows, `<tr><td colspan="${colSpan}">No rows</td></tr>`)}
+      <tfoot>
+        <tr>
+          <td colspan="${colSpan}">
+            <strong>Total (${options.bars.length} months): ${total} ${escapeHtml(valueLabel.toLowerCase())}</strong>
+          </td>
+        </tr>
+      </tfoot>
+    </table>
+  </div>
 </body>
 </html>`
 
   return printHtmlViaIframe(html, 'report-monthly-bars-print-frame', options.title)
 }
 
-/** Simple printable table report (training / certification). */
+/** Simple printable table report used across Reports. */
 export function printTableReport(options: {
   title: string
   subtitle: string
   columns: string[]
   rows: string[][]
   summaryLines?: string[]
+  /** Default landscape for wide tables; use portrait for narrow ones. */
+  orientation?: 'portrait' | 'landscape'
+  frameId?: string
 }): { error: string | null } {
+  const orientation = options.orientation ?? 'landscape'
   const head = options.columns.map((c) => `<th>${escapeHtml(c)}</th>`).join('')
-  const body = options.rows
-    .map((row) => `<tr>${row.map((cell) => `<td>${escapeHtml(cell)}</td>`).join('')}</tr>`)
-    .join('')
+  const rowHtml = options.rows.map(
+    (row) => `<tr>${row.map((cell) => `<td>${escapeHtml(cell)}</td>`).join('')}</tr>`,
+  )
   const summary = (options.summaryLines ?? [])
     .map((line) => `<p class="summary">${escapeHtml(line)}</p>`)
     .join('')
+  const colSpan = Math.max(1, options.columns.length)
+  const empty = `<tr><td colspan="${colSpan}">No rows</td></tr>`
 
   const html = `<!doctype html>
 <html lang="en">
@@ -327,15 +376,16 @@ export function printTableReport(options: {
   <meta charset="utf-8" />
   <title>${escapeHtml(options.title)}</title>
   <style>
-    body { font-family: "Segoe UI", system-ui, sans-serif; color: #0f172a; margin: 0; padding: 0.5in; }
+    body { font-family: "Segoe UI", system-ui, sans-serif; color: #0f172a; margin: 0; padding: 0.45in; }
     h1 { font-size: 15pt; margin: 0 0 0.08in; }
     .meta { color: #475569; font-size: 9.5pt; margin: 0 0 0.18in; }
     .summary { margin: 0.04in 0; font-size: 10pt; font-weight: 600; }
-    table { width: 100%; border-collapse: collapse; font-size: 9pt; margin-top: 0.15in; }
+    table { width: 100%; border-collapse: collapse; font-size: 9pt; margin-top: 0.12in; }
     th, td { border: 1px solid #cbd5e1; padding: 0.06in 0.08in; text-align: left; vertical-align: top; }
     th { background: #f1f5f9; }
-    tr.overdue td { background: #fef2f2; }
-    @page { size: letter landscape; margin: 0.4in; }
+    tfoot td { background: #f8fafc; font-weight: 700; }
+    @page { size: letter ${orientation}; margin: 0.4in; }
+    ${REPORT_PRINT_PAGINATION_CSS}
   </style>
 </head>
 <body>
@@ -345,12 +395,21 @@ export function printTableReport(options: {
     <p>Generated ${escapeHtml(new Date().toLocaleString())}</p>
   </div>
   ${summary}
-  <table>
-    <thead><tr>${head}</tr></thead>
-    <tbody>${body || `<tr><td colspan="${options.columns.length}">No rows</td></tr>`}</tbody>
-  </table>
+  <div class="report-block">
+    <table>
+      <thead><tr>${head}</tr></thead>
+      ${renderTableBodies(rowHtml, empty)}
+      <tfoot>
+        <tr><td colspan="${colSpan}">${options.rows.length} row${options.rows.length === 1 ? '' : 's'}</td></tr>
+      </tfoot>
+    </table>
+  </div>
 </body>
 </html>`
 
-  return printHtmlViaIframe(html, 'report-table-print-frame', options.title)
+  return printHtmlViaIframe(
+    html,
+    options.frameId ?? 'report-table-print-frame',
+    options.title,
+  )
 }

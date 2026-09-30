@@ -1,5 +1,6 @@
 import { displayJobStatus } from './jobDisplayStatus'
 import type { YesterdayClosedJob, YesterdayStatusMove } from './dailyPriorityYesterday'
+import { REPORT_PRINT_PAGINATION_CSS } from './reportChartsPrint'
 import type { Valve } from '../types'
 
 export type DailyPriorityReportAssignment = {
@@ -249,6 +250,7 @@ export function buildDailyPriorityReportHtml(
       }
       .dept + .dept {
         page-break-before: always;
+        break-before: page;
       }
       .dept-head {
         display: flex;
@@ -271,8 +273,6 @@ export function buildDailyPriorityReportHtml(
         table-layout: fixed;
         font-size: 9.5px;
       }
-      thead { display: table-header-group; }
-      tr { page-break-inside: avoid; }
       th, td {
         border: 1px solid #94a3b8;
         padding: 3px 5px;
@@ -285,6 +285,7 @@ export function buildDailyPriorityReportHtml(
         background: #e2e8f0;
         font-weight: 700;
       }
+      ${REPORT_PRINT_PAGINATION_CSS}
       .rank { width: 3%; text-align: center; font-weight: 700; }
       .wo { width: 8%; font-weight: 700; white-space: nowrap; }
       .customer { width: 13%; }

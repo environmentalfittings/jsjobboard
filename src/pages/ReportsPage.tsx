@@ -19,7 +19,7 @@ import {
   filterValvesForCompany,
   valveRowBelongsToCompany,
 } from '../lib/companyDataScope'
-import { pieColorForIndex, printPieChartReport } from '../lib/reportChartsPrint'
+import { pieColorForIndex, printPieChartReport, printTableReport } from '../lib/reportChartsPrint'
 import { downloadCompletedJobsReportPdf } from '../lib/completedJobsReportPdf'
 import { loadLookupOptionsMap } from '../lib/lookupValues'
 import { supabase } from '../lib/supabase'
@@ -524,6 +524,30 @@ export function ReportsPage() {
     URL.revokeObjectURL(url)
   }
 
+  const printDueDateChanges = () => {
+    const companyLabel = activeOrganization?.name ?? workflow.label
+    const { error } = printTableReport({
+      title: 'Due date changes',
+      subtitle: `${companyLabel} · ${dueDateStart} → ${dueDateEnd}`,
+      columns: ['Changed', 'Valve ID', 'Previous', 'New', 'Reason', 'By'],
+      rows: dueDateChangeRows.map((row) => [
+        new Date(row.changed_at).toLocaleString(),
+        row.valve_id,
+        row.previous_due_date ?? '—',
+        row.new_due_date ?? '—',
+        row.reason,
+        row.changed_by_name ?? '—',
+      ]),
+      summaryLines: [
+        `${dueDateChangeRows.length} change${dueDateChangeRows.length === 1 ? '' : 's'} in range`,
+        dueDateChangeTotalLogged == null ? 'Total logged (all time): —' : `Total logged (all time): ${dueDateChangeTotalLogged}`,
+      ],
+      orientation: 'landscape',
+      frameId: 'due-date-changes-print-frame',
+    })
+    if (error) showToast(error)
+  }
+
   const loadReworkLog = async (range?: { start: string; end: string }) => {
     const start = range?.start ?? reworkStart
     const end = range?.end ?? reworkEnd
@@ -595,6 +619,46 @@ export function ReportsPage() {
     a.download = `rework-moves-${reworkStart}-to-${reworkEnd}.csv`
     a.click()
     URL.revokeObjectURL(url)
+  }
+
+  const printReworkReport = () => {
+    const companyLabel = activeOrganization?.name ?? workflow.label
+    const qaLabel = (row: StatusReworkRecord) => {
+      if (row.qa_disposition === 'na') return 'Selected NA'
+      if (row.qa_disposition === 'incr' && row.incr_id) {
+        const status =
+          row.incr_status === 'closed'
+            ? 'Closed INCR'
+            : row.incr_status === 'void'
+              ? 'Void INCR'
+              : row.incr_status === 'open'
+                ? 'Open INCR'
+                : 'INCR linked'
+        return row.incr_number ? `${status} · ${row.incr_number}` : status
+      }
+      return 'Pending'
+    }
+    const { error } = printTableReport({
+      title: 'Rework / backward status moves',
+      subtitle: `${companyLabel} · ${reworkStart} → ${reworkEnd}`,
+      columns: ['Changed', 'Valve ID', 'From', 'To', 'Reason', 'By', 'QA follow-up'],
+      rows: reworkRows.map((row) => [
+        new Date(row.changed_at).toLocaleString(),
+        row.valve_id,
+        row.previous_status,
+        row.new_status,
+        row.reason,
+        row.changed_by_name ?? '—',
+        qaLabel(row),
+      ]),
+      summaryLines: [
+        `${reworkRows.length} rework move${reworkRows.length === 1 ? '' : 's'} in range`,
+        reworkTotalLogged == null ? 'Total logged (all time): —' : `Total logged (all time): ${reworkTotalLogged}`,
+      ],
+      orientation: 'landscape',
+      frameId: 'rework-report-print-frame',
+    })
+    if (error) showToast(error)
   }
 
   const markReworkNa = async (row: StatusReworkRecord) => {
@@ -749,6 +813,44 @@ export function ReportsPage() {
       .sort((a, b) => b.daysLate - a.daysLate || b.date_closed.localeCompare(a.date_closed) || a.valve_id.localeCompare(b.valve_id))
     setLateRows(parsed)
     setLateLoading(false)
+  }
+
+  const printLateValvesReport = () => {
+    const companyLabel = activeOrganization?.name ?? workflow.label
+    const { error } = printTableReport({
+      title: 'Late valves',
+      subtitle: `${companyLabel} · ${lateStartDate} → ${lateEndDate}`,
+      columns: [
+        'WO #',
+        'Customer',
+        'Status',
+        'Cell',
+        'Valve type',
+        'Due date',
+        'Warehouse RTS',
+        'Date closed',
+        'Days late',
+      ],
+      rows: lateRows.map((row) => [
+        row.valve_id,
+        row.customer ?? '—',
+        row.status ?? '—',
+        row.cell ?? '—',
+        row.valve_type ?? '—',
+        row.due_date,
+        row.warehouseRtsDate ?? '—',
+        row.date_closed,
+        String(row.daysLate),
+      ]),
+      summaryLines: [
+        `${lateRows.length} late job${lateRows.length === 1 ? '' : 's'} in range`,
+        `Avg days late: ${lateAvgDays != null ? lateAvgDays.toFixed(1) : '—'}`,
+        `Most days late: ${lateRows[0] ? lateRows[0].daysLate : '—'}`,
+      ],
+      orientation: 'landscape',
+      frameId: 'late-valves-print-frame',
+    })
+    if (error) showToast(error)
   }
 
   const exportLateValvesCsv = () => {
@@ -1160,6 +1262,32 @@ export function ReportsPage() {
     URL.revokeObjectURL(url)
   }
 
+  const printActiveTurnaroundReport = () => {
+    const companyLabel = activeOrganization?.name ?? workflow.label
+    const { error } = printTableReport({
+      title: 'Active turnaround jobs',
+      subtitle: `${companyLabel} · job type: ${activeJobTypeFilter === 'all' ? 'All' : activeJobTypeFilter}`,
+      columns: ['Job ID', 'Job type', 'Customer', 'Cell', 'Size', 'Status', 'Due date', 'Description', 'Notes'],
+      rows: visibleActiveTurnaroundRows.map((row) => [
+        row.valve_id,
+        normalizeJobType(row.job_type),
+        row.customer ?? '—',
+        row.cell ?? '—',
+        row.size ?? '—',
+        row.status,
+        row.due_date ?? '—',
+        row.description ?? '—',
+        row.notes ?? '—',
+      ]),
+      summaryLines: [
+        `${visibleActiveTurnaroundRows.length} open turnaround job${visibleActiveTurnaroundRows.length === 1 ? '' : 's'}`,
+      ],
+      orientation: 'landscape',
+      frameId: 'active-turnaround-print-frame',
+    })
+    if (error) showToast(error)
+  }
+
   const loadActiveByCell = async () => {
     setActiveByCellLoading(true)
     const { data, error } = await supabase
@@ -1302,6 +1430,33 @@ export function ReportsPage() {
     URL.revokeObjectURL(url)
   }
 
+  const printTestLogReport = () => {
+    const companyLabel = activeOrganization?.name ?? workflow.label
+    const { error } = printTableReport({
+      title: 'Test log summary report',
+      subtitle: `${companyLabel} · ${testLogStartDate} → ${testLogEndDate}`,
+      columns: ['Date', 'Valve ID', 'Description', 'Test Type', 'Pass/Fail', 'Tester', 'Action Taken'],
+      rows: testLogRows.map((row) => [
+        row.tested_on,
+        row.valve_id,
+        testLogDescriptionFor(row.valve_id) || '—',
+        row.test_type ?? '—',
+        row.pass_fail ?? '—',
+        row.tester ?? '—',
+        row.action_taken ?? '—',
+      ]),
+      summaryLines: [
+        `Total entries: ${testLogSummary.total}`,
+        `PASS: ${testLogSummary.passCount}`,
+        `FAIL: ${testLogSummary.failCount}`,
+        `Pass rate: ${testLogSummary.passRate.toFixed(1)}%`,
+      ],
+      orientation: 'landscape',
+      frameId: 'test-log-summary-print-frame',
+    })
+    if (error) showToast(error)
+  }
+
   const testLogSummary = useMemo(() => {
     const total = testLogRows.length
     const passCount = testLogRows.filter((r) => (r.pass_fail ?? '').trim().toUpperCase().includes('PASS')).length
@@ -1375,6 +1530,14 @@ export function ReportsPage() {
             disabled={reworkRows.length === 0}
           >
             Export CSV
+          </button>
+          <button
+            type="button"
+            className="button-secondary"
+            onClick={printReworkReport}
+            disabled={reworkRows.length === 0 || reworkLoading}
+          >
+            Print
           </button>
         </div>
 
@@ -1772,6 +1935,14 @@ export function ReportsPage() {
             onClick={exportLateValvesCsv}
           >
             Export CSV
+          </button>
+          <button
+            type="button"
+            className="button-secondary"
+            disabled={lateLoading || lateRows.length === 0}
+            onClick={printLateValvesReport}
+          >
+            Print
           </button>
         </div>
 
@@ -2463,6 +2634,14 @@ export function ReportsPage() {
           >
             Export CSV
           </button>
+          <button
+            type="button"
+            className="button-secondary"
+            onClick={printActiveTurnaroundReport}
+            disabled={!visibleActiveTurnaroundRows.length || activeTurnaroundLoading}
+          >
+            Print
+          </button>
         </div>
         <p className="status-breakdown-note">Results: {visibleActiveTurnaroundRows.length} open turnaround job(s)</p>
         <div className="dashboard-table-wrap">
@@ -2517,6 +2696,14 @@ export function ReportsPage() {
           </button>
           <button type="button" className="button-secondary" onClick={exportTestLogCsv} disabled={!testLogRows.length || testLogLoading}>
             Export CSV
+          </button>
+          <button
+            type="button"
+            className="button-secondary"
+            onClick={printTestLogReport}
+            disabled={!testLogRows.length || testLogLoading}
+          >
+            Print
           </button>
         </div>
 
@@ -2606,6 +2793,14 @@ export function ReportsPage() {
             disabled={dueDateChangeRows.length === 0}
           >
             Export CSV
+          </button>
+          <button
+            type="button"
+            className="button-secondary"
+            onClick={printDueDateChanges}
+            disabled={dueDateChangeRows.length === 0 || dueDateChangeLoading}
+          >
+            Print
           </button>
         </div>
 
