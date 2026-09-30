@@ -22179,3 +22179,246 @@ body.shop-tv-fullscreen-active .page-content {
   }
 }
 
+
+/* Company calendar */
+.company-calendar-toolbar {
+  align-items: center;
+  gap: 0.65rem;
+}
+
+.company-calendar-month-label {
+  min-width: 10rem;
+  text-align: center;
+  font-size: 1.05rem;
+}
+
+.company-calendar-filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem 1.25rem;
+  margin: 0.35rem 0 1rem;
+}
+
+.company-calendar-filter {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-size: 0.9rem;
+  color: #334155;
+}
+
+.company-calendar-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(16rem, 22rem);
+  gap: 1rem;
+  align-items: start;
+}
+
+.company-calendar-weekdays,
+.company-calendar-grid {
+  display: grid;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+  gap: 0.3rem;
+}
+
+.company-calendar-weekdays div {
+  text-align: center;
+  font-size: 0.8rem;
+  font-weight: 700;
+  color: #475569;
+  padding: 0.35rem 0.2rem;
+}
+
+.company-calendar-day {
+  appearance: none;
+  border: 1px solid #e2e8f0;
+  background: #fff;
+  border-radius: 8px;
+  min-height: 7.5rem;
+  padding: 0.4rem;
+  text-align: left;
+  cursor: pointer;
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  color: inherit;
+}
+
+.company-calendar-day.is-empty {
+  background: #f8fafc;
+  border-color: transparent;
+  cursor: default;
+  min-height: 7.5rem;
+}
+
+.company-calendar-day.is-today {
+  border-color: #0f766e;
+  box-shadow: inset 0 0 0 1px #0f766e;
+}
+
+.company-calendar-day.is-selected {
+  background: #f0fdfa;
+  border-color: #0f766e;
+}
+
+.company-calendar-day-num {
+  font-weight: 700;
+  font-size: 0.85rem;
+}
+
+.company-calendar-day-chips {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  min-height: 0;
+}
+
+.company-calendar-chip {
+  display: block;
+  font-size: 0.68rem;
+  line-height: 1.25;
+  padding: 0.1rem 0.25rem;
+  border-radius: 4px;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.company-calendar-chip--event {
+  background: #ccfbf1;
+  color: #115e59;
+}
+
+.company-calendar-chip--training {
+  background: #dbeafe;
+  color: #1e3a8a;
+}
+
+.company-calendar-chip--due {
+  background: #ffedd5;
+  color: #9a3412;
+}
+
+.company-calendar-more {
+  font-size: 0.68rem;
+  color: #64748b;
+}
+
+.company-calendar-side {
+  border: 1px solid #e2e8f0;
+  border-radius: 10px;
+  padding: 0.9rem;
+  background: #fff;
+  position: sticky;
+  top: 0.75rem;
+}
+
+.company-calendar-side h3 {
+  margin: 0 0 0.65rem;
+  font-size: 1rem;
+}
+
+.company-calendar-side h4 {
+  margin: 1rem 0 0.5rem;
+  font-size: 0.95rem;
+}
+
+.company-calendar-side-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.45rem;
+  margin-bottom: 0.75rem;
+}
+
+.company-calendar-day-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.55rem;
+}
+
+.company-calendar-day-list-item {
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  padding: 0.55rem 0.65rem;
+}
+
+.company-calendar-day-list-item.kind-event {
+  border-left: 3px solid #0f766e;
+}
+
+.company-calendar-day-list-item.kind-training {
+  border-left: 3px solid #1d4ed8;
+}
+
+.company-calendar-day-list-item.kind-due {
+  border-left: 3px solid #b45309;
+}
+
+.company-calendar-day-list-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 0.5rem;
+  align-items: baseline;
+}
+
+.company-calendar-day-list-head span {
+  font-size: 0.75rem;
+  color: #64748b;
+}
+
+.company-calendar-day-list-item p {
+  margin: 0.3rem 0 0;
+  font-size: 0.85rem;
+  color: #475569;
+}
+
+.company-calendar-day-list-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+  margin-top: 0.45rem;
+}
+
+.company-calendar-event-form {
+  margin-top: 1rem;
+  padding-top: 0.85rem;
+  border-top: 1px solid #e2e8f0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.55rem;
+}
+
+.company-calendar-event-form label {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: #334155;
+}
+
+.company-calendar-event-form input,
+.company-calendar-event-form textarea {
+  font: inherit;
+  font-weight: 400;
+  border: 1px solid #cbd5e1;
+  border-radius: 6px;
+  padding: 0.4rem 0.5rem;
+}
+
+@media (max-width: 960px) {
+  .company-calendar-layout {
+    grid-template-columns: 1fr;
+  }
+
+  .company-calendar-side {
+    position: static;
+  }
+
+  .company-calendar-day {
+    min-height: 5.5rem;
+  }
+}
