@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
+import { CollapsibleReportPanel } from './CollapsibleReportPanel'
 import { ReceivedValvePhotosCell } from './ReceivedValvePhotosCell'
 import { ReceivedValveRfqBadge } from './ReceivedValveRfqBadge'
 import { useOrganization } from '../contexts/OrganizationContext'
@@ -63,13 +64,7 @@ export function ReceivedValvesReportPanel() {
   }, [rows])
 
   return (
-    <section className="dashboard-panel" id="received-valves">
-      <div className="dashboard-panel-title-row">
-        <h3>Received valves</h3>
-        <Link className="button-secondary" to="/received-valves">
-          Open receiving log
-        </Link>
-      </div>
+    <CollapsibleReportPanel id="received-valves" title="Received valves">
       <p className="placeholder-copy">
         Full receiving history, including Converted and Lost entries that no longer appear on the Dashboard log.
       </p>
@@ -91,6 +86,9 @@ export function ReceivedValvesReportPanel() {
             ))}
           </select>
         </label>
+        <Link className="button-secondary" to="/received-valves">
+          Open receiving log
+        </Link>
       </div>
       <div className="dashboard-table-wrap">
         <table className="dashboard-table">
@@ -138,6 +136,6 @@ export function ReceivedValvesReportPanel() {
           </tbody>
         </table>
       </div>
-    </section>
+    </CollapsibleReportPanel>
   )
 }

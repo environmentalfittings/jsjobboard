@@ -58,12 +58,15 @@ type DailyPriorityWorksheetProps = {
   /** Initial finish cells from URL, comma-separated. */
   initialCells?: string | null
   showBackLink?: boolean
+  /** When embedded in Reports, skip the page-level title chrome. */
+  embedded?: boolean
 }
 
 export function DailyPriorityWorksheet({
   initialDepartments,
   initialCells,
   showBackLink = false,
+  embedded = false,
 }: DailyPriorityWorksheetProps) {
   const { role } = useAuth()
   const canWrite = canWriteShop(role)
@@ -324,30 +327,44 @@ export function DailyPriorityWorksheet({
     }
   }
 
+  const actions = (
+    <div className="status-priorities-actions">
+      <button type="button" className="button-primary" onClick={printReport} disabled={loading}>
+        Print daily report
+      </button>
+      <button type="button" onClick={() => void refreshCatalog()} disabled={loading}>
+        {loading ? 'Loading…' : 'Refresh'}
+      </button>
+    </div>
+  )
+
   return (
-    <section className="dashboard-page status-priorities-page">
-      <div className="dashboard-header">
-        <div>
-          {showBackLink ? (
-            <p className="status-priorities-back">
-              <Link to="/dashboard">← Dashboard</Link>
-            </p>
-          ) : null}
-          <h2 className="dashboard-title">Daily priorities</h2>
+    <section className={embedded ? 'status-priorities-page' : 'dashboard-page status-priorities-page'}>
+      {embedded ? (
+        <>
           <p className="placeholder-copy resources-hint">
             Pick one or more departments and finish cells. Clear departments to include all.
             Technician assignments update the job card across the app; notes stay on this handout.
           </p>
+          {actions}
+        </>
+      ) : (
+        <div className="dashboard-header">
+          <div>
+            {showBackLink ? (
+              <p className="status-priorities-back">
+                <Link to="/dashboard">← Dashboard</Link>
+              </p>
+            ) : null}
+            <h2 className="dashboard-title">Daily priorities</h2>
+            <p className="placeholder-copy resources-hint">
+              Pick one or more departments and finish cells. Clear departments to include all.
+              Technician assignments update the job card across the app; notes stay on this handout.
+            </p>
+          </div>
+          {actions}
         </div>
-        <div className="status-priorities-actions">
-          <button type="button" className="button-primary" onClick={printReport} disabled={loading}>
-            Print daily report
-          </button>
-          <button type="button" onClick={() => void refreshCatalog()} disabled={loading}>
-            {loading ? 'Loading…' : 'Refresh'}
-          </button>
-        </div>
-      </div>
+      )}
 
       <section className="dashboard-panel">
         <div className="daily-priority-filter-grid">

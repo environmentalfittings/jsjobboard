@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
+import { CollapsibleReportPanel } from './CollapsibleReportPanel'
 import { supabase } from '../lib/supabase'
 import { useOrganization } from '../contexts/OrganizationContext'
 import { useCompanyWorkflow } from '../hooks/useCompanyWorkflow'
@@ -150,13 +151,7 @@ export function RailReportPanel() {
   }
 
   return (
-    <section className="dashboard-panel" id="rail">
-      <div className="dashboard-panel-title-row">
-        <h3>Rail</h3>
-        <Link className="button-secondary" to="/dashboard">
-          Open to-do list
-        </Link>
-      </div>
+    <CollapsibleReportPanel id="rail" title="Rail">
       <p className="placeholder-copy">
         Shop to-do items checked <strong>Add to Rail</strong>. Shows who added it, the task, who it is assigned to, and
         the estimated completion date.
@@ -192,6 +187,9 @@ export function RailReportPanel() {
             >
               Print
             </button>
+            <Link className="button-secondary" to="/dashboard">
+              Open to-do list
+            </Link>
           </div>
           <p className="status-breakdown-note">Results: {visibleRows.length} rail item(s)</p>
           <div className="dashboard-table-wrap">
@@ -228,6 +226,6 @@ export function RailReportPanel() {
           </div>
         </>
       )}
-    </section>
+    </CollapsibleReportPanel>
   )
 }

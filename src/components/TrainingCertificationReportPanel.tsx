@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
+import { CollapsibleReportPanel } from './CollapsibleReportPanel'
 import { useToast } from './ToastNotification'
 import { useOrganization } from '../contexts/OrganizationContext'
 import { useCompanyWorkflow } from '../hooks/useCompanyWorkflow'
@@ -246,13 +247,7 @@ export function TrainingCertificationReportPanel() {
   }
 
   return (
-    <section className="dashboard-panel" id="training-certification">
-      <div className="dashboard-panel-title-row">
-        <h3>Training &amp; certification</h3>
-        <Link className="button-secondary" to="/resources">
-          Open Resources
-        </Link>
-      </div>
+    <CollapsibleReportPanel id="training-certification" title="Training & certification">
       <p className="placeholder-copy">
         Attendee certifications and recert due dates for the active company. Print or export for audits and
         upcoming renewals.
@@ -314,6 +309,9 @@ export function TrainingCertificationReportPanel() {
         <button type="button" className="button-primary" onClick={printReport} disabled={!reportRows.length}>
           Print report
         </button>
+        <Link className="button-secondary" to="/resources">
+          Open Resources
+        </Link>
       </div>
 
       <p className="status-breakdown-note">
@@ -364,6 +362,6 @@ export function TrainingCertificationReportPanel() {
           </tbody>
         </table>
       </div>
-    </section>
+    </CollapsibleReportPanel>
   )
 }

@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { Link, useNavigate, useSearchParams } from 'react-router-dom'
+import { CollapsibleReportPanel } from '../components/CollapsibleReportPanel'
 import { CompanyCompareReportPanel } from '../components/CompanyCompareReportPanel'
 import { DailyPriorityWorksheet } from '../components/DailyPriorityWorksheet'
 import { FinishCellBadge } from '../components/FinishCellBadge'
@@ -1310,9 +1311,11 @@ export function ReportsPage() {
   }, [testLogRows])
 
   const reworkReportSection = (
-      <section className="dashboard-panel" id="rework">
-        <h3>Rework / backward status moves</h3>
-        <p className="placeholder-copy">
+      <CollapsibleReportPanel id="rework"
+      title="Rework / backward status moves"
+      defaultOpen={focusReworkReport}
+    >
+      <p className="placeholder-copy">
           Forward shop flow (editable in Manage Lists → Shop workflow): Pull → Teardown → Machine 1 → Welding →
           Machine 2 → Fitting → Assembly → Adaption → Actuation → Testing → Painting → Warehouse RTS → Completed.
           Cards may skip steps. When a card moves to an earlier stage, the technician must enter a rework reason. Only
@@ -1486,7 +1489,7 @@ export function ReportsPage() {
             </tbody>
           </table>
         </div>
-      </section>
+      </CollapsibleReportPanel>
   )
 
   return (
@@ -1510,21 +1513,20 @@ export function ReportsPage() {
 
       {focusReworkReport ? reworkReportSection : null}
 
-      <section className="dashboard-panel" id="on-time-delivery">
-        <div className="training-list-toolbar" style={{ alignItems: 'flex-start' }}>
-          <div>
-            <h3 style={{ margin: 0 }}>
+      <CollapsibleReportPanel id="on-time-delivery"
+      title={(
+            <>
               On-time delivery
               {activeOrganization ? ` · ${activeOrganization.name}` : ''}
-            </h3>
-            <p className="placeholder-copy" style={{ marginTop: '0.35rem' }}>
+            </>
+          )}
+    >
+      <p className="placeholder-copy" style={{ marginTop: '0.35rem' }}>
               {workflow.key === 'vsi'
                 ? 'VSI on-time delivery starts empty in the local multi-company demo until VSI jobs are completed.'
                 : `Percentage of completed jobs closed on or before their due date. Jobs with no due date are excluded from percentage calculations. ${OTD_PAUSE_STATUS_LABEL} do not count against on-time delivery. Moving a job out of those statuses requires a new due date before it counts again. ${OTD_EXCLUDED_CUSTOMER_LABEL} jobs are also excluded (internal / house work).`}
             </p>
-          </div>
-        </div>
-        <div className="report-filters">
+<div className="report-filters">
           <label>
             Year
             <select value={otdYear} onChange={(e) => setOtdYear(Number(e.target.value))}>
@@ -1717,11 +1719,12 @@ export function ReportsPage() {
             </tbody>
           </table>
         </div>
-      </section>
+      </CollapsibleReportPanel>
 
-      <section className="dashboard-panel" id="late-valves">
-        <h3>Late valves</h3>
-        <p className="placeholder-copy">
+      <CollapsibleReportPanel id="late-valves"
+      title="Late valves"
+    >
+      <p className="placeholder-copy">
           Completed / Warehouse RTS jobs closed after their due date in the selected period. Same rules as on-time
           delivery ({OTD_PAUSE_STATUS_LABEL}; {OTD_EXCLUDED_CUSTOMER_LABEL} excluded). Warehouse RTS date comes from the
           status change log when available. Open a card to review the job.
@@ -1839,11 +1842,12 @@ export function ReportsPage() {
             </table>
           </div>
         )}
-      </section>
+      </CollapsibleReportPanel>
 
-      <section className="dashboard-panel" id="top-customers-valve-types">
-        <h3>Top customers &amp; repairs by valve type</h3>
-        <p className="placeholder-copy">
+      <CollapsibleReportPanel id="top-customers-valve-types"
+      title="Top customers & repairs by valve type"
+    >
+      <p className="placeholder-copy">
           Rank completed jobs in the date range. <strong>Click any bar</strong> (customer or valve type, including
           Unknown type) to list those jobs below — then open a card or Print / PDF. Valve-type chart counts{' '}
           <strong>Valve Repair</strong> jobs only.
@@ -2179,15 +2183,18 @@ export function ReportsPage() {
             </div>
           </div>
         ) : null}
-      </section>
+      </CollapsibleReportPanel>
 
-      <DailyPriorityWorksheet />
+      <CollapsibleReportPanel id="daily-priorities" title="Daily priorities">
+        <DailyPriorityWorksheet embedded />
+      </CollapsibleReportPanel>
 
       <RailReportPanel />
 
-      <section className="dashboard-panel">
-        <h3>Completed jobs report</h3>
-        <p className="placeholder-copy">
+      <CollapsibleReportPanel
+      title="Completed jobs report"
+    >
+      <p className="placeholder-copy">
           Filter by close date. Pick a common date range, or set custom start/end dates. Use turnaround filter for
           customer update packages or to exclude turnarounds.
         </p>
@@ -2290,21 +2297,12 @@ export function ReportsPage() {
             </tbody>
           </table>
         </div>
-      </section>
+      </CollapsibleReportPanel>
 
-      <section className="dashboard-panel" id="active-valves-by-cell">
-        <div className="dashboard-panel-title-row">
-          <h3>Active valves by cell</h3>
-          <button
-            type="button"
-            className="button-primary"
-            onClick={printActiveByCellPie}
-            disabled={activeByCellLoading || activeByCellTotal === 0}
-          >
-            Print pie chart
-          </button>
-        </div>
-        <p className="placeholder-copy">
+      <CollapsibleReportPanel id="active-valves-by-cell"
+      title="Active valves by cell"
+    >
+      <p className="placeholder-copy">
           Open valves grouped by work cell / department (excludes Completed / Junked / Replaced). Printable pie chart
           shows counts per cell for the active company.
         </p>
@@ -2322,6 +2320,14 @@ export function ReportsPage() {
           </label>
           <button type="button" className="button-secondary" onClick={() => void loadActiveByCell()} disabled={activeByCellLoading}>
             {activeByCellLoading ? 'Loading…' : 'Refresh'}
+          </button>
+          <button
+            type="button"
+            className="button-primary"
+            onClick={printActiveByCellPie}
+            disabled={activeByCellLoading || activeByCellTotal === 0}
+          >
+            Print pie chart
           </button>
           <button
             type="button"
@@ -2421,11 +2427,12 @@ export function ReportsPage() {
             </tbody>
           </table>
         </div>
-      </section>
+      </CollapsibleReportPanel>
 
-      <section className="dashboard-panel">
-        <h3>Active turnaround jobs</h3>
-        <p className="placeholder-copy">
+      <CollapsibleReportPanel
+      title="Active turnaround jobs"
+    >
+      <p className="placeholder-copy">
           Open jobs flagged as turnaround (excludes Completed / Junked / Replaced). Use for customer status updates.
         </p>
         <div className="report-filters">
@@ -2490,11 +2497,12 @@ export function ReportsPage() {
             </tbody>
           </table>
         </div>
-      </section>
+      </CollapsibleReportPanel>
 
-      <section className="dashboard-panel">
-        <h3>Test log summary report</h3>
-        <p className="placeholder-copy">Bench / hydro entries in date range. Use for pass/fail and tester activity snapshots.</p>
+      <CollapsibleReportPanel
+      title="Test log summary report"
+    >
+      <p className="placeholder-copy">Bench / hydro entries in date range. Use for pass/fail and tester activity snapshots.</p>
         <div className="report-filters">
           <label>
             Start date
@@ -2564,11 +2572,12 @@ export function ReportsPage() {
             </tbody>
           </table>
         </div>
-      </section>
+      </CollapsibleReportPanel>
 
-      <section className="dashboard-panel">
-        <h3>Due date changes</h3>
-        <p className="placeholder-copy">
+      <CollapsibleReportPanel
+      title="Due date changes"
+    >
+      <p className="placeholder-copy">
           Logs due date moves from the job board (click the due date on a card, or change it on the job card and save).
           Only changes made <strong>after</strong> the due-date log table was set up in Supabase are recorded — older
           moves are not available.
@@ -2649,7 +2658,7 @@ export function ReportsPage() {
             </tbody>
           </table>
         </div>
-      </section>
+      </CollapsibleReportPanel>
 
       {!focusReworkReport ? reworkReportSection : null}
 
