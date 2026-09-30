@@ -3,6 +3,7 @@ import { Link, useNavigate } from 'react-router-dom'
 import { useToast } from '../components/ToastNotification'
 import { JOB_TYPES, isValveRelatedJobType, normalizeJobType } from '../constants/jobTypes'
 import { LOOKUP_CATEGORY_DEFS, type LookupCategory } from '../constants/lookupCategories'
+import { useOrganization } from '../contexts/OrganizationContext'
 import { useCompanyWorkflow } from '../hooks/useCompanyWorkflow'
 import { rememberValveForCompany } from '../lib/companyDataScope'
 import { loadLookupOptionsMap } from '../lib/lookupValues'
@@ -13,6 +14,14 @@ import { openValveTicketPdfForPrint } from '../lib/valveTicketPrint'
 import { supabase } from '../lib/supabase'
 import type { Valve } from '../types'
 import type { UserRole } from './LoginPage'
+
+function isMissingOrganizationColumnError(error: { message?: string } | null | undefined) {
+  return (
+    !!error &&
+    /organization_id/i.test(error.message ?? '') &&
+    /column|schema cache|does not exist/i.test(error.message ?? '')
+  )
+}
 
 interface NewJobPageProps {
   role: UserRole
@@ -32,6 +41,7 @@ export function NewJobPage({ role }: NewJobPageProps) {
   const navigate = useNavigate()
   const { showToast } = useToast()
   const workflow = useCompanyWorkflow()
+  const { activeOrganization } = useOrganization()
   const STATUS_ORDER = workflow.statusOrder
   const defaultStatus = workflow.key === 'vsi' ? 'Incoming' : 'Arrived - Not Started'
   const [valveId, setValveId] = useState('')
@@ -194,31 +204,37 @@ export function NewJobPage({ role }: NewJobPageProps) {
     }
 
     setSaving(true)
-    const { data: inserted, error } = await supabase
-      .from('valves')
-      .insert({
-        valve_id: id,
-        job_type: normalizedJobType,
-        customer: customer.trim() || null,
-        cell: cell.trim() || null,
-        size: size.trim() || null,
-        pressure_class: pressureClass.trim() || null,
-        body_material: bodyMaterial.trim() || null,
-        test_type: valveRelated ? resolvedTestType || null : null,
-        valve_type: valveRelated ? valveType.trim() || null : null,
-        order_type: orderType.trim() || null,
-        status,
-        due_date: dueDate || null,
-        description: description.trim() || null,
-        notes: notes.trim() || null,
-        material_spec: valveRelated ? null : materialSpec.trim() || null,
-        drawing_po_number: valveRelated ? null : drawingPoNumber.trim() || null,
-        is_turnaround: isTurnaround,
-        needs_failure_analysis: needsFailureAnalysis,
-        assigned_technician_ids: [],
-      })
-      .select('*')
-      .single()
+    const payload: Record<string, unknown> = {
+      valve_id: id,
+      job_type: normalizedJobType,
+      customer: customer.trim() || null,
+      cell: cell.trim() || null,
+      size: size.trim() || null,
+      pressure_class: pressureClass.trim() || null,
+      body_material: bodyMaterial.trim() || null,
+      test_type: valveRelated ? resolvedTestType || null : null,
+      valve_type: valveRelated ? valveType.trim() || null : null,
+      order_type: orderType.trim() || null,
+      status,
+      due_date: dueDate || null,
+      description: description.trim() || null,
+      notes: notes.trim() || null,
+      material_spec: valveRelated ? null : materialSpec.trim() || null,
+      drawing_po_number: valveRelated ? null : drawingPoNumber.trim() || null,
+      is_turnaround: isTurnaround,
+      needs_failure_analysis: needsFailureAnalysis,
+      assigned_technician_ids: [],
+    }
+    if (activeOrganization?.id) {
+      payload.organization_id = activeOrganization.id
+    }
+
+    let { data: inserted, error } = await supabase.from('valves').insert(payload).select('*').single()
+    if (error && isMissingOrganizationColumnError(error) && 'organization_id' in payload) {
+      const withoutOrg = { ...payload }
+      delete withoutOrg.organization_id
+      ;({ data: inserted, error } = await supabase.from('valves').insert(withoutOrg).select('*').single())
+    }
     setSaving(false)
 
     if (error) {

@@ -37,6 +37,8 @@ export interface Valve {
   needs_failure_analysis?: boolean | null
   pressure_class?: string | null
   body_material?: string | null
+  /** Company that owns this job card (JS Valve / VSI) when multi-company is enabled. */
+  organization_id?: string | null
   /** Dashboard final approval for Warehouse RTS / Shipping. */
   shipment_final_approved?: boolean | null
   shipment_final_approved_by?: string | null
