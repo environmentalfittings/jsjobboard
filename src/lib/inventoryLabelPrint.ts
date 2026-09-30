@@ -1,6 +1,6 @@
 import type { InventoryRecord } from './inventory'
 import { formatInventoryLocationLabel } from './inventory'
-import { openPrintHtml } from './printHtml'
+import { printHtmlViaIframe } from './printHtml'
 import {
   VALVE_TICKET_CARD_HEIGHT_IN,
   VALVE_TICKET_CARD_WIDTH_IN,
@@ -508,14 +508,19 @@ export function buildInventoryLabelPrintHtml(
 </html>`
 }
 
-/** Opens a print preview for inventory labels on 3.5" × 3" card stock. */
+/** Prints inventory labels on 3.5" × 3" card stock without leaving the inventory page. */
 export function printInventoryLabelSheet(
   items: InventoryLabelPrintItem[],
-  options?: { autoPrint?: boolean },
+  _options?: { autoPrint?: boolean },
 ): { error: string | null } {
   const printable = items.filter((item) => Boolean(item.qr_code_data_url?.trim()))
   if (!printable.length) return { error: 'Select at least one item with a QR code' }
 
-  const html = buildInventoryLabelPrintHtml(printable, { autoPrint: options?.autoPrint ?? true })
-  return openPrintHtml(html, { width: 720, height: 900 })
+  // Parent iframe triggers print once — do not also auto-print inside the HTML
+  // (that used to open multiple print dialogs / windows).
+  const html = buildInventoryLabelPrintHtml(printable, { autoPrint: false })
+  return printHtmlViaIframe(html, {
+    frameId: 'inventory-label-print-frame',
+    title: 'Inventory labels',
+  })
 }
