@@ -3,15 +3,22 @@ import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import { CompanyCompareReportPanel } from '../components/CompanyCompareReportPanel'
 import { DailyPriorityWorksheet } from '../components/DailyPriorityWorksheet'
 import { FinishCellBadge } from '../components/FinishCellBadge'
+import { MonthlyUnitsDeliveredReportPanel } from '../components/MonthlyUnitsDeliveredReportPanel'
 import { RailReportPanel } from '../components/RailReportPanel'
 import { ReceivedValvesReportPanel } from '../components/ReceivedValvesReportPanel'
+import { TrainingCertificationReportPanel } from '../components/TrainingCertificationReportPanel'
 import { useToast } from '../components/ToastNotification'
 import { useOrganization } from '../contexts/OrganizationContext'
 import { VALVE_TYPES } from '../constants/jobLookups'
 import { JOB_TYPES, normalizeJobType } from '../constants/jobTypes'
 import { TERMINAL_STATUSES } from '../constants/statuses'
 import { useCompanyWorkflow } from '../hooks/useCompanyWorkflow'
-import { filterRowsByCompanyValveId, valveRowBelongsToCompany } from '../lib/companyDataScope'
+import {
+  filterRowsByCompanyValveId,
+  filterValvesForCompany,
+  valveRowBelongsToCompany,
+} from '../lib/companyDataScope'
+import { pieColorForIndex, printPieChartReport } from '../lib/reportChartsPrint'
 import { downloadCompletedJobsReportPdf } from '../lib/completedJobsReportPdf'
 import { loadLookupOptionsMap } from '../lib/lookupValues'
 import { supabase } from '../lib/supabase'
@@ -1166,9 +1173,18 @@ export function ReportsPage() {
       setActiveByCellRows([])
       return
     }
-    const list = (data as Valve[]) ?? []
+    const list = filterValvesForCompany((data as Valve[]) ?? [], {
+      workflowKey: workflow.key,
+      activeOrganization,
+    })
     setActiveByCellRows(list.filter((v) => !TERMINAL_STATUSES.has(v.status) && Boolean(v.cell)))
   }
+
+  useEffect(() => {
+    void loadActiveByCell()
+    // Reload when company changes.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [workflow.key, activeOrganization?.id])
 
   const activeByCellOptions = useMemo(
     () =>
@@ -1178,10 +1194,42 @@ export function ReportsPage() {
     [activeByCellRows],
   )
 
+  const activeByCellSlices = useMemo(() => {
+    const counts = new Map<string, number>()
+    for (const row of activeByCellRows) {
+      const cell = (row.cell ?? '').trim()
+      if (!cell) continue
+      counts.set(cell, (counts.get(cell) ?? 0) + 1)
+    }
+    return [...counts.entries()]
+      .map(([label, count], index) => ({
+        label,
+        count,
+        color: pieColorForIndex(index),
+      }))
+      .sort((a, b) => b.count - a.count || a.label.localeCompare(b.label))
+  }, [activeByCellRows])
+
+  const activeByCellTotal = useMemo(
+    () => activeByCellSlices.reduce((sum, slice) => sum + slice.count, 0),
+    [activeByCellSlices],
+  )
+
   const visibleActiveByCellRows = useMemo(
     () => activeByCellRows.filter((v) => (activeByCellFilter === 'all' ? true : (v.cell ?? '') === activeByCellFilter)),
     [activeByCellRows, activeByCellFilter],
   )
+
+  const printActiveByCellPie = () => {
+    const companyName = activeOrganization?.name?.trim() || (workflow.key === 'vsi' ? 'VSI' : 'JS Valve')
+    const { error } = printPieChartReport({
+      title: 'Active valves per cell',
+      subtitle: `${companyName} · open jobs (excludes Completed / Junked / Replaced)`,
+      slices: activeByCellSlices,
+      valueLabel: 'Valves',
+    })
+    if (error) showToast(error)
+  }
 
   const exportActiveByCellCsv = () => {
     const header = ['Job ID', 'Customer', 'Cell', 'Status', 'Due Date', 'Description', 'Notes']
@@ -1448,6 +1496,10 @@ export function ReportsPage() {
       </div>
 
       <CompanyCompareReportPanel />
+
+      <MonthlyUnitsDeliveredReportPanel />
+
+      <TrainingCertificationReportPanel />
 
       {focusReworkReport ? (
         <p className="placeholder-copy" style={{ marginTop: 0 }}>
@@ -2240,9 +2292,22 @@ export function ReportsPage() {
         </div>
       </section>
 
-      <section className="dashboard-panel">
-        <h3>Active valves by cell</h3>
-        <p className="placeholder-copy">Open valves grouped by work cell (excludes Completed / Junked / Replaced).</p>
+      <section className="dashboard-panel" id="active-valves-by-cell">
+        <div className="dashboard-panel-title-row">
+          <h3>Active valves by cell</h3>
+          <button
+            type="button"
+            className="button-primary"
+            onClick={printActiveByCellPie}
+            disabled={activeByCellLoading || activeByCellTotal === 0}
+          >
+            Print pie chart
+          </button>
+        </div>
+        <p className="placeholder-copy">
+          Open valves grouped by work cell / department (excludes Completed / Junked / Replaced). Printable pie chart
+          shows counts per cell for the active company.
+        </p>
         <div className="report-filters">
           <label>
             Cell
@@ -2255,8 +2320,8 @@ export function ReportsPage() {
               ))}
             </select>
           </label>
-          <button type="button" className="button-primary" onClick={() => void loadActiveByCell()} disabled={activeByCellLoading}>
-            {activeByCellLoading ? 'Loading…' : 'Load active valves by cell'}
+          <button type="button" className="button-secondary" onClick={() => void loadActiveByCell()} disabled={activeByCellLoading}>
+            {activeByCellLoading ? 'Loading…' : 'Refresh'}
           </button>
           <button
             type="button"
@@ -2267,7 +2332,59 @@ export function ReportsPage() {
             Export CSV
           </button>
         </div>
-        <p className="status-breakdown-note">Results: {visibleActiveByCellRows.length} open valve(s)</p>
+        <p className="status-breakdown-note">
+          {activeByCellLoading
+            ? 'Loading…'
+            : `${activeByCellTotal} open valve${activeByCellTotal === 1 ? '' : 's'} · showing ${visibleActiveByCellRows.length}`}
+        </p>
+
+        {!activeByCellLoading && activeByCellSlices.length > 0 ? (
+          <div className="report-pie-layout" aria-label="Active valves per cell pie chart">
+            <div
+              className="report-pie"
+              style={{
+                background:
+                  activeByCellTotal > 0
+                    ? `conic-gradient(${activeByCellSlices
+                        .reduce<{ parts: string[]; cursor: number }>(
+                          (acc, slice) => {
+                            const start = (acc.cursor / activeByCellTotal) * 360
+                            const next = acc.cursor + slice.count
+                            const end = (next / activeByCellTotal) * 360
+                            acc.parts.push(`${slice.color} ${start.toFixed(2)}deg ${end.toFixed(2)}deg`)
+                            acc.cursor = next
+                            return acc
+                          },
+                          { parts: [], cursor: 0 },
+                        )
+                        .parts.join(', ')})`
+                    : '#e2e8f0',
+              }}
+            />
+            <ul className="report-pie-legend">
+              {activeByCellSlices.map((slice) => {
+                const pct = activeByCellTotal > 0 ? ((slice.count / activeByCellTotal) * 100).toFixed(1) : '0.0'
+                return (
+                  <li key={slice.label}>
+                    <button
+                      type="button"
+                      className={`report-pie-legend-btn${activeByCellFilter === slice.label ? ' is-active' : ''}`}
+                      onClick={() =>
+                        setActiveByCellFilter((prev) => (prev === slice.label ? 'all' : slice.label))
+                      }
+                    >
+                      <span className="report-pie-swatch" style={{ background: slice.color }} />
+                      <span className="report-pie-label">{slice.label}</span>
+                      <strong>{slice.count}</strong>
+                      <em>{pct}%</em>
+                    </button>
+                  </li>
+                )
+              })}
+            </ul>
+          </div>
+        ) : null}
+
         <div className="dashboard-table-wrap">
           <table className="dashboard-table">
             <thead>
@@ -2282,17 +2399,25 @@ export function ReportsPage() {
               </tr>
             </thead>
             <tbody>
-              {visibleActiveByCellRows.map((row) => (
-                <tr key={row.id}>
-                  <td>{row.valve_id}</td>
-                  <td>{row.customer ?? '-'}</td>
-                  <td>{row.cell ?? '-'}</td>
-                  <td>{row.status}</td>
-                  <td>{row.due_date ?? '-'}</td>
-                  <td className="table-cell-clamp">{row.description ?? '-'}</td>
-                  <td className="table-cell-clamp">{row.notes ?? '-'}</td>
+              {visibleActiveByCellRows.length === 0 ? (
+                <tr>
+                  <td colSpan={7} className="job-muted">
+                    {activeByCellLoading ? 'Loading…' : 'No open valves with a cell assigned.'}
+                  </td>
                 </tr>
-              ))}
+              ) : (
+                visibleActiveByCellRows.map((row) => (
+                  <tr key={row.id}>
+                    <td>{row.valve_id}</td>
+                    <td>{row.customer ?? '-'}</td>
+                    <td>{row.cell ?? '-'}</td>
+                    <td>{row.status}</td>
+                    <td>{row.due_date ?? '-'}</td>
+                    <td className="table-cell-clamp">{row.description ?? '-'}</td>
+                    <td className="table-cell-clamp">{row.notes ?? '-'}</td>
+                  </tr>
+                ))
+              )}
             </tbody>
           </table>
         </div>
