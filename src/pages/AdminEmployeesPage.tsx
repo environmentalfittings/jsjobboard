@@ -5,6 +5,11 @@ import { useOrganization } from '../contexts/OrganizationContext'
 import { validateEmployeePassword } from '../lib/auth'
 import { loadEmployeeAccountStatus } from '../lib/employeeAccounts'
 import {
+  ensureShopAssignmentForEmployee,
+  strongestShopRoleFromOrgRoles,
+  syncMissingShopAssignmentsFromRoster,
+} from '../lib/ensureShopAssignment'
+import {
   createOrganization,
   listOrganizationMembersForEmployees,
   setEmployeeOrganizationAccess,
@@ -545,6 +550,33 @@ export function AdminEmployeesPage({ isAdmin }: { isAdmin: boolean }) {
       }
     }
 
+    // Every roster employee must also have a Shop assignment (job-card assignee + App role).
+    const selectedOrgRoles = orgsEnabled
+      ? Object.entries(addCompanyAccess)
+          .filter(([, value]) => value.canAccess)
+          .map(([, value]) => value.role)
+      : (['technician'] as OrganizationRole[])
+    const selectedOrgNames = orgsEnabled
+      ? Object.entries(addCompanyAccess)
+          .filter(([, value]) => value.canAccess)
+          .map(([orgId]) => organizations.find((org) => org.id === orgId)?.name ?? '')
+      : []
+    const groupTeam = selectedOrgNames.some((name) => /vsi/i.test(name)) ? 'VSI' : null
+    const shopResult = await ensureShopAssignmentForEmployee({
+      fullName: full_name,
+      employeeNo: employee_no,
+      username,
+      authUserId,
+      groupTeam,
+      role: strongestShopRoleFromOrgRoles(selectedOrgRoles),
+      active: true,
+    })
+    if (!shopResult.ok) {
+      toastMessage = `${toastMessage}. Shop assignment failed: ${shopResult.error}`
+    } else if (shopResult.created) {
+      toastMessage = `${toastMessage} · Shop assignment created`
+    }
+
     showToast(toastMessage)
     setBusy(false)
     setAddOpen(false)
@@ -572,7 +604,25 @@ export function AdminEmployeesPage({ isAdmin }: { isAdmin: boolean }) {
         password: createPassword,
         full_name: createTarget.full_name,
       })
-      showToast(`Account created for ${createTarget.full_name} — login: ${createTarget.username}`)
+      const { data: linked } = await supabase
+        .from('employees')
+        .select('auth_user_id,employee_no,company')
+        .eq('id', createTarget.id)
+        .maybeSingle()
+      const shopResult = await ensureShopAssignmentForEmployee({
+        fullName: createTarget.full_name,
+        employeeNo: String(linked?.employee_no ?? createTarget.employee_no ?? ''),
+        username: createTarget.username,
+        authUserId: linked?.auth_user_id ? String(linked.auth_user_id) : null,
+        groupTeam: /vsi/i.test(String(linked?.company ?? createTarget.company ?? '')) ? 'VSI' : null,
+        role: 'technician',
+        active: true,
+      })
+      showToast(
+        shopResult.ok
+          ? `Account created for ${createTarget.full_name} — login: ${createTarget.username}`
+          : `Account created, but shop assignment failed: ${shopResult.error}`,
+      )
       setCreateTarget(null)
       setCreatePassword('')
       setCreateConfirm('')
@@ -628,6 +678,18 @@ export function AdminEmployeesPage({ isAdmin }: { isAdmin: boolean }) {
         action: 'deactivate',
         employee_id: deactivateTarget.id,
       })
+      // Keep Shop assignment in sync with roster: deactivate matching tech row(s).
+      const deactivatePatch = { active: false, updated_at: new Date().toISOString() }
+      await supabase
+        .from('technicians')
+        .update(deactivatePatch)
+        .eq('login_username', deactivateTarget.username)
+      if (deactivateTarget.employee_no) {
+        await supabase
+          .from('technicians')
+          .update(deactivatePatch)
+          .eq('employee_id', deactivateTarget.employee_no)
+      }
       showToast(`${deactivateTarget.full_name} deactivated`)
       setDeactivateTarget(null)
       await refreshAll()
@@ -637,6 +699,23 @@ export function AdminEmployeesPage({ isAdmin }: { isAdmin: boolean }) {
     } finally {
       setBusy(false)
     }
+  }
+
+  const handleSyncShopAssignments = async () => {
+    if (!isAdmin) {
+      showToast('Only Admin can sync shop assignments')
+      return
+    }
+    setBusy(true)
+    const result = await syncMissingShopAssignmentsFromRoster()
+    setBusy(false)
+    if (result.failed > 0) {
+      showToast(
+        `Shop sync: ${result.created} created, ${result.updated} updated, ${result.failed} failed. ${result.errors[0] ?? ''}`,
+      )
+      return
+    }
+    showToast(`Shop sync complete — ${result.created} created, ${result.updated} already linked`)
   }
 
   const toggleTester = async (employee: Employee, nextValue: boolean) => {
@@ -747,18 +826,38 @@ export function AdminEmployeesPage({ isAdmin }: { isAdmin: boolean }) {
                 </button>
               ) : null}
               {isAdmin ? (
+                <button
+                  type="button"
+                  className="button-secondary"
+                  disabled={busy}
+                  onClick={() => void handleSyncShopAssignments()}
+                >
+                  Sync shop assignments
+                </button>
+              ) : null}
+              {isAdmin ? (
                 <button type="button" className="button-primary" disabled={busy} onClick={openAddEmployee}>
                   Add employee
                 </button>
               ) : null}
             </>
+          ) : isAdmin ? (
+            <button
+              type="button"
+              className="button-secondary"
+              disabled={busy}
+              onClick={() => void handleSyncShopAssignments()}
+            >
+              Sync from roster
+            </button>
           ) : null}
         </div>
       </div>
 
       <p className="placeholder-copy">
         One place for people: <strong>Roster &amp; accounts</strong> (logins, Tester, Salesman, Quality Team) and{' '}
-        <strong>Shop assignment</strong> (job-card assignees and App role for login permissions).
+        <strong>Shop assignment</strong> (job-card assignees and App role for login permissions). Anyone on the roster
+        automatically gets a Shop assignment — use Sync if older rows are missing.
       </p>
 
       <div className="tabs admin-employees-tabs" role="tablist" aria-label="Employees sections">
