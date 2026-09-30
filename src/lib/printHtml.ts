@@ -92,14 +92,112 @@ export function openPrintHtml(
   const blob = new Blob([html], { type: 'text/html;charset=utf-8' })
   const url = URL.createObjectURL(blob)
 
+  // Do not pass noopener/noreferrer — modern browsers then return null from
+  // window.open even when a tab opened, which previously fell through to
+  // location.assign and replaced the current page (losing scroll position).
   const popup = isMobileWebKit()
     ? window.open(url, '_blank')
-    : window.open(url, '_blank', `noopener,noreferrer,width=${width},height=${height}`)
+    : window.open(url, '_blank', `width=${width},height=${height}`)
   if (!popup) {
-    window.location.assign(url)
-    return { error: null }
+    URL.revokeObjectURL(url)
+    // Never navigate the current page away — callers stay on their list/form.
+    return { error: 'Allow pop-ups to open the print preview' }
   }
 
   window.setTimeout(() => URL.revokeObjectURL(url), 10 * 60 * 1000)
+  return { error: null }
+}
+
+/**
+ * Print HTML via a hidden iframe so the current page (and scroll position) stay put.
+ * Replaces popup-based print flows that opened multiple tabs or navigated away.
+ */
+export function printHtmlViaIframe(
+  html: string,
+  options?: { frameId?: string; title?: string },
+): { error: string | null } {
+  const frameId = options?.frameId ?? 'app-html-print-frame'
+  const existing = document.getElementById(frameId)
+  if (existing) existing.remove()
+
+  const iframe = document.createElement('iframe')
+  iframe.id = frameId
+  iframe.title = options?.title ?? 'Print'
+  iframe.setAttribute('aria-hidden', 'true')
+  // Keep a real layout size off-screen so label/text fitting scripts still measure correctly.
+  Object.assign(iframe.style, {
+    position: 'fixed',
+    left: '-10000px',
+    top: '0',
+    width: '8.5in',
+    height: '11in',
+    border: '0',
+    opacity: '0',
+    pointerEvents: 'none',
+  })
+  document.body.appendChild(iframe)
+
+  const win = iframe.contentWindow
+  const doc = win?.document
+  if (!win || !doc) {
+    iframe.remove()
+    return { error: 'Could not open the print dialog' }
+  }
+
+  doc.open()
+  doc.write(html)
+  doc.close()
+
+  let cleaned = false
+  const cleanup = () => {
+    if (cleaned) return
+    cleaned = true
+    try {
+      iframe.remove()
+    } catch {
+      /* ignore */
+    }
+  }
+
+  win.addEventListener('afterprint', cleanup)
+  window.setTimeout(cleanup, 60_000)
+
+  const runPrint = () => {
+    try {
+      win.focus()
+      win.print()
+    } catch {
+      cleanup()
+    }
+  }
+
+  const waitForImages = () => {
+    const images = Array.from(doc.images)
+    // Small delay so label text-fitting scripts can measure layout before print.
+    const schedulePrint = () => window.setTimeout(runPrint, 120)
+    if (images.length === 0 || images.every((img) => img.complete)) {
+      schedulePrint()
+      return
+    }
+    let remaining = images.length
+    const done = () => {
+      remaining -= 1
+      if (remaining <= 0) schedulePrint()
+    }
+    for (const img of images) {
+      if (img.complete) done()
+      else {
+        img.addEventListener('load', done, { once: true })
+        img.addEventListener('error', done, { once: true })
+      }
+    }
+  }
+
+  if (doc.readyState === 'complete') {
+    waitForImages()
+  } else {
+    win.addEventListener('load', waitForImages, { once: true })
+  }
+
   return { error: null }
 }
