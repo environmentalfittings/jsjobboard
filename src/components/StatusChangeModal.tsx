@@ -1347,6 +1347,15 @@ export function StatusChangeModal({
                           ? 'Date this job was moved to Completed (shipped).'
                           : 'Date this job was closed (Warehouse RTS, Junked, or Replaced).'}
                       </p>
+                      {valve.shipment_closed_by || valve.shipment_closed_at ? (
+                        <p className="job-card-muted">
+                          Shipped / closed by{' '}
+                          <strong>{valve.shipment_closed_by?.trim() || '—'}</strong>
+                          {valve.shipment_closed_at
+                            ? ` · ${new Date(valve.shipment_closed_at).toLocaleString()}`
+                            : ''}
+                        </p>
+                      ) : null}
                     </>
                   ) : null}
 
