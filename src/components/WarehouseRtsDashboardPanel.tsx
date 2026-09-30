@@ -241,23 +241,56 @@ export function WarehouseRtsDashboardPanel() {
       return
     }
 
-    const patch = valveStatusPatch('Completed', {
+    const closedBy = username?.trim() || 'Unknown'
+    const closedAt = new Date().toISOString()
+    const statusPatch = valveStatusPatch('Completed', {
       status: row.status,
       order_type: row.order_type,
       date_closed: row.date_closed,
     })
+    // Always move Warehouse RTS / Shipping → Completed and stamp who/when.
+    const patch = {
+      ...statusPatch,
+      status: 'Completed',
+      order_type: 'Completed',
+      date_closed: statusPatch.date_closed ?? new Date().toISOString().slice(0, 10),
+      shipment_closed_by: closedBy,
+      shipment_closed_at: closedAt,
+    }
 
     setSavingId(row.id)
     const { error } = await supabase.from('valves').update(patch).eq('id', row.id)
     setSavingId(null)
 
     if (error) {
+      if (/shipment_closed_by|shipment_closed_at|schema cache|column.*does not exist/i.test(error.message)) {
+        // Columns not migrated yet — still complete the job, without who/when stamp.
+        const { error: fallbackError } = await supabase
+          .from('valves')
+          .update({
+            status: 'Completed',
+            order_type: 'Completed',
+            date_closed: patch.date_closed,
+          })
+          .eq('id', row.id)
+        if (fallbackError) {
+          showToast(`Could not mark shipped: ${fallbackError.message}`)
+          return
+        }
+        setRows((prev) => prev.filter((item) => item.id !== row.id))
+        showToast(
+          `${row.valve_id} set to Completed. Run migration-valve-shipment-closed.sql to record who shipped and when.`,
+        )
+        return
+      }
       showToast(`Could not mark shipped: ${error.message}`)
       return
     }
 
     setRows((prev) => prev.filter((item) => item.id !== row.id))
-    showToast(`${row.valve_id} marked shipped and removed from the dashboard`)
+    showToast(
+      `${row.valve_id} set to Completed · closed by ${closedBy} · ${new Date(closedAt).toLocaleString()}`,
+    )
   }
 
   const renderValveCells = (row: WarehouseRtsRow) => (
@@ -278,7 +311,8 @@ export function WarehouseRtsDashboardPanel() {
           <h3>{statusLabel}</h3>
           <p className="status-breakdown-note">
             Check <strong>Final QC Approval</strong> to move a valve into the green table below, then
-            press <strong>Shipped</strong> to close it off the dashboard.
+            press <strong>Shipped</strong> to set status to <strong>Completed</strong> (records who
+            closed it and when).
             {rows.length > 0 ? (
               <>
                 {' '}
@@ -360,7 +394,8 @@ export function WarehouseRtsDashboardPanel() {
             <h4>Final QC Approval</h4>
             <p className="status-breakdown-note">
               Green = Final QC approved. Press <strong>Shipped</strong> when the valve leaves the
-              shop (requires Final QC Approval).
+              shop — status changes from {statusLabel} to Completed, with who closed it and the close
+              timestamp (requires Final QC Approval).
             </p>
             {approvedRows.length === 0 ? (
               <p className="placeholder-copy">No valves with Final QC Approval yet.</p>

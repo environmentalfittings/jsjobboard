@@ -41,6 +41,10 @@ export interface Valve {
   shipment_final_approved?: boolean | null
   shipment_final_approved_by?: string | null
   shipment_final_approved_at?: string | null
+  /** Who pressed Shipped (Warehouse RTS / Shipping → Completed). */
+  shipment_closed_by?: string | null
+  /** When Shipped was pressed and status moved to Completed. */
+  shipment_closed_at?: string | null
 }
 
 export interface ValveItp {
