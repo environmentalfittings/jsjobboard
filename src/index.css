@@ -8142,7 +8142,8 @@ a.test-log-reports-item-name:hover {
   color: #64748b;
 }
 
-.list-view-completed-toggle.active {
+.list-view-completed-toggle.active,
+.list-view-edit-mode-toggle.active {
   border-color: #2563eb;
   color: #1d4ed8;
   background: #eff6ff;
@@ -8204,7 +8205,8 @@ a.test-log-reports-item-name:hover {
   cursor: not-allowed;
 }
 
-.list-view-completed-toggle {
+.list-view-completed-toggle,
+.list-view-edit-mode-toggle {
   white-space: nowrap;
 }
 
