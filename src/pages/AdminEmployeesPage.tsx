@@ -54,6 +54,8 @@ function slugifyCompanyName(value: string) {
 }
 
 type StatusFilter = 'all' | 'no_account' | 'active'
+/** `all` or an organization id — view-only filter for the roster. */
+type CompanyFilter = 'all' | string
 type EmployeesTab = 'roster' | 'shop'
 
 function parseEmployeesTab(value: string | null): EmployeesTab {
@@ -127,6 +129,7 @@ export function AdminEmployeesPage({ isAdmin }: { isAdmin: boolean }) {
   const [orgMembersLoading, setOrgMembersLoading] = useState(false)
   const [search, setSearch] = useState('')
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('all')
+  const [companyFilter, setCompanyFilter] = useState<CompanyFilter>('all')
   const [busy, setBusy] = useState(false)
 
   const [createTarget, setCreateTarget] = useState<Employee | null>(null)
@@ -264,13 +267,17 @@ export function AdminEmployeesPage({ isAdmin }: { isAdmin: boolean }) {
       const status = employeeStatus(employee)
       if (statusFilter === 'no_account' && status !== 'no_account') return false
       if (statusFilter === 'active' && status !== 'active') return false
+      if (companyFilter !== 'all') {
+        const access = orgAccessByEmployee.get(employee.id)
+        if (!access?.has(companyFilter)) return false
+      }
       if (!q) return true
       const haystack = [employee.full_name, employee.employee_no, employee.initials, employee.username]
         .join(' ')
         .toLowerCase()
       return haystack.includes(q)
     })
-  }, [employees, search, statusFilter])
+  }, [employees, search, statusFilter, companyFilter, orgAccessByEmployee])
 
   const refreshAll = async () => {
     await reload()
@@ -883,6 +890,31 @@ export function AdminEmployeesPage({ isAdmin }: { isAdmin: boolean }) {
               </label>
             ))}
           </fieldset>
+          {orgsEnabled && organizations.length > 0 ? (
+            <fieldset className="admin-employees-status-filter">
+              <legend>Company</legend>
+              <label>
+                <input
+                  type="radio"
+                  name="employee-company-filter"
+                  checked={companyFilter === 'all'}
+                  onChange={() => setCompanyFilter('all')}
+                />
+                All
+              </label>
+              {organizations.map((org) => (
+                <label key={org.id}>
+                  <input
+                    type="radio"
+                    name="employee-company-filter"
+                    checked={companyFilter === org.id}
+                    onChange={() => setCompanyFilter(org.id)}
+                  />
+                  {org.name}
+                </label>
+              ))}
+            </fieldset>
+          ) : null}
           <button type="button" className="button-secondary" onClick={() => void refreshAll()} disabled={loading}>
             Refresh
           </button>
