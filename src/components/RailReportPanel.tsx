@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
+import { CollapsibleReportPanel } from './CollapsibleReportPanel'
+import { printTableReport } from '../lib/reportChartsPrint'
 import { supabase } from '../lib/supabase'
 import { useOrganization } from '../contexts/OrganizationContext'
 import { useCompanyWorkflow } from '../hooks/useCompanyWorkflow'
@@ -23,59 +25,19 @@ function railPerson(note: DailyNote): string {
 }
 
 function printRailReport(rows: DailyNote[]) {
-  const win = window.open('', '_blank', 'noopener,noreferrer')
-  if (!win) return
-  const body = rows
-    .map(
-      (row) => `<tr>
-        <td>${escapeHtml(railPerson(row) || '—')}</td>
-        <td>${escapeHtml(row.body)}</td>
-        <td>${escapeHtml(row.assigned_to || 'Unassigned')}</td>
-        <td>${escapeHtml(formatNoteDate(row.estimated_completion_date))}</td>
-      </tr>`,
-    )
-    .join('')
-  win.document.write(`<!doctype html>
-<html>
-<head>
-  <meta charset="utf-8" />
-  <title>Rail</title>
-  <style>
-    body { font-family: Arial, sans-serif; color: #0f172a; margin: 24px; }
-    h1 { font-size: 22px; margin: 0 0 6px; }
-    p { color: #64748b; margin: 0 0 16px; font-size: 13px; }
-    table { width: 100%; border-collapse: collapse; }
-    th, td { border: 1px solid #cbd5e1; padding: 8px 10px; text-align: left; vertical-align: top; font-size: 13px; }
-    th { background: #f1f5f9; }
-  </style>
-</head>
-<body>
-  <h1>Rail</h1>
-  <p>5S items marked Add to Rail from the shop to-do list.</p>
-  <table>
-    <thead>
-      <tr>
-        <th>Person</th>
-        <th>Task</th>
-        <th>Person assigned</th>
-        <th>Estimated completion</th>
-      </tr>
-    </thead>
-    <tbody>${body || '<tr><td colspan="4">No rail items.</td></tr>'}</tbody>
-  </table>
-</body>
-</html>`)
-  win.document.close()
-  win.focus()
-  win.print()
-}
-
-function escapeHtml(value: string): string {
-  return value
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
+  printTableReport({
+    title: 'Rail',
+    subtitle: 'Shop to-do items checked Add to Rail.',
+    columns: ['Person', 'Task', 'Person assigned', 'Estimated completion'],
+    rows: rows.map((row) => [
+      railPerson(row) || '—',
+      row.body,
+      row.assigned_to || 'Unassigned',
+      formatNoteDate(row.estimated_completion_date),
+    ]),
+    orientation: 'portrait',
+    frameId: 'rail-report-print-frame',
+  })
 }
 
 export function RailReportPanel() {
@@ -150,13 +112,7 @@ export function RailReportPanel() {
   }
 
   return (
-    <section className="dashboard-panel" id="rail">
-      <div className="dashboard-panel-title-row">
-        <h3>Rail</h3>
-        <Link className="button-secondary" to="/dashboard">
-          Open to-do list
-        </Link>
-      </div>
+    <CollapsibleReportPanel id="rail" title="Rail">
       <p className="placeholder-copy">
         Shop to-do items checked <strong>Add to Rail</strong>. Shows who added it, the task, who it is assigned to, and
         the estimated completion date.
@@ -192,6 +148,9 @@ export function RailReportPanel() {
             >
               Print
             </button>
+            <Link className="button-secondary" to="/dashboard">
+              Open to-do list
+            </Link>
           </div>
           <p className="status-breakdown-note">Results: {visibleRows.length} rail item(s)</p>
           <div className="dashboard-table-wrap">
@@ -228,6 +187,6 @@ export function RailReportPanel() {
           </div>
         </>
       )}
-    </section>
+    </CollapsibleReportPanel>
   )
 }

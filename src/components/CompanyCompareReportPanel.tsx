@@ -6,6 +6,8 @@ import { isExcludedFromOnTimeDelivery } from '../lib/onTimeDelivery'
 import { fetchStatusReworkLog } from '../lib/statusReworkLog'
 import { supabase } from '../lib/supabase'
 import type { Organization } from '../types/organizations'
+import { printTableReport } from '../lib/reportChartsPrint'
+import { CollapsibleReportPanel } from './CollapsibleReportPanel'
 import { useToast } from './ToastNotification'
 
 type CompanyCompareRow = {
@@ -125,20 +127,54 @@ export function CompanyCompareReportPanel() {
 
   if (!orgsEnabled || !isOrgSuperAdmin || organizations.length < 2) return null
 
+  const printReport = () => {
+    const { error } = printTableReport({
+      title: `Company compare · ${year}`,
+      subtitle: 'Side-by-side metrics across companies (superadmin).',
+      columns: [
+        'Company',
+        'Active jobs',
+        `Completed w/ due (${year})`,
+        'On-time',
+        'Late',
+        'OTD %',
+        `Rework moves (${year})`,
+        'Became INCRs',
+        'INCR rate',
+      ],
+      rows: rows.map((row) => {
+        const incrRate = row.reworkMoves > 0 ? (row.reworkBecameIncr / row.reworkMoves) * 100 : null
+        return [
+          row.organization.name,
+          String(row.activeJobs),
+          String(row.completedWithDue),
+          String(row.onTime),
+          String(row.late),
+          row.otdPct == null ? '—' : `${row.otdPct.toFixed(1)}%`,
+          String(row.reworkMoves),
+          String(row.reworkBecameIncr),
+          incrRate == null ? '—' : `${incrRate.toFixed(1)}%`,
+        ]
+      }),
+      orientation: 'landscape',
+      frameId: 'company-compare-print-frame',
+    })
+    if (error) showToast(error)
+  }
+
   return (
-    <section className="dashboard-panel company-compare-report" id="company-compare">
-      <div className="training-list-toolbar" style={{ alignItems: 'flex-start' }}>
-        <div>
-          <h3 style={{ margin: 0 }}>Company compare · Superadmin</h3>
-          <p className="placeholder-copy" style={{ marginTop: '0.35rem' }}>
-            Side-by-side metrics across companies. Use the header company switcher for day-to-day work inside one
-            company; this report is for cross-company review.
-            {isLocalOrganizations
-              ? ' In the local demo, VSI starts empty until VSI jobs exist — JS Valve numbers reflect live shop data scoped as JS.'
-              : null}
-          </p>
-        </div>
-      </div>
+    <CollapsibleReportPanel
+      id="company-compare"
+      className="company-compare-report"
+      title="Company compare · Superadmin"
+    >
+      <p className="placeholder-copy">
+        Side-by-side metrics across companies. Use the header company switcher for day-to-day work inside one
+        company; this report is for cross-company review.
+        {isLocalOrganizations
+          ? ' In the local demo, VSI starts empty until VSI jobs exist — JS Valve numbers reflect live shop data scoped as JS.'
+          : null}
+      </p>
 
       <div className="report-filters">
         <label>
@@ -153,6 +189,9 @@ export function CompanyCompareReportPanel() {
         </label>
         <button type="button" className="button-primary" disabled={loading} onClick={() => void load()}>
           {loading ? 'Loading…' : 'Refresh'}
+        </button>
+        <button type="button" className="button-secondary" disabled={loading || rows.length === 0} onClick={printReport}>
+          Print
         </button>
       </div>
 
@@ -217,6 +256,6 @@ export function CompanyCompareReportPanel() {
           </tbody>
         </table>
       </div>
-    </section>
+    </CollapsibleReportPanel>
   )
 }

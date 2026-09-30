@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { Link, useNavigate, useSearchParams } from 'react-router-dom'
+import { CollapsibleReportPanel } from '../components/CollapsibleReportPanel'
 import { CompanyCompareReportPanel } from '../components/CompanyCompareReportPanel'
 import { DailyPriorityWorksheet } from '../components/DailyPriorityWorksheet'
 import { FinishCellBadge } from '../components/FinishCellBadge'
@@ -18,7 +19,7 @@ import {
   filterValvesForCompany,
   valveRowBelongsToCompany,
 } from '../lib/companyDataScope'
-import { pieColorForIndex, printPieChartReport } from '../lib/reportChartsPrint'
+import { pieColorForIndex, printPieChartReport, printTableReport } from '../lib/reportChartsPrint'
 import { downloadCompletedJobsReportPdf } from '../lib/completedJobsReportPdf'
 import { loadLookupOptionsMap } from '../lib/lookupValues'
 import { supabase } from '../lib/supabase'
@@ -523,6 +524,30 @@ export function ReportsPage() {
     URL.revokeObjectURL(url)
   }
 
+  const printDueDateChanges = () => {
+    const companyLabel = activeOrganization?.name ?? workflow.label
+    const { error } = printTableReport({
+      title: 'Due date changes',
+      subtitle: `${companyLabel} · ${dueDateStart} → ${dueDateEnd}`,
+      columns: ['Changed', 'Valve ID', 'Previous', 'New', 'Reason', 'By'],
+      rows: dueDateChangeRows.map((row) => [
+        new Date(row.changed_at).toLocaleString(),
+        row.valve_id,
+        row.previous_due_date ?? '—',
+        row.new_due_date ?? '—',
+        row.reason,
+        row.changed_by_name ?? '—',
+      ]),
+      summaryLines: [
+        `${dueDateChangeRows.length} change${dueDateChangeRows.length === 1 ? '' : 's'} in range`,
+        dueDateChangeTotalLogged == null ? 'Total logged (all time): —' : `Total logged (all time): ${dueDateChangeTotalLogged}`,
+      ],
+      orientation: 'landscape',
+      frameId: 'due-date-changes-print-frame',
+    })
+    if (error) showToast(error)
+  }
+
   const loadReworkLog = async (range?: { start: string; end: string }) => {
     const start = range?.start ?? reworkStart
     const end = range?.end ?? reworkEnd
@@ -594,6 +619,46 @@ export function ReportsPage() {
     a.download = `rework-moves-${reworkStart}-to-${reworkEnd}.csv`
     a.click()
     URL.revokeObjectURL(url)
+  }
+
+  const printReworkReport = () => {
+    const companyLabel = activeOrganization?.name ?? workflow.label
+    const qaLabel = (row: StatusReworkRecord) => {
+      if (row.qa_disposition === 'na') return 'Selected NA'
+      if (row.qa_disposition === 'incr' && row.incr_id) {
+        const status =
+          row.incr_status === 'closed'
+            ? 'Closed INCR'
+            : row.incr_status === 'void'
+              ? 'Void INCR'
+              : row.incr_status === 'open'
+                ? 'Open INCR'
+                : 'INCR linked'
+        return row.incr_number ? `${status} · ${row.incr_number}` : status
+      }
+      return 'Pending'
+    }
+    const { error } = printTableReport({
+      title: 'Rework / backward status moves',
+      subtitle: `${companyLabel} · ${reworkStart} → ${reworkEnd}`,
+      columns: ['Changed', 'Valve ID', 'From', 'To', 'Reason', 'By', 'QA follow-up'],
+      rows: reworkRows.map((row) => [
+        new Date(row.changed_at).toLocaleString(),
+        row.valve_id,
+        row.previous_status,
+        row.new_status,
+        row.reason,
+        row.changed_by_name ?? '—',
+        qaLabel(row),
+      ]),
+      summaryLines: [
+        `${reworkRows.length} rework move${reworkRows.length === 1 ? '' : 's'} in range`,
+        reworkTotalLogged == null ? 'Total logged (all time): —' : `Total logged (all time): ${reworkTotalLogged}`,
+      ],
+      orientation: 'landscape',
+      frameId: 'rework-report-print-frame',
+    })
+    if (error) showToast(error)
   }
 
   const markReworkNa = async (row: StatusReworkRecord) => {
@@ -748,6 +813,44 @@ export function ReportsPage() {
       .sort((a, b) => b.daysLate - a.daysLate || b.date_closed.localeCompare(a.date_closed) || a.valve_id.localeCompare(b.valve_id))
     setLateRows(parsed)
     setLateLoading(false)
+  }
+
+  const printLateValvesReport = () => {
+    const companyLabel = activeOrganization?.name ?? workflow.label
+    const { error } = printTableReport({
+      title: 'Late valves',
+      subtitle: `${companyLabel} · ${lateStartDate} → ${lateEndDate}`,
+      columns: [
+        'WO #',
+        'Customer',
+        'Status',
+        'Cell',
+        'Valve type',
+        'Due date',
+        'Warehouse RTS',
+        'Date closed',
+        'Days late',
+      ],
+      rows: lateRows.map((row) => [
+        row.valve_id,
+        row.customer ?? '—',
+        row.status ?? '—',
+        row.cell ?? '—',
+        row.valve_type ?? '—',
+        row.due_date,
+        row.warehouseRtsDate ?? '—',
+        row.date_closed,
+        String(row.daysLate),
+      ]),
+      summaryLines: [
+        `${lateRows.length} late job${lateRows.length === 1 ? '' : 's'} in range`,
+        `Avg days late: ${lateAvgDays != null ? lateAvgDays.toFixed(1) : '—'}`,
+        `Most days late: ${lateRows[0] ? lateRows[0].daysLate : '—'}`,
+      ],
+      orientation: 'landscape',
+      frameId: 'late-valves-print-frame',
+    })
+    if (error) showToast(error)
   }
 
   const exportLateValvesCsv = () => {
@@ -1159,6 +1262,32 @@ export function ReportsPage() {
     URL.revokeObjectURL(url)
   }
 
+  const printActiveTurnaroundReport = () => {
+    const companyLabel = activeOrganization?.name ?? workflow.label
+    const { error } = printTableReport({
+      title: 'Active turnaround jobs',
+      subtitle: `${companyLabel} · job type: ${activeJobTypeFilter === 'all' ? 'All' : activeJobTypeFilter}`,
+      columns: ['Job ID', 'Job type', 'Customer', 'Cell', 'Size', 'Status', 'Due date', 'Description', 'Notes'],
+      rows: visibleActiveTurnaroundRows.map((row) => [
+        row.valve_id,
+        normalizeJobType(row.job_type),
+        row.customer ?? '—',
+        row.cell ?? '—',
+        row.size ?? '—',
+        row.status,
+        row.due_date ?? '—',
+        row.description ?? '—',
+        row.notes ?? '—',
+      ]),
+      summaryLines: [
+        `${visibleActiveTurnaroundRows.length} open turnaround job${visibleActiveTurnaroundRows.length === 1 ? '' : 's'}`,
+      ],
+      orientation: 'landscape',
+      frameId: 'active-turnaround-print-frame',
+    })
+    if (error) showToast(error)
+  }
+
   const loadActiveByCell = async () => {
     setActiveByCellLoading(true)
     const { data, error } = await supabase
@@ -1301,6 +1430,33 @@ export function ReportsPage() {
     URL.revokeObjectURL(url)
   }
 
+  const printTestLogReport = () => {
+    const companyLabel = activeOrganization?.name ?? workflow.label
+    const { error } = printTableReport({
+      title: 'Test log summary report',
+      subtitle: `${companyLabel} · ${testLogStartDate} → ${testLogEndDate}`,
+      columns: ['Date', 'Valve ID', 'Description', 'Test Type', 'Pass/Fail', 'Tester', 'Action Taken'],
+      rows: testLogRows.map((row) => [
+        row.tested_on,
+        row.valve_id,
+        testLogDescriptionFor(row.valve_id) || '—',
+        row.test_type ?? '—',
+        row.pass_fail ?? '—',
+        row.tester ?? '—',
+        row.action_taken ?? '—',
+      ]),
+      summaryLines: [
+        `Total entries: ${testLogSummary.total}`,
+        `PASS: ${testLogSummary.passCount}`,
+        `FAIL: ${testLogSummary.failCount}`,
+        `Pass rate: ${testLogSummary.passRate.toFixed(1)}%`,
+      ],
+      orientation: 'landscape',
+      frameId: 'test-log-summary-print-frame',
+    })
+    if (error) showToast(error)
+  }
+
   const testLogSummary = useMemo(() => {
     const total = testLogRows.length
     const passCount = testLogRows.filter((r) => (r.pass_fail ?? '').trim().toUpperCase().includes('PASS')).length
@@ -1310,9 +1466,11 @@ export function ReportsPage() {
   }, [testLogRows])
 
   const reworkReportSection = (
-      <section className="dashboard-panel" id="rework">
-        <h3>Rework / backward status moves</h3>
-        <p className="placeholder-copy">
+      <CollapsibleReportPanel id="rework"
+      title="Rework / backward status moves"
+      defaultOpen={focusReworkReport}
+    >
+      <p className="placeholder-copy">
           Forward shop flow (editable in Manage Lists → Shop workflow): Pull → Teardown → Machine 1 → Welding →
           Machine 2 → Fitting → Assembly → Adaption → Actuation → Testing → Painting → Warehouse RTS → Completed.
           Cards may skip steps. When a card moves to an earlier stage, the technician must enter a rework reason. Only
@@ -1372,6 +1530,14 @@ export function ReportsPage() {
             disabled={reworkRows.length === 0}
           >
             Export CSV
+          </button>
+          <button
+            type="button"
+            className="button-secondary"
+            onClick={printReworkReport}
+            disabled={reworkRows.length === 0 || reworkLoading}
+          >
+            Print
           </button>
         </div>
 
@@ -1486,7 +1652,7 @@ export function ReportsPage() {
             </tbody>
           </table>
         </div>
-      </section>
+      </CollapsibleReportPanel>
   )
 
   return (
@@ -1510,21 +1676,20 @@ export function ReportsPage() {
 
       {focusReworkReport ? reworkReportSection : null}
 
-      <section className="dashboard-panel" id="on-time-delivery">
-        <div className="training-list-toolbar" style={{ alignItems: 'flex-start' }}>
-          <div>
-            <h3 style={{ margin: 0 }}>
+      <CollapsibleReportPanel id="on-time-delivery"
+      title={(
+            <>
               On-time delivery
               {activeOrganization ? ` · ${activeOrganization.name}` : ''}
-            </h3>
-            <p className="placeholder-copy" style={{ marginTop: '0.35rem' }}>
+            </>
+          )}
+    >
+      <p className="placeholder-copy" style={{ marginTop: '0.35rem' }}>
               {workflow.key === 'vsi'
                 ? 'VSI on-time delivery starts empty in the local multi-company demo until VSI jobs are completed.'
                 : `Percentage of completed jobs closed on or before their due date. Jobs with no due date are excluded from percentage calculations. ${OTD_PAUSE_STATUS_LABEL} do not count against on-time delivery. Moving a job out of those statuses requires a new due date before it counts again. ${OTD_EXCLUDED_CUSTOMER_LABEL} jobs are also excluded (internal / house work).`}
             </p>
-          </div>
-        </div>
-        <div className="report-filters">
+<div className="report-filters">
           <label>
             Year
             <select value={otdYear} onChange={(e) => setOtdYear(Number(e.target.value))}>
@@ -1717,11 +1882,12 @@ export function ReportsPage() {
             </tbody>
           </table>
         </div>
-      </section>
+      </CollapsibleReportPanel>
 
-      <section className="dashboard-panel" id="late-valves">
-        <h3>Late valves</h3>
-        <p className="placeholder-copy">
+      <CollapsibleReportPanel id="late-valves"
+      title="Late valves"
+    >
+      <p className="placeholder-copy">
           Completed / Warehouse RTS jobs closed after their due date in the selected period. Same rules as on-time
           delivery ({OTD_PAUSE_STATUS_LABEL}; {OTD_EXCLUDED_CUSTOMER_LABEL} excluded). Warehouse RTS date comes from the
           status change log when available. Open a card to review the job.
@@ -1769,6 +1935,14 @@ export function ReportsPage() {
             onClick={exportLateValvesCsv}
           >
             Export CSV
+          </button>
+          <button
+            type="button"
+            className="button-secondary"
+            disabled={lateLoading || lateRows.length === 0}
+            onClick={printLateValvesReport}
+          >
+            Print
           </button>
         </div>
 
@@ -1839,11 +2013,12 @@ export function ReportsPage() {
             </table>
           </div>
         )}
-      </section>
+      </CollapsibleReportPanel>
 
-      <section className="dashboard-panel" id="top-customers-valve-types">
-        <h3>Top customers &amp; repairs by valve type</h3>
-        <p className="placeholder-copy">
+      <CollapsibleReportPanel id="top-customers-valve-types"
+      title="Top customers & repairs by valve type"
+    >
+      <p className="placeholder-copy">
           Rank completed jobs in the date range. <strong>Click any bar</strong> (customer or valve type, including
           Unknown type) to list those jobs below — then open a card or Print / PDF. Valve-type chart counts{' '}
           <strong>Valve Repair</strong> jobs only.
@@ -2179,15 +2354,18 @@ export function ReportsPage() {
             </div>
           </div>
         ) : null}
-      </section>
+      </CollapsibleReportPanel>
 
-      <DailyPriorityWorksheet />
+      <CollapsibleReportPanel id="daily-priorities" title="Daily priorities">
+        <DailyPriorityWorksheet embedded />
+      </CollapsibleReportPanel>
 
       <RailReportPanel />
 
-      <section className="dashboard-panel">
-        <h3>Completed jobs report</h3>
-        <p className="placeholder-copy">
+      <CollapsibleReportPanel
+      title="Completed jobs report"
+    >
+      <p className="placeholder-copy">
           Filter by close date. Pick a common date range, or set custom start/end dates. Use turnaround filter for
           customer update packages or to exclude turnarounds.
         </p>
@@ -2290,21 +2468,12 @@ export function ReportsPage() {
             </tbody>
           </table>
         </div>
-      </section>
+      </CollapsibleReportPanel>
 
-      <section className="dashboard-panel" id="active-valves-by-cell">
-        <div className="dashboard-panel-title-row">
-          <h3>Active valves by cell</h3>
-          <button
-            type="button"
-            className="button-primary"
-            onClick={printActiveByCellPie}
-            disabled={activeByCellLoading || activeByCellTotal === 0}
-          >
-            Print pie chart
-          </button>
-        </div>
-        <p className="placeholder-copy">
+      <CollapsibleReportPanel id="active-valves-by-cell"
+      title="Active valves by cell"
+    >
+      <p className="placeholder-copy">
           Open valves grouped by work cell / department (excludes Completed / Junked / Replaced). Printable pie chart
           shows counts per cell for the active company.
         </p>
@@ -2322,6 +2491,14 @@ export function ReportsPage() {
           </label>
           <button type="button" className="button-secondary" onClick={() => void loadActiveByCell()} disabled={activeByCellLoading}>
             {activeByCellLoading ? 'Loading…' : 'Refresh'}
+          </button>
+          <button
+            type="button"
+            className="button-primary"
+            onClick={printActiveByCellPie}
+            disabled={activeByCellLoading || activeByCellTotal === 0}
+          >
+            Print pie chart
           </button>
           <button
             type="button"
@@ -2421,11 +2598,12 @@ export function ReportsPage() {
             </tbody>
           </table>
         </div>
-      </section>
+      </CollapsibleReportPanel>
 
-      <section className="dashboard-panel">
-        <h3>Active turnaround jobs</h3>
-        <p className="placeholder-copy">
+      <CollapsibleReportPanel
+      title="Active turnaround jobs"
+    >
+      <p className="placeholder-copy">
           Open jobs flagged as turnaround (excludes Completed / Junked / Replaced). Use for customer status updates.
         </p>
         <div className="report-filters">
@@ -2455,6 +2633,14 @@ export function ReportsPage() {
             disabled={!visibleActiveTurnaroundRows.length || activeTurnaroundLoading}
           >
             Export CSV
+          </button>
+          <button
+            type="button"
+            className="button-secondary"
+            onClick={printActiveTurnaroundReport}
+            disabled={!visibleActiveTurnaroundRows.length || activeTurnaroundLoading}
+          >
+            Print
           </button>
         </div>
         <p className="status-breakdown-note">Results: {visibleActiveTurnaroundRows.length} open turnaround job(s)</p>
@@ -2490,11 +2676,12 @@ export function ReportsPage() {
             </tbody>
           </table>
         </div>
-      </section>
+      </CollapsibleReportPanel>
 
-      <section className="dashboard-panel">
-        <h3>Test log summary report</h3>
-        <p className="placeholder-copy">Bench / hydro entries in date range. Use for pass/fail and tester activity snapshots.</p>
+      <CollapsibleReportPanel
+      title="Test log summary report"
+    >
+      <p className="placeholder-copy">Bench / hydro entries in date range. Use for pass/fail and tester activity snapshots.</p>
         <div className="report-filters">
           <label>
             Start date
@@ -2509,6 +2696,14 @@ export function ReportsPage() {
           </button>
           <button type="button" className="button-secondary" onClick={exportTestLogCsv} disabled={!testLogRows.length || testLogLoading}>
             Export CSV
+          </button>
+          <button
+            type="button"
+            className="button-secondary"
+            onClick={printTestLogReport}
+            disabled={!testLogRows.length || testLogLoading}
+          >
+            Print
           </button>
         </div>
 
@@ -2564,11 +2759,12 @@ export function ReportsPage() {
             </tbody>
           </table>
         </div>
-      </section>
+      </CollapsibleReportPanel>
 
-      <section className="dashboard-panel">
-        <h3>Due date changes</h3>
-        <p className="placeholder-copy">
+      <CollapsibleReportPanel
+      title="Due date changes"
+    >
+      <p className="placeholder-copy">
           Logs due date moves from the job board (click the due date on a card, or change it on the job card and save).
           Only changes made <strong>after</strong> the due-date log table was set up in Supabase are recorded — older
           moves are not available.
@@ -2597,6 +2793,14 @@ export function ReportsPage() {
             disabled={dueDateChangeRows.length === 0}
           >
             Export CSV
+          </button>
+          <button
+            type="button"
+            className="button-secondary"
+            onClick={printDueDateChanges}
+            disabled={dueDateChangeRows.length === 0 || dueDateChangeLoading}
+          >
+            Print
           </button>
         </div>
 
@@ -2649,7 +2853,7 @@ export function ReportsPage() {
             </tbody>
           </table>
         </div>
-      </section>
+      </CollapsibleReportPanel>
 
       {!focusReworkReport ? reworkReportSection : null}
 

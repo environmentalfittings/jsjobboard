@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
+import { CollapsibleReportPanel } from './CollapsibleReportPanel'
 import { useToast } from './ToastNotification'
 import { useOrganization } from '../contexts/OrganizationContext'
 import { useCompanyWorkflow } from '../hooks/useCompanyWorkflow'
@@ -53,13 +54,7 @@ export function MonthlyUnitsDeliveredReportPanel() {
   }
 
   return (
-    <section className="dashboard-panel" id="monthly-units-delivered">
-      <div className="dashboard-panel-title-row">
-        <h3>Monthly units delivered</h3>
-        <button type="button" className="button-primary" onClick={printChart} disabled={loading || total === 0}>
-          Print chart
-        </button>
-      </div>
+    <CollapsibleReportPanel id="monthly-units-delivered" title="Monthly units delivered">
       <p className="placeholder-copy">
         Completed jobs by close month for the active company. Bars show this year vs the same month last year.
       </p>
@@ -75,6 +70,9 @@ export function MonthlyUnitsDeliveredReportPanel() {
         </label>
         <button type="button" className="button-secondary" onClick={() => void reload()} disabled={loading}>
           {loading ? 'Loading…' : 'Refresh'}
+        </button>
+        <button type="button" className="button-primary" onClick={printChart} disabled={loading || total === 0}>
+          Print chart
         </button>
       </div>
       <p className="status-breakdown-note">
@@ -114,6 +112,6 @@ export function MonthlyUnitsDeliveredReportPanel() {
           </div>
         </div>
       ) : null}
-    </section>
+    </CollapsibleReportPanel>
   )
 }
