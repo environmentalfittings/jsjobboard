@@ -137,6 +137,7 @@ function isDeliveryDueSoon(valve: Valve): boolean {
 
 const ORDER_STORAGE_KEY = 'job-board-phase-order-v1'
 const LIST_REST_ORDER_STORAGE_KEY = 'job-board-list-rest-order-v1'
+const LIST_EDIT_MODE_STORAGE_KEY = 'job-board-list-edit-mode-v1'
 
 function readStoredListRestOrder(): string[] {
   if (typeof window === 'undefined') return []
@@ -148,6 +149,19 @@ function readStoredListRestOrder(): string[] {
     return parsed.map((id) => String(id)).filter(Boolean)
   } catch {
     return []
+  }
+}
+
+/** Prefer editable list columns; legacy mode shows static Cell/Size/Class/Turnaround/Status. */
+function readStoredListEditMode(): boolean {
+  if (typeof window === 'undefined') return true
+  try {
+    const raw = window.localStorage.getItem(LIST_EDIT_MODE_STORAGE_KEY)
+    if (raw === '0' || raw === 'false') return false
+    if (raw === '1' || raw === 'true') return true
+    return true
+  } catch {
+    return true
   }
 }
 
@@ -530,10 +544,13 @@ export function JobBoardPage({ role, username }: { role?: UserRole; username?: s
   })
   const [listColumnSort, setListColumnSort] = useState<ListSortState>({ column: 'default', direction: 'asc' })
   const [listRestOrder, setListRestOrder] = useState<string[]>(() => readStoredListRestOrder())
+  const [listEditMode, setListEditMode] = useState<boolean>(() => readStoredListEditMode())
   const [scopeFilter, setScopeFilter] = useState<ScopeFilter>(initialScope)
   const viewingCompletedValves = scopeFilter === 'closed'
   const canCopyJobs = can(role, 'copyJob')
   const canWrite = canWriteShop(role)
+  /** Inline dropdowns for Cell/Size/Class/Turnaround/Status; Techs stay editable whenever canWrite. */
+  const listFieldsEditable = canWrite && listEditMode
   const [technicians, setTechnicians] = useState<Technician[]>([])
   const [jobTechnicianIdsByValve, setJobTechnicianIdsByValve] = useState<Record<number, number[]>>({})
   const [dueDateEditValve, setDueDateEditValve] = useState<Valve | null>(null)
@@ -1108,6 +1125,14 @@ export function JobBoardPage({ role, username }: { role?: UserRole; username?: s
       return next
     })
   }, [valves, priorityQueueIds])
+
+  useEffect(() => {
+    try {
+      window.localStorage.setItem(LIST_EDIT_MODE_STORAGE_KEY, listEditMode ? '1' : '0')
+    } catch {
+      // ignore
+    }
+  }, [listEditMode])
 
   useEffect(() => {
     try {
@@ -2027,6 +2052,20 @@ export function JobBoardPage({ role, username }: { role?: UserRole; username?: s
             <span className="list-view-count">
               {tableRows.length} row{tableRows.length === 1 ? '' : 's'}
             </span>
+            {canWrite ? (
+              <button
+                type="button"
+                className={`button-secondary list-view-edit-mode-toggle ${!listEditMode ? 'active' : ''}`}
+                onClick={() => setListEditMode((prev) => !prev)}
+                title={
+                  listEditMode
+                    ? 'Switch to legacy view (static Cell, Size, Class, Turnaround, Status)'
+                    : 'Switch to edit view (inline dropdowns for Cell, Size, Class, Turnaround, Status)'
+                }
+              >
+                {listEditMode ? 'Legacy view' : 'Edit view'}
+              </button>
+            ) : null}
             <button
               type="button"
               className="button-secondary"
@@ -2137,7 +2176,7 @@ export function JobBoardPage({ role, username }: { role?: UserRole; username?: s
                     <td>{valve.valve_id}</td>
                     <td>{valve.customer ?? '-'}</td>
                     <td onClick={(e) => e.stopPropagation()}>
-                      {canWrite ? (
+                      {listFieldsEditable ? (
                         <select
                           className="report-inline-select"
                           value={(valve.cell ?? '').trim()}
@@ -2157,7 +2196,7 @@ export function JobBoardPage({ role, username }: { role?: UserRole; username?: s
                       )}
                     </td>
                     <td onClick={(e) => e.stopPropagation()}>
-                      {canWrite ? (
+                      {listFieldsEditable ? (
                         <select
                           className="report-inline-select"
                           value={(valve.size ?? '').trim()}
@@ -2178,7 +2217,7 @@ export function JobBoardPage({ role, username }: { role?: UserRole; username?: s
                       )}
                     </td>
                     <td onClick={(e) => e.stopPropagation()}>
-                      {canWrite ? (
+                      {listFieldsEditable ? (
                         <select
                           className="report-inline-select"
                           value={(valve.pressure_class ?? '').trim()}
@@ -2201,7 +2240,7 @@ export function JobBoardPage({ role, username }: { role?: UserRole; username?: s
                       )}
                     </td>
                     <td onClick={(e) => e.stopPropagation()}>
-                      {canWrite ? (
+                      {listFieldsEditable ? (
                         <select
                           className="report-inline-select"
                           value={isTurnaroundValve(valve) ? 'yes' : 'no'}
@@ -2219,7 +2258,7 @@ export function JobBoardPage({ role, username }: { role?: UserRole; username?: s
                       )}
                     </td>
                     <td onClick={(e) => e.stopPropagation()}>
-                      {canWrite && !viewingCompletedValves ? (
+                      {listFieldsEditable && !viewingCompletedValves ? (
                         <div className="list-status-cell">
                           <select
                             className="report-inline-select"
