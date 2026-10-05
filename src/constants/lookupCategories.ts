@@ -1,10 +1,12 @@
 import {
   API_TRIMS,
   BODY_MATERIALS,
+  END_CONNECTIONS,
   FILLER_CLASSIFICATIONS,
   FILLER_SIZES,
   FINISH_CELLS,
   ORDER_TYPES,
+  PIPE_SCHEDULES,
   PRESSURE_CLASSES,
   TEST_MEDIA,
   TEST_PROCEDURE_REQUIREMENTS,
@@ -29,6 +31,8 @@ export type LookupCategory =
   | 'inventory_part_type'
   | 'filler_classification'
   | 'filler_size'
+  | 'end_connection'
+  | 'pipe_schedule'
 
 export const INVENTORY_PART_TYPES = ['Plug', 'Kit', 'Ball', 'Bellows', 'Sleeve'] as const
 
@@ -52,4 +56,12 @@ export const LOOKUP_CATEGORY_DEFS: readonly {
   { key: 'inventory_part_type', label: 'Inventory part type', fallback: INVENTORY_PART_TYPES },
   { key: 'filler_classification', label: 'Filler classification', fallback: FILLER_CLASSIFICATIONS },
   { key: 'filler_size', label: 'Filler size', fallback: FILLER_SIZES },
+  { key: 'end_connection', label: 'Outlet / end connection', fallback: END_CONNECTIONS },
+  { key: 'pipe_schedule', label: 'Pipe schedule', fallback: PIPE_SCHEDULES },
 ]
+
+const LOOKUP_CATEGORY_KEYS = new Set<string>(LOOKUP_CATEGORY_DEFS.map((row) => row.key))
+
+export function isLookupCategory(raw: unknown): raw is LookupCategory {
+  return typeof raw === 'string' && LOOKUP_CATEGORY_KEYS.has(raw)
+}

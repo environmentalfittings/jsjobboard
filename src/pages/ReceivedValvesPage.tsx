@@ -403,7 +403,8 @@ export function ReceivedValvesPage() {
         <h3>Log received valve</h3>
         <p className="placeholder-copy">
           Track incoming valves with key dates, order references, and up to 4 optional photos. Entries are shared for all
-          users. Open statuses stay on the Dashboard; Converted and Lost drop off the Dashboard but stay in Reports.
+          users. Waiting on Salesman / Waiting on Customer stay on the Dashboard; Quoted, Converted, and Lost drop off
+          the Dashboard but stay in Reports.
           Save first, then use <strong>Send to RFQ</strong> on the saved entry to email {rfqEmail}.
         </p>
         {missingTable ? (
@@ -523,7 +524,7 @@ export function ReceivedValvesPage() {
               ))}
             </select>
             <span className="status-breakdown-note">
-              Waiting on Salesman / Waiting on Customer / Quoted stay on the Dashboard. Converted and Lost drop off the
+              Waiting on Salesman / Waiting on Customer stay on the Dashboard. Quoted, Converted, and Lost drop off the
               Dashboard, sort to the bottom of this log, and remain in Reports.
             </span>
           </label>
@@ -578,7 +579,7 @@ export function ReceivedValvesPage() {
         <p className="status-breakdown-note">
           {loading
             ? 'Loading…'
-            : `Showing ${sortedRows.length} of ${rows.length} entries. Click a column name to sort, or the filter icon (☰ lines) next to it to filter like Excel. Converted and Lost stay at the bottom.`}
+            : `Showing ${sortedRows.length} of ${rows.length} entries. Click a column name to sort, or the filter icon (☰ lines) next to it to filter like Excel. Quoted, Converted, and Lost stay at the bottom.`}
         </p>
         {activeFilterCount > 0 ? (
           <div className="received-valves-filter-bar">

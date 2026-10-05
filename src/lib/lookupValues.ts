@@ -108,3 +108,19 @@ export async function addLookupValue(category: LookupCategory, rawValue: string)
   }
   return value
 }
+
+/** Insert fallback options when a Job field list has never been saved (e.g. Outlet / end connection). */
+export async function seedLookupCategoryIfEmpty(category: LookupCategory): Promise<boolean> {
+  const def = LOOKUP_CATEGORY_DEFS.find((row) => row.key === category)
+  if (!def || def.fallback.length === 0) return false
+  const { data, error } = await supabase
+    .from('lookup_values')
+    .select('id')
+    .eq('category', category)
+    .limit(1)
+  if (error || (data && data.length > 0)) return false
+  const { error: insertError } = await supabase.from('lookup_values').insert(
+    def.fallback.map((value, sort_order) => ({ category, value, sort_order })),
+  )
+  return !insertError
+}

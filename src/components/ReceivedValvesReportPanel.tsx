@@ -105,7 +105,8 @@ export function ReceivedValvesReportPanel() {
   return (
     <CollapsibleReportPanel id="received-valves" title="Received valves">
       <p className="placeholder-copy">
-        Full receiving history, including Converted and Lost entries that no longer appear on the Dashboard log.
+        Full receiving history, including Quoted, Converted, and Lost entries that no longer appear on the Dashboard
+        log.
       </p>
       <div className="report-filters">
         <label>

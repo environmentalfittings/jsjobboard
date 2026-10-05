@@ -37,6 +37,7 @@ import {
   type B1634WallThicknessReferenceRow,
 } from '../lib/b1634WallThickness'
 import type { LookupValueRow } from '../lib/lookupValues'
+import { seedLookupCategoryIfEmpty } from '../lib/lookupValues'
 import { supabase } from '../lib/supabase'
 import { canWriteShop } from '../lib/roles'
 
@@ -244,6 +245,18 @@ export function AdminListsPage() {
       return
     }
     setLookupRows((data ?? []) as LookupValueRow[])
+    const seeded = await Promise.all([
+      seedLookupCategoryIfEmpty('end_connection'),
+      seedLookupCategoryIfEmpty('pipe_schedule'),
+    ])
+    if (seeded.some(Boolean)) {
+      const { data: again } = await supabase
+        .from('lookup_values')
+        .select('id,category,value,sort_order')
+        .order('sort_order', { ascending: true })
+        .order('id', { ascending: true })
+      if (again) setLookupRows(again as LookupValueRow[])
+    }
   }, [showToast])
 
   const loadValveTypes = useCallback(async () => {
@@ -1171,6 +1184,11 @@ export function AdminListsPage() {
       {tab === 'lookups' && (
         <section className="dashboard-panel admin-lists-panel">
           <h3>Dropdown options</h3>
+          <p className="placeholder-copy" style={{ marginTop: '0.35rem' }}>
+            These lists feed job cards and traveler dropdowns. Traveler requirements can pick a list here
+            (for example Outlet / end connection) instead of typing options on each field. Edit them once
+            and every valve that uses that traveler field stays in sync.
+          </p>
           <div className="admin-category-tabs">
             {LOOKUP_CATEGORY_DEFS.map((d) => (
               <button

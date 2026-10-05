@@ -67,14 +67,14 @@ export type ReceivedValveRecord = {
   createdAt: string
 }
 
-/** Active log entries shown on the Dashboard (Converted / Lost are excluded). */
+/** Active log entries shown on the Dashboard (Quoted / Converted / Lost are excluded). */
 export function isActiveReceivedValve(row: Pick<ReceivedValveRecord, 'status'>) {
-  return row.status !== 'converted' && row.status !== 'lost'
+  return !isArchivedReceivedValveStatus(row.status)
 }
 
 /** Statuses that leave the Dashboard but remain in Reports. */
 export function isArchivedReceivedValveStatus(status: ReceivedValveStatus) {
-  return status === 'converted' || status === 'lost'
+  return status === 'quoted' || status === 'converted' || status === 'lost'
 }
 
 export type ReceivedValveFormState = {

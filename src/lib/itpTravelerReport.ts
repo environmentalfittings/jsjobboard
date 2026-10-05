@@ -10,6 +10,10 @@ import type { ItpMeasFieldDef } from '../types/itpMeasFields'
 import {
   getFieldPhotos,
   getMeasValue,
+  followUpApplies,
+  followUpFieldId,
+  followUpLabelOf,
+  itemHasTravelerRequirement,
   itemRequiresMeasurements,
   itemRequiresPicture,
   itemRequirementsMet,
@@ -125,13 +129,30 @@ export function buildItpTravelerReport(plan: ItpLibraryPlanPayload): {
       minPhotos: Math.max(1, item.sel.minPhotos || 1),
       photos: [...(exec.photos ?? [])],
       requireMeasurement,
-      fields: measDefs.map((field) => ({
-        id: field.id,
-        label: field.label,
-        value: getMeasValue(exec, field.id).trim(),
-        type: field.type,
-        photos: field.type === 'picture' ? getFieldPhotos(exec, field.id) : undefined,
-      })),
+      hasTravelerRequirement,
+      blockNext: Boolean(item.sel.blockNext),
+      fields: measDefs.flatMap((field) => {
+        const value = getMeasValue(exec, field.id).trim()
+        const rows: ItpTravelerReportField[] = [
+          {
+            id: field.id,
+            label: field.label,
+            value,
+            type: field.type,
+            photos: field.type === 'picture' ? getFieldPhotos(exec, field.id) : undefined,
+          },
+        ]
+        const followUpValue = getMeasValue(exec, followUpFieldId(field.id)).trim()
+        if (followUpApplies(field, value) || followUpValue) {
+          rows.push({
+            id: followUpFieldId(field.id),
+            label: followUpLabelOf(field),
+            value: followUpValue,
+            type: field.followUpLookupCategory ? 'dropdown' : 'text',
+          })
+        }
+        return rows
+      }),
       requirementsMet: itemRequirementsMet(
         isNameplate ? { ...item.sel, measFields: measDefs } : item.sel,
         exec,

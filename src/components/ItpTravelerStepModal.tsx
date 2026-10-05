@@ -6,12 +6,19 @@ import {
   uploadItpFlagPhoto,
 } from '../lib/itpLibraryAttachments'
 import {
+  dropdownOptionSource,
+  followUpApplies,
+  followUpFieldId,
+  followUpLabelOf,
   getFieldPhotos,
   getMeasValue,
   itemRequiresMeasurements,
   itemRequiresPicture,
   markDoneBlockedReason,
   patchMeasValue,
+  pictureFieldMax,
+  resolveDropdownChoices,
+  resolveJobCardField,
   resolvedMeasFields,
 } from '../lib/itpItemRequirements'
 import {
@@ -30,6 +37,10 @@ import {
 } from '../types/itpLibraryPlan'
 import type { ItpMeasFieldDef } from '../types/itpMeasFields'
 import type { ItpTravelerReportItem } from '../lib/itpTravelerReport'
+import { loadManufacturerDropdownNames } from '../lib/specDocuments'
+import { loadLookupOptionsMap } from '../lib/lookupValues'
+import type { LookupCategory } from '../constants/lookupCategories'
+import { ItpOptionalNotes } from './ItpOptionalNotes'
 
 const RESULT_OPTIONS = ['', 'Pass', 'Fail', 'Yes', 'No', 'N/A'] as const
 
@@ -79,6 +90,8 @@ export function ItpTravelerStepModal({
   })
   const [exec, setExec] = useState<ItpLibraryItemExec>(() => ({ ...emptyItemExec(), ...initialExec }))
   const [uploading, setUploading] = useState(false)
+  const [manufacturerNames, setManufacturerNames] = useState<string[]>([])
+  const [lookupOptions, setLookupOptions] = useState<Partial<Record<LookupCategory, string[]>>>({})
 
   useEffect(() => {
     const nameplate = isNameplateTravelerStep({
@@ -100,6 +113,64 @@ export function ItpTravelerStepModal({
     const resolved = resolvedMeasFields(sel)
     return isNameplate ? mergeNameplateMeasFields(resolved) : resolved
   }, [sel, isNameplate])
+
+  const measSections = useMemo(() => groupTechFields(measFields), [measFields])
+
+  const jobCardSig = [
+    jobCard.customer,
+    jobCard.size,
+    jobCard.pressure_class,
+    jobCard.body_material,
+    jobCard.material_spec,
+    jobCard.due_date,
+    jobCard.valve_type,
+    jobCard.valve_id,
+    jobCard.manufacturer,
+  ].join('|')
+
+  useEffect(() => {
+    setExec((prev) => prefillExecFromJobCard(prev, measFields, jobCard))
+  }, [jobCardSig, measFields, jobCard])
+  const needsManufacturerList = useMemo(
+    () => measFields.some((field) => dropdownOptionSource(field) === 'manufacturers'),
+    [measFields],
+  )
+  const needsLookupLists = useMemo(
+    () =>
+      measFields.some(
+        (field) =>
+          dropdownOptionSource(field) === 'lookup' || Boolean(field.followUpLookupCategory),
+      ),
+    [measFields],
+  )
+
+  useEffect(() => {
+    if (!needsManufacturerList) {
+      setManufacturerNames([])
+      return
+    }
+    let cancelled = false
+    void loadManufacturerDropdownNames().then(({ names, error }) => {
+      if (cancelled) return
+      setManufacturerNames(names)
+      if (error && names.length === 0) showToast(error)
+    })
+    return () => {
+      cancelled = true
+    }
+  }, [needsManufacturerList, showToast])
+
+  useEffect(() => {
+    if (!needsLookupLists) return
+    let cancelled = false
+    void loadLookupOptionsMap().then((map) => {
+      if (!cancelled) setLookupOptions(map)
+    })
+    return () => {
+      cancelled = true
+    }
+  }, [needsLookupLists])
+
   const requirePicture = itemRequiresPicture(sel)
   const requireMeasurement = itemRequiresMeasurements(sel) || isNameplate
 
@@ -160,10 +231,37 @@ export function ItpTravelerStepModal({
 
   const addFieldPhotos = async (fieldId: string, fileList: FileList | null) => {
     if (!fileList?.length || uploading) return
+    const field = measFields.find((row) => row.id === fieldId)
+    const max = pictureFieldMax(field)
+    const already = getFieldPhotos(exec, fieldId).length
+    const remaining = Math.max(0, max - already)
+    if (remaining <= 0) {
+      showToast(`This field allows up to ${max} picture${max === 1 ? '' : 's'}`)
+      setPhotoFieldId(null)
+      if (fieldFileRef.current) fieldFileRef.current.value = ''
+      if (fieldCameraRef.current) fieldCameraRef.current.value = ''
+      return
+    }
+    const files = Array.from(fileList).slice(0, remaining)
+    if (previewMode) {
+      const uploaded = files.map(attachmentFromLocalFile)
+      setExec((prev) => ({
+        ...prev,
+        fieldPhotos: {
+          ...(prev.fieldPhotos ?? {}),
+          [fieldId]: [...getFieldPhotos(prev, fieldId), ...uploaded],
+        },
+      }))
+      showToast(uploaded.length === 1 ? 'Picture added' : `${uploaded.length} pictures added`)
+      setPhotoFieldId(null)
+      if (fieldFileRef.current) fieldFileRef.current.value = ''
+      if (fieldCameraRef.current) fieldCameraRef.current.value = ''
+      return
+    }
     setUploading(true)
     try {
       const uploaded: ItpLibraryAttachment[] = []
-      for (const file of Array.from(fileList)) {
+      for (const file of files) {
         const { attachment, error } = await uploadItpFlagPhoto(valveRowId, `${item.id}-${fieldId}`, file)
         if (error || !attachment) {
           showToast(error || 'Upload failed')
@@ -219,6 +317,9 @@ export function ItpTravelerStepModal({
     )
     if (field.type === 'picture') {
       const photos = getFieldPhotos(exec, field.id)
+      const max = pictureFieldMax(field)
+      const met = photos.length > 0
+      const atMax = photos.length >= max
       return (
         <div key={field.id} className="itp-traveler-step-field itp-traveler-step-field--picture">
           <div className="itp-traveler-step-field-label">{label}</div>
@@ -238,23 +339,63 @@ export function ItpTravelerStepModal({
           {photos.length === 0 ? (
             <p className="placeholder-copy">{required ? 'Picture required' : 'No picture yet'}</p>
           ) : (
-            <div className="itp-traveler-step-photos-grid">
-              {photos.map((photo) => (
-                <div key={photo.id} className="itp-traveler-step-photo">
-                  <a href={photo.url} target="_blank" rel="noreferrer" title={photo.fileName}>
-                    <img src={photo.url} alt={photo.fileName} />
-                  </a>
-                  <button
-                    type="button"
-                    className="button-secondary"
-                    disabled={saving || uploading}
-                    onClick={() => void removeFieldPhoto(field.id, photo)}
-                  >
-                    Remove
-                  </button>
+            <>
+              <p className="placeholder-copy">
+                {required
+                  ? `Take at least 1 photo (up to ${max}). Use the camera or upload from this device.`
+                  : `Optional — techs can take up to ${max} photo${max === 1 ? '' : 's'}.`}
+              </p>
+              {photos.length === 0 ? (
+                <p className="itp-traveler-req-photo-empty">
+                  {required ? 'No photo yet — this picture is required.' : `No pictures yet (0/${max}).`}
+                </p>
+              ) : (
+                <div className="itp-traveler-step-photos-grid">
+                  {photos.map((photo) => (
+                    <div key={photo.id} className="itp-traveler-step-photo">
+                      <a href={photo.url} target="_blank" rel="noreferrer" title={photo.fileName}>
+                        <img src={photo.url} alt={photo.fileName} />
+                      </a>
+                      <button
+                        type="button"
+                        className="button-secondary"
+                        disabled={saving || uploading}
+                        onClick={() => void removeFieldPhoto(field.id, photo)}
+                      >
+                        Remove
+                      </button>
+                    </div>
+                  ))}
                 </div>
-              ))}
-            </div>
+              )}
+              <div className="itp-traveler-req-photo-actions">
+                <span className="itp-traveler-photo-count">
+                  {photos.length}/{max}
+                </span>
+                <button
+                  type="button"
+                  className="button-primary"
+                  disabled={saving || uploading || atMax}
+                  onClick={() => {
+                    setPhotoFieldId(field.id)
+                    window.setTimeout(() => fieldCameraRef.current?.click(), 0)
+                  }}
+                >
+                  {uploading && photoFieldId === field.id ? 'Uploading…' : 'Take photo'}
+                </button>
+                <button
+                  type="button"
+                  className="button-secondary"
+                  disabled={saving || uploading || atMax}
+                  onClick={() => {
+                    setPhotoFieldId(field.id)
+                    window.setTimeout(() => fieldFileRef.current?.click(), 0)
+                  }}
+                >
+                  Upload
+                </button>
+              </div>
+            </>
           )}
         </div>
       )
@@ -281,28 +422,93 @@ export function ItpTravelerStepModal({
     }
 
     if (field.type === 'dropdown') {
-      const options = field.options?.length ? field.options : []
+      const fromList = resolveDropdownChoices(field, {
+        manufacturers: manufacturerNames,
+        lookups: lookupOptions,
+      })
+      const options = fromList.some((opt) => isNaAnswer(opt)) ? [...fromList] : [...fromList, NA_MEAS_VALUE]
+      if (value && !options.some((opt) => opt === value)) options.unshift(value)
+      const loadingList =
+        dropdownOptionSource(field) === 'manufacturers' && manufacturerNames.length === 0
+      const showFollowUp = followUpApplies(field, value) && !naOn
+      const followUpId = followUpFieldId(field.id)
+      const followUpValue = getMeasValue(exec, followUpId)
+      const followUpNa = isNaAnswer(followUpValue)
+      const followUpChoices = field.followUpLookupCategory
+        ? resolveDropdownChoices(
+            {
+              ...field,
+              type: 'dropdown',
+              optionSource: 'lookup',
+              lookupCategory: field.followUpLookupCategory,
+              options: [],
+            },
+            { manufacturers: manufacturerNames, lookups: lookupOptions },
+          )
+        : []
       return (
         <label key={field.id} className="itp-traveler-step-field">
           {label}
           <select
             value={getMeasValue(exec, field.id)}
             disabled={saving}
-            onChange={(e) =>
-              setExec((prev) => ({
-                ...prev,
-                ...patchMeasValue(prev, field.id, e.target.value),
-              }))
-            }
+            onChange={(e) => {
+              const next = e.target.value
+              setExec((prev) => {
+                let patch = patchMeasValue(prev, field.id, next)
+                if (!followUpApplies(field, next)) {
+                  patch = { ...patch, ...patchMeasValue({ ...prev, ...patch }, followUpId, '') }
+                }
+                return { ...prev, ...patch }
+              })
+            }}
           >
-            <option value="">— Select —</option>
+            <option value="">{loadingList ? '— Loading manufacturers —' : '— Select —'}</option>
             {options.map((opt) => (
               <option key={opt} value={opt}>
                 {opt}
               </option>
             ))}
           </select>
-        </label>
+          {showFollowUp ? (
+            <label className="itp-traveler-followup">
+              <span>
+                {followUpLabelOf(field)}
+                <span className="itp-traveler-step-field-req" aria-hidden>
+                  {' '}
+                  *
+                </span>
+              </span>
+              {field.followUpLookupCategory ? (
+                <select
+                  value={followUpNa ? NA_MEAS_VALUE : followUpValue}
+                  disabled={saving}
+                  aria-label={followUpLabelOf(field)}
+                  onChange={(e) => setFieldValue(followUpId, e.target.value)}
+                >
+                  <option value="">— Select {followUpLabelOf(field).toLowerCase()} —</option>
+                  {followUpChoices.map((opt) => (
+                    <option key={opt} value={opt}>
+                      {opt}
+                    </option>
+                  ))}
+                  {followUpChoices.some((opt) => isNaAnswer(opt)) ? null : (
+                    <option value={NA_MEAS_VALUE}>{NA_MEAS_VALUE}</option>
+                  )}
+                </select>
+              ) : (
+                <input
+                  type="text"
+                  value={followUpNa ? NA_MEAS_VALUE : followUpValue}
+                  disabled={saving}
+                  placeholder={`${followUpLabelOf(field)} required`}
+                  aria-label={followUpLabelOf(field)}
+                  onChange={(e) => setFieldValue(followUpId, e.target.value)}
+                />
+              )}
+            </label>
+          ) : null}
+        </div>
       )
     }
 

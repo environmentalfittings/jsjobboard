@@ -170,9 +170,9 @@ export function ReceivedValvesDashboardPanel() {
       </div>
       <p className="status-breakdown-note">
         Open received valves for {activeOrganization?.name ?? 'this company'}
-        {rows.length ? ` · ${rows.length} active` : ''}. Use <strong>Send to RFQ</strong> on the row, or open{' '}
-        <strong>Edit</strong> to add pictures then use <strong>Save &amp; send to RFQ</strong>. Converted and Lost
-        leave this list and stay in Reports.
+        {rows.length ? ` · ${rows.length} active` : ''}. Use <strong>Send to RFQ</strong> on the
+        row, or open <strong>Edit</strong> to add pictures then use <strong>Save &amp; send to RFQ</strong>. Quoted,
+        Converted, and Lost leave this list and stay in Reports.
       </p>
       <div className="dashboard-table-wrap manager-dashboard-scroll">
         <table className="dashboard-table">

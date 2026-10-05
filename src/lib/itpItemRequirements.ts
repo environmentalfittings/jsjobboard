@@ -1,6 +1,10 @@
 import type { ItpLibraryItemExec, ItpLibraryItemSel } from '../types/itpLibraryPlan'
 import {
   DEFAULT_ITP_MEAS_FIELDS,
+  followUpApplies,
+  followUpFieldId,
+  followUpLabelOf,
+  type ItpJobCardFieldKey,
   type ItpMeasFieldDef,
   type ItpMeasFieldType,
 } from '../types/itpMeasFields'
@@ -9,10 +13,26 @@ export type { ItpMeasFieldDef, ItpMeasFieldType }
 export {
   DEFAULT_ITP_MEAS_FIELDS,
   ITP_MEAS_FIELD_TYPE_OPTIONS,
+  dropdownOptionSource,
+  dropdownSourceSelectValue,
   emptyMeasField,
+  fieldLookupCategory,
+  followUpApplies,
+  followUpFieldId,
+  followUpLabelOf,
+  inferJobCardField,
+  lookupListLabel,
+  looksLikeManufacturerLabel,
   measFieldTypeLabel,
   newMeasFieldId,
   normalizeMeasFields,
+  patchFromDropdownSourceSelect,
+  pictureFieldMax,
+  clampPictureFieldMax,
+  measFieldTypePatch,
+  resolveDropdownChoices,
+  resolveJobCardField,
+  withPersistedJobCardField,
 } from '../types/itpMeasFields'
 
 /** Requirement defaults stored on a master-catalog (or built-in library) item. */
@@ -74,11 +94,19 @@ export function patchMeasValue(
 export function measurementsComplete(sel: ItpLibraryItemSel, exec: ItpLibraryItemExec): boolean {
   const fields = resolvedMeasFields(sel)
   if (fields.length === 0) return true
-  return fields.every((field) => {
-    if (field.required === false) return true
-    if (field.type === 'picture') return getFieldPhotos(exec, field.id).length > 0
-    return getMeasValue(exec, field.id).trim().length > 0
-  })
+  return fields.every((field) => measFieldComplete(field, exec))
+}
+
+function measFieldComplete(field: ItpMeasFieldDef, exec: ItpLibraryItemExec): boolean {
+  const value = getMeasValue(exec, field.id)
+  if (isNaAnswer(value)) return true
+  if (followUpApplies(field, value)) {
+    const followUp = getMeasValue(exec, followUpFieldId(field.id))
+    if (!isNaAnswer(followUp) && !followUp.trim()) return false
+  }
+  if (field.required === false) return true
+  if (field.type === 'picture') return getFieldPhotos(exec, field.id).length > 0
+  return value.trim().length > 0
 }
 
 export function picturesComplete(sel: ItpLibraryItemSel, exec: ItpLibraryItemExec): boolean {
@@ -102,7 +130,16 @@ export function markDoneBlockedReason(
     return `Attach at least ${min} photo${min === 1 ? '' : 's'} (${label}) — ${have}/${min}`
   }
   if (!measurementsComplete(sel, exec)) {
-    return 'Fill in all measurement / verification fields before marking done'
+    const missingFollowUp = resolvedMeasFields(sel).find((field) => {
+      const value = getMeasValue(exec, field.id)
+      if (isNaAnswer(value) || !followUpApplies(field, value)) return false
+      const followUp = getMeasValue(exec, followUpFieldId(field.id))
+      return !isNaAnswer(followUp) && !followUp.trim()
+    })
+    if (missingFollowUp) {
+      return `Enter ${followUpLabelOf(missingFollowUp)} for ${missingFollowUp.label} (${missingFollowUp.followUpWhen})`
+    }
+    return 'Fill in all required fields or mark them N/A before marking done'
   }
   return null
 }

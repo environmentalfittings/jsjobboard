@@ -2,8 +2,11 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import {
   DEFAULT_ITP_MEAS_FIELDS,
   emptyMeasField,
+  followUpLabelOf,
   ITP_MEAS_FIELD_TYPE_OPTIONS,
   measFieldTypeLabel,
+  measFieldTypePatch,
+  pictureFieldMax,
   type ItpMeasFieldDef,
   type ItpMeasFieldType,
 } from '../lib/itpItemRequirements'
@@ -106,10 +109,13 @@ function PreviewFieldControl({ field }: { field: ItpMeasFieldDef }) {
   const required = field.required !== false
   const label = `${field.label}${required ? ' *' : ''}`
   if (field.type === 'picture') {
+    const max = pictureFieldMax(field)
     return (
       <div className="itp-traveler-live-field itp-traveler-live-field--picture">
         <span>{label}</span>
-        <div className="itp-traveler-live-photo-slot">Picture</div>
+        <div className="itp-traveler-live-photo-slot">
+          Picture · up to {max}
+        </div>
       </div>
     )
   }
@@ -131,6 +137,11 @@ function PreviewFieldControl({ field }: { field: ItpMeasFieldDef }) {
             <option key={opt}>{opt}</option>
           ))}
         </select>
+        {field.followUpWhen?.trim() ? (
+          <em className="itp-traveler-followup-hint">
+            If {field.followUpWhen.trim()}, ask for {followUpLabelOf(field)}
+          </em>
+        ) : null}
       </label>
     )
   }
@@ -507,7 +518,7 @@ export function ItpTemplateTravelerManagePanel({
                             setDraft((prev) => ({
                               ...prev,
                               measFields: prev.measFields.map((row, i) =>
-                                i === idx ? { ...row, type } : row,
+                                i === idx ? { ...row, ...measFieldTypePatch(row, type) } : row,
                               ),
                             }))
                           }}
@@ -728,6 +739,7 @@ export function ItpTemplateTravelerManagePanel({
                           type="text"
                           value={field.label}
                           placeholder="Field label"
+                          onKeyDown={(e) => e.stopPropagation()}
                           onChange={(e) => {
                             const label = e.target.value
                             patchFields(
@@ -741,7 +753,9 @@ export function ItpTemplateTravelerManagePanel({
                           onChange={(e) => {
                             const type = e.target.value as ItpMeasFieldType
                             patchFields(
-                              measFields.map((row, i) => (i === idx ? { ...row, type } : row)),
+                              measFields.map((row, i) =>
+                                i === idx ? { ...row, ...measFieldTypePatch(row, type) } : row,
+                              ),
                             )
                           }}
                         >

@@ -202,3 +202,28 @@ export const API_TRIMS = [
   '17',
   '18',
 ] as const
+
+/** Outlet / end connection facing — used on traveler dropdowns and Admin → Job field lists. */
+export const END_CONNECTIONS = ['RF', 'RTJ', 'SW', 'THR', 'SW/THR', 'BWE'] as const
+
+/** Pipe schedule — required on the traveler when outlet connection is BWE. */
+export const PIPE_SCHEDULES = [
+  '5',
+  '10',
+  '20',
+  '30',
+  '40',
+  '60',
+  '80',
+  '100',
+  '120',
+  '140',
+  '160',
+  'STD',
+  'XS',
+  'XXS',
+  '5S',
+  '10S',
+  '40S',
+  '80S',
+] as const

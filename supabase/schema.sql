@@ -47,6 +47,7 @@ create table if not exists public.daily_notes (
   rail_added_by text,
   sort_order integer not null default 0,
   source text not null default 'app',
+  organization_id uuid references public.organizations(id),
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
 );
@@ -292,6 +293,9 @@ create index if not exists idx_daily_notes_open on public.daily_notes (is_done, 
 create index if not exists idx_daily_notes_note_date on public.daily_notes (note_date desc);
 create index if not exists idx_daily_notes_rail
   on public.daily_notes (add_to_rail, estimated_completion_date)
+  where add_to_rail = true;
+create index if not exists idx_daily_notes_organization
+  on public.daily_notes (organization_id, is_done, note_date desc);
   where add_to_rail = true;
 create index if not exists idx_test_logs_valve_id on public.test_logs(valve_id);
 create index if not exists idx_test_logs_tested_on on public.test_logs(tested_on desc);

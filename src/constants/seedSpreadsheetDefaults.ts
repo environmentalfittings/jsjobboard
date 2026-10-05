@@ -7,10 +7,12 @@ import { INVENTORY_PART_TYPES, LOOKUP_CATEGORY_DEFS } from './lookupCategories'
 import {
   API_TRIMS,
   BODY_MATERIALS,
+  END_CONNECTIONS,
   FILLER_CLASSIFICATIONS,
   FILLER_SIZES,
   FINISH_CELLS,
   ORDER_TYPES,
+  PIPE_SCHEDULES,
   PRESSURE_CLASSES,
   TEST_MEDIA,
   TEST_PROCEDURE_REQUIREMENTS,
@@ -35,6 +37,8 @@ const BY_CATEGORY: Record<LookupCategory, readonly string[]> = {
   inventory_part_type: INVENTORY_PART_TYPES,
   filler_classification: FILLER_CLASSIFICATIONS,
   filler_size: FILLER_SIZES,
+  end_connection: END_CONNECTIONS,
+  pipe_schedule: PIPE_SCHEDULES,
 }
 
 export function buildSeedLookupValueRows(): {
