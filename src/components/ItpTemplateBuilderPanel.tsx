@@ -57,7 +57,6 @@ import {
   emptyMeasField,
   ITP_MEAS_FIELD_TYPE_OPTIONS,
   itemRequiresMeasurements,
-  measFieldTypePatch,
   newMeasFieldId,
   selFromRequirementDefaults,
   type ItpMeasFieldDef,
@@ -1797,7 +1796,6 @@ export function ItpTemplateBuilderPanel({
                             type="text"
                             value={field.label}
                             placeholder="Field label"
-                            onKeyDown={(e) => e.stopPropagation()}
                             onChange={(e) => {
                               const label = e.target.value
                               setNewItem((prev) => ({
@@ -1816,7 +1814,7 @@ export function ItpTemplateBuilderPanel({
                               setNewItem((prev) => ({
                                 ...prev,
                                 measFields: prev.measFields.map((f, i) =>
-                                  i === idx ? { ...f, ...measFieldTypePatch(f, type) } : f,
+                                  i === idx ? { ...f, type } : f,
                                 ),
                               }))
                             }}
@@ -2019,11 +2017,6 @@ export function ItpTemplateBuilderPanel({
                             className="itp-library-lib-item-top"
                             onClick={() => toggleInclude(item.id)}
                             onKeyDown={(e) => {
-                              if (!showIncludeChecks) return
-                              const typing =
-                                e.target instanceof HTMLElement &&
-                                Boolean(e.target.closest('input, textarea, select'))
-                              if (typing) return
                               if (e.key === 'Enter' || e.key === ' ') {
                                 e.preventDefault()
                                 toggleInclude(item.id)
@@ -2037,24 +2030,7 @@ export function ItpTemplateBuilderPanel({
                               <span className="itp-library-cb" />
                             </div>
                             <div className="itp-library-lib-item-name">
-                              <input
-                                className="itp-library-lin-input"
-                                type="text"
-                                value={itemNameDrafts[item.id] ?? item.name}
-                                aria-label="Requirement text"
-                                onClick={(e) => e.stopPropagation()}
-                                onChange={(e) =>
-                                  setItemNameDrafts((prev) => ({ ...prev, [item.id]: e.target.value }))
-                                }
-                                onBlur={() => commitItemName(item)}
-                                onKeyDown={(e) => {
-                                  e.stopPropagation()
-                                  if (e.key === 'Enter') {
-                                    e.preventDefault()
-                                    commitItemName(item)
-                                  }
-                                }}
-                              />
+                              <div className="itp-library-lin">{item.name}</div>
                               <div className="itp-library-lref">
                                 {item.ref}
                                 {!item.builtIn ? ' · custom' : ''}
@@ -2196,17 +2172,13 @@ export function ItpTemplateBuilderPanel({
                                     >
                                       <input
                                         type="text"
-                                        value={field.label}
+                                        value={typed.label}
                                         placeholder="Field label"
                                         onClick={(e) => e.stopPropagation()}
-                                        onKeyDown={(e) => e.stopPropagation()}
                                         onChange={(e) => {
                                           const current =
                                             item.measFields && item.measFields.length > 0
-                                              ? item.measFields.map((row) => ({
-                                                  ...emptyMeasField(row),
-                                                  label: row.label,
-                                                }))
+                                              ? item.measFields.map((row) => emptyMeasField(row))
                                               : DEFAULT_ITP_MEAS_FIELDS.map((row) => ({ ...row }))
                                           patchMasterItem(item.id, {
                                             measFields: current.map((row, i) =>
@@ -2227,7 +2199,7 @@ export function ItpTemplateBuilderPanel({
                                               : DEFAULT_ITP_MEAS_FIELDS.map((row) => ({ ...row }))
                                           patchMasterItem(item.id, {
                                             measFields: current.map((row, i) =>
-                                              i === idx ? { ...row, ...measFieldTypePatch(row, type) } : row,
+                                              i === idx ? { ...row, type } : row,
                                             ),
                                           })
                                         }}

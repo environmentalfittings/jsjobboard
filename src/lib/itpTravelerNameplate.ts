@@ -1,22 +1,22 @@
 import type { ItpLibraryItemExec, ItpLibraryScopeItem } from '../types/itpLibraryPlan'
-import type { ItpMeasFieldDef } from '../types/itpMeasFields'
-import { getMeasValue } from './itpItemRequirements'
+import type { ItpJobCardFieldKey, ItpMeasFieldDef } from '../types/itpMeasFields'
+import { getMeasValue, patchMeasValue, resolveJobCardField } from './itpItemRequirements'
 import type { Valve } from '../types'
 
 /** Standard nameplate / basic-info fields for traveler steps like “Check nameplate data”. */
 export const NAMEPLATE_TRAVELER_FIELDS: ItpMeasFieldDef[] = [
-  { id: 'np_valve_id', label: 'Valve Id', type: 'text', options: [], required: true },
-  { id: 'np_type', label: 'Type', type: 'text', options: [], required: true },
-  { id: 'np_customer', label: 'Customer', type: 'text', options: [], required: false },
-  { id: 'np_po', label: 'PO Number', type: 'text', options: [], required: false },
-  { id: 'np_size', label: 'Size', type: 'text', options: [], required: true },
-  { id: 'np_pressure', label: 'Pressure', type: 'text', options: [], required: true },
-  { id: 'np_material', label: 'Material / body', type: 'text', options: [], required: true },
+  { id: 'np_valve_id', label: 'Valve Id', type: 'text', options: [], required: true, jobCardField: 'valve_id' },
+  { id: 'np_type', label: 'Type', type: 'text', options: [], required: true, jobCardField: 'valve_type' },
+  { id: 'np_customer', label: 'Customer', type: 'text', options: [], required: false, jobCardField: 'customer' },
+  { id: 'np_po', label: 'PO Number', type: 'text', options: [], required: false, jobCardField: 'po_number' },
+  { id: 'np_size', label: 'Size', type: 'text', options: [], required: true, jobCardField: 'size' },
+  { id: 'np_pressure', label: 'Pressure', type: 'text', options: [], required: true, jobCardField: 'pressure_class' },
+  { id: 'np_material', label: 'Material / body', type: 'text', options: [], required: true, jobCardField: 'body_material' },
   { id: 'np_trim', label: 'Trim', type: 'text', options: [], required: false },
-  { id: 'np_manufacturer', label: 'Manufacturer', type: 'text', options: [], required: false },
+  { id: 'np_manufacturer', label: 'Manufacturer', type: 'text', options: [], required: false, jobCardField: 'manufacturer' },
   { id: 'np_figure', label: 'Figure Number', type: 'text', options: [], required: false },
   { id: 'np_end_connection', label: 'End Connection', type: 'text', options: [], required: false },
-  { id: 'np_due_date', label: 'Due Date', type: 'text', options: [], required: false },
+  { id: 'np_due_date', label: 'Due Date', type: 'text', options: [], required: false, jobCardField: 'due_date' },
 ]
 
 /** Required before the nameplate step can be marked complete. */
@@ -99,6 +99,51 @@ export function nameplateValuesFromJobCard(valve: JobCardNameplateSource): Recor
     np_end_connection: String(valve.end_connection ?? '').trim(),
     np_due_date: String(valve.due_date ?? '').trim().slice(0, 10),
   }
+}
+
+export function jobCardValue(valve: JobCardNameplateSource, key: ItpJobCardFieldKey): string {
+  const mapped = nameplateValuesFromJobCard(valve)
+  switch (key) {
+    case 'customer':
+      return mapped.np_customer
+    case 'size':
+      return mapped.np_size
+    case 'pressure_class':
+      return mapped.np_pressure
+    case 'body_material':
+      return mapped.np_material
+    case 'due_date':
+      return mapped.np_due_date
+    case 'valve_type':
+      return mapped.np_type
+    case 'valve_id':
+      return mapped.np_valve_id
+    case 'manufacturer':
+      return mapped.np_manufacturer
+    case 'po_number':
+      return mapped.np_po
+    default:
+      return ''
+  }
+}
+
+export function prefillExecFromJobCard(
+  exec: ItpLibraryItemExec,
+  fields: ItpMeasFieldDef[],
+  valve: JobCardNameplateSource,
+): ItpLibraryItemExec {
+  let next = exec
+  let changed = false
+  for (const field of fields) {
+    const key = resolveJobCardField(field)
+    if (!key) continue
+    if (getMeasValue(next, field.id).trim()) continue
+    const value = jobCardValue(valve, key)
+    if (!value) continue
+    next = { ...next, ...patchMeasValue(next, field.id, value) }
+    changed = true
+  }
+  return changed ? next : exec
 }
 
 export function nameplateFieldsComplete(exec: ItpLibraryItemExec): boolean {

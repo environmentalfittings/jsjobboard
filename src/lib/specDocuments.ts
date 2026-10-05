@@ -79,6 +79,14 @@ export async function loadManufacturerOptions(): Promise<{
   return { options, error: null }
 }
 
+export async function loadManufacturerDropdownNames(): Promise<{
+  names: string[]
+  error: string | null
+}> {
+  const { options, error } = await loadManufacturerOptions()
+  return { names: options.map((row) => row.name).filter(Boolean), error }
+}
+
 export async function createSpecDocumentSignedUrl(
   storagePath: string,
   expiresIn = SPEC_SIGNED_URL_TTL_SEC,

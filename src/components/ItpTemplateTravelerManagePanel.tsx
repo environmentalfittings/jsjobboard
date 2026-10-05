@@ -14,6 +14,9 @@ import { NAMEPLATE_TRAVELER_FIELDS } from '../lib/itpTravelerNameplate'
 import { itpShopAreaLabel, type ItpShopArea, type ItpShopAreaDef } from '../constants/itpShopAreas'
 import type { ItpLibraryItemSel } from '../types/itpLibraryPlan'
 import type { ItpMasterCatalogItem } from '../lib/itpMasterCatalog'
+import { ItpMeasDropdownSourceFields } from './ItpMeasDropdownSourceFields'
+import { ItpMeasJobCardSourceSelect } from './ItpMeasJobCardSourceSelect'
+import { ItpMeasRequiredToggle } from './ItpMeasRequiredToggle'
 
 export type TravelerManageSection = {
   section: { id: string; title: string }
@@ -529,43 +532,39 @@ export function ItpTemplateTravelerManagePanel({
                             </option>
                           ))}
                         </select>
-                        {field.type === 'dropdown' ? (
-                          <input
-                            type="text"
-                            value={(field.options ?? []).join(', ')}
-                            placeholder="Dropdown options (comma-separated)"
-                            onChange={(e) => {
-                              const options = e.target.value
-                                .split(',')
-                                .map((opt) => opt.trim())
-                                .filter(Boolean)
-                              setDraft((prev) => ({
-                                ...prev,
-                                measFields: prev.measFields.map((row, i) =>
-                                  i === idx ? { ...row, options } : row,
-                                ),
-                              }))
-                            }}
-                          />
-                        ) : (
-                          <span className="itp-master-meas-field-spacer" aria-hidden />
-                        )}
-                        <label className="itp-master-meas-required">
-                          <input
-                            type="checkbox"
-                            checked={field.required !== false}
-                            onChange={(e) => {
-                              const required = e.target.checked
-                              setDraft((prev) => ({
-                                ...prev,
-                                measFields: prev.measFields.map((row, i) =>
-                                  i === idx ? { ...row, required } : row,
-                                ),
-                              }))
-                            }}
-                          />
-                          Required
-                        </label>
+                        <ItpMeasDropdownSourceFields
+                          field={field}
+                          onChange={(patch) =>
+                            setDraft((prev) => ({
+                              ...prev,
+                              measFields: prev.measFields.map((row, i) =>
+                                i === idx ? { ...row, ...patch } : row,
+                              ),
+                            }))
+                          }
+                        />
+                        <ItpMeasJobCardSourceSelect
+                          field={field}
+                          onChange={(patch) =>
+                            setDraft((prev) => ({
+                              ...prev,
+                              measFields: prev.measFields.map((row, i) =>
+                                i === idx ? { ...row, ...patch } : row,
+                              ),
+                            }))
+                          }
+                        />
+                        <ItpMeasRequiredToggle
+                          required={field.required !== false}
+                          onChange={(required) =>
+                            setDraft((prev) => ({
+                              ...prev,
+                              measFields: prev.measFields.map((row, i) =>
+                                i === idx ? { ...row, required } : row,
+                              ),
+                            }))
+                          }
+                        />
                         <button
                           type="button"
                           className="itp-library-sr-del"
@@ -765,37 +764,30 @@ export function ItpTemplateTravelerManagePanel({
                             </option>
                           ))}
                         </select>
-                        {field.type === 'dropdown' ? (
-                          <input
-                            type="text"
-                            value={(field.options ?? []).join(', ')}
-                            placeholder="Dropdown options (comma-separated)"
-                            onChange={(e) => {
-                              const options = e.target.value
-                                .split(',')
-                                .map((opt) => opt.trim())
-                                .filter(Boolean)
-                              patchFields(
-                                measFields.map((row, i) => (i === idx ? { ...row, options } : row)),
-                              )
-                            }}
-                          />
-                        ) : (
-                          <span className="itp-master-meas-field-spacer" aria-hidden />
-                        )}
-                        <label className="itp-master-meas-required">
-                          <input
-                            type="checkbox"
-                            checked={field.required !== false}
-                            onChange={(e) => {
-                              const required = e.target.checked
-                              patchFields(
-                                measFields.map((row, i) => (i === idx ? { ...row, required } : row)),
-                              )
-                            }}
-                          />
-                          Required
-                        </label>
+                        <ItpMeasDropdownSourceFields
+                          field={field}
+                          onChange={(patch) =>
+                            patchFields(
+                              measFields.map((row, i) => (i === idx ? { ...row, ...patch } : row)),
+                            )
+                          }
+                        />
+                        <ItpMeasJobCardSourceSelect
+                          field={field}
+                          onChange={(patch) =>
+                            patchFields(
+                              measFields.map((row, i) => (i === idx ? { ...row, ...patch } : row)),
+                            )
+                          }
+                        />
+                        <ItpMeasRequiredToggle
+                          required={field.required !== false}
+                          onChange={(required) =>
+                            patchFields(
+                              measFields.map((row, i) => (i === idx ? { ...row, required } : row)),
+                            )
+                          }
+                        />
                         <button
                           type="button"
                           className="itp-library-sr-del"

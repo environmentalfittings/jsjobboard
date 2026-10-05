@@ -7,11 +7,13 @@ import {
   type ItpJobCardFieldKey,
   type ItpMeasFieldDef,
   type ItpMeasFieldType,
+  type ItpMeasOptionSource,
 } from '../types/itpMeasFields'
 
-export type { ItpMeasFieldDef, ItpMeasFieldType }
+export type { ItpMeasFieldDef, ItpMeasFieldType, ItpMeasOptionSource, ItpJobCardFieldKey }
 export {
   DEFAULT_ITP_MEAS_FIELDS,
+  ITP_JOB_CARD_FIELD_OPTIONS,
   ITP_MEAS_FIELD_TYPE_OPTIONS,
   dropdownOptionSource,
   dropdownSourceSelectValue,
@@ -57,6 +59,68 @@ export function itemRequiresPicture(sel: ItpLibraryItemSel): boolean {
   return Boolean(sel.requirePicture)
 }
 
+/** Photos, measurements, or nameplate fields the technician must fill before checking the line. */
+export function itemHasTravelerRequirement(sel: ItpLibraryItemSel): boolean {
+  return itemRequiresPicture(sel) || itemRequiresMeasurements(sel) || Boolean(sel.requireNameplate)
+}
+
+export function stampLoggedInTech(
+  exec: ItpLibraryItemExec,
+  signerName: string,
+): ItpLibraryItemExec {
+  const stamp = signerName.trim()
+  if (!stamp) return exec
+  return { ...exec, techInitials: stamp }
+}
+
+export function toggleItemExecDone(
+  sel: ItpLibraryItemSel,
+  exec: ItpLibraryItemExec,
+  options: {
+    canSignOffHold: boolean
+    signerName: string
+    signerUserId: string | null
+  },
+): { exec: ItpLibraryItemExec; error?: string } {
+  if (exec.done || exec.holdPending) {
+    if (exec.done && sel.holdPoint && !options.canSignOffHold) {
+      return {
+        exec,
+        error: 'Only a supervisor or Quality Team owner can clear a signed-off hold point',
+      }
+    }
+    return {
+      exec: {
+        ...exec,
+        done: false,
+        holdPending: false,
+        holdSignedOffAt: null,
+        holdSignedOffByUserId: null,
+        holdSignedOffByName: null,
+      },
+    }
+  }
+  const blocked = markDoneBlockedReason(sel, exec)
+  if (blocked) return { exec, error: blocked }
+  const stamped = stampLoggedInTech(exec, options.signerName)
+  if (sel.holdPoint) {
+    if (options.canSignOffHold) {
+      return {
+        exec: {
+          ...stamped,
+          done: true,
+          holdPending: false,
+          holdSignedOffAt: new Date().toISOString(),
+          holdSignedOffByUserId: options.signerUserId,
+          holdSignedOffByName: options.signerName || 'QC',
+        },
+      }
+    }
+    return { exec: { ...stamped, done: false, holdPending: true } }
+  }
+  return { exec: { ...stamped, done: true, holdPending: false } }
+}
+
 /** Resolve the field list to render (configured list, else legacy triple). */
 export function resolvedMeasFields(sel: ItpLibraryItemSel): ItpMeasFieldDef[] {
   if (sel.measFields.length > 0) return sel.measFields
@@ -76,6 +140,17 @@ export function getMeasValue(exec: ItpLibraryItemExec, fieldId: string): string 
 
 export function getFieldPhotos(exec: ItpLibraryItemExec, fieldId: string) {
   return exec.fieldPhotos?.[fieldId] ?? []
+}
+
+/** Stored when a technician marks a traveler input as not applicable. */
+export const NA_MEAS_VALUE = 'N/A'
+
+export function isNaAnswer(value: string | null | undefined): boolean {
+  const normalized = String(value ?? '')
+    .trim()
+    .toLowerCase()
+    .replace(/[./]/g, '')
+  return normalized === 'na' || normalized === 'n a' || normalized === 'not applicable'
 }
 
 export function patchMeasValue(

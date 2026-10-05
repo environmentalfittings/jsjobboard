@@ -55,8 +55,10 @@ export type ItpTravelerReportItem = {
   minPhotos: number
   photos: ItpLibraryAttachment[]
   requireMeasurement: boolean
+  hasTravelerRequirement: boolean
   fields: ItpTravelerReportField[]
   requirementsMet: boolean
+  blockNext: boolean
 }
 
 export type ItpTravelerReportSection = {
@@ -107,8 +109,9 @@ export function buildItpTravelerReport(plan: ItpLibraryPlanPayload): {
       : resolvedMeasFields(item.sel)
     const requirePicture = itemRequiresPicture(item.sel)
     const requireMeasurement = itemRequiresMeasurements(item.sel) || isNameplate
+    const hasTravelerRequirement = itemHasTravelerRequirement(item.sel) || isNameplate
     const shopArea = String(item.sel.shopArea ?? '').trim()
-    const notes = (item.sel.notes || exec.notes || '').trim()
+    const notes = String(exec.notes ?? '').trim()
     rows.push({
       id: item.id,
       name: item.name,
@@ -192,6 +195,17 @@ export function formatItpTravelerCaptureSummary(stats: ItpTravelerReportStats): 
   if (stats.hold > 0) parts.push(`${stats.hold} hold`)
   if (stats.flagged > 0) parts.push(`${stats.flagged} flagged`)
   return parts.join(' · ')
+}
+
+export function findTravelerReportItem(
+  sections: ItpTravelerReportSection[],
+  itemId: string,
+): ItpTravelerReportItem | null {
+  for (const section of sections) {
+    const found = section.items.find((item) => item.id === itemId)
+    if (found) return found
+  }
+  return null
 }
 
 export function collectTravelerPhotos(
