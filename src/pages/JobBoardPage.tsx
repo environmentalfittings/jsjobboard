@@ -997,7 +997,7 @@ export function JobBoardPage({ role, username }: { role?: UserRole; username?: s
       const matchesScope =
         scopeFilter === 'all' ||
         scopeFilter === 'closed' ||
-        (scopeFilter === 'in-process' && v.order_type === 'In-Process Order') ||
+        (scopeFilter === 'in-process' && v.order_type === 'In-Process Order' && !isOnHoldForMetrics(v)) ||
         (scopeFilter === 'on-hold' && isOnHoldForMetrics(v)) ||
         (scopeFilter === 'waiting-on-arrival' && v.order_type === 'Waiting on Arrival') ||
         (scopeFilter === 'on-order' && isActiveOrderType(v.order_type)) ||

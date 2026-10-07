@@ -5,8 +5,8 @@ import { STATUS_ORDER } from '../constants/statuses'
 
 /** KPI cards — matches Excel Dashboard sheet on the Valve Status workbook. */
 export function calcDashboardKpis(valves: Valve[]) {
-  const inProcess = valves.filter((v) => v.order_type === 'In-Process Order').length
   const onHold = valves.filter((v) => isOnHoldForMetrics(v)).length
+  const inProcess = valves.filter((v) => v.order_type === 'In-Process Order' && !isOnHoldForMetrics(v)).length
   const waitingOnArrival = valves.filter((v) => v.order_type === 'Waiting on Arrival').length
   const onOrder = inProcess + onHold + waitingOnArrival
   return { inProcess, onHold, waitingOnArrival, onOrder }

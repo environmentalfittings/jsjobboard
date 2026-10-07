@@ -12,6 +12,7 @@ type OtdEligibility = {
 export const OTD_PAUSE_STATUSES = [
   'Not Arrived',
   'On Hold',
+  'Hold',
   'Waiting on Customer',
   'Waiting on Salesman',
   'Replaced',
@@ -36,7 +37,7 @@ export function isOtdPauseStatus(status: string | null | undefined): boolean {
   if (!trimmed) return false
   if (OTD_PAUSE_STATUS_SET.has(trimmed)) return true
   if (/^not\s+(arrived|received)$/i.test(trimmed)) return true
-  if (/^on[-\s]?hold$/i.test(trimmed)) return true
+  if (/^on[-\s]?hold$/i.test(trimmed) || /^hold$/i.test(trimmed)) return true
   return false
 }
 
@@ -60,13 +61,12 @@ export function isExcludedFromOnTimeDelivery(valve: OtdEligibility | null | unde
   return false
 }
 
-/** Shop status On Hold or order type On-Hold. */
+/** JS “On Hold”, VSI “Hold”, or order type On-Hold. */
 export function isOnHoldForMetrics(valve: OtdEligibility | null | undefined): boolean {
   if (!valve) return false
   const status = String(valve.status ?? '').trim()
   const orderType = String(valve.order_type ?? '').trim()
-  if (status === 'On Hold') return true
-  if (/^on[-\s]?hold$/i.test(status)) return true
+  if (/^on[-\s]?hold$/i.test(status) || /^hold$/i.test(status)) return true
   if (orderType === 'On-Hold') return true
   return false
 }

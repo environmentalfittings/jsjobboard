@@ -95,7 +95,7 @@ export const PRIORITY_DEPARTMENTS: readonly PriorityDepartment[] = [
   {
     id: 'waiting-hold',
     label: 'Waiting/Hold',
-    statuses: ['Not Arrived', 'On Hold'],
+    statuses: ['Not Arrived', 'On Hold', 'Hold'],
     breakOutByCell: false,
   },
   {

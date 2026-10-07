@@ -11,6 +11,7 @@ export function valveStatusPatch(
 ): Partial<Valve> {
   const today = new Date().toISOString().slice(0, 10)
   const patch: Partial<Valve> = { status: nextStatus }
+  const nextIsHold = /^on[-\s]?hold$/i.test(nextStatus) || /^hold$/i.test(nextStatus)
 
   if (nextStatus === 'Completed' || nextStatus === 'Warehouse RTS') {
     patch.date_closed = today
@@ -40,6 +41,10 @@ export function valveStatusPatch(
     if (previousValve?.order_type === 'Completed') {
       patch.order_type = 'In-Process Order'
     }
+  }
+
+  if (nextIsHold) {
+    patch.order_type = 'On-Hold'
   }
 
   // Leaving an OTD-pause status for active shop work — clear hold / waiting-arrival order types
