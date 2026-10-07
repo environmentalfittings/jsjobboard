@@ -22,6 +22,8 @@ import {
 } from './itpLibraryTemplates'
 import type { ItpItemRequirementDefaults } from './itpItemRequirements'
 import { DEFAULT_ITP_MEAS_FIELDS, normalizeMeasFields, type ItpMeasFieldDef } from '../types/itpMeasFields'
+import type { ItpLibraryPlanPayload } from '../types/itpLibraryPlan'
+import { FASTENER_RECORD_ITEM_ID, FASTENER_TRAVELER_FIELDS, withoutJobCardPrefill } from './itpFastenerRecord'
 import { NAMEPLATE_TRAVELER_FIELDS } from './itpTravelerNameplate'
 
 export type ItpMasterCatalogItem = {
@@ -36,6 +38,7 @@ export type ItpMasterCatalogItem = {
   requirePicture?: boolean
   pictureLabel?: string
   minPhotos?: number
+  maxPhotos?: number
   requireMeasurement?: boolean
   measFields?: ItpMeasFieldDef[]
   holdPoint?: boolean
@@ -52,9 +55,11 @@ const BUILTIN_REQUIREMENT_DEFAULTS: Record<string, ItpItemRequirementDefaults> =
     requireMeasurement: true,
     measFields: DEFAULT_ITP_MEAS_FIELDS.map((f) => ({ ...f })),
   },
-  // Fastener Record — sub-reqs come from defaultSubReqs; hold often used with QA
+  // Fastener Record — traveler inputs (size, grade, qty, MTR, …), hold often used with QA
   d4: {
     holdPoint: true,
+    requireMeasurement: true,
+    measFields: FASTENER_TRAVELER_FIELDS.map((field) => ({ ...field })),
   },
   // Check nameplate data — traveler nameplate / transfer from job card
   r2: {
@@ -71,6 +76,7 @@ export function requirementDefaultsFromCatalogItem(
     requirePicture: item.requirePicture,
     pictureLabel: item.pictureLabel,
     minPhotos: item.minPhotos,
+    maxPhotos: item.maxPhotos,
     requireMeasurement: item.requireMeasurement,
     measFields: item.measFields,
     holdPoint: item.holdPoint,
@@ -110,6 +116,40 @@ export function defaultAreaForSection(secId: string): ItpShopArea {
   }
 }
 
+export function resolveItpItemShopArea(
+  shopArea: string | null | undefined,
+  effectiveSecId: string,
+  catalogArea?: string | null,
+): string {
+  const fromSel = normalizeShopAreaValue(shopArea)
+  if (fromSel) return fromSel
+  const fromCatalog = normalizeShopAreaValue(catalogArea)
+  if (fromCatalog) return fromCatalog
+  return defaultAreaForSection(effectiveSecId)
+}
+
+/** Copy catalog station onto included template/ITP rows that do not have their own assignment yet. */
+export function fillEmptyShopAreasFromCatalog(
+  plan: ItpLibraryPlanPayload,
+  items: Array<{ id: string; area?: string | null }>,
+): ItpLibraryPlanPayload {
+  const areaById = new Map<string, string>()
+  for (const item of items) {
+    const area = String(item.area ?? '').trim()
+    if (area) areaById.set(item.id, area)
+  }
+  let changed = false
+  const sel = { ...plan.sel }
+  for (const [id, itemSel] of Object.entries(sel)) {
+    if (!itemSel.included || itemSel.shopArea.trim()) continue
+    const area = areaById.get(id)
+    if (!area) continue
+    sel[id] = { ...itemSel, shopArea: area }
+    changed = true
+  }
+  return changed ? { ...plan, sel } : plan
+}
+
 function looksLikeWelding(name: string, ref: string): boolean {
   const text = `${name} ${ref}`.toLowerCase()
   return /\bweld|\boverlay|\bhardsurfac|\bstellite|\bbuttering/.test(text)
@@ -122,20 +162,33 @@ function looksLikePainting(name: string, ref: string): boolean {
 
 function applyBuiltinRequirementDefaults(item: ItpMasterCatalogItem): ItpMasterCatalogItem {
   const extras = BUILTIN_REQUIREMENT_DEFAULTS[item.id]
-  if (!extras) return item
+  const next: ItpMasterCatalogItem = extras
+    ? {
+        ...item,
+        holdPoint: item.holdPoint ?? extras.holdPoint,
+        blockNext: item.blockNext ?? extras.blockNext,
+        requirePicture: item.requirePicture ?? extras.requirePicture,
+        pictureLabel: item.pictureLabel ?? extras.pictureLabel,
+        minPhotos: item.minPhotos ?? extras.minPhotos,
+        maxPhotos: item.maxPhotos ?? extras.maxPhotos,
+        requireMeasurement: item.requireMeasurement ?? extras.requireMeasurement,
+        requireNameplate: item.requireNameplate ?? extras.requireNameplate,
+        measFields:
+          item.measFields && item.measFields.length > 0
+            ? item.measFields
+            : extras.measFields?.map((f) => ({ ...f })),
+      }
+    : item
+  if (next.id !== FASTENER_RECORD_ITEM_ID) return next
   return {
-    ...item,
-    holdPoint: item.holdPoint ?? extras.holdPoint,
-    blockNext: item.blockNext ?? extras.blockNext,
-    requirePicture: item.requirePicture ?? extras.requirePicture,
-    pictureLabel: item.pictureLabel ?? extras.pictureLabel,
-    minPhotos: item.minPhotos ?? extras.minPhotos,
-    requireMeasurement: item.requireMeasurement ?? extras.requireMeasurement,
-    requireNameplate: item.requireNameplate ?? extras.requireNameplate,
-    measFields:
-      item.measFields && item.measFields.length > 0
-        ? item.measFields
-        : extras.measFields?.map((f) => ({ ...f })),
+    ...next,
+    defaultSubReqs: undefined,
+    requireMeasurement: true,
+    measFields: withoutJobCardPrefill(
+      next.measFields && next.measFields.length > 0
+        ? next.measFields
+        : FASTENER_TRAVELER_FIELDS.map((field) => ({ ...field })),
+    ),
   }
 }
 
@@ -179,6 +232,7 @@ function normalizeCatalogItem(raw: unknown, fallbackOrder: number): ItpMasterCat
   const areaRaw = String(row.area ?? '').trim()
   const area = normalizeShopAreaValue(areaRaw) || defaultAreaForSection(secId)
   const minPhotosRaw = Number(row.minPhotos)
+  const maxPhotosRaw = Number(row.maxPhotos)
   const measFields = normalizeMeasFields(row.measFields)
   const base: ItpMasterCatalogItem = {
     id,
@@ -196,6 +250,10 @@ function normalizeCatalogItem(raw: unknown, fallbackOrder: number): ItpMasterCat
     minPhotos:
       row.minPhotos != null && Number.isFinite(minPhotosRaw) && minPhotosRaw > 0
         ? Math.floor(minPhotosRaw)
+        : undefined,
+    maxPhotos:
+      row.maxPhotos != null && Number.isFinite(maxPhotosRaw) && maxPhotosRaw > 0
+        ? Math.floor(maxPhotosRaw)
         : undefined,
     requireMeasurement: row.requireMeasurement != null ? Boolean(row.requireMeasurement) : undefined,
     measFields: measFields.length > 0 ? measFields : undefined,
@@ -232,9 +290,12 @@ export function mergeCatalogWithLibrary(saved: ItpMasterCatalogItem[]): ItpMaste
     } else if (existing.builtIn) {
       byId.set(builtIn.id, applyBuiltinRequirementDefaults({
         ...existing,
-        defaultSubReqs: existing.defaultSubReqs?.length
-          ? existing.defaultSubReqs
-          : builtIn.defaultSubReqs,
+        defaultSubReqs:
+          existing.id === FASTENER_RECORD_ITEM_ID
+            ? undefined
+            : existing.defaultSubReqs?.length
+              ? existing.defaultSubReqs
+              : builtIn.defaultSubReqs,
       }))
     }
   }

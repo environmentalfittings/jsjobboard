@@ -5,6 +5,8 @@ import {
   ITP_MEAS_FIELD_TYPE_OPTIONS,
   measFieldTypePatch,
   withPersistedJobCardField,
+  clampLinePhotoMax,
+  clampLinePhotoMin,
   type ItpMeasFieldDef,
   type ItpMeasFieldType,
 } from '../lib/itpItemRequirements'
@@ -13,11 +15,13 @@ import type { ItpMasterCatalogItem } from '../lib/itpMasterCatalog'
 import { ItpMeasDropdownSourceFields } from './ItpMeasDropdownSourceFields'
 import { ItpMeasJobCardSourceSelect } from './ItpMeasJobCardSourceSelect'
 import { ItpMeasRequiredToggle } from './ItpMeasRequiredToggle'
+import { ItpPhotoMinMaxFields } from './ItpPhotoMinMaxFields'
 
 type TravelerBuilderDraft = {
   requirePicture: boolean
   pictureLabel: string
   minPhotos: number
+  maxPhotos: number
   fields: ItpMeasFieldDef[]
 }
 
@@ -32,10 +36,12 @@ function draftFromLine(
       : catalogItem?.measFields && catalogItem.measFields.length > 0
         ? catalogItem.measFields
         : []
+  const minPhotos = clampLinePhotoMin(sel.minPhotos || catalogItem?.minPhotos || 1)
   return {
     requirePicture,
     pictureLabel: sel.pictureLabel || catalogItem?.pictureLabel || '',
-    minPhotos: Math.max(1, sel.minPhotos || catalogItem?.minPhotos || 1),
+    minPhotos,
+    maxPhotos: clampLinePhotoMax(sel.maxPhotos ?? catalogItem?.maxPhotos, minPhotos),
     fields: fieldsSource.map((field) => emptyMeasField(field)),
   }
 }
@@ -72,7 +78,8 @@ export function ItpLineTravelerBuilderModal({
     onSave({
       requirePicture,
       pictureLabel: requirePicture ? draft.pictureLabel.trim() : '',
-      minPhotos: requirePicture ? Math.max(1, draft.minPhotos || 1) : 1,
+      minPhotos: requirePicture ? clampLinePhotoMin(draft.minPhotos) : 1,
+      maxPhotos: requirePicture ? clampLinePhotoMax(draft.maxPhotos, draft.minPhotos) : 4,
       measFields: fields,
       beforeMeas: fields.length > 0,
       afterMeas: fields.length > 0,
@@ -107,7 +114,8 @@ export function ItpLineTravelerBuilderModal({
         </div>
         <p className="placeholder-copy" style={{ marginTop: 0 }}>
           These inputs show on the shop traveler for this line: required photos, labeled text boxes, dropdowns, and
-          picture fields. Technicians can mark any field <strong>N/A</strong> if it does not apply on that job.
+          picture fields. Require one photo and still allow extras (up to 4 by default). Technicians can mark any
+          field <strong>N/A</strong> if it does not apply on that job.
         </p>
 
         <div className="itp-master-req-toggles">
@@ -135,21 +143,11 @@ export function ItpLineTravelerBuilderModal({
                 onChange={(e) => setDraft((prev) => ({ ...prev, pictureLabel: e.target.value }))}
               />
             </label>
-            <label className="itp-master-global-field">
-              <span>Pictures required</span>
-              <input
-                type="number"
-                min={1}
-                max={20}
-                value={draft.minPhotos}
-                onChange={(e) =>
-                  setDraft((prev) => ({
-                    ...prev,
-                    minPhotos: Math.max(1, Math.min(20, Number(e.target.value) || 1)),
-                  }))
-                }
-              />
-            </label>
+            <ItpPhotoMinMaxFields
+              minPhotos={draft.minPhotos}
+              maxPhotos={draft.maxPhotos}
+              onChange={(next) => setDraft((prev) => ({ ...prev, ...next }))}
+            />
           </div>
         ) : null}
 

@@ -8,6 +8,16 @@ import {
   collectTravelerPhotos,
   formatItpTravelerCaptureSummary,
 } from '../lib/itpTravelerReport'
+import { buildItpTravelerUrl, buildShopLoginUrl } from '../lib/itpQrCode'
+import { ItpLoginQr } from './ItpLoginQr'
+import { ItpOptionalNotes } from './ItpOptionalNotes'
+import { iomProcedureKindLabel, resourceDocumentPublicUrl } from '../lib/resourceDocuments'
+import { isOrderReplacementPartsItem } from '../lib/itpOrderParts'
+import {
+  formatNeededPartsSummary,
+  jobNeededPartStatusLabel,
+  type JobNeededPart,
+} from '../lib/jobNeededParts'
 
 export type ItpTravelerHeaderMeta = {
   valveId: string
@@ -33,7 +43,13 @@ type ItpTravelerReportPanelProps = {
   sections: ItpTravelerReportSection[]
   stats: ItpTravelerReportStats
   onOpenStep: (itemId: string) => void
+  onToggleDone: (itemId: string) => void
+  onPatchNotes: (itemId: string, notes: string) => void
   saving?: boolean
+  previewMode?: boolean
+  valveRowId?: number | null
+  neededParts?: JobNeededPart[]
+  onNeedPart?: (itemId: string) => void
 }
 
 function StatusPill({ status }: { status: ItpTravelerReportItem['status'] }) {
@@ -53,46 +69,174 @@ function metaValue(value: string | null | undefined): string {
   return trimmed || '—'
 }
 
+function travelerReqHint(item: ItpTravelerReportItem): string {
+  const parts: string[] = []
+  if (item.requirePicture) {
+    const label = item.pictureLabel.trim() || 'required photo'
+    parts.push(
+      item.minPhotos === item.maxPhotos
+        ? `${item.minPhotos || 1} ${label}`
+        : `at least ${item.minPhotos || 1} ${label} (up to ${item.maxPhotos || 4})`,
+    )
+  }
+  if (item.requireMeasurement) parts.push(item.requireNameplate ? 'nameplate fields' : 'traveler fields')
+  if (parts.length === 0) return 'traveler requirement'
+  return parts.join(' and ')
+}
+
 function WorkStepRow({
   item,
+  blockedByPrior,
+  saving,
+  parts,
   onOpen,
+  onToggleDone,
+  onPatchNotes,
+  onNeedPart,
 }: {
   item: ItpTravelerReportItem
+  blockedByPrior: boolean
+  saving: boolean
+  parts: JobNeededPart[]
   onOpen: () => void
+  onToggleDone: () => void
+  onPatchNotes: (notes: string) => void
+  onNeedPart?: () => void
 }) {
+  const needsTraveler = item.hasTravelerRequirement
+  const checkboxLocked = blockedByPrior || (needsTraveler && !item.requirementsMet && !item.done)
+  const checked = item.done || item.status === 'hold'
+  const hint = blockedByPrior
+    ? 'Complete the previous item first'
+    : needsTraveler && !item.requirementsMet && !item.done
+      ? `Fill ${travelerReqHint(item)} before this checkbox is available`
+      : item.status === 'hold'
+        ? 'Pending supervisor sign-off'
+        : item.done
+          ? 'Mark incomplete'
+          : 'Mark complete'
+
   return (
-    <li className={`itp-traveler-work-row itp-traveler-work-row--${item.status}`}>
-      <div className="itp-traveler-work-row-main">
-        <div className="itp-traveler-work-row-titles">
-          <strong>{item.name}</strong>
-          <span className="itp-traveler-work-row-meta">
-            [{item.ref}]
-            {item.shopAreaLabel ? ` · ${item.shopAreaLabel}` : ''}
-            {item.holdPoint ? ' · Hold point' : ''}
-          </span>
+    <li
+      className={`itp-traveler-work-row itp-traveler-work-row--${item.status}${
+        checkboxLocked ? ' is-locked' : ''
+      }${checked ? ' is-checked' : ''}`}
+    >
+      <div className="itp-traveler-work-row-body">
+        <button
+          type="button"
+          className="itp-library-exec-cb"
+          disabled={saving || checkboxLocked}
+          title={hint}
+          aria-label={hint}
+          onClick={onToggleDone}
+        >
+          <span
+            className={`itp-library-cb${checked ? ' sel' : ''}${
+              item.status === 'hold' && !item.done ? ' pending' : ''
+            }`}
+          />
+        </button>
+        <div className="itp-traveler-work-row-main">
+          <div className="itp-traveler-work-row-titles">
+            <strong>{item.name}</strong>
+            <span className="itp-traveler-work-row-meta">
+              [{item.ref}]
+              {item.shopAreaLabel ? (
+                <span className="itp-template-station-badge">Station: {item.shopAreaLabel}</span>
+              ) : null}
+              {item.holdPoint ? ' · Hold point' : ''}
+            </span>
+          </div>
+          {needsTraveler ? (
+            <div className="itp-traveler-work-row-badges">
+              {item.requirePicture ? <span className="itp-library-attr-badge photo">Photo</span> : null}
+              {item.requireMeasurement ? (
+                <span className="itp-library-attr-badge meas">
+                  {item.requireNameplate ? 'Nameplate' : 'Fields'}
+                </span>
+              ) : null}
+              {isOrderReplacementPartsItem(item.id) ? (
+                <span className="itp-library-attr-badge traveler">Needs parts</span>
+              ) : item.requirementsMet ? (
+                <span className="itp-traveler-req-met">Ready to check</span>
+              ) : (
+                <span className="itp-traveler-req-locked">Locked until filled</span>
+              )}
+              {item.result ? <span className="itp-traveler-result-chip">{item.result}</span> : null}
+            </div>
+          ) : item.status === 'hold' || item.status === 'flagged' ? (
+            <div className="itp-traveler-work-row-badges">
+              <StatusPill status={item.status} />
+            </div>
+          ) : null}
+          {item.done && item.techInitials ? (
+            <p className="itp-traveler-work-row-tech">Checked by {item.techInitials}</p>
+          ) : null}
+          {(item.resourceDocs?.length ?? 0) > 0 ? (
+            <ul className="itp-traveler-work-row-docs">
+              {item.resourceDocs.map((doc) => (
+                <li key={doc.id}>
+                  <a
+                    href={resourceDocumentPublicUrl(doc.storagePath)}
+                    target="_blank"
+                    rel="noreferrer"
+                    onClick={(e) => e.stopPropagation()}
+                  >
+                    {doc.title}
+                  </a>
+                  <span className="itp-traveler-work-row-doc-kind">{iomProcedureKindLabel(doc.category)}</span>
+                </li>
+              ))}
+            </ul>
+          ) : null}
+          <div
+            className="itp-traveler-work-row-notes-wrap"
+            onClick={(e) => e.stopPropagation()}
+            onKeyDown={(e) => e.stopPropagation()}
+          >
+            <ItpOptionalNotes notes={item.notes} disabled={saving} onChange={onPatchNotes} />
+          </div>
+          {isOrderReplacementPartsItem(item.id) ? (
+            <p className="itp-traveler-work-row-tech">{formatNeededPartsSummary(parts)}</p>
+          ) : parts.length > 0 ? (
+            <p className="itp-traveler-work-row-tech">
+              {parts.length} part{parts.length === 1 ? '' : 's'} requested from this step
+            </p>
+          ) : null}
         </div>
-        <div className="itp-traveler-work-row-badges">
-          <StatusPill status={item.status} />
-          {item.requirePicture ? <span className="itp-library-attr-badge photo">Photo</span> : null}
-          {item.requireMeasurement ? <span className="itp-library-attr-badge meas">Meas</span> : null}
-          {item.result ? <span className="itp-traveler-result-chip">{item.result}</span> : null}
-        </div>
-        {item.notes || item.techInitials ? (
-          <p className="itp-traveler-work-row-notes">
-            {item.techInitials ? <strong>{item.techInitials}</strong> : null}
-            {item.techInitials && item.notes ? ' · ' : null}
-            {item.notes || null}
-          </p>
+      </div>
+      <div className="itp-traveler-work-row-acts">
+        {needsTraveler ? (
+          <button
+            type="button"
+            className="button-secondary itp-traveler-open-step-btn"
+            disabled={saving || blockedByPrior}
+            onClick={onOpen}
+          >
+            {isOrderReplacementPartsItem(item.id)
+              ? 'Parts'
+              : item.requirementsMet
+                ? 'Edit'
+                : 'Fill requirement'}
+          </button>
+        ) : null}
+        {onNeedPart ? (
+          <button
+            type="button"
+            className="button-secondary itp-traveler-open-step-btn"
+            disabled={saving}
+            onClick={onNeedPart}
+          >
+            Need part
+          </button>
         ) : null}
       </div>
-      <button type="button" className="button-secondary itp-traveler-open-step-btn" onClick={onOpen}>
-        Open
-      </button>
     </li>
   )
 }
 
-function PrintStepBlock({ item }: { item: ItpTravelerReportItem }) {
+function PrintStepBlock({ item, parts }: { item: ItpTravelerReportItem; parts: JobNeededPart[] }) {
   return (
     <article className="itp-traveler-print-step">
       <header className="itp-traveler-print-step-hdr">
@@ -165,6 +309,21 @@ function PrintStepBlock({ item }: { item: ItpTravelerReportItem }) {
           {item.notes}
         </p>
       ) : null}
+      {(item.resourceDocs?.length ?? 0) > 0 ? (
+        <p className="itp-traveler-print-notes">
+          <span className="itp-traveler-print-label">IOM / Procedure</span>
+          {item.resourceDocs.map((doc) => (
+            <a
+              key={doc.id}
+              href={resourceDocumentPublicUrl(doc.storagePath)}
+              target="_blank"
+              rel="noreferrer"
+            >
+              {doc.title}
+            </a>
+          ))}
+        </p>
+      ) : null}
       {item.photos.length > 0 ? (
         <div className="itp-traveler-print-step-photos">
           {item.photos.map((photo) => (
@@ -172,6 +331,20 @@ function PrintStepBlock({ item }: { item: ItpTravelerReportItem }) {
               <img src={photo.url} alt={photo.fileName} />
               <figcaption>{item.pictureLabel || photo.fileName}</figcaption>
             </figure>
+          ))}
+        </div>
+      ) : null}
+      {parts.length > 0 ? (
+        <div className="itp-traveler-print-notes">
+          <span className="itp-traveler-print-label">Required parts</span>
+          {parts.map((part) => (
+            <div key={part.id}>
+              {part.quantity}× {part.partName}
+              {part.partNumber ? ` #${part.partNumber}` : ''}
+              {part.poNumber ? ` · PO ${part.poNumber}` : ''}
+              {part.expectedDate ? ` · due ${part.expectedDate}` : ''}
+              {` · ${jobNeededPartStatusLabel(part.status)}`}
+            </div>
           ))}
         </div>
       ) : null}
@@ -186,10 +359,18 @@ export function ItpTravelerReportPanel({
   sections,
   stats,
   onOpenStep,
+  onToggleDone,
+  onPatchNotes,
   saving = false,
+  previewMode = false,
+  valveRowId = null,
+  neededParts = [],
+  onNeedPart,
 }: ItpTravelerReportPanelProps) {
   const allPhotos = collectTravelerPhotos(sections)
   const subhead = [meta.valveType, meta.valveId, meta.customer].filter(Boolean).join(' - ')
+  const qrUrl =
+    valveRowId != null && Number.isFinite(valveRowId) ? buildItpTravelerUrl(valveRowId) : buildShopLoginUrl()
 
   return (
     <section className="dashboard-page itp-traveler-report-page">
@@ -203,7 +384,20 @@ export function ItpTravelerReportPanel({
           </p>
           <p className="itp-traveler-report-summary">{formatItpTravelerCaptureSummary(stats)}</p>
           <p className="placeholder-copy">
-            Open each ITP step to enter results, measurements, and photos. Print for a shop packet.
+            {previewMode
+              ? `Preview traveler ${meta.valveId}. Check each ITP line as you complete it. Add parts the same way as a job — they stay on this preview and are not sent to shop purchasing.`
+              : 'Check each ITP line as you complete it. Lines with traveler requirements stay locked until photos and fields are filled. Add parts from any step — purchasing tracks them on Needs parts.'}
+          </p>
+          <p className="itp-traveler-report-summary">
+            Parts: {formatNeededPartsSummary(neededParts)}
+            {!previewMode ? (
+              <>
+                {' · '}
+                <Link to="/needed-parts">Open needs parts</Link>
+              </>
+            ) : (
+              ' · preview only'
+            )}
           </p>
         </div>
         <div className="itp-traveler-report-actions">
@@ -211,9 +405,15 @@ export function ItpTravelerReportPanel({
           <button type="button" className="button-primary" onClick={() => window.print()}>
             Print traveler
           </button>
-          <Link to={backToItpHref} className="button-secondary">
-            ← Back to ITP
-          </Link>
+          {previewMode ? (
+            <button type="button" className="button-secondary" onClick={() => window.close()}>
+              Close window
+            </button>
+          ) : (
+            <Link to={backToItpHref} className="button-secondary">
+              ← Back to ITP
+            </Link>
+          )}
           {shopFormHref ? (
             <Link to={shopFormHref} className="button-secondary">
               Shop form
@@ -224,8 +424,11 @@ export function ItpTravelerReportPanel({
 
       <div className="itp-traveler-doc">
         <header className="itp-traveler-doc-hdr">
-          <p className="itp-traveler-doc-brand">J&amp;S Machine and Valve QA/QC Traveler</p>
-          <h1 className="itp-traveler-doc-title">{subhead || meta.valveId}</h1>
+          <div className="itp-traveler-doc-hdr-main">
+            <p className="itp-traveler-doc-brand">J&amp;S Machine and Valve QA/QC Traveler</p>
+            <h1 className="itp-traveler-doc-title">{subhead || meta.valveId}</h1>
+          </div>
+          <ItpLoginQr url={qrUrl} valveLabel={meta.valveId} sample={previewMode || valveRowId == null} />
         </header>
 
         <section className="itp-traveler-doc-basic">
@@ -300,19 +503,89 @@ export function ItpTravelerReportPanel({
               <h3 className="itp-traveler-section-title">{section.secTitle}</h3>
 
               <ul className="itp-traveler-work-list screen-only">
-                {section.items.map((item) => (
-                  <WorkStepRow key={item.id} item={item} onOpen={() => onOpenStep(item.id)} />
-                ))}
+                {section.items.map((item, index) => {
+                  const prev = index > 0 ? section.items[index - 1] : null
+                  const blockedByPrior = Boolean(prev?.blockNext && prev.status !== 'complete')
+                  return (
+                    <WorkStepRow
+                      key={item.id}
+                      item={item}
+                      blockedByPrior={blockedByPrior}
+                      saving={saving}
+                      parts={
+                        isOrderReplacementPartsItem(item.id)
+                          ? neededParts
+                          : neededParts.filter((part) => part.itpItemId === item.id)
+                      }
+                      onOpen={() => onOpenStep(item.id)}
+                      onToggleDone={() => onToggleDone(item.id)}
+                      onPatchNotes={(notes) => onPatchNotes(item.id, notes)}
+                      onNeedPart={onNeedPart ? () => onNeedPart(item.id) : undefined}
+                    />
+                  )
+                })}
               </ul>
 
               <div className="itp-traveler-print-section-body print-only">
                 {section.items.map((item) => (
-                  <PrintStepBlock key={item.id} item={item} />
+                  <PrintStepBlock
+                    key={item.id}
+                    item={item}
+                    parts={
+                      isOrderReplacementPartsItem(item.id)
+                        ? neededParts
+                        : neededParts.filter((part) => part.itpItemId === item.id)
+                    }
+                  />
                 ))}
               </div>
             </section>
           ))
         )}
+
+        {neededParts.length > 0 ? (
+          <section className="itp-traveler-section itp-traveler-parts-appendix print-only">
+            <h3 className="itp-traveler-section-title">Required parts</h3>
+            {neededParts.map((part) => (
+              <p key={part.id} className="itp-traveler-print-notes">
+                {part.quantity}× {part.partName}
+                {part.partNumber ? ` #${part.partNumber}` : ''}
+                {part.supplier ? ` · ${part.supplier}` : ''}
+                {part.poNumber ? ` · PO ${part.poNumber}` : ''}
+                {part.expectedDate ? ` · due ${part.expectedDate}` : ''}
+                {` · ${jobNeededPartStatusLabel(part.status)}`}
+                {part.itpItemName ? ` · from ${part.itpItemName}` : ''}
+              </p>
+            ))}
+          </section>
+        ) : null}
+
+        {neededParts.length > 0 ? (
+          <section className="itp-traveler-section itp-traveler-parts-appendix print-only">
+            <h3 className="itp-traveler-section-title">Required parts</h3>
+            <div className="itp-traveler-print-fields">
+              {neededParts.map((part) => (
+                <div key={part.id} className="itp-traveler-print-field">
+                  <span className="itp-traveler-print-label">
+                    {part.quantity}× {part.partName}
+                  </span>
+                  <span className="itp-traveler-print-value">
+                    {[
+                      part.partNumber ? `#${part.partNumber}` : '',
+                      part.supplier,
+                      part.poNumber ? `PO ${part.poNumber}` : '',
+                      part.expectedDate ? `due ${part.expectedDate}` : '',
+                      jobNeededPartStatusLabel(part.status),
+                      part.itpItemName ? `from ${part.itpItemName}` : '',
+                    ]
+                      .filter(Boolean)
+                      .join(' · ') || '—'}
+                  </span>
+                </div>
+              ))}
+            </div>
+          </section>
+        ) : null}
 
         {allPhotos.length > 0 ? (
           <section className="itp-traveler-section itp-traveler-photos-appendix print-only">

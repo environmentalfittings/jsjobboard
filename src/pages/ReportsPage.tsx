@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import { CollapsibleReportPanel } from '../components/CollapsibleReportPanel'
 import { CompanyCompareReportPanel } from '../components/CompanyCompareReportPanel'
@@ -16,7 +16,9 @@ import { TERMINAL_STATUSES } from '../constants/statuses'
 import { useCompanyWorkflow } from '../hooks/useCompanyWorkflow'
 import {
   filterRowsByCompanyValveId,
+  filterTestLogsForCompany,
   filterValvesForCompany,
+  resolveActiveCompanyKey,
   valveRowBelongsToCompany,
 } from '../lib/companyDataScope'
 import { pieColorForIndex, printPieChartReport, printTableReport } from '../lib/reportChartsPrint'
@@ -347,6 +349,15 @@ function getReworkDatePresetRange(preset: Exclude<ReworkDatePreset, 'custom'>, n
 export function ReportsPage() {
   const { activeOrganization } = useOrganization()
   const workflow = useCompanyWorkflow()
+  const companyKey = useMemo(
+    () => resolveActiveCompanyKey(workflow.key, activeOrganization),
+    [workflow.key, activeOrganization],
+  )
+  const companyScope = useMemo(
+    () => ({ workflowKey: companyKey, activeOrganization }),
+    [companyKey, activeOrganization],
+  )
+  const companyReportName = activeOrganization?.name?.trim() || (companyKey === 'vsi' ? 'VSI' : '')
   const navigate = useNavigate()
   const [searchParams] = useSearchParams()
   const { showToast } = useToast()
@@ -434,30 +445,31 @@ export function ReportsPage() {
   const reworkEndParam = searchParams.get('reworkEnd')
   const focusReworkReport = Boolean(reworkStartParam && /^\d{4}-\d{2}-\d{2}$/.test(reworkStartParam))
 
-  const loadOtdData = async (year: number) => {
+  const loadOtdData = useCallback(async (year: number) => {
     setOtdLoading(true)
-    // VSI local demo starts empty (no completed VSI jobs yet).
-    if (workflow.key === 'vsi') {
-      setOtdRows([])
-      setOtdLoading(false)
-      return
-    }
     const { start, end } = getYearRange(year)
-    const { data, error } = await supabase
-      .from('valves')
-      .select('id,valve_id,date_closed,due_date,status,order_type,customer')
-      .in('status', ['Completed', 'Warehouse RTS'])
-      .gte('date_closed', start)
-      .lte('date_closed', end)
-      .order('date_closed', { ascending: true })
-      .limit(5000)
+    const run = (select: string) =>
+      supabase
+        .from('valves')
+        .select(select)
+        .in('status', ['Completed', 'Warehouse RTS'])
+        .gte('date_closed', start)
+        .lte('date_closed', end)
+        .order('date_closed', { ascending: true })
+        .limit(5000)
+    let { data, error } = await run(
+      'id,valve_id,date_closed,due_date,status,order_type,customer,organization_id',
+    )
+    if (error && /organization_id/i.test(error.message ?? '')) {
+      ;({ data, error } = await run('id,valve_id,date_closed,due_date,status,order_type,customer'))
+    }
     setOtdLoading(false)
     if (error) {
       showToast(`Could not load OTD data: ${error.message}`)
       return
     }
     const parsed: OtdRow[] = (
-      (data ?? []) as {
+      (data ?? []) as unknown as {
         id: number
         valve_id: string
         date_closed: string
@@ -465,12 +477,14 @@ export function ReportsPage() {
         status: string | null
         order_type: string | null
         customer: string | null
+        organization_id?: string | null
       }[]
     )
       .filter((r) =>
         valveRowBelongsToCompany(r.id, {
-          workflowKey: workflow.key,
+          workflowKey: companyKey,
           activeOrganization,
+          valveOrganizationId: r.organization_id ?? null,
         }),
       )
       .filter((r) => !isExcludedFromOnTimeDelivery(r))
@@ -481,7 +495,7 @@ export function ReportsPage() {
         on_time: r.due_date ? r.date_closed <= r.due_date : false,
       }))
     setOtdRows(parsed)
-  }
+  }, [activeOrganization, companyKey, showToast])
 
   const loadDueDateChanges = async () => {
     if (!dueDateStart || !dueDateEnd) return
@@ -565,12 +579,12 @@ export function ReportsPage() {
       return
     }
     const scoped = filterRowsByCompanyValveId(data, {
-      workflowKey: workflow.key,
+      workflowKey: companyKey,
       activeOrganization,
     })
     setReworkRows(scoped)
     // Prefer scoped row count for the active company; all-time total stays global until org column exists.
-    setReworkTotalLogged(workflow.key === 'vsi' ? scoped.length : totalLogged)
+    setReworkTotalLogged(companyKey === 'vsi' ? scoped.length : totalLogged)
   }
 
   const applyReworkDatePreset = (preset: ReworkDatePreset) => {
@@ -708,14 +722,13 @@ export function ReportsPage() {
   useEffect(() => {
     void loadOtdData(otdYear)
     // Reload when active company changes so VSI does not show JS Valve OTD.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [otdYear, workflow.key, activeOrganization?.id])
+  }, [loadOtdData, otdYear])
 
   useEffect(() => {
     void loadReworkLog()
     // Reload when active company changes so VSI does not show JS Valve rework.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [workflow.key, activeOrganization?.id])
+  }, [companyKey, activeOrganization?.id])
 
   useEffect(() => {
     if (!focusReworkReport || !reworkStartParam) return
@@ -746,19 +759,28 @@ export function ReportsPage() {
     setLateEndDate(range.end)
   }
 
-  const loadLateValvesReport = async () => {
+  const loadLateValvesReport = useCallback(async () => {
     if (!lateStartDate || !lateEndDate) return
     setLateLoading(true)
-    const { data, error } = await supabase
-      .from('valves')
-      .select('id,valve_id,customer,status,order_type,cell,valve_type,job_type,due_date,date_closed')
-      .in('status', ['Completed', 'Warehouse RTS'])
-      .gte('date_closed', lateStartDate)
-      .lte('date_closed', lateEndDate)
-      .not('due_date', 'is', null)
-      .order('date_closed', { ascending: false })
-      .order('valve_id', { ascending: true })
-      .limit(8000)
+    const run = (select: string) =>
+      supabase
+        .from('valves')
+        .select(select)
+        .in('status', ['Completed', 'Warehouse RTS'])
+        .gte('date_closed', lateStartDate)
+        .lte('date_closed', lateEndDate)
+        .not('due_date', 'is', null)
+        .order('date_closed', { ascending: false })
+        .order('valve_id', { ascending: true })
+        .limit(8000)
+    let { data, error } = await run(
+      'id,valve_id,customer,status,order_type,cell,valve_type,job_type,due_date,date_closed,organization_id',
+    )
+    if (error && /organization_id/i.test(error.message ?? '')) {
+      ;({ data, error } = await run(
+        'id,valve_id,customer,status,order_type,cell,valve_type,job_type,due_date,date_closed',
+      ))
+    }
     if (error) {
       setLateLoading(false)
       showToast(`Could not load late valves: ${error.message}`)
@@ -766,7 +788,7 @@ export function ReportsPage() {
       return
     }
     const candidates = (
-      (data ?? []) as {
+      (data ?? []) as unknown as {
         id: number
         valve_id: string
         customer: string | null
@@ -777,8 +799,16 @@ export function ReportsPage() {
         job_type: string | null
         due_date: string | null
         date_closed: string | null
+        organization_id?: string | null
       }[]
     )
+      .filter((r) =>
+        valveRowBelongsToCompany(r.id, {
+          workflowKey: companyKey,
+          activeOrganization,
+          valveOrganizationId: r.organization_id ?? null,
+        }),
+      )
       .filter((r) => !isExcludedFromOnTimeDelivery(r))
       .filter((r) => {
         const due = (r.due_date ?? '').trim().slice(0, 10)
@@ -813,7 +843,7 @@ export function ReportsPage() {
       .sort((a, b) => b.daysLate - a.daysLate || b.date_closed.localeCompare(a.date_closed) || a.valve_id.localeCompare(b.valve_id))
     setLateRows(parsed)
     setLateLoading(false)
-  }
+  }, [activeOrganization, companyKey, lateEndDate, lateStartDate, showToast])
 
   const printLateValvesReport = () => {
     const companyLabel = activeOrganization?.name ?? workflow.label
@@ -894,9 +924,7 @@ export function ReportsPage() {
 
   useEffect(() => {
     void loadLateValvesReport()
-    // Initial load for this month late valves.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [])
+  }, [loadLateValvesReport])
 
   const lateAvgDays = useMemo(() => {
     if (lateRows.length === 0) return null
@@ -1070,7 +1098,7 @@ export function ReportsPage() {
     setTopEndDate(range.end)
   }
 
-  const loadTopJobsReport = async () => {
+  const loadTopJobsReport = useCallback(async () => {
     if (!topStartDate || !topEndDate) return
     setTopLoading(true)
     const { data, error } = await supabase
@@ -1088,16 +1116,14 @@ export function ReportsPage() {
       setTopRows([])
       return
     }
-    setTopRows((data as Valve[]) ?? [])
+    setTopRows(filterValvesForCompany((data as Valve[]) ?? [], companyScope))
     setSelectedTopCustomer(null)
     setSelectedTopValveType(null)
-  }
+  }, [companyScope, showToast, topEndDate, topStartDate])
 
   useEffect(() => {
     void loadTopJobsReport()
-    // Initial load for YTD top customers / repairs.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [])
+  }, [loadTopJobsReport])
 
   const applyCompletedDatePreset = (preset: CompletedDatePreset) => {
     setCompletedDatePreset(preset)
@@ -1117,7 +1143,7 @@ export function ReportsPage() {
     setEndDate(value)
   }
 
-  const runReport = async () => {
+  const runReport = useCallback(async () => {
     if (!startDate || !endDate) return
     setLoading(true)
     const pageSize = 1000
@@ -1153,15 +1179,16 @@ export function ReportsPage() {
       if (data.length < pageSize) break
       from += pageSize
     }
-    setRows(collected)
+    setRows(filterValvesForCompany(collected, companyScope))
     setLoading(false)
-  }
+  }, [companyScope, completedJobTypeFilter, completedTurnaroundFilter, endDate, showToast, startDate])
 
   useEffect(() => {
     void runReport()
-    // Initial this-week completed jobs so the table is populated on open.
+    // Reload when company changes so VSI does not show JS completed jobs.
+    // Date / filter changes still use Generate report.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [])
+  }, [companyKey, activeOrganization?.id])
 
   const loadActiveTurnarounds = async () => {
     setActiveTurnaroundLoading(true)
@@ -1178,7 +1205,7 @@ export function ReportsPage() {
       setActiveTurnaroundRows([])
       return
     }
-    const list = (data as Valve[]) ?? []
+    const list = filterValvesForCompany((data as Valve[]) ?? [], companyScope)
     setActiveTurnaroundRows(list.filter((v) => !TERMINAL_STATUSES.has(v.status)))
   }
 
@@ -1232,6 +1259,9 @@ export function ReportsPage() {
       endDate,
       turnaroundFilterLabel,
       jobTypeFilterLabel: completedJobTypeFilter === 'all' ? 'All' : completedJobTypeFilter,
+      reportTitle: companyReportName
+        ? `Completed jobs report · ${companyReportName}`
+        : 'Completed jobs report',
     })
   }
 
@@ -1313,7 +1343,7 @@ export function ReportsPage() {
     void loadActiveByCell()
     // Reload when company changes.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [workflow.key, activeOrganization?.id])
+  }, [companyKey, activeOrganization?.id])
 
   const activeByCellOptions = useMemo(
     () =>
@@ -1398,7 +1428,7 @@ export function ReportsPage() {
       setTestLogDescriptions({})
       return
     }
-    const rows = (data as TestLogEntry[]) ?? []
+    const rows = await filterTestLogsForCompany((data as TestLogEntry[]) ?? [], companyScope)
     const descriptions = await fetchValveDescriptionsByIds(rows.map((row) => row.valve_id))
     setTestLogRows(rows)
     setTestLogDescriptions(descriptions)
@@ -1685,8 +1715,8 @@ export function ReportsPage() {
           )}
     >
       <p className="placeholder-copy" style={{ marginTop: '0.35rem' }}>
-              {workflow.key === 'vsi'
-                ? 'VSI on-time delivery starts empty in the local multi-company demo until VSI jobs are completed.'
+              {companyKey === 'vsi'
+                ? `Completed VSI jobs closed on or before their due date. Historical JS Valve jobs are not included. Jobs with no due date are excluded from percentage calculations. ${OTD_PAUSE_STATUS_LABEL} do not count against on-time delivery.`
                 : `Percentage of completed jobs closed on or before their due date. Jobs with no due date are excluded from percentage calculations. ${OTD_PAUSE_STATUS_LABEL} do not count against on-time delivery. Moving a job out of those statuses requires a new due date before it counts again. ${OTD_EXCLUDED_CUSTOMER_LABEL} jobs are also excluded (internal / house work).`}
             </p>
 <div className="report-filters">
@@ -1885,12 +1915,17 @@ export function ReportsPage() {
       </CollapsibleReportPanel>
 
       <CollapsibleReportPanel id="late-valves"
-      title="Late valves"
+      title={(
+            <>
+              Late valves
+              {companyReportName ? ` · ${companyReportName}` : ''}
+            </>
+          )}
     >
       <p className="placeholder-copy">
-          Completed / Warehouse RTS jobs closed after their due date in the selected period. Same rules as on-time
-          delivery ({OTD_PAUSE_STATUS_LABEL}; {OTD_EXCLUDED_CUSTOMER_LABEL} excluded). Warehouse RTS date comes from the
-          status change log when available. Open a card to review the job.
+          {companyKey === 'vsi'
+            ? `Completed / Warehouse RTS VSI jobs closed after their due date. Historical JS Valve jobs are not included. Same pause-status rules as on-time delivery (${OTD_PAUSE_STATUS_LABEL}). Warehouse RTS date comes from the status change log when available.`
+            : `Completed / Warehouse RTS jobs closed after their due date in the selected period. Same rules as on-time delivery (${OTD_PAUSE_STATUS_LABEL}; ${OTD_EXCLUDED_CUSTOMER_LABEL} excluded). Warehouse RTS date comes from the status change log when available. Open a card to review the job.`}
         </p>
         <div className="report-filters">
           <label>
@@ -2016,9 +2051,17 @@ export function ReportsPage() {
       </CollapsibleReportPanel>
 
       <CollapsibleReportPanel id="top-customers-valve-types"
-      title="Top customers & repairs by valve type"
+      title={(
+            <>
+              Top customers & repairs by valve type
+              {companyReportName ? ` · ${companyReportName}` : ''}
+            </>
+          )}
     >
       <p className="placeholder-copy">
+          {companyKey === 'vsi'
+            ? 'Completed VSI jobs in the date range. Historical JS Valve jobs are not included. '
+            : ''}
           Rank completed jobs in the date range. <strong>Click any bar</strong> (customer or valve type, including
           Unknown type) to list those jobs below — then open a card or Print / PDF. Valve-type chart counts{' '}
           <strong>Valve Repair</strong> jobs only.
@@ -2091,7 +2134,7 @@ export function ReportsPage() {
                 onClick={() => {
                   const { error } = printTopCountsChart({
                     title: 'Top customers',
-                    subtitle: `Completed jobs ${topStartDate} to ${topEndDate}`,
+                    subtitle: `${companyReportName ? `${companyReportName} · ` : ''}Completed jobs ${topStartDate} to ${topEndDate}`,
                     rows: topCustomerRows,
                     totalJobs: topRows.length,
                   })
@@ -2142,7 +2185,7 @@ export function ReportsPage() {
                 onClick={() => {
                   const { error } = printTopCountsChart({
                     title: 'Top repairs by valve type',
-                    subtitle: `Valve Repair jobs ${topStartDate} to ${topEndDate}`,
+                    subtitle: `${companyReportName ? `${companyReportName} · ` : ''}Valve Repair jobs ${topStartDate} to ${topEndDate}`,
                     rows: topRepairRows,
                     totalJobs: topRepairTotal,
                     valueLabel: 'Repairs',
@@ -2363,9 +2406,17 @@ export function ReportsPage() {
       <RailReportPanel />
 
       <CollapsibleReportPanel
-      title="Completed jobs report"
+      title={(
+            <>
+              Completed jobs report
+              {companyReportName ? ` · ${companyReportName}` : ''}
+            </>
+          )}
     >
       <p className="placeholder-copy">
+          {companyKey === 'vsi'
+            ? 'Completed VSI jobs only. Historical JS Valve jobs are not included. '
+            : ''}
           Filter by close date. Pick a common date range, or set custom start/end dates. Use turnaround filter for
           customer update packages or to exclude turnarounds.
         </p>
@@ -2681,7 +2732,11 @@ export function ReportsPage() {
       <CollapsibleReportPanel
       title="Test log summary report"
     >
-      <p className="placeholder-copy">Bench / hydro entries in date range. Use for pass/fail and tester activity snapshots.</p>
+      <p className="placeholder-copy">
+          {companyKey === 'vsi'
+            ? 'VSI bench / hydro entries in date range. Historical JS Valve tests are not included.'
+            : 'Bench / hydro entries in date range. Use for pass/fail and tester activity snapshots.'}
+        </p>
         <div className="report-filters">
           <label>
             Start date

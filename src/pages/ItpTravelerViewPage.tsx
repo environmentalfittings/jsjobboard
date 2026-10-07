@@ -1,12 +1,15 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import { ItpTravelerReportPanel } from '../components/ItpTravelerReportPanel'
 import { ItpTravelerStepModal } from '../components/ItpTravelerStepModal'
+import { JobNeededPartModal } from '../components/JobNeededPartModal'
 import { useToast } from '../components/ToastNotification'
 import { useAuth } from '../contexts/AuthContext'
+import { useJobNeededParts } from '../hooks/useJobNeededParts'
 import { hasAdminAccess } from '../lib/roles'
 import { loadItpLibraryPlan, saveItpLibraryPlan } from '../lib/itpLibraryStorage'
-import { buildItpTravelerReport } from '../lib/itpTravelerReport'
+import { buildItpTravelerReport, findTravelerReportItem } from '../lib/itpTravelerReport'
+import { toggleItemExecDone } from '../lib/itpItemRequirements'
 import {
   isQualityTeamFlagOwner,
   loadCurrentUserQualityTeamLevel,
@@ -37,6 +40,8 @@ export function ItpTravelerViewPage() {
   const [plan, setPlan] = useState<ItpLibraryPlanPayload | null>(null)
   const [openItemId, setOpenItemId] = useState<string | null>(null)
   const [qualityTeamLevel, setQualityTeamLevel] = useState<QualityTeamLevel>('none')
+  const notesSaveTimer = useRef<number | null>(null)
+  const parts = useJobNeededParts(valve?.id ?? Number.parseInt(id ?? '', 10))
 
   const isShopAdmin = hasAdminAccess(role)
   const canSignOffHold = isQualityTeamFlagOwner(qualityTeamLevel) || isShopAdmin
@@ -138,6 +143,59 @@ export function ItpTravelerViewPage() {
     }
   }
 
+  const toggleDone = async (itemId: string) => {
+    if (!valve || !plan || !report || saving) return
+    const row = findTravelerReportItem(report.sections, itemId)
+    const sel = getSel(plan, itemId) ?? emptyItemSel()
+    const exec = getExec(plan, itemId) ?? emptyItemExec()
+    if (row?.hasTravelerRequirement && !row.requirementsMet && !exec.done && !exec.holdPending) {
+      showToast('Fill the traveler requirement before checking this item')
+      setOpenItemId(itemId)
+      return
+    }
+    const next = toggleItemExecDone(sel, exec, {
+      canSignOffHold,
+      signerName: username?.trim() || user?.email || 'QC',
+      signerUserId: user?.id ?? null,
+    })
+    if (next.error) {
+      showToast(next.error)
+      if (row?.hasTravelerRequirement) setOpenItemId(itemId)
+      return
+    }
+    setSaving(true)
+    try {
+      const nextPlan: ItpLibraryPlanPayload = {
+        ...plan,
+        exec: { ...plan.exec, [itemId]: next.exec },
+      }
+      const result = await saveItpLibraryPlan(valve, nextPlan)
+      setPlan(result.plan)
+    } catch (err) {
+      showToast(err instanceof Error ? err.message : 'Could not update step')
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  const patchNotes = (itemId: string, notes: string) => {
+    if (!valve || !plan) return
+    const nextPlan: ItpLibraryPlanPayload = {
+      ...plan,
+      exec: {
+        ...plan.exec,
+        [itemId]: { ...(getExec(plan, itemId) ?? emptyItemExec()), notes },
+      },
+    }
+    setPlan(nextPlan)
+    if (notesSaveTimer.current) window.clearTimeout(notesSaveTimer.current)
+    notesSaveTimer.current = window.setTimeout(() => {
+      void saveItpLibraryPlan(valve, nextPlan)
+        .then((result) => setPlan(result.plan))
+        .catch((err) => showToast(err instanceof Error ? err.message : 'Could not save notes'))
+    }, 500)
+  }
+
   if (loading) {
     return (
       <section className="dashboard-page">
@@ -191,7 +249,15 @@ export function ItpTravelerViewPage() {
         sections={report.sections}
         stats={report.stats}
         saving={saving}
+        valveRowId={valve.id}
+        neededParts={parts.rows}
+        onNeedPart={(itemId) => {
+          const row = findTravelerReportItem(report.sections, itemId)
+          parts.setNeedPartItem({ id: itemId, name: row?.name ?? itemId })
+        }}
         onOpenStep={(itemId) => setOpenItemId(itemId)}
+        onToggleDone={(itemId) => void toggleDone(itemId)}
+        onPatchNotes={patchNotes}
       />
 
       {openItem ? (
@@ -205,8 +271,22 @@ export function ItpTravelerViewPage() {
           signerName={username?.trim() || user?.email || 'QC'}
           signerUserId={user?.id ?? null}
           saving={saving}
+          neededParts={parts.rows}
+          onNeedPart={() => parts.setNeedPartItem({ id: openItem.id, name: openItem.name })}
+          onSaveNeededPart={parts.addPart}
+          onUpsertNeededPart={parts.upsertPart}
+          onRemoveNeededPart={(partId) => void parts.removePart(partId)}
           onClose={() => setOpenItemId(null)}
           onSave={saveStep}
+        />
+      ) : null}
+
+      {parts.needPartItem ? (
+        <JobNeededPartModal
+          stepName={parts.needPartItem.name}
+          saving={parts.saving}
+          onClose={() => parts.setNeedPartItem(null)}
+          onSave={parts.addPart}
         />
       ) : null}
     </>

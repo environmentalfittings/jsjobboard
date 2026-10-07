@@ -12,6 +12,7 @@ import type { User } from '@supabase/supabase-js'
 import type { UserRole } from '../pages/LoginPage'
 import { getProfileRole, resolveAppRole } from '../lib/auth'
 import { normalizeEmployeeUsername } from '../lib/employeeAuth'
+import { readLoginReturnPath } from '../lib/loginReturn'
 import { supabase } from '../lib/supabase'
 
 const LOCAL_DEV_AUTH_KEY = 'js-job-board-local-dev-auth'
@@ -165,11 +166,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           options.username ?? (options.localRole === 'viewer' ? 'Read-only' : 'Superadmin'),
         )
         setLoading(false)
-        navigate('/dashboard', { replace: true })
+        navigate(readLoginReturnPath() || '/dashboard', { replace: true })
         return
       }
       await refreshAuth()
-      navigate('/dashboard', { replace: true })
+      navigate(readLoginReturnPath() || '/dashboard', { replace: true })
     },
     [refreshAuth, navigate],
   )

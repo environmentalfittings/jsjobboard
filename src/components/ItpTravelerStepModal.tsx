@@ -6,6 +6,8 @@ import {
   uploadItpFlagPhoto,
 } from '../lib/itpLibraryAttachments'
 import {
+  clampLinePhotoMax,
+  clampLinePhotoMin,
   dropdownOptionSource,
   followUpApplies,
   followUpFieldId,
@@ -46,6 +48,12 @@ import { loadManufacturerDropdownNames } from '../lib/specDocuments'
 import { loadLookupOptionsMap } from '../lib/lookupValues'
 import type { LookupCategory } from '../constants/lookupCategories'
 import { ItpOptionalNotes } from './ItpOptionalNotes'
+import { ItpOemProcedureDocs } from './ItpOemProcedureDocs'
+import { stepUsesOemOrProcedure } from '../lib/itpOemProcedure'
+import { JobNeededPartsList } from './JobNeededPartsList'
+import { OrderReplacementPartsForm } from './OrderReplacementPartsForm'
+import { isOrderReplacementPartsItem } from '../lib/itpOrderParts'
+import type { JobNeededPart, JobNeededPartDraft } from '../lib/jobNeededParts'
 
 type TechFieldSection = { id: string; title: string; fields: ItpMeasFieldDef[] }
 
@@ -122,6 +130,11 @@ type ItpTravelerStepModalProps = {
   saving: boolean
   onClose: () => void
   onSave: (next: { sel: ItpLibraryItemSel; exec: ItpLibraryItemExec }) => Promise<void>
+  neededParts?: JobNeededPart[]
+  onNeedPart?: () => void
+  onSaveNeededPart?: (draft: JobNeededPartDraft) => Promise<boolean>
+  onUpsertNeededPart?: (draft: JobNeededPartDraft) => Promise<boolean>
+  onRemoveNeededPart?: (id: string) => void
 }
 
 export function ItpTravelerStepModal({
@@ -137,6 +150,11 @@ export function ItpTravelerStepModal({
   saving,
   onClose,
   onSave,
+  neededParts = [],
+  onNeedPart,
+  onSaveNeededPart,
+  onUpsertNeededPart,
+  onRemoveNeededPart,
 }: ItpTravelerStepModalProps) {
   const { showToast } = useToast()
   const fileRef = useRef<HTMLInputElement | null>(null)
@@ -155,7 +173,8 @@ export function ItpTravelerStepModal({
     if (item.requirePicture) {
       base.requirePicture = true
       if (!base.pictureLabel.trim()) base.pictureLabel = item.pictureLabel || 'Required photo'
-      base.minPhotos = Math.max(1, base.minPhotos || item.minPhotos || 1)
+      base.minPhotos = clampLinePhotoMin(base.minPhotos || item.minPhotos || 1)
+      base.maxPhotos = clampLinePhotoMax(base.maxPhotos ?? item.maxPhotos, base.minPhotos)
     }
     return isNameplate
       ? { ...base, requireNameplate: true, measFields: mergeNameplateMeasFields(base.measFields) }
@@ -182,7 +201,8 @@ export function ItpTravelerStepModal({
     if (item.requirePicture) {
       base.requirePicture = true
       if (!base.pictureLabel.trim()) base.pictureLabel = item.pictureLabel || 'Required photo'
-      base.minPhotos = Math.max(1, base.minPhotos || item.minPhotos || 1)
+      base.minPhotos = clampLinePhotoMin(base.minPhotos || item.minPhotos || 1)
+      base.maxPhotos = clampLinePhotoMax(base.maxPhotos ?? item.maxPhotos, base.minPhotos)
     }
     const nextSel = nameplate
       ? { ...base, requireNameplate: true, measFields: mergeNameplateMeasFields(base.measFields) }
@@ -258,6 +278,11 @@ export function ItpTravelerStepModal({
 
   const requirePicture = itemRequiresPicture(sel)
   const requireMeasurement = itemRequiresMeasurements(sel) || isNameplate
+  const photoMin = clampLinePhotoMin(sel.minPhotos)
+  const photoMax = clampLinePhotoMax(sel.maxPhotos, photoMin)
+  const photoCount = exec.photos?.length ?? 0
+  const photosMet = photoCount >= photoMin
+  const photosAtMax = photoCount >= photoMax
 
   const transferFromJobCard = () => {
     const values = nameplateValuesFromJobCard(jobCard)
@@ -686,8 +711,16 @@ export function ItpTravelerStepModal({
 
   const addPhotos = async (fileList: FileList | null) => {
     if (!fileList?.length || uploading) return
+    const remaining = Math.max(0, photoMax - (exec.photos?.length ?? 0))
+    if (remaining <= 0) {
+      showToast(`This step allows up to ${photoMax} photo${photoMax === 1 ? '' : 's'}`)
+      if (fileRef.current) fileRef.current.value = ''
+      if (cameraRef.current) cameraRef.current.value = ''
+      return
+    }
+    const files = Array.from(fileList).slice(0, remaining)
     if (previewMode) {
-      const uploaded = Array.from(fileList).map(attachmentFromLocalFile)
+      const uploaded = files.map(attachmentFromLocalFile)
       setExec((prev) => ({
         ...prev,
         photos: [...(prev.photos ?? []), ...uploaded],
@@ -700,7 +733,7 @@ export function ItpTravelerStepModal({
     setUploading(true)
     try {
       const uploaded: ItpLibraryAttachment[] = []
-      for (const file of Array.from(fileList)) {
+      for (const file of files) {
         const { attachment, error } = await uploadItpFlagPhoto(valveRowId, item.id, file)
         if (error || !attachment) {
           showToast(error || 'Upload failed')
@@ -794,7 +827,9 @@ export function ItpTravelerStepModal({
           <div>
             <p className="itp-traveler-step-kicker">
               {item.secTitle}
-              {item.shopAreaLabel ? ` · ${item.shopAreaLabel}` : ''}
+              {item.shopAreaLabel ? (
+                <span className="itp-template-station-badge">Station: {item.shopAreaLabel}</span>
+              ) : null}
               {item.holdPoint ? ' · Hold point' : ''}
             </p>
             <h2 id="itp-traveler-step-title">{item.name}</h2>
@@ -806,26 +841,57 @@ export function ItpTravelerStepModal({
         </header>
 
         <div className="itp-traveler-step-body">
+          {stepUsesOemOrProcedure(item.name) || (sel.resourceDocs?.length ?? 0) > 0 ? (
+            <ItpOemProcedureDocs
+              docs={sel.resourceDocs ?? []}
+              valveType={jobCard.valve_type ?? ''}
+              readOnly={previewMode}
+              onChange={(resourceDocs) => setSel((prev) => ({ ...prev, resourceDocs }))}
+            />
+          ) : null}
+
+          {isOrderReplacementPartsItem(item.id) && onSaveNeededPart && onUpsertNeededPart ? (
+            <OrderReplacementPartsForm
+              rows={neededParts}
+              canEdit
+              saving={saving}
+              showBoardLink={!previewMode}
+              onSaveKind={onUpsertNeededPart}
+              onAddOther={onSaveNeededPart}
+              onRemove={onRemoveNeededPart}
+            />
+          ) : onNeedPart ? (
+            <JobNeededPartsList
+              rows={neededParts.filter((row) => row.itpItemId === item.id)}
+              canEdit
+              showBoardLink={!previewMode}
+              title="Parts requested from this step"
+              onAdd={onNeedPart}
+              onRemove={onRemoveNeededPart}
+            />
+          ) : null}
+
           {requirePicture ? (
             <div
-              className={`itp-traveler-req-photo${
-                (exec.photos?.length ?? 0) >= Math.max(1, sel.minPhotos || 1) ? ' is-met' : ''
-              }`}
+              className={`itp-traveler-req-photo${photosMet ? ' is-met' : ''}`}
             >
               <div className="itp-traveler-req-photo-hdr">
                 <h3>
                   {sel.pictureLabel.trim() || 'Required photo'} <span>*</span>
                 </h3>
                 <span>
-                  {(exec.photos ?? []).length}/{Math.max(1, sel.minPhotos || 1)} required
+                  {photoCount}/{photoMax}
+                  {photoMin === photoMax ? ' required' : ` · ${photoMin} required`}
                 </span>
               </div>
               <p className="placeholder-copy">
                 Take a photo with the camera or upload a file. This step needs{' '}
-                {Math.max(1, sel.minPhotos || 1)} photo
-                {Math.max(1, sel.minPhotos || 1) === 1 ? '' : 's'} before it can be marked complete.
+                {photoMin === photoMax
+                  ? `${photoMin} photo${photoMin === 1 ? '' : 's'}`
+                  : `at least ${photoMin} photo${photoMin === 1 ? '' : 's'} (up to ${photoMax})`}{' '}
+                before it can be marked complete.
               </p>
-              {(exec.photos ?? []).length === 0 ? (
+              {photoCount === 0 ? (
                 <p className="itp-traveler-req-photo-empty">No photo yet.</p>
               ) : (
                 <div className="itp-traveler-step-photos-grid">
@@ -850,15 +916,15 @@ export function ItpTravelerStepModal({
                 <button
                   type="button"
                   className="button-primary"
-                  disabled={saving || uploading}
+                  disabled={saving || uploading || photosAtMax}
                   onClick={() => cameraRef.current?.click()}
                 >
-                  {uploading ? 'Uploading…' : 'Take photo'}
+                  {uploading ? 'Uploading…' : photosAtMax ? 'Photo limit reached' : 'Take photo'}
                 </button>
                 <button
                   type="button"
                   className="button-secondary"
-                  disabled={saving || uploading}
+                  disabled={saving || uploading || photosAtMax}
                   onClick={() => fileRef.current?.click()}
                 >
                   Upload

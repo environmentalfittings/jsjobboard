@@ -5,6 +5,7 @@ import {
   type ItpLibraryAttachment,
   type ItpLibraryPlanPayload,
   type ItpLibraryScopeItem,
+  type ItpLinkedResourceDoc,
 } from '../types/itpLibraryPlan'
 import type { ItpMeasFieldDef } from '../types/itpMeasFields'
 import {
@@ -20,10 +21,12 @@ import {
   resolvedMeasFields,
 } from './itpItemRequirements'
 import { itpShopAreaLabel } from '../constants/itpShopAreas'
+import { resolveItpItemShopArea } from './itpMasterCatalog'
 import {
   isNameplateTravelerStep,
   mergeNameplateMeasFields,
 } from './itpTravelerNameplate'
+import { isOrderReplacementPartsItem } from './itpOrderParts'
 
 export type ItpTravelerReportStatus = 'pending' | 'complete' | 'flagged' | 'hold'
 
@@ -53,12 +56,14 @@ export type ItpTravelerReportItem = {
   requirePicture: boolean
   pictureLabel: string
   minPhotos: number
+  maxPhotos: number
   photos: ItpLibraryAttachment[]
   requireMeasurement: boolean
   hasTravelerRequirement: boolean
   fields: ItpTravelerReportField[]
   requirementsMet: boolean
   blockNext: boolean
+  resourceDocs: ItpLinkedResourceDoc[]
 }
 
 export type ItpTravelerReportSection = {
@@ -109,8 +114,10 @@ export function buildItpTravelerReport(plan: ItpLibraryPlanPayload): {
       : resolvedMeasFields(item.sel)
     const requirePicture = itemRequiresPicture(item.sel)
     const requireMeasurement = itemRequiresMeasurements(item.sel) || isNameplate
-    const hasTravelerRequirement = itemHasTravelerRequirement(item.sel) || isNameplate
-    const shopArea = String(item.sel.shopArea ?? '').trim()
+    const isOrderParts = isOrderReplacementPartsItem(item.id)
+    const hasTravelerRequirement =
+      itemHasTravelerRequirement(item.sel) || isNameplate || isOrderParts
+    const shopArea = resolveItpItemShopArea(item.sel.shopArea, item.secId)
     const notes = String(exec.notes ?? '').trim()
     rows.push({
       id: item.id,
@@ -130,6 +137,7 @@ export function buildItpTravelerReport(plan: ItpLibraryPlanPayload): {
       requirePicture,
       pictureLabel: item.sel.pictureLabel.trim() || 'Photos',
       minPhotos: Math.max(1, item.sel.minPhotos || 1),
+      maxPhotos: Math.max(1, item.sel.maxPhotos || 4),
       photos: [...(exec.photos ?? [])],
       requireMeasurement,
       hasTravelerRequirement,
@@ -156,10 +164,13 @@ export function buildItpTravelerReport(plan: ItpLibraryPlanPayload): {
         }
         return rows
       }),
-      requirementsMet: itemRequirementsMet(
-        isNameplate ? { ...item.sel, measFields: measDefs } : item.sel,
-        exec,
-      ),
+      requirementsMet: isOrderParts
+        ? true
+        : itemRequirementsMet(
+            isNameplate ? { ...item.sel, measFields: measDefs } : item.sel,
+            exec,
+          ),
+      resourceDocs: [...(item.sel.resourceDocs ?? [])],
     })
   }
 

@@ -30,6 +30,9 @@ import { openToolCalibrationsReportPrint } from '../lib/toolCalibrationsReportPr
 import { belongsOnTestGaugesList } from '../lib/moveToolGaugesToTestGauges'
 import { canWriteShop, permissionDeniedReason } from '../lib/roles'
 import { useAuth } from '../contexts/AuthContext'
+import { useOrganization } from '../contexts/OrganizationContext'
+import { useCompanyWorkflow } from '../hooks/useCompanyWorkflow'
+import { filterToolsForCompany, rememberToolForCompany, resolveActiveCompanyKey } from '../lib/companyDataScope'
 import {
   emptyToolCalibrationForm,
   isExternalCalibrationCategory,
@@ -355,6 +358,9 @@ function sortValue(row: ToolCalibration, key: SortKey): string | null {
 export function ToolCalibrationsPanel() {
   const { showToast } = useToast()
   const { role } = useAuth()
+  const { activeOrganization } = useOrganization()
+  const workflow = useCompanyWorkflow()
+  const companyKey = resolveActiveCompanyKey(workflow.key, activeOrganization)
   const canWrite = canWriteShop(role)
   const [rows, setRows] = useState<ToolCalibration[]>([])
   const [loading, setLoading] = useState(true)
@@ -438,12 +444,13 @@ export function ToolCalibrationsPanel() {
       }
       showToast('Tool updated')
     } else {
-      const { error } = await createToolCalibration(form)
+      const { row, error } = await createToolCalibration(form)
       setSaving(false)
-      if (error) {
-        showToast(error)
+      if (error || !row) {
+        showToast(error ?? 'Could not save tool')
         return
       }
+      rememberToolForCompany(companyKey, row.id)
       showToast('Tool added')
     }
     resetForm()
@@ -552,13 +559,22 @@ export function ToolCalibrationsPanel() {
     setColumnFilters(DEFAULT_COLUMN_FILTERS)
   }
 
+  const companyRows = useMemo(
+    () =>
+      filterToolsForCompany(rows, {
+        workflowKey: companyKey,
+        activeOrganization,
+      }),
+    [activeOrganization, companyKey, rows],
+  )
+
   const summary = useMemo(() => {
     let active = 0
     let due90 = 0
     let due60 = 0
     let due30 = 0
     let overdue = 0
-    for (const row of rows) {
+    for (const row of companyRows) {
       if (row.status !== 'active') continue
       active += 1
       const days = daysUntilToolExpiration(row)
@@ -572,20 +588,20 @@ export function ToolCalibrationsPanel() {
       if (days <= 30) due30 += 1
     }
     return { active, due90, due60, due30, overdue }
-  }, [rows])
+  }, [companyRows])
 
   const filterOptions = useMemo(
     () => ({
-      category: uniqueSortedValues(rows, (row) => row.category),
-      department: uniqueSortedValues(rows, (row) => row.department),
+      category: uniqueSortedValues(companyRows, (row) => row.category),
+      department: uniqueSortedValues(companyRows, (row) => row.department),
       status: [...STATUS_FILTER_OPTIONS],
     }),
-    [rows],
+    [companyRows],
   )
 
   const sortedRows = useMemo(() => {
     const q = search.trim().toLowerCase()
-    const filtered = rows.filter((row) => {
+    const filtered = companyRows.filter((row) => {
       if (
         !matchesMultiFilter(
           columnFilters.category,
@@ -631,7 +647,7 @@ export function ToolCalibrationsPanel() {
       return sortDir === 'asc' ? cmp : -cmp
     })
     return next
-  }, [rows, search, sortKey, sortDir, columnFilters, dueFocus])
+  }, [companyRows, search, sortKey, sortDir, columnFilters, dueFocus])
 
   const activeColumnFilterCount =
     columnFilters.category.length +
@@ -969,7 +985,7 @@ export function ToolCalibrationsPanel() {
           />
         </label>
         <span className="tool-cal-count">
-          {sortedRows.length} of {rows.length}
+          {sortedRows.length} of {companyRows.length}
           {sortKey ? ` · sorted by ${sortKey.replace(/_/g, ' ')} (${sortDir})` : ''}
         </span>
       </div>
@@ -991,9 +1007,11 @@ export function ToolCalibrationsPanel() {
 
       {loading ? (
         <p className="placeholder-copy">Loading tools…</p>
-      ) : rows.length === 0 ? (
+      ) : companyRows.length === 0 ? (
         <p className="placeholder-copy">
-          No tools yet — add a tool above, or run seed-tool-calibrations.sql in Supabase.
+          {companyKey === 'vsi'
+            ? 'No VSI tools yet. JS Valve calibration log stays on the JS Valve company.'
+            : 'No tools yet — add a tool above, or run seed-tool-calibrations.sql in Supabase.'}
         </p>
       ) : sortedRows.length === 0 ? (
         <p className="placeholder-copy">No tools match this search or filter.</p>

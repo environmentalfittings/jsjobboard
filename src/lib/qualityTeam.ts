@@ -20,6 +20,8 @@ import {
   type ItpLibraryAttachment,
   type ItpLibraryPlanPayload,
   type ItpQcReviewStatus,
+  type ItpScopeItemChange,
+  type ItpScopeSnapshotItem,
 } from '../types/itpLibraryPlan'
 import type { Valve } from '../types'
 
@@ -159,6 +161,22 @@ export function itpScopeFingerprint(plan: ItpLibraryPlanPayload): string {
   return JSON.stringify({ custom, sel })
 }
 
+function scopeItemName(plan: ItpLibraryPlanPayload, id: string): string {
+  const custom = plan.custom.find((row) => row.id === id)
+  if (custom?.name.trim()) return custom.name.trim()
+  const lib = findLibraryItem(id)
+  if (lib?.item.name) return lib.item.name
+  const fromScope = allScopeItems(plan).find((row) => row.id === id)
+  return fromScope?.name ?? id
+}
+
+function formatChangedNames(names: string[], limit = 6): string {
+  const unique = [...new Set(names.map((name) => name.trim()).filter(Boolean))]
+  if (unique.length === 0) return ''
+  if (unique.length <= limit) return unique.join('; ')
+  return `${unique.slice(0, limit).join('; ')}; +${unique.length - limit} more`
+}
+
 /** Human-readable summary of Build Scope differences between two plans. */
 export function diffItpScopeSummary(
   before: ItpLibraryPlanPayload,
@@ -168,46 +186,175 @@ export function diffItpScopeSummary(
 
   const beforeIds = new Set(allScopeItems(before).map((i) => i.id))
   const afterIds = new Set(allScopeItems(after).map((i) => i.id))
-  let added = 0
-  let removed = 0
-  for (const id of afterIds) if (!beforeIds.has(id)) added += 1
-  for (const id of beforeIds) if (!afterIds.has(id)) removed += 1
+  const addedNames: string[] = []
+  const removedNames: string[] = []
+  for (const id of afterIds) if (!beforeIds.has(id)) addedNames.push(scopeItemName(after, id))
+  for (const id of beforeIds) if (!afterIds.has(id)) removedNames.push(scopeItemName(before, id))
 
-  let holdChanged = 0
-  let measChanged = 0
-  let subChanged = 0
+  const holdNames: string[] = []
+  const measNames: string[] = []
+  const subNames: string[] = []
   const ids = new Set([...beforeIds, ...afterIds])
   for (const id of ids) {
     const a = getSel(before, id)
     const b = getSel(after, id)
-    if (a.holdPoint !== b.holdPoint) holdChanged += 1
+    const name = scopeItemName(after, id) || scopeItemName(before, id)
+    if (a.holdPoint !== b.holdPoint) holdNames.push(name)
     if (a.beforeMeas !== b.beforeMeas || a.afterMeas !== b.afterMeas || a.measVerify !== b.measVerify) {
-      measChanged += 1
+      measNames.push(name)
     }
     const aSubs = [...a.subReqs].map((x) => x.trim()).filter(Boolean).sort().join('\n')
     const bSubs = [...b.subReqs].map((x) => x.trim()).filter(Boolean).sort().join('\n')
-    if (aSubs !== bSubs) subChanged += 1
+    if (aSubs !== bSubs) subNames.push(name)
   }
 
   const beforeCustom = new Set(before.custom.map((c) => c.id))
   const afterCustom = new Set(after.custom.map((c) => c.id))
-  let customChanged = 0
-  for (const id of afterCustom) if (!beforeCustom.has(id)) customChanged += 1
-  for (const id of beforeCustom) if (!afterCustom.has(id)) customChanged += 1
+  const customNames: string[] = []
+  for (const id of afterCustom) {
+    if (!beforeCustom.has(id)) customNames.push(scopeItemName(after, id))
+  }
+  for (const id of beforeCustom) {
+    if (!afterCustom.has(id)) customNames.push(scopeItemName(before, id))
+  }
   for (const c of after.custom) {
     const prev = before.custom.find((x) => x.id === c.id)
-    if (prev && prev.name.trim() !== c.name.trim()) customChanged += 1
+    if (prev && prev.name.trim() !== c.name.trim()) {
+      customNames.push(`${prev.name.trim()} → ${c.name.trim()}`)
+    }
   }
 
   const parts: string[] = []
-  if (added) parts.push(`Added ${added} item${added === 1 ? '' : 's'}`)
-  if (removed) parts.push(`Removed ${removed} item${removed === 1 ? '' : 's'}`)
-  if (holdChanged) parts.push(`Updated hold points (${holdChanged})`)
-  if (measChanged) parts.push(`Updated measurement flags (${measChanged})`)
-  if (subChanged) parts.push(`Updated sub-requirements (${subChanged})`)
-  if (customChanged) parts.push(`Updated custom items (${customChanged})`)
+  if (addedNames.length) parts.push(`Added ${formatChangedNames(addedNames)}`)
+  if (removedNames.length) parts.push(`Removed ${formatChangedNames(removedNames)}`)
+  if (holdNames.length) parts.push(`Hold points: ${formatChangedNames(holdNames)}`)
+  if (measNames.length) parts.push(`Measurements: ${formatChangedNames(measNames)}`)
+  if (subNames.length) parts.push(`Sub-requirements: ${formatChangedNames(subNames)}`)
+  if (customNames.length) parts.push(`Custom items: ${formatChangedNames(customNames)}`)
   if (parts.length === 0) parts.push('Updated Build Scope')
-  return parts.join(', ')
+  return parts.join('. ')
+}
+
+export function snapshotItpScope(plan: ItpLibraryPlanPayload): ItpScopeSnapshotItem[] {
+  return allScopeItems(plan).map((item) => {
+    const sel = item.sel
+    return {
+      id: item.id,
+      name: item.name,
+      holdPoint: sel.holdPoint,
+      beforeMeas: sel.beforeMeas,
+      afterMeas: sel.afterMeas,
+      measVerify: sel.measVerify,
+      requirePicture: sel.requirePicture,
+      minPhotos: Math.max(1, sel.minPhotos || 1),
+      maxPhotos: Math.max(1, sel.maxPhotos || 4),
+      pictureLabel: sel.pictureLabel.trim(),
+      subReqs: [...sel.subReqs].map((row) => row.trim()).filter(Boolean),
+      notes: sel.notes.trim(),
+      shopArea: sel.shopArea.trim(),
+      sectionId: sel.sectionId.trim(),
+      addToTraveler: sel.addToTraveler,
+      blockNext: sel.blockNext,
+    }
+  })
+}
+
+function snapshotKey(item: ItpScopeSnapshotItem): string {
+  return [
+    item.holdPoint ? 1 : 0,
+    item.beforeMeas ? 1 : 0,
+    item.afterMeas ? 1 : 0,
+    item.measVerify ? 1 : 0,
+    item.requirePicture ? 1 : 0,
+    item.minPhotos,
+    item.maxPhotos,
+    item.pictureLabel,
+    item.subReqs.slice().sort().join(';'),
+    item.notes,
+    item.shopArea,
+    item.sectionId,
+    item.addToTraveler ? 1 : 0,
+    item.blockNext ? 1 : 0,
+  ].join('|')
+}
+
+function changeDetails(before: ItpScopeSnapshotItem, after: ItpScopeSnapshotItem): string[] {
+  const details: string[] = []
+  if (before.holdPoint !== after.holdPoint) {
+    details.push(after.holdPoint ? 'Hold point added' : 'Hold point removed')
+  }
+  if (
+    before.beforeMeas !== after.beforeMeas ||
+    before.afterMeas !== after.afterMeas ||
+    before.measVerify !== after.measVerify
+  ) {
+    details.push('Measurements updated')
+  }
+  if (
+    before.requirePicture !== after.requirePicture ||
+    before.minPhotos !== after.minPhotos ||
+    before.maxPhotos !== after.maxPhotos
+  ) {
+    details.push('Photo requirement updated')
+  }
+  if (before.pictureLabel !== after.pictureLabel) details.push('Photo label updated')
+  if (before.subReqs.slice().sort().join('\n') !== after.subReqs.slice().sort().join('\n')) {
+    details.push('Sub-requirements updated')
+  }
+  if (before.notes !== after.notes) details.push('Item notes updated')
+  if (before.shopArea !== after.shopArea) details.push('Station updated')
+  if (before.sectionId !== after.sectionId) details.push('Section moved')
+  if (before.addToTraveler !== after.addToTraveler) {
+    details.push(after.addToTraveler ? 'Added to traveler' : 'Removed from traveler')
+  }
+  if (before.blockNext !== after.blockNext) {
+    details.push(after.blockNext ? 'Now blocks next step' : 'No longer blocks next step')
+  }
+  if (details.length === 0 && snapshotKey(before) !== snapshotKey(after)) details.push('Updated')
+  return details
+}
+
+export function diffItpScopeChanges(
+  before: ItpScopeSnapshotItem[],
+  afterPlan: ItpLibraryPlanPayload,
+): ItpScopeItemChange[] {
+  const beforeById = new Map(before.map((row) => [row.id, row]))
+  const afterItems = snapshotItpScope(afterPlan)
+  const afterById = new Map(afterItems.map((row) => [row.id, row]))
+  const changes: ItpScopeItemChange[] = []
+
+  for (const item of afterItems) {
+    const prev = beforeById.get(item.id)
+    if (!prev) {
+      changes.push({ id: item.id, name: item.name, kind: 'added', details: ['Added to scope'] })
+      continue
+    }
+    if (snapshotKey(prev) !== snapshotKey(item)) {
+      changes.push({
+        id: item.id,
+        name: item.name,
+        kind: 'modified',
+        details: changeDetails(prev, item),
+      })
+    }
+  }
+  for (const prev of before) {
+    if (afterById.has(prev.id)) continue
+    changes.push({ id: prev.id, name: prev.name, kind: 'removed', details: ['Removed from scope'] })
+  }
+  return changes
+}
+
+/** Live pending edits vs last accept, or the frozen last-revision diff on an accepted ITP. */
+export function itpScopeChangesForPlan(plan: ItpLibraryPlanPayload): ItpScopeItemChange[] {
+  const qc = plan.qcReview
+  if (qc.status === 'accepted') return qc.lastRevisionChanges ?? []
+  if (qc.acceptedScope && qc.acceptedScope.length > 0) return diffItpScopeChanges(qc.acceptedScope, plan)
+  return []
+}
+
+export function itpScopeChangeById(changes: ItpScopeItemChange[]): Map<string, ItpScopeItemChange> {
+  return new Map(changes.map((row) => [row.id, row]))
 }
 
 function mapEmployeeRow(row: Record<string, unknown>): Employee {

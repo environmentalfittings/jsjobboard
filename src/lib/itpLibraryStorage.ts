@@ -8,6 +8,7 @@ import {
 import { notifyQualityTeamItpReviewRequested } from './messages'
 import { supabase } from './supabase'
 import { applyLibraryTemplateAsync } from './itpLibraryTemplates'
+import { fillEmptyShopAreasFromCatalog, loadItpMasterCatalog } from './itpMasterCatalog'
 import {
   createEmptyItpLibraryPlan,
   emptyQcReview,
@@ -73,8 +74,12 @@ export async function loadItpLibraryPlan(valve: Valve): Promise<{
 
   const empty = createEmptyItpLibraryPlan(valve)
   const applied = await applyLibraryTemplateAsync(empty, { replaceIncludes: true })
+  const catalog = await loadItpMasterCatalog().catch(() => null)
+  const filled = catalog
+    ? fillEmptyShopAreasFromCatalog(applied.plan, catalog.items)
+    : applied.plan
   const plan = {
-    ...applied.plan,
+    ...filled,
     scopeTemplateName: applied.templateName,
   }
   return {

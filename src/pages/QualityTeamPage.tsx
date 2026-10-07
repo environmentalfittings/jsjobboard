@@ -5,7 +5,7 @@ import { useAuth } from '../contexts/AuthContext'
 import { useOrganization } from '../contexts/OrganizationContext'
 import { useEmployees } from '../hooks/useEmployees'
 import { useCompanyWorkflow } from '../hooks/useCompanyWorkflow'
-import { valveRowBelongsToCompany } from '../lib/companyDataScope'
+import { valveRowBelongsToCompany, resolveActiveCompanyKey, employeeBelongsToCompany } from '../lib/companyDataScope'
 import { saveItpLibraryPlan } from '../lib/itpLibraryStorage'
 import { notifyFlaggerItpResolution } from '../lib/messages'
 import { listQualityIncrs } from '../lib/qualityIncrs'
@@ -91,11 +91,12 @@ export function QualityTeamPage() {
 
   const companyScope = useMemo(
     () => ({
-      workflowKey: workflow.key,
+      workflowKey: resolveActiveCompanyKey(workflow.key, activeOrganization),
       activeOrganization,
     }),
     [workflow.key, activeOrganization],
   )
+  const companyReportName = activeOrganization?.name?.trim() || (companyScope.workflowKey === 'vsi' ? 'VSI' : '')
 
   const filterByCompanyValve = useCallback(
     <T extends { valveRowId: number }>(items: T[]) =>
@@ -109,8 +110,20 @@ export function QualityTeamPage() {
   )
 
   // Same roster source as Admin → Employees (Coy / Colten levels show up there).
-  const members = useMemo(() => qualityTeamMembersFromEmployees(employees), [employees])
-  const flagOwners = useMemo(() => qualityTeamFlagOwnersFromEmployees(employees), [employees])
+  const members = useMemo(
+    () =>
+      qualityTeamMembersFromEmployees(employees).filter((row) =>
+        employeeBelongsToCompany(row.company, companyScope),
+      ),
+    [employees, companyScope],
+  )
+  const flagOwners = useMemo(
+    () =>
+      qualityTeamFlagOwnersFromEmployees(employees).filter((row) =>
+        employeeBelongsToCompany(row.company, companyScope),
+      ),
+    [employees, companyScope],
+  )
 
   const reloadRtsUnsigned = useCallback(
     async (options?: {
@@ -465,14 +478,17 @@ export function QualityTeamPage() {
   return (
     <section className="dashboard-page quality-team-page">
       <div className="dashboard-title-row">
-        <h2 className="dashboard-title">Quality Team</h2>
+        <h2 className="dashboard-title">
+          Quality Team{companyReportName ? ` · ${companyReportName}` : ''}
+        </h2>
         <button type="button" className="button-secondary" disabled={loading} onClick={() => void reload()}>
           Refresh
         </button>
       </div>
       <p className="placeholder-copy">
-        Review ITPs, work flagged checklist tickets, catch Warehouse RTS jobs that still need ITP sign-off, manage
-        INCRs (non-conformance reports), browse active ITPs, and see who is on the Quality Team.
+        {companyScope.workflowKey === 'vsi'
+          ? 'VSI quality review. Historical JS Valve ITPs, flags, and INCRs are not included.'
+          : 'Review ITPs, work flagged checklist tickets, catch Warehouse RTS jobs that still need ITP sign-off, manage INCRs (non-conformance reports), and see who is on the Quality Team.'}
       </p>
 
       <section className="dashboard-panel">
@@ -675,13 +691,15 @@ export function QualityTeamPage() {
 
       <section className="dashboard-panel">
         <div className="dashboard-title-row">
-          <h3>INCRs</h3>
+          <h3>INCRs{companyReportName ? ` · ${companyReportName}` : ''}</h3>
           <Link to="/quality-team/incrs/new" className="button-secondary">
             Add
           </Link>
         </div>
         <p className="placeholder-copy resources-hint">
-          Internal non-conformance reports. Open INCRs stay highlighted in red until status is Closed or Void.
+          {companyScope.workflowKey === 'vsi'
+            ? 'VSI internal non-conformance reports. Historical JS Valve INCRs are not included. Open INCRs stay highlighted in red until status is Closed or Void.'
+            : 'Internal non-conformance reports. Open INCRs stay highlighted in red until status is Closed or Void.'}
         </p>
 
         <div className="quality-incr-stats" role="group" aria-label="INCR statistics">
@@ -850,7 +868,7 @@ export function QualityTeamPage() {
       <section className="dashboard-panel">
         <div className="dashboard-title-row">
           <h3>
-            {workflow.key === 'vsi' ? 'Shipping' : 'Warehouse RTS'} — ITP sign-off
+            {companyScope.workflowKey === 'vsi' ? 'Shipping' : 'Warehouse RTS'} — ITP sign-off
           </h3>
           {!rtsUnsignedLoading ? (
             <span className="status-breakdown-note">
@@ -859,7 +877,7 @@ export function QualityTeamPage() {
           ) : null}
         </div>
         <p className="status-breakdown-note">
-          {workflow.key === 'vsi'
+          {companyScope.workflowKey === 'vsi'
             ? 'VSI jobs in Shipping whose ITP is missing, still a draft, or waiting for Quality Team Accept. Local demo starts empty until VSI jobs reach Shipping.'
             : 'Recent Warehouse RTS jobs whose ITP is missing, still a draft, or waiting for Quality Team Accept. Checklist progress alone does not count as signed off. Older RTS jobs without a close date are hidden unless you choose All dates. Check the box below to also include accepted ITPs in this date range.'}
         </p>
@@ -1039,7 +1057,7 @@ export function QualityTeamPage() {
 
       <section className="dashboard-panel">
         <div className="dashboard-title-row">
-          <h3>Quality Team roster</h3>
+          <h3>Quality Team roster{companyReportName ? ` · ${companyReportName}` : ''}</h3>
           <label className="quality-team-level-filter">
             Level
             <select

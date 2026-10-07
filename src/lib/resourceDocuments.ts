@@ -415,6 +415,36 @@ export function resourceDocumentPublicUrl(storagePath: string) {
   return data.publicUrl
 }
 
+export const IOM_PROCEDURE_CATEGORIES: ResourceDocumentCategory[] = [
+  'iom',
+  'maintenance_manual',
+  'general',
+  'quality_control',
+]
+
+export function iomProcedureKindLabel(category: string | null | undefined): string {
+  if (category === 'iom' || category === 'maintenance_manual') return 'IOM'
+  if (category === 'general' || category === 'quality_control') return 'Procedure'
+  return 'PDF'
+}
+
+const IOM_PROCEDURE_SELECT =
+  'id,scope,valve_type,category,title,notes,storage_path,file_name,mime_type,manufacturer,product_valve_type,sop_number,revision_number,proc_category'
+
+export async function listIomAndProcedureDocuments(): Promise<{
+  rows: ResourceDocumentRow[]
+  error: string | null
+}> {
+  const { data, error } = await supabase
+    .from('resource_documents')
+    .select(IOM_PROCEDURE_SELECT)
+    .in('category', IOM_PROCEDURE_CATEGORIES)
+    .order('title', { ascending: true })
+    .limit(600)
+  if (error) return { rows: [], error: error.message }
+  return { rows: (data ?? []) as ResourceDocumentRow[], error: null }
+}
+
 export async function uploadResourceDocument(args: {
   file: File
   scope: ResourceDocumentScope
@@ -444,7 +474,10 @@ export async function uploadResourceDocument(args: {
   heatLot?: string | null
   mtrNumber?: string | null
   mtrDetails?: MtrDetailFields
-}): Promise<{ error: string | null }> {
+}): Promise<{
+  error: string | null
+  row?: Pick<ResourceDocumentRow, 'id' | 'title' | 'category' | 'file_name' | 'storage_path'> | null
+}> {
   const { file, scope, category } = args
   const title = args.title.trim()
   const valveType = (args.valveType ?? '').trim()
@@ -467,7 +500,9 @@ export async function uploadResourceDocument(args: {
   const isProc = category === 'general' || category === 'quality_control'
   const isMtr = category === 'mtr'
   const mtrColumns = isMtr ? buildMtrColumnPayload(args.mtrKind, args.mtrDetails ?? {}) : null
-  const { error: rowErr } = await supabase.from('resource_documents').insert({
+  const { data, error: rowErr } = await supabase
+    .from('resource_documents')
+    .insert({
     scope,
     valve_type: scope === 'general' ? null : valveType,
     category,
@@ -505,6 +540,8 @@ export async function uploadResourceDocument(args: {
     mtr_od: isMtr ? (mtrColumns?.mtr_od ?? null) : null,
     mtr_inside_dia: isMtr ? (mtrColumns?.mtr_inside_dia ?? null) : null,
   })
+    .select('id,title,category,file_name,storage_path')
+    .single()
 
   if (rowErr) {
     await supabase.storage.from(RESOURCE_DOCS_BUCKET).remove([storagePath])
@@ -525,7 +562,7 @@ export async function uploadResourceDocument(args: {
     return { error: isdup ? `A document named "${title}" already exists in this section. Each title must be unique.` : rowErr.message || 'Could not save document record.' }
   }
 
-  return { error: null }
+  return { error: null, row: data ?? null }
 }
 
 /** Layer 2 / traveler tables that cite a catalogued spec_documents row. */

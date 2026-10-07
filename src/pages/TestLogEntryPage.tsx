@@ -1,11 +1,11 @@
-import { Fragment, useEffect, useMemo, useState } from 'react'
+import { Fragment, useCallback, useEffect, useMemo, useState } from 'react'
 import { TestLogColumnHeader } from '../components/testLog/TestLogColumnHeader'
 import { TestLogEntryForm } from '../components/testLog/TestLogEntryForm'
 import { TestLogReportsSection } from '../components/testLog/TestLogReportsSection'
 import { useAuth } from '../contexts/AuthContext'
 import { useOrganization } from '../contexts/OrganizationContext'
 import { useCompanyWorkflow } from '../hooks/useCompanyWorkflow'
-import { filterTestLogsForCompany } from '../lib/companyDataScope'
+import { filterTestLogsForCompany, loadVsiValveIdStrings, resolveActiveCompanyKey } from '../lib/companyDataScope'
 import { canWriteShop } from '../lib/roles'
 import { normalizeValveId } from '../lib/valveId'
 import { supabase } from '../lib/supabase'
@@ -16,6 +16,7 @@ import { valveTypeOrFilter } from '../lib/testLogValveType'
 import { formatTestProceduresSummary, parseTestLogTestingDetails, resolveTestMedia } from '../types/testLog'
 import { formatCheckedStandardsSummary, formatTestPressuresSummary } from '../lib/testStandardParams'
 import type { TestLogEntry } from '../types'
+import type { Organization } from '../types/organizations'
 
 type SortColumn =
   | 'tested_on'
@@ -107,34 +108,51 @@ function monthOverMonthChange(current: number, previous: number) {
   return Math.round(((current - previous) / previous) * 100)
 }
 
-async function countTestLogsBetween(start: string, end: string) {
-  const { count, error } = await supabase
-    .from('test_logs')
-    .select('id', { count: 'exact', head: true })
-    .gte('tested_on', start)
-    .lte('tested_on', end)
-  if (error) return 0
-  return count ?? 0
+async function countTestLogsBetween(
+  start: string,
+  end: string,
+  companyScope: { workflowKey: 'js-valve' | 'vsi'; activeOrganization: Organization | null },
+) {
+  const unique = await loadTestLogValveIdsBetween(start, end)
+  const scoped = await filterTestLogsForCompany(unique, companyScope)
+  return scoped.length
 }
 
-async function countUniqueValvesBetween(start: string, end: string) {
-  const unique = new Set<string>()
+async function loadTestLogValveIdsBetween(start: string, end: string) {
+  const rows: { valve_id: string; tested_on: string }[] = []
   const pageSize = 1000
   let from = 0
   while (true) {
     const { data, error } = await supabase
       .from('test_logs')
-      .select('valve_id')
+      .select('valve_id,tested_on')
       .gte('tested_on', start)
       .lte('tested_on', end)
       .range(from, from + pageSize - 1)
     if (error || !data?.length) break
     for (const row of data) {
-      const valveId = String((row as { valve_id?: string }).valve_id ?? '').trim()
-      if (valveId) unique.add(valveId.toUpperCase())
+      rows.push({
+        valve_id: String((row as { valve_id?: string }).valve_id ?? ''),
+        tested_on: String((row as { tested_on?: string }).tested_on ?? ''),
+      })
     }
     if (data.length < pageSize) break
     from += pageSize
+  }
+  return rows
+}
+
+async function countUniqueValvesBetween(
+  start: string,
+  end: string,
+  companyScope: { workflowKey: 'js-valve' | 'vsi'; activeOrganization: Organization | null },
+) {
+  const rows = await loadTestLogValveIdsBetween(start, end)
+  const scoped = await filterTestLogsForCompany(rows, companyScope)
+  const unique = new Set<string>()
+  for (const row of scoped) {
+    const valveId = String(row.valve_id ?? '').trim().toUpperCase()
+    if (valveId) unique.add(valveId)
   }
   return unique.size
 }
@@ -191,7 +209,10 @@ function buildEmptyLast12MonthComparisons(reference = new Date()): MonthVolumeBu
   return months
 }
 
-async function loadLast12MonthVolumes(reference = new Date()): Promise<MonthVolumeBucket[]> {
+async function loadLast12MonthVolumes(
+  companyScope: { workflowKey: 'js-valve' | 'vsi'; activeOrganization: Organization | null },
+  reference = new Date(),
+): Promise<MonthVolumeBucket[]> {
   const buckets = buildEmptyLast12MonthComparisons(reference)
   const counts = new Map<string, number>()
   for (const bucket of buckets) {
@@ -202,24 +223,12 @@ async function loadLast12MonthVolumes(reference = new Date()): Promise<MonthVolu
   const oldestPrior = new Date(reference.getFullYear() - 1, reference.getMonth() - 11, 1)
   const rangeStart = monthRange(oldestPrior).start
   const rangeEnd = monthRange(reference).end
-  const pageSize = 1000
-  let from = 0
-
-  while (true) {
-    const { data, error } = await supabase
-      .from('test_logs')
-      .select('tested_on')
-      .gte('tested_on', rangeStart)
-      .lte('tested_on', rangeEnd)
-      .range(from, from + pageSize - 1)
-    if (error || !data?.length) break
-    for (const row of data) {
-      const key = String((row as { tested_on?: string }).tested_on ?? '').slice(0, 7)
-      if (!counts.has(key)) continue
-      counts.set(key, (counts.get(key) ?? 0) + 1)
-    }
-    if (data.length < pageSize) break
-    from += pageSize
+  const rows = await loadTestLogValveIdsBetween(rangeStart, rangeEnd)
+  const scoped = await filterTestLogsForCompany(rows, companyScope)
+  for (const row of scoped) {
+    const key = String(row.tested_on ?? '').slice(0, 7)
+    if (!counts.has(key)) continue
+    counts.set(key, (counts.get(key) ?? 0) + 1)
   }
 
   return buckets.map((bucket) => {
@@ -253,6 +262,13 @@ export function TestLogEntryPage() {
   const { role } = useAuth()
   const { activeOrganization } = useOrganization()
   const workflow = useCompanyWorkflow()
+  const companyScope = useMemo(
+    () => ({
+      workflowKey: resolveActiveCompanyKey(workflow.key, activeOrganization),
+      activeOrganization,
+    }),
+    [workflow.key, activeOrganization],
+  )
   const canWrite = canWriteShop(role)
   const [rows, setRows] = useState<TestLogEntry[]>([])
   const [valveSearch, setValveSearch] = useState('')
@@ -297,26 +313,8 @@ export function TestLogEntryPage() {
     setTableFilters((prev) => ({ ...prev, [key]: selected }))
   }
 
-  const loadPeriodStats = async () => {
+  const loadPeriodStats = useCallback(async () => {
     setPeriodStats((prev) => ({ ...prev, loading: true }))
-    // VSI local demo starts with no shop valves / test history.
-    if (workflow.key === 'vsi') {
-      setPeriodStats({
-        loading: false,
-        testsThisMonth: 0,
-        testsPrevMonth: 0,
-        valvesThisMonth: 0,
-        valvesThisYear: 0,
-        monthlyVolumes: buildEmptyLast12MonthComparisons().map((bucket) => ({
-          ...bucket,
-          priorCount: 0,
-          currentCount: 0,
-          changePct: null,
-        })),
-      })
-      return
-    }
-
     const now = new Date()
     const thisMonth = monthRange(now)
     const prevMonth = previousMonthRange(now)
@@ -324,11 +322,11 @@ export function TestLogEntryPage() {
     const yearEnd = todayIsoDate()
 
     const [testsThisMonth, testsPrevMonth, valvesThisMonth, valvesThisYear, monthlyVolumes] = await Promise.all([
-      countTestLogsBetween(thisMonth.start, thisMonth.end),
-      countTestLogsBetween(prevMonth.start, prevMonth.end),
-      countUniqueValvesBetween(thisMonth.start, thisMonth.end),
-      countUniqueValvesBetween(yearStart, yearEnd),
-      loadLast12MonthVolumes(now),
+      countTestLogsBetween(thisMonth.start, thisMonth.end, companyScope),
+      countTestLogsBetween(prevMonth.start, prevMonth.end, companyScope),
+      countUniqueValvesBetween(thisMonth.start, thisMonth.end, companyScope),
+      countUniqueValvesBetween(yearStart, yearEnd, companyScope),
+      loadLast12MonthVolumes(companyScope, now),
     ])
 
     setPeriodStats({
@@ -339,33 +337,50 @@ export function TestLogEntryPage() {
       valvesThisYear,
       monthlyVolumes,
     })
-  }
+  }, [companyScope])
 
   const loadRows = async (searchOverride?: string) => {
     setLoadingRows(true)
+    if (companyScope.workflowKey === 'vsi') {
+      const vsiIds = await loadVsiValveIdStrings(activeOrganization)
+      if (!vsiIds.size) {
+        setRows([])
+        setValveDescriptions({})
+        setLoadingRows(false)
+        return
+      }
+    }
     const selectColumns = await testLogSelectColumns()
-    let query = supabase
-      .from('test_logs')
-      .select(selectColumns)
-      .order('tested_on', { ascending: false })
-      .order('created_at', { ascending: false })
-      .limit(300)
-
+    const collected: TestLogEntry[] = []
+    const pageSize = 300
+    let from = 0
     const rawSearch = searchOverride !== undefined ? searchOverride : valveSearch
     const normalizedSearch = normalizeValveId(rawSearch)
-    if (normalizedSearch) query = query.ilike('valve_id', `%${normalizedSearch}%`)
-    if (filterValveType) {
-      const typeOr = valveTypeOrFilter('valve_type', filterValveType)
-      if (typeOr) query = query.or(typeOr)
-    }
-    if (filterStartDate) query = query.gte('tested_on', filterStartDate)
-    if (filterEndDate) query = query.lte('tested_on', filterEndDate)
 
-    const { data } = await query
-    const nextRows = await filterTestLogsForCompany((data as unknown as TestLogEntry[]) ?? [], {
-      workflowKey: workflow.key,
-      activeOrganization,
-    })
+    while (collected.length < 300) {
+      let query = supabase
+        .from('test_logs')
+        .select(selectColumns)
+        .order('tested_on', { ascending: false })
+        .order('created_at', { ascending: false })
+        .range(from, from + pageSize - 1)
+      if (normalizedSearch) query = query.ilike('valve_id', `%${normalizedSearch}%`)
+      if (filterValveType) {
+        const typeOr = valveTypeOrFilter('valve_type', filterValveType)
+        if (typeOr) query = query.or(typeOr)
+      }
+      if (filterStartDate) query = query.gte('tested_on', filterStartDate)
+      if (filterEndDate) query = query.lte('tested_on', filterEndDate)
+      const { data } = await query
+      if (!data?.length) break
+      const scoped = await filterTestLogsForCompany((data as unknown as TestLogEntry[]) ?? [], companyScope)
+      collected.push(...scoped)
+      if (data.length < pageSize) break
+      from += pageSize
+      if (from >= 5000) break
+    }
+
+    const nextRows = collected.slice(0, 300)
     setRows(nextRows)
     const descriptions = await fetchValveDescriptionsByIds(nextRows.map((row) => row.valve_id))
     setValveDescriptions(descriptions)
@@ -376,9 +391,9 @@ export function TestLogEntryPage() {
     void testLogHasDetailsColumn().then(setDetailsColumnReady)
     void loadRows()
     void loadPeriodStats()
-    // Reload when active company changes.
+    // Reload when active company changes so VSI does not show JS test history.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [workflow.key, activeOrganization?.id])
+  }, [companyScope.workflowKey, activeOrganization?.id])
 
   useEffect(() => {
     const run = async () => {
@@ -391,11 +406,12 @@ export function TestLogEntryPage() {
         .from('test_logs')
         .select('valve_id')
         .ilike('valve_id', `%${normalizedSearch}%`)
-        .limit(12)
-      setSearchOptions(Array.from(new Set((data ?? []).map((row: { valve_id: string }) => row.valve_id))))
+        .limit(40)
+      const scoped = await filterTestLogsForCompany((data as { valve_id: string }[]) ?? [], companyScope)
+      setSearchOptions(Array.from(new Set(scoped.map((row) => row.valve_id))).slice(0, 12))
     }
     void run()
-  }, [valveSearch])
+  }, [companyScope, valveSearch])
 
   const filterOptions = useMemo(
     () => ({
@@ -517,7 +533,11 @@ export function TestLogEntryPage() {
       <div className="dashboard-title-row">
         <div>
           <h2 className="dashboard-title">Test log</h2>
-          <p className="test-log-page-subtitle">Shop testing activity — enter a valve, then review recent results.</p>
+          <p className="test-log-page-subtitle">
+            {companyScope.workflowKey === 'vsi'
+              ? 'VSI shop testing activity. Historical JS Valve tests are not included.'
+              : 'Shop testing activity — enter a valve, then review recent results.'}
+          </p>
         </div>
       </div>
 

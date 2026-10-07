@@ -10,6 +10,15 @@ import { RequiredTestParametersPanel } from './RequiredTestParametersPanel'
 import { ReliefValveFields } from './ReliefValveFields'
 import { useToast } from '../ToastNotification'
 import { useAuth } from '../../contexts/AuthContext'
+import { useOrganization } from '../../contexts/OrganizationContext'
+import { useCompanyWorkflow } from '../../hooks/useCompanyWorkflow'
+import {
+  filterGaugesForCompany,
+  filterTestLogsForCompany,
+  rememberTestLogValveIdForCompany,
+  rememberValveForCompany,
+  resolveActiveCompanyKey,
+} from '../../lib/companyDataScope'
 import { useEmployees } from '../../hooks/useEmployees'
 import { notifyWarehouseTestAndDispose } from '../../lib/messages'
 import { loadActiveTestGauges, filterChartRecorderGauges, filterPressureTestGauges } from '../../lib/testGaugeRegistry'
@@ -135,6 +144,9 @@ export function TestLogEntryForm({
   editingEntry = null,
   onCancelEdit,
 }: TestLogEntryFormProps) {
+  const { activeOrganization } = useOrganization()
+  const workflow = useCompanyWorkflow()
+  const companyKey = resolveActiveCompanyKey(workflow.key, activeOrganization)
   const [searchParams, setSearchParams] = useSearchParams()
   const [testedOn, setTestedOn] = useState(todayIso())
   const [valveId, setValveId] = useState('')
@@ -331,7 +343,10 @@ export function TestLogEntryForm({
       setValveSizeOptions(map.valve_size ?? [])
 
       try {
-        const gauges = await loadActiveTestGauges()
+        const gauges = filterGaugesForCompany(await loadActiveTestGauges(), {
+          workflowKey: companyKey,
+          activeOrganization,
+        })
         setGaugeOptions(filterPressureTestGauges(gauges))
         setChartRecorderOptions(filterChartRecorderGauges(gauges))
       } catch {
@@ -339,7 +354,7 @@ export function TestLogEntryForm({
         setChartRecorderOptions([])
       }
     })()
-  }, [])
+  }, [activeOrganization, companyKey])
 
   const applyUrlPrefillOverrides = () => {
     const sz = searchParams.get(TEST_LOG_PREFILL_KEYS.size)
@@ -479,7 +494,11 @@ export function TestLogEntryForm({
       try {
         const rows = await listTestLogValvesByType(startTypeFilter)
         if (cancelled) return
-        setTypeCandidates(rows)
+        const scoped = await filterTestLogsForCompany(
+          rows.map((row) => ({ ...row, valve_id: row.valveId })),
+          { workflowKey: companyKey, activeOrganization },
+        )
+        setTypeCandidates(scoped)
       } catch {
         if (cancelled) return
         setTypeCandidates([])
@@ -491,7 +510,7 @@ export function TestLogEntryForm({
     return () => {
       cancelled = true
     }
-  }, [startTypeFilter, entryStarted])
+  }, [startTypeFilter, entryStarted, companyKey, activeOrganization])
 
   useEffect(() => {
     if (entryStarted) return
@@ -506,7 +525,12 @@ export function TestLogEntryForm({
     const timer = window.setTimeout(() => {
       void (async () => {
         const options = await searchValveIdsForTestLog(trimmed)
-        if (!cancelled) setValveIdOptions(options)
+        if (cancelled) return
+        const scoped = await filterTestLogsForCompany(
+          options.map((valve_id) => ({ valve_id })),
+          { workflowKey: companyKey, activeOrganization },
+        )
+        setValveIdOptions(scoped.map((row) => row.valve_id))
       })()
     }, 350)
 
@@ -514,7 +538,7 @@ export function TestLogEntryForm({
       cancelled = true
       window.clearTimeout(timer)
     }
-  }, [valveId, entryStarted, startTypeFilter])
+  }, [valveId, entryStarted, startTypeFilter, companyKey, activeOrganization])
 
   const resetForm = async () => {
     setValveId('')
@@ -744,6 +768,8 @@ export function TestLogEntryForm({
       savedId = savedRow.id
     }
 
+    rememberTestLogValveIdForCompany(companyKey, normalizedValveId)
+
     if (pendingReportFiles.length && savedId != null) {
       let uploaded = 0
       for (const file of pendingReportFiles) {
@@ -768,6 +794,7 @@ export function TestLogEntryForm({
         .maybeSingle()
 
       if (valve?.id) {
+        rememberValveForCompany(companyKey, valve.id)
         const stampPre = shopTestKind === 'pre'
         const patch: { date_tested?: string; date_pre_tested?: string; status?: string } = stampPre
           ? { date_pre_tested: testedOn }

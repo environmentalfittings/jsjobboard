@@ -3,10 +3,15 @@ import { Link } from 'react-router-dom'
 import { ItpAddToTravelerModal } from './ItpAddToTravelerModal'
 import { ItpClearFlagModal } from './ItpClearFlagModal'
 import { ItpFlagIssueModal } from './ItpFlagIssueModal'
+import { ItpOemProcedureDocs } from './ItpOemProcedureDocs'
 import { ItpQcChangeNoteModal } from './ItpQcChangeNoteModal'
+import { ItpStationSelect } from './ItpStationSelect'
+import { JobNeededPartModal } from './JobNeededPartModal'
+import { OrderReplacementPartsForm } from './OrderReplacementPartsForm'
 import { useToast } from './ToastNotification'
 import { useAuth } from '../contexts/AuthContext'
 import { useEmployees } from '../hooks/useEmployees'
+import { useJobNeededParts } from '../hooks/useJobNeededParts'
 import {
   findLibraryItem,
   ITP_LIBRARY,
@@ -15,8 +20,8 @@ import {
   type ItpLibraryJobType,
 } from '../constants/itpLibrary'
 import { normalizeProcessSections, resolveLibrarySectionId } from '../constants/itpProcessSections'
-import { defaultShopAreas, itpShopAreaLabel, normalizeShopAreaValue, type ItpShopAreaDef } from '../constants/itpShopAreas'
-import { defaultAreaForSection, loadItpMasterCatalog } from '../lib/itpMasterCatalog'
+import { defaultShopAreas, normalizeShopAreaValue, type ItpShopAreaDef } from '../constants/itpShopAreas'
+import { defaultAreaForSection, fillEmptyShopAreasFromCatalog, loadItpMasterCatalog, resolveItpItemShopArea } from '../lib/itpMasterCatalog'
 import {
   deleteItpLibraryAttachment,
   isItpLibraryAttachmentImage,
@@ -34,19 +39,27 @@ import {
   selFromRequirementDefaults,
 } from '../lib/itpItemRequirements'
 import { builtinRequirementDefaults } from '../lib/itpMasterCatalog'
+import { migrateFastenerRecordSel } from '../lib/itpFastenerRecord'
+import { isOrderReplacementPartsItem } from '../lib/itpOrderParts'
+import { formatNeededPartsSummary } from '../lib/jobNeededParts'
+import { stepUsesOemOrProcedure } from '../lib/itpOemProcedure'
 import { loadItpLibraryPlan, saveItpLibraryPlan } from '../lib/itpLibraryStorage'
-import { buildItpPageUrl, createItpQrDataUrl } from '../lib/itpQrCode'
+import { buildItpTravelerUrl, createItpQrDataUrl } from '../lib/itpQrCode'
 import { notifyQualityTeamItpItemFlagged } from '../lib/messages'
 import {
   canAcceptItp,
   canEditItpBuildScope,
   canReopenItp,
+  diffItpScopeChanges,
   diffItpScopeSummary,
   isQualityTeamFlagOwner,
+  itpScopeChangeById,
+  itpScopeChangesForPlan,
   itpScopeFingerprint,
   loadCurrentUserQualityTeamLevel,
   qcReviewStatusLabel,
   resolveQualityTeamLevelFromEmployees,
+  snapshotItpScope,
 } from '../lib/qualityTeam'
 import { hasAdminAccess } from '../lib/roles'
 import {
@@ -97,10 +110,12 @@ type BuildScopeRow = {
   custom: boolean
 }
 
-function resolveItemShopArea(sel: ItpLibraryItemSel, effectiveSecId: string): string {
-  const fromSel = normalizeShopAreaValue(sel.shopArea)
-  if (fromSel) return fromSel
-  return defaultAreaForSection(effectiveSecId)
+function resolveItemShopArea(
+  sel: ItpLibraryItemSel,
+  effectiveSecId: string,
+  catalogArea?: string | null,
+): string {
+  return resolveItpItemShopArea(sel.shopArea, effectiveSecId, catalogArea)
 }
 
 function compareBuildScopeRows(
@@ -136,6 +151,7 @@ export function ItpLibraryEditor({ valve, onClose, readOnly = false }: ItpLibrar
   const { showToast } = useToast()
   const { user, username, role } = useAuth()
   const { employees } = useEmployees()
+  const parts = useJobNeededParts(valve.id)
   const isShopAdmin = hasAdminAccess(role)
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
@@ -175,19 +191,25 @@ export function ItpLibraryEditor({ valve, onClose, readOnly = false }: ItpLibrar
   const [detailsOpen, setDetailsOpen] = useState(false)
   const [qrDataUrl, setQrDataUrl] = useState<string | null>(null)
   const [shopAreaOptions, setShopAreaOptions] = useState<ItpShopAreaDef[]>(() => defaultShopAreas())
+  const [catalogAreaById, setCatalogAreaById] = useState<Record<string, string>>({})
   const [dirty, setDirty] = useState(false)
   const [saveHint, setSaveHint] = useState<'idle' | 'unsaved' | 'saving' | 'saved' | 'error'>('idle')
   const autoSaveGenRef = useRef(0)
   const dirtyGenRef = useRef(0)
 
-  const itpPageUrl = useMemo(() => buildItpPageUrl(valve.id), [valve.id])
+  const itpPageUrl = useMemo(() => buildItpTravelerUrl(valve.id), [valve.id])
 
   useEffect(() => {
     let cancelled = false
     void loadItpMasterCatalog()
       .then((state) => {
-        if (cancelled || !state.areas.length) return
-        setShopAreaOptions(state.areas)
+        if (cancelled) return
+        if (state.areas.length) setShopAreaOptions(state.areas)
+        const areasById: Record<string, string> = {}
+        for (const item of state.items) {
+          if (item.area) areasById[item.id] = item.area
+        }
+        setCatalogAreaById(areasById)
       })
       .catch(() => {
         /* keep built-in floor stations */
@@ -397,6 +419,12 @@ export function ItpLibraryEditor({ valve, onClose, readOnly = false }: ItpLibrar
     prev.sel[itemId] ?? emptyItemSel()
 
   const scopeItems = useMemo(() => (plan ? allScopeItems(plan) : []), [plan])
+  const scopeChanges = useMemo(() => (plan ? itpScopeChangesForPlan(plan) : []), [plan])
+  const scopeChangeById = useMemo(() => itpScopeChangeById(scopeChanges), [scopeChanges])
+  const removedScopeChanges = useMemo(
+    () => scopeChanges.filter((row) => row.kind === 'removed'),
+    [scopeChanges],
+  )
   const libraryItemIndex = useMemo(() => {
     const map = new Map<string, number>()
     let pos = 0
@@ -703,6 +731,10 @@ export function ItpLibraryEditor({ valve, onClose, readOnly = false }: ItpLibrar
       note: options.note,
       summary: options.summary,
     }
+    const previousSnapshot = qc.acceptedScope
+    const nextSnapshot = snapshotItpScope(source)
+    const lastRevisionChanges =
+      previousSnapshot && previousSnapshot.length > 0 ? diffItpScopeChanges(previousSnapshot, source) : []
     return {
       ...source,
       // Accepter is recorded on qcReview / "ITP Reviewed and Accepted by" — not as QC Manager.
@@ -716,6 +748,8 @@ export function ItpLibraryEditor({ valve, onClose, readOnly = false }: ItpLibrar
         acceptedByName: username || 'Quality Team',
         acceptedByLevel: acceptedByLevelForLog,
         changeLog: [...(qc.changeLog ?? []), ...(options.extraChangeEntries ?? []), acceptEntry],
+        acceptedScope: nextSnapshot,
+        lastRevisionChanges: lastRevisionChanges.length > 0 ? lastRevisionChanges : null,
       },
     }
   }
@@ -732,11 +766,19 @@ export function ItpLibraryEditor({ valve, onClose, readOnly = false }: ItpLibrar
     ) {
       return
     }
+    const lastSaved = lastSavedPlanRef.current
+    const scopeSummary = lastSaved ? diffItpScopeSummary(lastSaved, plan) : null
     setSaving(true)
     try {
-      await persistPlan(buildAcceptedPlan(plan, { note: 'Accepted ITP', summary: 'Accepted' }), {
-        successToast: 'ITP accepted',
-      })
+      await persistPlan(
+        buildAcceptedPlan(plan, {
+          note: scopeSummary ? `Accepted ITP. ${scopeSummary}` : 'Accepted ITP',
+          summary: scopeSummary ? `Accepted — ${scopeSummary}` : 'Accepted',
+        }),
+        {
+          successToast: scopeSummary ? 'ITP accepted — changes recorded' : 'ITP accepted',
+        },
+      )
     } catch (error) {
       showToast(error instanceof Error ? error.message : 'Failed to accept ITP')
     } finally {
@@ -844,14 +886,14 @@ export function ItpLibraryEditor({ valve, onClose, readOnly = false }: ItpLibrar
           const found = findLibraryItem(itemId)
           if (found?.item.defaultSubReqs?.length) subReqs = [...found.item.defaultSubReqs]
         }
-        next = {
+        next = migrateFastenerRecordSel(itemId, {
           ...selFromRequirementDefaults(
             { ...current, included: true, subReqs },
             builtinRequirementDefaults(itemId),
           ),
           included: true,
           subReqs,
-        }
+        })
       }
       return {
         ...prev,
@@ -968,7 +1010,7 @@ export function ItpLibraryEditor({ valve, onClose, readOnly = false }: ItpLibrar
           const found = findLibraryItem(row.id)
           if (found?.item.defaultSubReqs?.length) subReqs = [...found.item.defaultSubReqs]
         }
-        sel[row.id] = { ...current, included: select, subReqs }
+        sel[row.id] = migrateFastenerRecordSel(row.id, { ...current, included: select, subReqs })
       }
       return { ...prev, sel }
     })
@@ -1423,6 +1465,20 @@ export function ItpLibraryEditor({ valve, onClose, readOnly = false }: ItpLibrar
     })
   }
 
+  const setItemResourceDocs = (itemId: string, resourceDocs: ItpLibraryItemSel['resourceDocs']) => {
+    if (readOnly) return
+    updatePlan((prev) => {
+      const sel = ensureSel(prev, itemId)
+      return {
+        ...prev,
+        sel: {
+          ...prev.sel,
+          [itemId]: { ...sel, resourceDocs },
+        },
+      }
+    })
+  }
+
   const toggleSubDone = (itemId: string, index: number) => {
     if (readOnly) return
     const key = String(index)
@@ -1461,8 +1517,12 @@ export function ItpLibraryEditor({ valve, onClose, readOnly = false }: ItpLibrar
           replaceIncludes: true,
           templateName: templateName || undefined,
         })
+        const catalog = await loadItpMasterCatalog().catch(() => null)
+        const filled = catalog
+          ? fillEmptyShopAreasFromCatalog(applied.plan, catalog.items)
+          : applied.plan
         const next = {
-          ...applied.plan,
+          ...filled,
           scopeTemplateName: applied.templateName,
         }
         updatePlan(() => next)
@@ -1532,6 +1592,9 @@ export function ItpLibraryEditor({ valve, onClose, readOnly = false }: ItpLibrar
           <p className="itp-library-jb-note">
             Build scope on the left; the checklist on the right updates as you select items.{' '}
             <Link to={`/itp/${valve.id}/traveler`}>Open Traveler</Link>
+            {' · '}
+            <Link to="/needed-parts">Needs parts</Link>
+            {parts.rows.length > 0 ? ` · ${formatNeededPartsSummary(parts.rows)}` : ''}
             {travelerReportStats.total > 0 ? (
               <span className="itp-library-traveler-capture-count">
                 {' '}
@@ -1556,6 +1619,14 @@ export function ItpLibraryEditor({ valve, onClose, readOnly = false }: ItpLibrar
           {(plan.qcReview.changeLog?.length ?? 0) > 0 ? (
             <div className="itp-library-qc-changelog">
               <strong>QC change history</strong>
+              {scopeChanges.length > 0 ? (
+                <p className="itp-library-change-legend">
+                  Highlighted vs last accept:{' '}
+                  {scopeChanges.filter((row) => row.kind === 'added').length} added,{' '}
+                  {scopeChanges.filter((row) => row.kind === 'modified').length} changed,{' '}
+                  {removedScopeChanges.length} removed
+                </p>
+              ) : null}
               <ul>
                 {[...(plan.qcReview.changeLog ?? [])]
                   .slice()
@@ -1568,8 +1639,11 @@ export function ItpLibraryEditor({ valve, onClose, readOnly = false }: ItpLibrar
                     const level = entry.byLevel
                       ? qualityTeamLevelLabel(normalizeQualityTeamLevel(entry.byLevel))
                       : null
+                    const isDetail =
+                      entry.summary.startsWith('Accepted —') ||
+                      (entry.summary !== 'Accepted' && entry.summary !== 'Reopened')
                     return (
-                      <li key={entry.id}>
+                      <li key={entry.id} className={isDetail ? 'is-change' : undefined}>
                         <span className="itp-library-qc-changelog-meta">
                           {when} · {entry.byName}
                           {level ? ` (${level})` : ''}
@@ -1588,9 +1662,10 @@ export function ItpLibraryEditor({ valve, onClose, readOnly = false }: ItpLibrar
         <div className="itp-library-job-bar-side">
           {qrDataUrl ? (
             <div className="itp-library-qr-block">
-              <img className="itp-library-qr-img" src={qrDataUrl} alt={`QR code for ITP ${snap.valveId}`} />
+              <img className="itp-library-qr-img" src={qrDataUrl} alt={`QR code to log in to traveler ${snap.valveId}`} />
               <div className="itp-library-qr-caption">
-                <strong>Scan to open ITP</strong>
+                <strong>Scan to log in</strong>
+                <span>Opens this traveler after shop login</span>
                 <span className="itp-library-qr-url">{itpPageUrl}</span>
               </div>
             </div>
@@ -1733,9 +1808,15 @@ export function ItpLibraryEditor({ valve, onClose, readOnly = false }: ItpLibrar
 
                   {rows.map((row, indexInSection) => {
                     const sel = getSel(plan, row.id)
-                    const shopArea = resolveItemShopArea(sel, section.id)
+                    const shopArea = resolveItemShopArea(sel, section.id, catalogAreaById[row.id])
+                    const change = scopeChangeById.get(row.id)
                     return (
-                      <div key={row.id} className={`itp-library-lib-item${sel.included ? ' sel' : ''}`}>
+                      <div
+                        key={row.id}
+                        className={`itp-library-lib-item${sel.included ? ' sel' : ''}${
+                          change ? ` is-change is-change--${change.kind}` : ''
+                        }`}
+                      >
                         {canEditScope ? (
                           <div className="itp-master-item-toolbar">
                             <button
@@ -1756,22 +1837,13 @@ export function ItpLibraryEditor({ valve, onClose, readOnly = false }: ItpLibrar
                             >
                               ↓
                             </button>
-                            <select
-                              className="itp-master-area-select"
+                            <ItpStationSelect
+                              variant="toolbar"
                               value={shopArea}
-                              onChange={(e) => changeScopeItemShopArea(row.id, e.target.value)}
-                              title="Assigned station"
-                              onClick={(e) => e.stopPropagation()}
-                            >
-                              {shopAreaOptions.map((opt) => (
-                                <option key={opt.value} value={opt.value}>
-                                  {opt.label}
-                                </option>
-                              ))}
-                              {!shopAreaOptions.some((opt) => opt.value === shopArea) && shopArea ? (
-                                <option value={shopArea}>{itpShopAreaLabel(shopArea, shopAreaOptions)}</option>
-                              ) : null}
-                            </select>
+                              areas={shopAreaOptions}
+                              disabled={!canEditScope}
+                              onChange={(area) => changeScopeItemShopArea(row.id, area)}
+                            />
                             <select
                               className="itp-master-section-select"
                               value={section.id}
@@ -1817,10 +1889,30 @@ export function ItpLibraryEditor({ valve, onClose, readOnly = false }: ItpLibrar
                             <div className="itp-library-lin">
                               {row.name}
                               {row.custom ? <span className="itp-library-custom-tag"> (custom)</span> : null}
+                              {change ? (
+                                <span
+                                  className={`itp-library-change-badge itp-library-change-badge--${change.kind}`}
+                                  title={change.details.join('. ')}
+                                >
+                                  {change.kind === 'added'
+                                    ? 'Added'
+                                    : change.kind === 'removed'
+                                      ? 'Removed'
+                                      : 'Changed'}
+                                </span>
+                              ) : null}
                             </div>
                             <div className="itp-library-lref">
                               {row.ref}
-                              {!canEditScope ? ` · ${itpShopAreaLabel(shopArea)}` : null}
+                              {shopArea ? (
+                                <ItpStationSelect
+                                  variant="badge"
+                                  value={shopArea}
+                                  areas={shopAreaOptions}
+                                  disabled={!canEditScope}
+                                  onChange={(area) => changeScopeItemShopArea(row.id, area)}
+                                />
+                              ) : null}
                             </div>
                           </div>
                         </div>
@@ -1881,7 +1973,7 @@ export function ItpLibraryEditor({ valve, onClose, readOnly = false }: ItpLibrar
                                     setTravelerItem({
                                       id: row.id,
                                       name: row.name,
-                                      shopArea: resolveItemShopArea(sel, section.id),
+                                      shopArea: resolveItemShopArea(sel, section.id, catalogAreaById[row.id]),
                                     })
                                   }}
                                 >
@@ -1901,6 +1993,14 @@ export function ItpLibraryEditor({ valve, onClose, readOnly = false }: ItpLibrar
                                   onChange={(e) => setItemNotes(row.id, e.target.value)}
                                 />
                               </label>
+                              {stepUsesOemOrProcedure(row.name) || (sel.resourceDocs?.length ?? 0) > 0 ? (
+                                <ItpOemProcedureDocs
+                                  docs={sel.resourceDocs ?? []}
+                                  valveType={valve.valve_type ?? plan.valveType ?? ''}
+                                  readOnly={readOnly}
+                                  onChange={(resourceDocs) => setItemResourceDocs(row.id, resourceDocs)}
+                                />
+                              ) : null}
                               {!row.custom
                                 ? sel.subReqs.map((sr, idx) => (
                                     <div key={`${row.id}-sr-${idx}`} className="itp-library-sub-req-row">
@@ -2027,6 +2127,13 @@ export function ItpLibraryEditor({ valve, onClose, readOnly = false }: ItpLibrar
 
               {renderSaveBar('top')}
 
+              {removedScopeChanges.length > 0 ? (
+                <div className="itp-library-removed-banner" role="status">
+                  <strong>Removed since last accept:</strong>{' '}
+                  {removedScopeChanges.map((row) => row.name).join('; ')}
+                </div>
+              ) : null}
+
               <div className="itp-library-panel-body">
                 <div className="itp-library-job-details">
                   <button type="button" className="itp-library-jd-hdr" onClick={() => setDetailsOpen((v) => !v)}>
@@ -2138,10 +2245,13 @@ export function ItpLibraryEditor({ valve, onClose, readOnly = false }: ItpLibrar
                                     ? 'Sign off hold point'
                                     : 'Submit for supervisor sign-off'
                                   : 'Mark done'
+                        const change = scopeChangeById.get(it.id)
                         return (
                           <div
                             key={it.id}
-                            className={`itp-library-exec-item${itemLocked ? ' is-blocked' : ''}`}
+                            className={`itp-library-exec-item${itemLocked ? ' is-blocked' : ''}${
+                              change ? ` is-change is-change--${change.kind}` : ''
+                            }`}
                           >
                             {sel.holdPoint ? (
                               <div className="itp-library-hp-divider">
@@ -2175,6 +2285,14 @@ export function ItpLibraryEditor({ valve, onClose, readOnly = false }: ItpLibrar
                                 <div className="itp-library-exec-body">
                                   <div className="itp-library-en">
                                     {it.name}{' '}
+                                    {change ? (
+                                      <span
+                                        className={`itp-library-change-badge itp-library-change-badge--${change.kind}`}
+                                        title={change.details.join('. ')}
+                                      >
+                                        {change.kind === 'added' ? 'Added' : 'Changed'}
+                                      </span>
+                                    ) : null}
                                     {sel.holdPoint ? <span className="itp-library-hp-badge">HOLD POINT</span> : null}
                                     {ex.holdPending && !ex.done ? (
                                       <span className="itp-library-hp-badge pending">Pending sign-off</span>
@@ -2194,10 +2312,17 @@ export function ItpLibraryEditor({ valve, onClose, readOnly = false }: ItpLibrar
                                   </div>
                                   <div className="itp-library-er">
                                     [{it.ref}]
-                                    {it.sel.shopArea || it.secId
-                                      ? ` · ${itpShopAreaLabel(resolveItemShopArea(it.sel, it.secId))}`
-                                      : ''}
+                                    <ItpStationSelect
+                                      variant="badge"
+                                      value={resolveItemShopArea(it.sel, it.secId, catalogAreaById[it.id])}
+                                      areas={shopAreaOptions}
+                                      disabled={!canEditScope}
+                                      onChange={(area) => changeScopeItemShopArea(it.id, area)}
+                                    />
                                   </div>
+                                  {change && change.details.length > 0 ? (
+                                    <p className="itp-library-change-details">{change.details.join(' · ')}</p>
+                                  ) : null}
                                   {sel.travelerEntry?.notes ? (
                                     <p className="itp-library-traveler-entry-note">
                                       <strong>Traveler:</strong> {sel.travelerEntry.notes}
@@ -2211,7 +2336,7 @@ export function ItpLibraryEditor({ valve, onClose, readOnly = false }: ItpLibrar
                                               setTravelerItem({
                                                 id: it.id,
                                                 name: it.name,
-                                                shopArea: resolveItemShopArea(sel, it.secId),
+                                                shopArea: resolveItemShopArea(sel, it.secId, catalogAreaById[it.id]),
                                               })
                                             }
                                           >
@@ -2228,7 +2353,7 @@ export function ItpLibraryEditor({ valve, onClose, readOnly = false }: ItpLibrar
                                         setTravelerItem({
                                           id: it.id,
                                           name: it.name,
-                                          shopArea: resolveItemShopArea(sel, it.secId),
+                                          shopArea: resolveItemShopArea(sel, it.secId, catalogAreaById[it.id]),
                                         })
                                       }
                                     >
@@ -2240,7 +2365,7 @@ export function ItpLibraryEditor({ valve, onClose, readOnly = false }: ItpLibrar
                                       <div className="itp-library-item-photos-hdr">
                                         {sel.pictureLabel.trim() || 'Required photos'}{' '}
                                         <span>
-                                          ({(ex.photos ?? []).length}/{Math.max(1, sel.minPhotos || 1)})
+                                          ({(ex.photos ?? []).length}/{Math.max(1, sel.maxPhotos || sel.minPhotos || 1)})
                                         </span>
                                       </div>
                                       <div className="itp-library-item-photos-grid">
@@ -2312,6 +2437,24 @@ export function ItpLibraryEditor({ valve, onClose, readOnly = false }: ItpLibrar
                                     placeholder="Notes, observations…"
                                     onChange={(e) => setItemNotes(it.id, e.target.value)}
                                   />
+                                  {stepUsesOemOrProcedure(it.name) || (sel.resourceDocs?.length ?? 0) > 0 ? (
+                                    <ItpOemProcedureDocs
+                                      docs={sel.resourceDocs ?? []}
+                                      valveType={valve.valve_type ?? plan.valveType ?? ''}
+                                      readOnly={controlsDisabled}
+                                      onChange={(resourceDocs) => setItemResourceDocs(it.id, resourceDocs)}
+                                    />
+                                  ) : null}
+                                  {isOrderReplacementPartsItem(it.id) ? (
+                                    <OrderReplacementPartsForm
+                                      rows={parts.rows}
+                                      canEdit={!readOnly}
+                                      saving={parts.saving}
+                                      onSaveKind={parts.upsertPart}
+                                      onAddOther={parts.addPart}
+                                      onRemove={(partId) => void parts.removePart(partId)}
+                                    />
+                                  ) : null}
                                   <div className="itp-library-print-notes" aria-hidden="true">
                                     <span className="itp-library-print-notes-label">Notes</span>
                                     <span className="itp-library-print-notes-line">{sel.notes || ex.notes || '\u00a0'}</span>
@@ -2398,6 +2541,15 @@ export function ItpLibraryEditor({ valve, onClose, readOnly = false }: ItpLibrar
                                   ) : null}
                                 </div>
                                 <div className="itp-library-exec-acts">
+                                  <button
+                                    type="button"
+                                    className="itp-library-edit-btn"
+                                    disabled={readOnly}
+                                    title="Add a required part for purchasing"
+                                    onClick={() => parts.setNeedPartItem({ id: it.id, name: it.name })}
+                                  >
+                                    Need part
+                                  </button>
                                   <button
                                     type="button"
                                     className={`itp-library-flag-btn${isOpenItpFlag(ex) ? ' on' : ''}${isResolvedItpFlag(ex) ? ' resolved' : ''}`}
@@ -2747,6 +2899,15 @@ export function ItpLibraryEditor({ valve, onClose, readOnly = false }: ItpLibrar
             if (!saving) setPendingAcceptWithChanges(null)
           }}
           onConfirm={(note) => void confirmAcceptWithChanges(note)}
+        />
+      ) : null}
+
+      {parts.needPartItem ? (
+        <JobNeededPartModal
+          stepName={parts.needPartItem.name}
+          saving={parts.saving}
+          onClose={() => parts.setNeedPartItem(null)}
+          onSave={parts.addPart}
         />
       ) : null}
     </section>

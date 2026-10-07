@@ -2,6 +2,9 @@ import { useEffect, useState, type ReactNode } from 'react'
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { useToast } from '../components/ToastNotification'
 import { useAuth } from '../contexts/AuthContext'
+import { useOrganization } from '../contexts/OrganizationContext'
+import { useCompanyWorkflow } from '../hooks/useCompanyWorkflow'
+import { resolveActiveCompanyKey, valveRowBelongsToCompany } from '../lib/companyDataScope'
 import { canWriteShop, permissionDeniedReason } from '../lib/roles'
 import {
   buildIncrFormFromRework,
@@ -47,6 +50,9 @@ export function QualityIncrFormPage() {
   const navigate = useNavigate()
   const { showToast } = useToast()
   const { user, username, role } = useAuth()
+  const { activeOrganization } = useOrganization()
+  const workflow = useCompanyWorkflow()
+  const companyKey = resolveActiveCompanyKey(workflow.key, activeOrganization)
   const canWrite = canWriteShop(role)
   const editingId = id && id !== 'new' ? Number(id) : null
   const reworkIdRaw = searchParams.get('reworkId')
@@ -75,6 +81,17 @@ export function QualityIncrFormPage() {
             navigate('/quality-team')
             return
           }
+          if (
+            data.valve_row_id != null &&
+            !valveRowBelongsToCompany(data.valve_row_id, {
+              workflowKey: companyKey,
+              activeOrganization,
+            })
+          ) {
+            showToast('That INCR belongs to another company')
+            navigate('/quality-team')
+            return
+          }
           setForm(qualityIncrToForm(data))
           setIncrNumber(data.incr_number)
           setLinkedReworkId(data.rework_log_id)
@@ -93,12 +110,21 @@ export function QualityIncrFormPage() {
           } else {
             const prefilled = await buildIncrFormFromRework(rework, { initiatorName: username })
             if (cancelled) return
-            setForm(prefilled)
-            setLinkedReworkId(rework.id)
-            setValveRowId(rework.valve_row_id)
-            setValveId(rework.valve_id)
-            setLoading(false)
-            return
+            if (
+              !valveRowBelongsToCompany(rework.valve_row_id, {
+                workflowKey: companyKey,
+                activeOrganization,
+              })
+            ) {
+              showToast('That job belongs to another company')
+            } else {
+              setForm(prefilled)
+              setLinkedReworkId(rework.id)
+              setValveRowId(rework.valve_row_id)
+              setValveId(rework.valve_id)
+              setLoading(false)
+              return
+            }
           }
         }
         if (valveRowIdParam && Number.isFinite(valveRowIdParam)) {
@@ -109,6 +135,13 @@ export function QualityIncrFormPage() {
           if (cancelled) return
           if (error) {
             showToast(error)
+          } else if (
+            !valveRowBelongsToCompany(valveRowIdParam, {
+              workflowKey: companyKey,
+              activeOrganization,
+            })
+          ) {
+            showToast('That job belongs to another company')
           } else {
             setForm(prefilled)
             setLinkedReworkId(null)
@@ -126,7 +159,7 @@ export function QualityIncrFormPage() {
     return () => {
       cancelled = true
     }
-  }, [editingId, reworkId, valveRowIdParam, navigate, showToast, username])
+  }, [activeOrganization, companyKey, editingId, reworkId, valveRowIdParam, navigate, showToast, username])
 
   const patch = <K extends keyof QualityIncrFormState>(key: K, value: QualityIncrFormState[K]) => {
     setForm((prev) => {

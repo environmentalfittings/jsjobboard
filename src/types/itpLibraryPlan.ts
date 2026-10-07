@@ -10,7 +10,9 @@ import {
   type ItpLibrarySectionId,
 } from '../constants/itpLibrary'
 import { processSectionTitle, resolveLibrarySectionId } from '../constants/itpProcessSections'
-import { normalizeMeasFields, type ItpMeasFieldDef } from './itpMeasFields'
+import { migrateFastenerRecordSel } from '../lib/itpFastenerRecord'
+import { ensureOrderReplacementPartsSel } from '../lib/itpOrderParts'
+import { normalizeLinePhotoCounts, normalizeMeasFields, type ItpMeasFieldDef } from './itpMeasFields'
 
 export const ITP_LIBRARY_PLAN_SCHEMA_VERSION = 9 as const
 
@@ -43,6 +45,8 @@ export type ItpLibraryItemSel = {
   requirePicture: boolean
   pictureLabel: string
   minPhotos: number
+  /** Cap on attached photos when requirePicture is on. Defaults to 4. */
+  maxPhotos: number
   /** Configurable measurement / nameplate fields (empty = use legacy before/after/verify flags). */
   measFields: ItpMeasFieldDef[]
   /**
@@ -67,6 +71,16 @@ export type ItpLibraryItemSel = {
   /** When true, this line’s detail is captured on the shop traveler (not duplicated as ITP work). */
   addToTraveler: boolean
   travelerEntry: ItpTravelerEntry | null
+  /** IOMs / Procedures PDFs pulled from Resources for OEM-instruction steps. */
+  resourceDocs: ItpLinkedResourceDoc[]
+}
+
+export type ItpLinkedResourceDoc = {
+  id: number
+  title: string
+  category: string
+  fileName: string
+  storagePath: string
 }
 
 export type ItpLibraryItemExec = {
@@ -119,6 +133,8 @@ export type ItpLibraryCustomItem = {
   id: string
   secId: string
   name: string
+  /** Catalog snapshot when this line was added or edited on a lower master only. */
+  detail?: Record<string, unknown>
 }
 
 export type ItpLibraryValveSnapshot = {
@@ -158,6 +174,34 @@ export type ItpQcChangeLogEntry = {
   summary: string
 }
 
+export type ItpScopeSnapshotItem = {
+  id: string
+  name: string
+  holdPoint: boolean
+  beforeMeas: boolean
+  afterMeas: boolean
+  measVerify: boolean
+  requirePicture: boolean
+  minPhotos: number
+  maxPhotos: number
+  pictureLabel: string
+  subReqs: string[]
+  notes: string
+  shopArea: string
+  sectionId: string
+  addToTraveler: boolean
+  blockNext: boolean
+}
+
+export type ItpScopeItemChangeKind = 'added' | 'removed' | 'modified'
+
+export type ItpScopeItemChange = {
+  id: string
+  name: string
+  kind: ItpScopeItemChangeKind
+  details: string[]
+}
+
 export type ItpQcReview = {
   status: ItpQcReviewStatus
   generatedAt: string | null
@@ -169,6 +213,10 @@ export type ItpQcReview = {
   acceptedByName: string | null
   acceptedByLevel: string | null
   changeLog: ItpQcChangeLogEntry[]
+  /** Included-scope snapshot from the last Accept. Used to highlight later edits. */
+  acceptedScope: ItpScopeSnapshotItem[] | null
+  /** Frozen diff from the previous accept, shown on the current accepted ITP. */
+  lastRevisionChanges: ItpScopeItemChange[] | null
 }
 
 export type ItpLibraryPlanPayload = {
@@ -214,6 +262,8 @@ export function emptyQcReview(): ItpQcReview {
     acceptedByName: null,
     acceptedByLevel: null,
     changeLog: [],
+    acceptedScope: null,
+    lastRevisionChanges: null,
   }
 }
 
@@ -229,6 +279,7 @@ export function emptyItemSel(): ItpLibraryItemSel {
     requirePicture: false,
     pictureLabel: '',
     minPhotos: 1,
+    maxPhotos: 4,
     measFields: [],
     requireNameplate: false,
     blockNext: false,
@@ -237,6 +288,7 @@ export function emptyItemSel(): ItpLibraryItemSel {
     sortIndex: null,
     addToTraveler: false,
     travelerEntry: null,
+    resourceDocs: [],
   }
 }
 
@@ -293,7 +345,7 @@ export function valveToLibrarySnapshot(valve: Valve): ItpLibraryValveSnapshot {
 }
 
 export function getSel(plan: ItpLibraryPlanPayload, itemId: string): ItpLibraryItemSel {
-  return plan.sel[itemId] ?? emptyItemSel()
+  return migrateFastenerRecordSel(itemId, plan.sel[itemId] ?? emptyItemSel())
 }
 
 export function getExec(plan: ItpLibraryPlanPayload, itemId: string): ItpLibraryItemExec {
@@ -432,13 +484,13 @@ export function applyLibraryTemplate(plan: ItpLibraryPlanPayload): ItpLibraryPla
     const found = findLibraryItem(itemId)
     const subReqs =
       prev.subReqs.length > 0 ? prev.subReqs : found?.item.defaultSubReqs ? [...found.item.defaultSubReqs] : []
-    sel[itemId] = {
+    sel[itemId] = migrateFastenerRecordSel(itemId, {
       ...prev,
       included: true,
       subReqs,
-    }
+    })
   }
-  return { ...plan, sel }
+  return { ...plan, sel: ensureOrderReplacementPartsSel(sel) }
 }
 
 export function createEmptyItpLibraryPlan(valve: Valve): ItpLibraryPlanPayload {
@@ -490,8 +542,9 @@ function normalizeTravelerEntry(raw: unknown): ItpTravelerEntry | null {
 function normalizeSel(raw: unknown, fallbackNotes = ''): ItpLibraryItemSel {
   const o = (raw && typeof raw === 'object' ? raw : {}) as Partial<ItpLibraryItemSel> & {
     minPhotos?: unknown
+    maxPhotos?: unknown
   }
-  const minPhotosRaw = Number(o.minPhotos)
+  const photoCounts = normalizeLinePhotoCounts(o.minPhotos, o.maxPhotos)
   const travelerEntry = normalizeTravelerEntry(o.travelerEntry)
   return {
     included: Boolean(o.included),
@@ -503,7 +556,8 @@ function normalizeSel(raw: unknown, fallbackNotes = ''): ItpLibraryItemSel {
     notes: String(o.notes ?? fallbackNotes ?? ''),
     requirePicture: Boolean(o.requirePicture),
     pictureLabel: String(o.pictureLabel ?? '').trim(),
-    minPhotos: Number.isFinite(minPhotosRaw) && minPhotosRaw > 0 ? Math.floor(minPhotosRaw) : 1,
+    minPhotos: photoCounts.minPhotos,
+    maxPhotos: photoCounts.maxPhotos,
     measFields: normalizeMeasFields(o.measFields),
     requireNameplate: Boolean((o as { requireNameplate?: unknown }).requireNameplate),
     blockNext: Boolean(o.blockNext),
@@ -517,7 +571,31 @@ function normalizeSel(raw: unknown, fallbackNotes = ''): ItpLibraryItemSel {
     })(),
     addToTraveler: Boolean(o.addToTraveler) || Boolean(travelerEntry),
     travelerEntry,
+    resourceDocs: normalizeLinkedResourceDocs((o as { resourceDocs?: unknown }).resourceDocs),
   }
+}
+
+export function normalizeLinkedResourceDocs(raw: unknown): ItpLinkedResourceDoc[] {
+  if (!Array.isArray(raw)) return []
+  const out: ItpLinkedResourceDoc[] = []
+  const seen = new Set<number>()
+  for (const row of raw) {
+    if (!row || typeof row !== 'object') continue
+    const o = row as Partial<ItpLinkedResourceDoc>
+    const id = Number(o.id)
+    const storagePath = String(o.storagePath ?? '').trim()
+    const title = String(o.title ?? '').trim()
+    if (!Number.isFinite(id) || id <= 0 || seen.has(id) || !storagePath || !title) continue
+    seen.add(id)
+    out.push({
+      id,
+      title,
+      category: String(o.category ?? '').trim(),
+      fileName: String(o.fileName ?? '').trim() || title,
+      storagePath,
+    })
+  }
+  return out
 }
 
 function normalizeExec(raw: unknown): ItpLibraryItemExec {
@@ -665,15 +743,67 @@ function normalizeChangeLog(raw: unknown): ItpQcChangeLogEntry[] {
     .filter((row): row is ItpQcChangeLogEntry => row != null)
 }
 
+function normalizeScopeSnapshotItem(raw: unknown): ItpScopeSnapshotItem | null {
+  if (!raw || typeof raw !== 'object') return null
+  const o = raw as Partial<ItpScopeSnapshotItem>
+  const id = String(o.id ?? '').trim()
+  if (!id) return null
+  const photoCounts = normalizeLinePhotoCounts(o.minPhotos, o.maxPhotos)
+  return {
+    id,
+    name: String(o.name ?? '').trim() || id,
+    holdPoint: Boolean(o.holdPoint),
+    beforeMeas: Boolean(o.beforeMeas),
+    afterMeas: Boolean(o.afterMeas),
+    measVerify: Boolean(o.measVerify),
+    requirePicture: Boolean(o.requirePicture),
+    minPhotos: photoCounts.minPhotos,
+    maxPhotos: photoCounts.maxPhotos,
+    pictureLabel: String(o.pictureLabel ?? '').trim(),
+    subReqs: Array.isArray(o.subReqs) ? o.subReqs.map((row) => String(row ?? '').trim()).filter(Boolean) : [],
+    notes: String(o.notes ?? '').trim(),
+    shopArea: String(o.shopArea ?? '').trim(),
+    sectionId: String(o.sectionId ?? '').trim(),
+    addToTraveler: Boolean(o.addToTraveler),
+    blockNext: Boolean(o.blockNext),
+  }
+}
+
+function normalizeScopeItemChange(raw: unknown): ItpScopeItemChange | null {
+  if (!raw || typeof raw !== 'object') return null
+  const o = raw as Partial<ItpScopeItemChange>
+  const id = String(o.id ?? '').trim()
+  const kind = o.kind === 'added' || o.kind === 'removed' || o.kind === 'modified' ? o.kind : null
+  if (!id || !kind) return null
+  return {
+    id,
+    name: String(o.name ?? '').trim() || id,
+    kind,
+    details: Array.isArray(o.details)
+      ? o.details.map((row) => String(row ?? '').trim()).filter(Boolean)
+      : [],
+  }
+}
+
 function normalizeQcReview(raw: unknown): ItpQcReview {
   const base = emptyQcReview()
   if (!raw || typeof raw !== 'object') return base
-  const o = raw as Partial<ItpQcReview> & { changeLog?: unknown }
+  const o = raw as Partial<ItpQcReview> & {
+    changeLog?: unknown
+    acceptedScope?: unknown
+    lastRevisionChanges?: unknown
+  }
   const statusRaw = String(o.status ?? '')
     .trim()
     .toLowerCase()
   const status: ItpQcReviewStatus =
     statusRaw === 'pending_review' || statusRaw === 'accepted' ? statusRaw : 'draft'
+  const acceptedScope = Array.isArray(o.acceptedScope)
+    ? o.acceptedScope.map(normalizeScopeSnapshotItem).filter((row): row is ItpScopeSnapshotItem => row != null)
+    : []
+  const lastRevisionChanges = Array.isArray(o.lastRevisionChanges)
+    ? o.lastRevisionChanges.map(normalizeScopeItemChange).filter((row): row is ItpScopeItemChange => row != null)
+    : []
   return {
     status,
     generatedAt: o.generatedAt ? String(o.generatedAt) : null,
@@ -685,6 +815,8 @@ function normalizeQcReview(raw: unknown): ItpQcReview {
     acceptedByName: o.acceptedByName ? String(o.acceptedByName) : null,
     acceptedByLevel: o.acceptedByLevel ? String(o.acceptedByLevel) : null,
     changeLog: normalizeChangeLog(o.changeLog),
+    acceptedScope: acceptedScope.length > 0 ? acceptedScope : null,
+    lastRevisionChanges: lastRevisionChanges.length > 0 ? lastRevisionChanges : null,
   }
 }
 
@@ -715,16 +847,25 @@ export function normalizeItpLibraryPlan(raw: unknown, valve: Valve): ItpLibraryP
     const sel: Record<string, ItpLibraryItemSel> = {}
     for (const [id, value] of Object.entries(source.sel ?? {})) {
       // Prefer sel.notes; fall back to legacy exec.notes from earlier saves.
-      sel[id] = normalizeSel(value, exec[id]?.notes ?? '')
+      sel[id] = migrateFastenerRecordSel(id, normalizeSel(value, exec[id]?.notes ?? ''))
     }
+    const withParts = ensureOrderReplacementPartsSel(sel)
     const custom = Array.isArray(source.custom)
       ? source.custom
           .filter((c) => c && typeof c === 'object')
-          .map((c) => ({
-            id: String((c as ItpLibraryCustomItem).id),
-            secId: String((c as ItpLibraryCustomItem).secId ?? '').trim() || 'receipt',
-            name: String((c as ItpLibraryCustomItem).name ?? ''),
-          }))
+          .map((c) => {
+            const row = c as ItpLibraryCustomItem
+            const detail =
+              row.detail && typeof row.detail === 'object' && !Array.isArray(row.detail)
+                ? row.detail
+                : undefined
+            return {
+              id: String(row.id),
+              secId: String(row.secId ?? '').trim() || 'receipt',
+              name: String(row.name ?? ''),
+              ...(detail ? { detail } : {}),
+            }
+          })
           .filter((c) => c.id && c.name)
       : []
 
@@ -734,7 +875,7 @@ export function normalizeItpLibraryPlan(raw: unknown, valve: Valve): ItpLibraryP
       valveSnapshot: valveToLibrarySnapshot(valve),
       jobType: source.jobType || mapShopJobTypeToLibrary(valve.job_type),
       valveType: source.valveType || resolveLibraryValveType(valve.valve_type, valve.bowl_type),
-      sel,
+      sel: withParts,
       custom,
       exec,
       attachments: normalizeAttachments(source.attachments),

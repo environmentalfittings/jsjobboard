@@ -36,7 +36,7 @@ import { emptyTestGaugeForm, testGaugeToForm, SUGGESTED_DEPARTMENTS, type TestGa
 import { useAuth } from '../contexts/AuthContext'
 import { useOrganization } from '../contexts/OrganizationContext'
 import { useCompanyWorkflow } from '../hooks/useCompanyWorkflow'
-import { filterGaugesForCompany, rememberGaugeForCompany } from '../lib/companyDataScope'
+import { filterGaugesForCompany, rememberGaugeForCompany, resolveActiveCompanyKey } from '../lib/companyDataScope'
 import { canWriteShop, permissionDeniedReason } from '../lib/roles'
 
 const BLANK_FILTER = '(Blank)'
@@ -457,6 +457,7 @@ export function TestGaugesPanel() {
   const { role } = useAuth()
   const { activeOrganization } = useOrganization()
   const workflow = useCompanyWorkflow()
+  const companyKey = resolveActiveCompanyKey(workflow.key, activeOrganization)
   const canWrite = canWriteShop(role)
   const certInputRef = useRef<HTMLInputElement>(null)
   const [rows, setRows] = useState<TestGauge[]>([])
@@ -481,27 +482,25 @@ export function TestGaugesPanel() {
   const reload = useCallback(async () => {
     setLoading(true)
     try {
-      const moved = await moveGaugeCategoryToolsToTestGauges()
-      if (moved.error) {
-        showToast(moved.error)
-      } else if (moved.moved > 0) {
-        showToast(
-          `Moved ${moved.moved} item${moved.moved === 1 ? '' : 's'} from tool log to test gauges`,
-        )
+      // Keep the JS tool→gauge move off VSI so it cannot rewrite the shared JS registry.
+      if (companyKey === 'js-valve') {
+        const moved = await moveGaugeCategoryToolsToTestGauges()
+        if (moved.error) {
+          showToast(moved.error)
+        } else if (moved.moved > 0) {
+          showToast(
+            `Moved ${moved.moved} item${moved.moved === 1 ? '' : 's'} from tool log to test gauges`,
+          )
+        }
       }
-      setRows(
-        filterGaugesForCompany(filterAllowedTestGauges(await loadTestGauges(true)), {
-          workflowKey: workflow.key,
-          activeOrganization,
-        }),
-      )
+      setRows(filterAllowedTestGauges(await loadTestGauges(true)))
     } catch (error) {
       showToast(error instanceof Error ? error.message : 'Could not load test gauges')
       setRows([])
     } finally {
       setLoading(false)
     }
-  }, [showToast, workflow.key, activeOrganization])
+  }, [companyKey, showToast])
 
   useEffect(() => {
     void reload()
@@ -557,7 +556,7 @@ export function TestGaugesPanel() {
         showToast(error ?? 'Could not save gauge')
         return
       }
-      rememberGaugeForCompany(workflow.key, row.id)
+      rememberGaugeForCompany(companyKey, row.id)
       showToast('Test gauge added')
       if (pendingCertGaugeId === 'new' && certInputRef.current?.files?.[0]) {
         const { error: certError } = await attachTestGaugeCertificate(row, certInputRef.current.files[0])
@@ -707,13 +706,22 @@ export function TestGaugesPanel() {
     setColumnFilters(DEFAULT_COLUMN_FILTERS)
   }
 
+  const companyRows = useMemo(
+    () =>
+      filterGaugesForCompany(rows, {
+        workflowKey: companyKey,
+        activeOrganization,
+      }),
+    [activeOrganization, companyKey, rows],
+  )
+
   const summary = useMemo(() => {
     let active = 0
     let due90 = 0
     let due60 = 0
     let due30 = 0
     let overdue = 0
-    for (const row of rows) {
+    for (const row of companyRows) {
       if (!row.active) continue
       active += 1
       const days = daysUntilGaugeCalibrationDue(row)
@@ -727,20 +735,20 @@ export function TestGaugesPanel() {
       if (days <= 30) due30 += 1
     }
     return { active, due90, due60, due30, overdue }
-  }, [rows])
+  }, [companyRows])
 
   const filterOptions = useMemo(
     () => ({
-      gauge_type: uniqueSortedValues(rows, (row) => row.gauge_type),
-      department: uniqueSortedValues(rows, (row) => row.department),
+      gauge_type: uniqueSortedValues(companyRows, (row) => row.gauge_type),
+      department: uniqueSortedValues(companyRows, (row) => row.department),
       status: [...STATUS_FILTER_OPTIONS],
     }),
-    [rows],
+    [companyRows],
   )
 
   const sortedRows = useMemo(() => {
     const q = search.trim().toLowerCase()
-    const filtered = rows.filter((row) => {
+    const filtered = companyRows.filter((row) => {
       if (
         !matchesMultiFilter(columnFilters.gauge_type, (row.gauge_type ?? '').trim() || BLANK_FILTER)
       ) {
@@ -775,7 +783,7 @@ export function TestGaugesPanel() {
       return sortDir === 'asc' ? cmp : -cmp
     })
     return next
-  }, [rows, search, sortKey, sortDir, columnFilters, dueFocus])
+  }, [companyRows, search, sortKey, sortDir, columnFilters, dueFocus])
 
   const activeColumnFilterCount =
     columnFilters.gauge_type.length +
@@ -814,7 +822,7 @@ export function TestGaugesPanel() {
           type="text"
           value={form.gauge_number}
           onChange={(e) => setForm((f) => ({ ...f, gauge_number: e.target.value }))}
-          placeholder="e.g. JS284"
+            placeholder={companyKey === 'vsi' ? 'e.g. VSI-1' : 'e.g. JS284'}
         />
       </label>
       <label>
@@ -1098,7 +1106,7 @@ export function TestGaugesPanel() {
           />
         </label>
         <span className="tool-cal-count">
-          {sortedRows.length} of {rows.length}
+          {sortedRows.length} of {companyRows.length}
           {sortKey ? ` · sorted by ${sortKey.replace(/_/g, ' ')} (${sortDir})` : ''}
         </span>
       </div>
@@ -1120,8 +1128,12 @@ export function TestGaugesPanel() {
 
       {loading ? (
         <p className="placeholder-copy">Loading gauges…</p>
-      ) : rows.length === 0 ? (
-        <p className="placeholder-copy">No test gauges registered yet.</p>
+      ) : companyRows.length === 0 ? (
+        <p className="placeholder-copy">
+          {companyKey === 'vsi'
+            ? 'No VSI test gauges yet. JS Valve gauges stay on the JS Valve company.'
+            : 'No test gauges registered yet.'}
+        </p>
       ) : sortedRows.length === 0 ? (
         <p className="placeholder-copy">No gauges match this search or filter.</p>
       ) : (

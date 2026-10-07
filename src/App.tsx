@@ -1,4 +1,4 @@
-import { Navigate, Route, Routes, useNavigate } from 'react-router-dom'
+import { Navigate, Route, Routes, useLocation, useNavigate, useSearchParams } from 'react-router-dom'
 import { NavBar } from './components/NavBar'
 import { ReadOnlyBanner } from './components/ReadOnlyBanner'
 import { ToastProvider } from './components/ToastNotification'
@@ -6,7 +6,7 @@ import { AuthProvider, useAuth } from './contexts/AuthContext'
 import { OrganizationProvider } from './contexts/OrganizationContext'
 import { DashboardPage } from './pages/DashboardPage'
 import { JobBoardPage } from './pages/JobBoardPage'
-import { LoginPage } from './pages/LoginPage'
+import { LoginPage, type UserRole } from './pages/LoginPage'
 import { useEffect } from 'react'
 import { ReportsPage } from './pages/ReportsPage'
 import { StatusPrioritiesPage } from './pages/StatusPrioritiesPage'
@@ -25,6 +25,8 @@ import { ReceivedValvesPage } from './pages/ReceivedValvesPage'
 import { TravelerPage } from './pages/TravelerPage'
 import { ItpPage } from './pages/ItpPage'
 import { ItpTravelerViewPage } from './pages/ItpTravelerViewPage'
+import { ItpTemplatePreviewPage } from './pages/ItpTemplatePreviewPage'
+import { NeededPartsPage } from './pages/NeededPartsPage'
 import { CustomerLogin } from './pages/CustomerLogin'
 import { CustomerPortal } from './pages/CustomerPortal'
 import { CustomerTravelerView } from './pages/CustomerTravelerView'
@@ -44,14 +46,30 @@ import {
   effectiveAppRole,
   isShopRole,
 } from './lib/roles'
+import { loginPathWithReturn, readLoginReturnPath } from './lib/loginReturn'
 import { useOrganization } from './contexts/OrganizationContext'
 import { loadStatusWorkflowConfig } from './lib/statusWorkflow'
 
 function ShopRoute({ children }: { children: React.ReactNode }) {
   const { role } = useAuth()
-  if (!role) return <Navigate to="/login" replace />
+  const location = useLocation()
+  if (!role) {
+    return <Navigate to={loginPathWithReturn(`${location.pathname}${location.search}`)} replace />
+  }
   if (!isShopRole(role)) return <Navigate to="/login" replace />
   return <>{children}</>
+}
+
+function LoginRoute({
+  onLogin,
+}: {
+  onLogin: (options?: { localRole?: UserRole; username?: string }) => void | Promise<void>
+}) {
+  const { role } = useAuth()
+  const [params] = useSearchParams()
+  const next = readLoginReturnPath(`?${params.toString()}`)
+  if (role) return <Navigate to={next || defaultHomePath(role)} replace />
+  return <LoginPage onLogin={onLogin} />
 }
 
 function AppRoutes() {
@@ -101,10 +119,7 @@ function AppRoutes() {
           <div className="loading">Checking login…</div>
         ) : (
           <Routes>
-            <Route
-              path="/login"
-              element={role ? <Navigate to={defaultHomePath(appRole)} replace /> : <LoginPage onLogin={handleLogin} />}
-            />
+            <Route path="/login" element={<LoginRoute onLogin={handleLogin} />} />
             <Route
               path="/"
               element={<Navigate to={role ? defaultHomePath(appRole) : user ? '/customer-portal' : '/login'} replace />}
@@ -196,6 +211,14 @@ function AppRoutes() {
               }
             />
             <Route
+              path="/itp-template-preview"
+              element={
+                <ShopRoute>
+                  <ItpTemplatePreviewPage />
+                </ShopRoute>
+              }
+            />
+            <Route
               path="/itp/:id"
               element={
                 <ShopRoute>
@@ -208,6 +231,14 @@ function AppRoutes() {
               element={
                 <ShopRoute>
                   <ItpTravelerViewPage />
+                </ShopRoute>
+              }
+            />
+            <Route
+              path="/needed-parts"
+              element={
+                <ShopRoute>
+                  <NeededPartsPage />
                 </ShopRoute>
               }
             />

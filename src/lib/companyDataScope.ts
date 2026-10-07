@@ -1,8 +1,20 @@
-import type { CompanyWorkflowKey } from '../constants/companyWorkflows'
+import {
+  companyWorkflowKeyFromOrganization,
+  type CompanyWorkflowKey,
+} from '../constants/companyWorkflows'
 import type { TestGauge } from '../types/testGauge'
 import type { Organization } from '../types/organizations'
 import type { Valve } from '../types'
 import { supabase } from './supabase'
+
+/** Prefer the logged-in org over a stale workflow key (title can say VSI while key is still js-valve). */
+export function resolveActiveCompanyKey(
+  workflowKey: CompanyWorkflowKey,
+  activeOrganization: Organization | null | undefined,
+): CompanyWorkflowKey {
+  if (activeOrganization) return companyWorkflowKeyFromOrganization(activeOrganization)
+  return workflowKey
+}
 
 /** Valve row ids created while local VSI was active (no org column in DB yet). */
 export const LOCAL_COMPANY_VALVE_IDS_KEY = 'js-job-board-local-company-valve-ids'
@@ -30,6 +42,9 @@ export const LOCAL_COMPANY_INVENTORY_IDS_KEY = 'js-job-board-local-company-inven
 
 /** Received-valve log ids created while local VSI was active. */
 export const LOCAL_COMPANY_RECEIVED_VALVE_IDS_KEY = 'js-job-board-local-company-received-valve-ids'
+
+/** Test-log valve_id strings entered while VSI was active. */
+export const LOCAL_COMPANY_TEST_LOG_VALVE_IDS_KEY = 'js-job-board-local-company-test-log-valve-ids'
 
 type LocalCompanyValveMap = Partial<Record<CompanyWorkflowKey, number[]>>
 
@@ -92,7 +107,8 @@ export function valveRowBelongsToCompany(
     activeOrganization: Organization | null
   },
 ): boolean {
-  const { workflowKey, activeOrganization } = options
+  const workflowKey = resolveActiveCompanyKey(options.workflowKey, options.activeOrganization)
+  const { activeOrganization } = options
   const orgId = options.valveOrganizationId?.trim() || null
   if (orgId) {
     if (!activeOrganization?.id) return workflowKey === 'js-valve'
@@ -118,7 +134,8 @@ export function filterValvesForCompany(
     activeOrganization: Organization | null
   },
 ): Valve[] {
-  const { workflowKey, activeOrganization } = options
+  const workflowKey = resolveActiveCompanyKey(options.workflowKey, options.activeOrganization)
+  const { activeOrganization } = options
   return valves.filter((valve) =>
     valveRowBelongsToCompany(valve.id, {
       workflowKey,
@@ -188,20 +205,32 @@ function otherLocalGaugeIds(workflowKey: CompanyWorkflowKey): Set<string> {
   return other
 }
 
+/** JS Valve MTE labels like JS 55, JS-56, JS-289. Never show these on VSI. */
+export function isJsBrandedMteMark(...values: Array<string | null | undefined>): boolean {
+  return values.some((value) => {
+    const raw = String(value ?? '').trim()
+    if (!raw) return false
+    return /(?:^|[\s,;:()[\]/\\|_-])js(?:\s*[-–]?\s*\d|\b)/i.test(raw)
+  })
+}
+
 export function gaugeBelongsToCompany(
   gaugeId: string,
   options: {
     workflowKey: CompanyWorkflowKey
     activeOrganization: Organization | null
+    marks?: Array<string | null | undefined>
   },
 ): boolean {
-  const { workflowKey } = options
+  const workflowKey = resolveActiveCompanyKey(options.workflowKey, options.activeOrganization)
+  if (isJsBrandedMteMark(...(options.marks ?? []))) return workflowKey === 'js-valve'
   const id = String(gaugeId ?? '').trim()
   if (!id) return workflowKey === 'js-valve'
+  if (workflowKey === 'vsi') return localGaugeIdsForCompany('vsi').has(id)
   if (localGaugeIdsForCompany(workflowKey).has(id)) return true
   if (otherLocalGaugeIds(workflowKey).has(id)) return false
   // Untagged historical gauges stay on JS Valve so VSI starts empty.
-  return workflowKey === 'js-valve'
+  return true
 }
 
 export function filterGaugesForCompany(
@@ -215,8 +244,113 @@ export function filterGaugesForCompany(
     gaugeBelongsToCompany(gauge.id, {
       workflowKey: options.workflowKey,
       activeOrganization: options.activeOrganization,
+      marks: [gauge.gauge_number, gauge.gauge_type, gauge.manufacturer, gauge.department, gauge.notes],
     }),
   )
+}
+
+/** Tool calibration ids created while VSI was active. */
+export const LOCAL_COMPANY_TOOL_IDS_KEY = 'js-job-board-local-company-tool-ids'
+
+type LocalCompanyToolMap = Partial<Record<CompanyWorkflowKey, number[]>>
+
+function readLocalCompanyToolMap(): LocalCompanyToolMap {
+  try {
+    const raw = window.localStorage.getItem(LOCAL_COMPANY_TOOL_IDS_KEY)
+    if (!raw) return {}
+    const parsed = JSON.parse(raw) as LocalCompanyToolMap
+    return parsed && typeof parsed === 'object' ? parsed : {}
+  } catch {
+    return {}
+  }
+}
+
+function writeLocalCompanyToolMap(map: LocalCompanyToolMap) {
+  try {
+    window.localStorage.setItem(LOCAL_COMPANY_TOOL_IDS_KEY, JSON.stringify(map))
+  } catch {
+    // ignore
+  }
+}
+
+export function rememberToolForCompany(companyKey: CompanyWorkflowKey, toolId: number) {
+  if (!Number.isFinite(toolId)) return
+  const map = readLocalCompanyToolMap()
+  const list = new Set(map[companyKey] ?? [])
+  list.add(toolId)
+  map[companyKey] = [...list]
+  writeLocalCompanyToolMap(map)
+}
+
+export function localToolIdsForCompany(companyKey: CompanyWorkflowKey): Set<number> {
+  return new Set(readLocalCompanyToolMap()[companyKey] ?? [])
+}
+
+function otherLocalToolIds(workflowKey: CompanyWorkflowKey): Set<number> {
+  const other = new Set<number>()
+  for (const key of ['js-valve', 'vsi'] as const) {
+    if (key === workflowKey) continue
+    for (const id of localToolIdsForCompany(key)) other.add(id)
+  }
+  return other
+}
+
+export function toolBelongsToCompany(
+  toolId: number,
+  options: {
+    workflowKey: CompanyWorkflowKey
+    activeOrganization: Organization | null
+    marks?: Array<string | null | undefined>
+  },
+): boolean {
+  const workflowKey = resolveActiveCompanyKey(options.workflowKey, options.activeOrganization)
+  if (isJsBrandedMteMark(...(options.marks ?? []))) return workflowKey === 'js-valve'
+  if (workflowKey === 'vsi') return localToolIdsForCompany('vsi').has(toolId)
+  if (localToolIdsForCompany(workflowKey).has(toolId)) return true
+  if (otherLocalToolIds(workflowKey).has(toolId)) return false
+  return true
+}
+
+export function filterToolsForCompany<T extends { id: number }>(
+  tools: T[],
+  options: {
+    workflowKey: CompanyWorkflowKey
+    activeOrganization: Organization | null
+  },
+): T[] {
+  return tools.filter((tool) => {
+    const row = tool as T & {
+      js_id?: string | null
+      tool_type?: string | null
+      model?: string | null
+      manufacturer?: string | null
+      department?: string | null
+      notes?: string | null
+    }
+    return toolBelongsToCompany(tool.id, {
+      workflowKey: options.workflowKey,
+      activeOrganization: options.activeOrganization,
+      marks: [row.js_id, row.tool_type, row.model, row.manufacturer, row.department, row.notes],
+    })
+  })
+}
+
+/** Employees with a VSI company tag stay on VSI; untagged historical roster stays on JS Valve. */
+export function employeeBelongsToCompany(
+  company: string | null | undefined,
+  options: {
+    workflowKey: CompanyWorkflowKey
+    activeOrganization: Organization | null
+  },
+): boolean {
+  const workflowKey = resolveActiveCompanyKey(options.workflowKey, options.activeOrganization)
+  const value = String(company ?? '')
+    .trim()
+    .toLowerCase()
+  const isVsi =
+    value.includes('vsi') || value === 'partner shop' || value.includes('partner-shop') || value.includes('partner shop')
+  if (workflowKey === 'vsi') return isVsi
+  return !isVsi
 }
 
 type LocalCompanyInventoryMap = Partial<Record<CompanyWorkflowKey, string[]>>
@@ -274,7 +408,7 @@ export function inventoryBelongsToCompany(
     activeOrganization: Organization | null
   },
 ): boolean {
-  const { workflowKey } = options
+  const workflowKey = resolveActiveCompanyKey(options.workflowKey, options.activeOrganization)
   const id = String(inventoryId ?? '').trim()
   if (!id) return workflowKey === 'js-valve'
   if (localInventoryIdsForCompany(workflowKey).has(id)) return true
@@ -358,7 +492,8 @@ export function receivedValveBelongsToCompany(
     organizationId?: string | null
   },
 ): boolean {
-  const { workflowKey, activeOrganization } = options
+  const workflowKey = resolveActiveCompanyKey(options.workflowKey, options.activeOrganization)
+  const { activeOrganization } = options
   const orgId = options.organizationId?.trim() || null
   if (orgId) {
     if (!activeOrganization?.id) return workflowKey === 'js-valve'
@@ -438,7 +573,7 @@ export function noteBelongsToCompany(
     activeOrganization: Organization | null
   },
 ): boolean {
-  const { workflowKey } = options
+  const workflowKey = resolveActiveCompanyKey(options.workflowKey, options.activeOrganization)
   if (localNoteIdsForCompany(workflowKey).has(noteId)) return true
   if (otherLocalNoteIds(workflowKey).has(noteId)) return false
   return workflowKey === 'js-valve'
@@ -505,8 +640,12 @@ function otherLocalCompanyIds(storageKey: string, workflowKey: CompanyWorkflowKe
 function localIdBelongsToCompany(
   storageKey: string,
   id: number,
-  workflowKey: CompanyWorkflowKey,
+  options: {
+    workflowKey: CompanyWorkflowKey
+    activeOrganization: Organization | null
+  },
 ): boolean {
+  const workflowKey = resolveActiveCompanyKey(options.workflowKey, options.activeOrganization)
   if (localCompanyIds(storageKey, workflowKey).has(id)) return true
   if (otherLocalCompanyIds(storageKey, workflowKey).has(id)) return false
   return workflowKey === 'js-valve'
@@ -524,7 +663,7 @@ export function trainingBelongsToCompany(
     activeOrganization: Organization | null
   },
 ): boolean {
-  return localIdBelongsToCompany(LOCAL_COMPANY_TRAINING_IDS_KEY, trainingId, options.workflowKey)
+  return localIdBelongsToCompany(LOCAL_COMPANY_TRAINING_IDS_KEY, trainingId, options)
 }
 
 export function filterTrainingsForCompany<T extends { id: number }>(
@@ -548,7 +687,7 @@ export function trainingCourseBelongsToCompany(
     activeOrganization: Organization | null
   },
 ): boolean {
-  return localIdBelongsToCompany(LOCAL_COMPANY_TRAINING_COURSE_IDS_KEY, courseId, options.workflowKey)
+  return localIdBelongsToCompany(LOCAL_COMPANY_TRAINING_COURSE_IDS_KEY, courseId, options)
 }
 
 export function filterTrainingCoursesForCompany<T extends { id: number }>(
@@ -574,7 +713,7 @@ export function trainingFileBelongsToCompany(
 ): boolean {
   if (file.training_id != null) return trainingBelongsToCompany(file.training_id, options)
   if (file.course_id != null) return trainingCourseBelongsToCompany(file.course_id, options)
-  return localIdBelongsToCompany(LOCAL_COMPANY_TRAINING_FILE_IDS_KEY, file.id, options.workflowKey)
+  return localIdBelongsToCompany(LOCAL_COMPANY_TRAINING_FILE_IDS_KEY, file.id, options)
 }
 
 export function filterTrainingFilesForCompany<
@@ -600,7 +739,7 @@ export function trainingSkillBelongsToCompany(
     activeOrganization: Organization | null
   },
 ): boolean {
-  return localIdBelongsToCompany(LOCAL_COMPANY_TRAINING_SKILL_IDS_KEY, skillId, options.workflowKey)
+  return localIdBelongsToCompany(LOCAL_COMPANY_TRAINING_SKILL_IDS_KEY, skillId, options)
 }
 
 export function filterTrainingSkillsForCompany<T extends { id: number }>(
@@ -629,9 +768,99 @@ async function loadLocalCompanyValveIdStrings(companyKey: CompanyWorkflowKey): P
   return ids
 }
 
+type LocalCompanyValveIdStringMap = Partial<Record<CompanyWorkflowKey, string[]>>
+
+function readLocalTestLogValveIdMap(): LocalCompanyValveIdStringMap {
+  try {
+    const raw = window.localStorage.getItem(LOCAL_COMPANY_TEST_LOG_VALVE_IDS_KEY)
+    if (!raw) return {}
+    const parsed = JSON.parse(raw) as LocalCompanyValveIdStringMap
+    return parsed && typeof parsed === 'object' ? parsed : {}
+  } catch {
+    return {}
+  }
+}
+
+function writeLocalTestLogValveIdMap(map: LocalCompanyValveIdStringMap) {
+  try {
+    window.localStorage.setItem(LOCAL_COMPANY_TEST_LOG_VALVE_IDS_KEY, JSON.stringify(map))
+  } catch {
+    // ignore
+  }
+}
+
+export function rememberTestLogValveIdForCompany(companyKey: CompanyWorkflowKey, valveId: string) {
+  const id = String(valveId ?? '')
+    .trim()
+    .toUpperCase()
+  if (!id) return
+  const map = readLocalTestLogValveIdMap()
+  const list = new Set(map[companyKey] ?? [])
+  list.add(id)
+  map[companyKey] = [...list]
+  writeLocalTestLogValveIdMap(map)
+}
+
+export function localTestLogValveIdsForCompany(companyKey: CompanyWorkflowKey): Set<string> {
+  return new Set(
+    (readLocalTestLogValveIdMap()[companyKey] ?? []).map((id) => String(id).trim().toUpperCase()).filter(Boolean),
+  )
+}
+
+async function loadValveIdsTaggedToOrganization(organizationId: string): Promise<Set<string>> {
+  const { data, error } = await supabase
+    .from('valves')
+    .select('valve_id')
+    .eq('organization_id', organizationId)
+    .limit(8000)
+  if (error || !data?.length) return new Set()
+  const ids = new Set<string>()
+  for (const row of data) {
+    const valveId = String((row as { valve_id?: string }).valve_id ?? '')
+      .trim()
+      .toUpperCase()
+    if (valveId) ids.add(valveId)
+  }
+  return ids
+}
+
+async function loadValveIdsTaggedAwayFromOrganization(organizationId: string): Promise<Set<string>> {
+  const { data, error } = await supabase
+    .from('valves')
+    .select('valve_id')
+    .not('organization_id', 'is', null)
+    .neq('organization_id', organizationId)
+    .limit(8000)
+  if (error || !data?.length) return new Set()
+  const ids = new Set<string>()
+  for (const row of data) {
+    const valveId = String((row as { valve_id?: string }).valve_id ?? '')
+      .trim()
+      .toUpperCase()
+    if (valveId) ids.add(valveId)
+  }
+  return ids
+}
+
+/** Valve IDs that belong to VSI (local creates, test-log entries, or org-tagged jobs). */
+export async function loadVsiValveIdStrings(activeOrganization: Organization | null): Promise<Set<string>> {
+  const ids = new Set<string>()
+  for (const id of await loadLocalCompanyValveIdStrings('vsi')) ids.add(id)
+  for (const id of localTestLogValveIdsForCompany('vsi')) ids.add(id)
+
+  if (!activeOrganization?.id) return ids
+  const orgKey = companyWorkflowKeyFromOrganization(activeOrganization)
+  if (orgKey === 'vsi') {
+    for (const id of await loadValveIdsTaggedToOrganization(activeOrganization.id)) ids.add(id)
+  } else {
+    for (const id of await loadValveIdsTaggedAwayFromOrganization(activeOrganization.id)) ids.add(id)
+  }
+  return ids
+}
+
 /**
  * Scope test_logs rows (keyed by valve_id string) to the active company.
- * Untagged historical logs stay on JS Valve; VSI only sees logs for VSI-created valves.
+ * Untagged historical logs stay on JS Valve; VSI only sees VSI jobs / tests.
  */
 export async function filterTestLogsForCompany<T extends { valve_id: string }>(
   rows: T[],
@@ -640,8 +869,8 @@ export async function filterTestLogsForCompany<T extends { valve_id: string }>(
     activeOrganization: Organization | null
   },
 ): Promise<T[]> {
-  const { workflowKey } = options
-  const vsiValveIds = await loadLocalCompanyValveIdStrings('vsi')
+  const workflowKey = resolveActiveCompanyKey(options.workflowKey, options.activeOrganization)
+  const vsiValveIds = await loadVsiValveIdStrings(options.activeOrganization)
 
   if (workflowKey === 'vsi') {
     if (!vsiValveIds.size) return []

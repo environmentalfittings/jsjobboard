@@ -139,6 +139,31 @@ export function clampPictureFieldMax(raw: unknown): number {
   return Math.min(MEAS_PICTURE_MAX, Math.floor(n))
 }
 
+export function clampLinePhotoMin(raw: unknown): number {
+  const n = Number(raw)
+  if (!Number.isFinite(n) || n < 1) return 1
+  return Math.min(MEAS_PICTURE_MAX, Math.floor(n))
+}
+
+/** Line-level photo cap. Missing values default to 4, and never go below the required count. */
+export function clampLinePhotoMax(raw: unknown, minPhotos: unknown = 1): number {
+  const min = clampLinePhotoMin(minPhotos)
+  const n = Number(raw)
+  const max =
+    raw == null || raw === '' || !Number.isFinite(n) || n < 1
+      ? DEFAULT_PICTURE_FIELD_MAX
+      : Math.min(MEAS_PICTURE_MAX, Math.floor(n))
+  return Math.max(min, max)
+}
+
+export function normalizeLinePhotoCounts(
+  minRaw: unknown,
+  maxRaw: unknown,
+): { minPhotos: number; maxPhotos: number } {
+  const minPhotos = clampLinePhotoMin(minRaw)
+  return { minPhotos, maxPhotos: clampLinePhotoMax(maxRaw, minPhotos) }
+}
+
 export function normalizeMeasFieldType(raw: unknown): ItpMeasFieldType {
   const value = String(raw ?? '').trim().toLowerCase()
   if (value === 'textarea' || value === 'notes') return 'textarea'

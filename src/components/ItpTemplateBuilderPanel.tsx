@@ -19,13 +19,15 @@ import {
 import {
   defaultShopAreas,
   ensureShopAreaDef,
-  itpShopAreaLabel,
+  normalizeShopAreaValue,
+  normalizeShopAreas,
   type ItpShopArea,
   type ItpShopAreaDef,
 } from '../constants/itpShopAreas'
 import { VALVE_TYPES } from '../constants/jobLookups'
 import { loadLookupOptionsMap } from '../lib/lookupValues'
 import {
+  defaultAreaForSection,
   emptyMasterCatalogState,
   loadItpMasterCatalog,
   moveCatalogItemInSection,
@@ -40,23 +42,33 @@ import {
   countIncludedInScope,
   deleteItpLibraryTemplate,
   emptyTemplateScope,
+  includedItemIds,
   ITP_LIBRARY_DEFAULT_TEMPLATE_NAME,
   ITP_LIBRARY_NAMED_TEMPLATE_MIGRATION_HINT,
+  ITP_LIBRARY_VALVE_MASTER_NAME,
   isItpLibraryTemplateSchemaError,
   listItpLibraryTemplates,
   loadItpLibraryTemplate,
+  loadJobTypeMaster,
+  loadValveTypeMaster,
   probeItpLibraryTemplateSchema,
   saveItpLibraryTemplate,
+  saveJobTypeMaster,
+  saveValveTypeMaster,
   scopeFromCodeTemplate,
   setDefaultItpLibraryTemplate,
+  unionIncludedScopes,
   type ItpLibraryTemplateRow,
   type ItpLibraryTemplateScope,
 } from '../lib/itpLibraryTemplates'
 import {
+  clampLinePhotoMax,
+  clampLinePhotoMin,
   DEFAULT_ITP_MEAS_FIELDS,
   emptyMeasField,
   ITP_MEAS_FIELD_TYPE_OPTIONS,
   itemRequiresMeasurements,
+  measFieldTypePatch,
   newMeasFieldId,
   selFromRequirementDefaults,
   type ItpMeasFieldDef,
@@ -64,12 +76,27 @@ import {
 } from '../lib/itpItemRequirements'
 import { NAMEPLATE_TRAVELER_FIELDS } from '../lib/itpTravelerNameplate'
 import {
+  buildTemplatePreviewPlan,
+  ITP_TEMPLATE_PREVIEW_PATH,
+  writeTemplatePreviewPayload,
+} from '../lib/itpTemplatePreview'
+import {
   ItpTemplateTravelerManagePanel,
   type TravelerRequirementDraft,
 } from './ItpTemplateTravelerManagePanel'
+import { ItpLineTravelerBuilderModal } from './ItpLineTravelerBuilderModal'
+import { ItpMeasDropdownSourceFields } from './ItpMeasDropdownSourceFields'
+import { ItpMeasJobCardSourceSelect } from './ItpMeasJobCardSourceSelect'
+import { ItpMeasRequiredToggle } from './ItpMeasRequiredToggle'
+import { ItpPhotoMinMaxFields } from './ItpPhotoMinMaxFields'
+import { ItpOemProcedureDocs } from './ItpOemProcedureDocs'
+import { ItpStationSelect } from './ItpStationSelect'
+import { migrateFastenerRecordSel } from '../lib/itpFastenerRecord'
+import { stepUsesOemOrProcedure } from '../lib/itpOemProcedure'
 import {
   effectiveScopeSectionId,
   emptyItemSel,
+  type ItpLibraryCustomItem,
   type ItpLibraryItemSel,
 } from '../types/itpLibraryPlan'
 
@@ -80,9 +107,161 @@ const JOB_TYPE_OPTIONS: { value: ItpLibraryJobType; label: string }[] = [
   { value: 'other', label: 'Other' },
 ]
 
+function jobTypeLabel(jobType: ItpLibraryJobType) {
+  return JOB_TYPE_OPTIONS.find((opt) => opt.value === jobType)?.label ?? jobType
+}
+
+type BuilderLayer = 'global' | 'job_master' | 'valve_master' | 'templates'
+
+type PropagatePrompt = {
+  kind: 'add' | 'edit'
+  item: ItpMasterCatalogItem
+  patch?: Partial<ItpMasterCatalogItem>
+  insertBelowItemId?: string
+}
+
+function parentMasterLabels(
+  layer: BuilderLayer,
+  jobType: ItpLibraryJobType,
+  valveType: string,
+): string[] {
+  if (layer === 'job_master') return ['Global master']
+  if (layer === 'valve_master') return [`${jobTypeLabel(jobType)} job type master`, 'Global master']
+  if (layer === 'templates') {
+    const valve = valveType.trim() || 'valve type'
+    return [
+      `${valve} valve type master`,
+      `${jobTypeLabel(jobType)} job type master`,
+      'Global master',
+    ]
+  }
+  return []
+}
+
+function catalogItemFromCustom(custom: ItpLibraryCustomItem): ItpMasterCatalogItem {
+  const detail =
+    custom.detail && typeof custom.detail === 'object'
+      ? (custom.detail as Partial<ItpMasterCatalogItem>)
+      : {}
+  return {
+    id: custom.id,
+    name: custom.name || String(detail.name ?? 'Custom requirement'),
+    ref: String(detail.ref ?? 'Custom'),
+    secId: custom.secId || String(detail.secId ?? 'receipt'),
+    area: (typeof detail.area === 'string' && detail.area
+      ? normalizeShopAreaValue(detail.area) || detail.area
+      : defaultAreaForSection(String(detail.secId ?? custom.secId ?? 'receipt'))) as ItpShopArea,
+    sortOrder: Number.isFinite(Number(detail.sortOrder)) ? Number(detail.sortOrder) : 10_000,
+    builtIn: false,
+    defaultSubReqs: Array.isArray(detail.defaultSubReqs)
+      ? detail.defaultSubReqs.map((value) => String(value))
+      : undefined,
+    requirePicture: Boolean(detail.requirePicture) || undefined,
+    pictureLabel: detail.pictureLabel ? String(detail.pictureLabel) : undefined,
+    minPhotos: detail.minPhotos != null ? Number(detail.minPhotos) : undefined,
+    maxPhotos: detail.maxPhotos != null ? Number(detail.maxPhotos) : undefined,
+    requireMeasurement: Boolean(detail.requireMeasurement) || undefined,
+    measFields: Array.isArray(detail.measFields) ? detail.measFields : undefined,
+    holdPoint: Boolean(detail.holdPoint) || undefined,
+    blockNext: Boolean(detail.blockNext) || undefined,
+    requireNameplate: Boolean(detail.requireNameplate) || undefined,
+  }
+}
+
+function snapshotCustomItem(item: ItpMasterCatalogItem): ItpLibraryCustomItem {
+  return {
+    id: item.id,
+    secId: item.secId,
+    name: item.name,
+    detail: { ...item },
+  }
+}
+
+function upsertCustomItem(
+  prev: ItpLibraryCustomItem[],
+  item: ItpMasterCatalogItem,
+  withDetail: boolean,
+): ItpLibraryCustomItem[] {
+  const next = [...prev]
+  const idx = next.findIndex((row) => row.id === item.id)
+  if (!withDetail && item.builtIn && idx < 0) return prev
+  const row: ItpLibraryCustomItem = withDetail
+    ? snapshotCustomItem(item)
+    : { id: item.id, secId: item.secId, name: item.name }
+  if (idx >= 0) {
+    next[idx] = withDetail ? row : { ...row, ...(next[idx].detail ? { detail: next[idx].detail } : {}) }
+    return next
+  }
+  next.push(row)
+  return next
+}
+
+function applyScopeOrder(prev: ItpLibraryTemplateScope, orderedIds: string[]): ItpLibraryTemplateScope {
+  const sel = { ...prev.sel }
+  orderedIds.forEach((id, sortIndex) => {
+    sel[id] = { ...(sel[id] ?? emptyItemSel()), sortIndex }
+  })
+  return { ...prev, sel }
+}
+
+function compareItemsForLayer(
+  a: { id: string; sortOrder: number; name: string },
+  b: { id: string; sortOrder: number; name: string },
+  scope: ItpLibraryTemplateScope,
+) {
+  const sortA = scope.sel[a.id]?.sortIndex
+  const sortB = scope.sel[b.id]?.sortIndex
+  if (sortA != null && sortB != null && sortA !== sortB) return sortA - sortB
+  if (sortA != null && sortB == null) return -1
+  if (sortA == null && sortB != null) return 1
+  return a.sortOrder - b.sortOrder || a.name.localeCompare(b.name)
+}
+
+function mergeCatalogWithCustom(
+  items: ItpMasterCatalogItem[],
+  ...scopes: ItpLibraryTemplateScope[]
+): ItpMasterCatalogItem[] {
+  const byId = new Map(items.map((item) => [item.id, item]))
+  for (const scope of scopes) {
+    for (const custom of scope.custom) {
+      const existing = byId.get(custom.id)
+      const fromCustom = catalogItemFromCustom(custom)
+      if (!existing) {
+        byId.set(custom.id, fromCustom)
+        continue
+      }
+      if (!custom.detail && custom.name === existing.name) continue
+      byId.set(custom.id, {
+        ...existing,
+        ...fromCustom,
+        id: custom.id,
+        builtIn: existing.builtIn,
+      })
+    }
+  }
+  return [...byId.values()]
+}
+
 const NEW_TEMPLATE_OPTION = '__new__'
 const MASTER_CATALOG_DRAFT_KEY = 'jsjb-itp-master-catalog-draft-v3'
 const LEGACY_MASTER_CATALOG_DRAFT_KEY = 'jsjb-itp-master-catalog-draft-v2'
+const SAVED_TEMPLATES_COLLAPSED_KEY = 'jsjb-itp-saved-templates-collapsed'
+
+function readSavedTemplatesCollapsed(): boolean {
+  try {
+    return window.localStorage.getItem(SAVED_TEMPLATES_COLLAPSED_KEY) === '1'
+  } catch {
+    return false
+  }
+}
+
+function writeSavedTemplatesCollapsed(collapsed: boolean) {
+  try {
+    window.localStorage.setItem(SAVED_TEMPLATES_COLLAPSED_KEY, collapsed ? '1' : '0')
+  } catch {
+    /* ignore quota / private mode */
+  }
+}
 
 function formatSavedTemplateUpdated(raw: string | null | undefined): string {
   const value = String(raw ?? '').trim()
@@ -99,16 +278,31 @@ type MasterCatalogDraft = {
 }
 
 function parseAreaDefs(raw: unknown): ItpShopAreaDef[] {
-  if (!Array.isArray(raw)) return defaultShopAreas()
-  return raw
-    .map((row) => {
-      if (!row || typeof row !== 'object') return null
-      const value = String((row as { value?: unknown }).value ?? '').trim()
-      const label = String((row as { label?: unknown }).label ?? '').trim()
-      if (!value) return null
-      return { value, label: label || itpShopAreaLabel(value) }
-    })
-    .filter((row): row is ItpShopAreaDef => Boolean(row))
+  return normalizeShopAreas(raw)
+}
+
+function withCatalogShopAreas(
+  scope: ItpLibraryTemplateScope,
+  items: ItpMasterCatalogItem[],
+): ItpLibraryTemplateScope {
+  const sel = { ...scope.sel }
+  for (const item of items) {
+    const current = sel[item.id]
+    if (!current?.included || current.shopArea.trim()) continue
+    const area = normalizeShopAreaValue(item.area) || item.area
+    if (!area) continue
+    sel[item.id] = { ...current, shopArea: area }
+  }
+  return { ...scope, sel }
+}
+
+function resolvedItemStation(shopArea: string | undefined, catalogArea: string | undefined): string {
+  return (
+    normalizeShopAreaValue(shopArea) ||
+    normalizeShopAreaValue(catalogArea) ||
+    catalogArea ||
+    ''
+  )
 }
 
 function parseProcessSectionDefs(raw: unknown, items: ItpMasterCatalogItem[]): ItpProcessSectionDef[] {
@@ -213,7 +407,7 @@ function scrollChildIntoView(root: HTMLElement | null, selector: string) {
 }
 
 function getSel(scope: ItpLibraryTemplateScope, itemId: string): ItpLibraryItemSel {
-  return scope.sel[itemId] ?? emptyItemSel()
+  return migrateFastenerRecordSel(itemId, scope.sel[itemId] ?? emptyItemSel())
 }
 
 function applyCatalogReqToSel(
@@ -228,10 +422,12 @@ function applyCatalogReqToSel(
     if (!next.requirePicture) {
       next.pictureLabel = ''
       next.minPhotos = 1
+      next.maxPhotos = 4
     }
   }
   if ('pictureLabel' in patch) next.pictureLabel = String(patch.pictureLabel ?? '')
-  if ('minPhotos' in patch) next.minPhotos = Math.max(1, Number(patch.minPhotos) || 1)
+  if ('minPhotos' in patch) next.minPhotos = clampLinePhotoMin(patch.minPhotos)
+  if ('maxPhotos' in patch) next.maxPhotos = clampLinePhotoMax(patch.maxPhotos, next.minPhotos)
   if ('requireMeasurement' in patch || 'measFields' in patch) {
     const requireMeasurement =
       patch.requireMeasurement ?? Boolean(patch.measFields && patch.measFields.length > 0)
@@ -273,6 +469,7 @@ type NewMasterDraft = {
   requirePicture: boolean
   pictureLabel: string
   minPhotos: number
+  maxPhotos: number
   requireMeasurement: boolean
   requireNameplate: boolean
   measFields: ItpMeasFieldDef[]
@@ -282,18 +479,86 @@ type NewMasterDraft = {
 
 const emptyNewMasterDraft = (): NewMasterDraft => ({
   name: '',
-  area: 'teardown',
+  area: defaultAreaForSection('receipt'),
   secId: 'receipt',
   ref: '',
   requirePicture: false,
   pictureLabel: '',
   minPhotos: 1,
+  maxPhotos: 4,
   requireMeasurement: false,
   requireNameplate: false,
   measFields: DEFAULT_ITP_MEAS_FIELDS.map((f) => ({ ...f })),
   holdPoint: false,
   blockNext: false,
 })
+
+type ChecklistEditDraft = {
+  mode: 'edit' | 'add'
+  id: string
+  afterItemId?: string
+  secId: string
+  area: ItpShopArea
+  name: string
+  ref: string
+  requirePicture: boolean
+  pictureLabel: string
+  minPhotos: number
+  maxPhotos: number
+  requireMeasurement: boolean
+  requireNameplate: boolean
+  measFields: ItpMeasFieldDef[]
+  holdPoint: boolean
+  blockNext: boolean
+}
+
+function draftFromCatalogItem(item: ItpMasterCatalogItem): ChecklistEditDraft {
+  return {
+    mode: 'edit',
+    id: item.id,
+    secId: item.secId,
+    area: item.area,
+    name: item.name,
+    ref: item.ref === 'Custom' ? '' : item.ref,
+    requirePicture: Boolean(item.requirePicture),
+    pictureLabel: item.pictureLabel ?? '',
+    minPhotos: clampLinePhotoMin(item.minPhotos),
+    maxPhotos: clampLinePhotoMax(item.maxPhotos, item.minPhotos),
+    requireMeasurement: Boolean(item.requireMeasurement),
+    requireNameplate: Boolean(item.requireNameplate),
+    measFields: (item.measFields && item.measFields.length > 0
+      ? item.measFields
+      : DEFAULT_ITP_MEAS_FIELDS
+    ).map((field) => ({ ...field })),
+    holdPoint: Boolean(item.holdPoint),
+    blockNext: Boolean(item.blockNext),
+  }
+}
+
+function emptyChecklistAddDraft(
+  afterItemId: string,
+  secId: string,
+  area: ItpShopArea,
+): ChecklistEditDraft {
+  return {
+    mode: 'add',
+    id: '',
+    afterItemId,
+    secId,
+    area,
+    name: '',
+    ref: '',
+    requirePicture: false,
+    pictureLabel: '',
+    minPhotos: 1,
+    maxPhotos: 4,
+    requireMeasurement: false,
+    requireNameplate: false,
+    measFields: DEFAULT_ITP_MEAS_FIELDS.map((field) => ({ ...field })),
+    holdPoint: false,
+    blockNext: false,
+  }
+}
 
 export type ItpTemplateBuilderFocus = {
   jobType?: string
@@ -313,10 +578,18 @@ export function ItpTemplateBuilderPanel({
   const [loadedTemplateName, setLoadedTemplateName] = useState<string | null>(null)
   const [isDefaultTemplate, setIsDefaultTemplate] = useState(false)
   const [savedTemplateFilter, setSavedTemplateFilter] = useState('')
+  const [savedTemplatesCollapsed, setSavedTemplatesCollapsed] = useState(readSavedTemplatesCollapsed)
   const [workspaceMode, setWorkspaceMode] = useState<'edit' | 'traveler'>('edit')
+  const [builderLayer, setBuilderLayer] = useState<BuilderLayer>('templates')
   const [travelerFocusItemId, setTravelerFocusItemId] = useState<string | null>(null)
   const [valveTypes, setValveTypes] = useState<string[]>([...VALVE_TYPES])
   const [scope, setScope] = useState<ItpLibraryTemplateScope>(() => emptyTemplateScope())
+  const [jobMasterScope, setJobMasterScope] = useState<ItpLibraryTemplateScope>(() => emptyTemplateScope())
+  const [jobMasterDirty, setJobMasterDirty] = useState(false)
+  const [jobMasterExists, setJobMasterExists] = useState(false)
+  const [valveMasterScope, setValveMasterScope] = useState<ItpLibraryTemplateScope>(() => emptyTemplateScope())
+  const [valveMasterDirty, setValveMasterDirty] = useState(false)
+  const [valveMasterExists, setValveMasterExists] = useState(false)
   const [catalog, setCatalog] = useState<ItpMasterCatalogItem[]>([])
   const [areas, setAreas] = useState<ItpShopAreaDef[]>(() => defaultShopAreas())
   const [processSections, setProcessSections] = useState<ItpProcessSectionDef[]>(() => defaultProcessSections())
@@ -338,6 +611,10 @@ export function ItpTemplateBuilderPanel({
   const [masterDirty, setMasterDirty] = useState(false)
   const [schemaError, setSchemaError] = useState<string | null>(null)
   const [subReqDrafts, setSubReqDrafts] = useState<Record<string, string>>({})
+  const [itemNameDrafts, setItemNameDrafts] = useState<Record<string, string>>({})
+  const [propagatePrompt, setPropagatePrompt] = useState<PropagatePrompt | null>(null)
+  const [checklistEdit, setChecklistEdit] = useState<ChecklistEditDraft | null>(null)
+  const [lineTravelerItemId, setLineTravelerItemId] = useState<string | null>(null)
   const [newItem, setNewItem] = useState<NewMasterDraft>(() => emptyNewMasterDraft())
 
   useEffect(() => {
@@ -355,9 +632,37 @@ export function ItpTemplateBuilderPanel({
   }, [processSections, newItem.secId])
 
   const selectedCount = useMemo(() => countIncludedInScope(scope), [scope])
+  const jobMasterCount = useMemo(() => countIncludedInScope(jobMasterScope), [jobMasterScope])
+  const jobMasterIds = useMemo(() => includedItemIds(jobMasterScope), [jobMasterScope])
+  const valveMasterCount = useMemo(() => countIncludedInScope(valveMasterScope), [valveMasterScope])
+  const valveMasterIds = useMemo(() => includedItemIds(valveMasterScope), [valveMasterScope])
+  const canEditCatalog = builderLayer === 'global'
+  const canAddOrEditRequirement = true
+  const valveMasterCustomIds = useMemo(
+    () => new Set(valveMasterScope.custom.map((row) => row.id)),
+    [valveMasterScope.custom],
+  )
+  const templateCustomIds = useMemo(
+    () => new Set(scope.custom.map((row) => row.id)),
+    [scope.custom],
+  )
+  const showIncludeChecks =
+    builderLayer === 'job_master' || builderLayer === 'valve_master' || builderLayer === 'templates'
+  const editingScope =
+    builderLayer === 'job_master'
+      ? jobMasterScope
+      : builderLayer === 'valve_master'
+        ? valveMasterScope
+        : scope
+  const editingSelectedCount =
+    builderLayer === 'job_master'
+      ? jobMasterCount
+      : builderLayer === 'valve_master'
+        ? valveMasterCount
+        : selectedCount
   const holdPointCount = useMemo(
-    () => Object.values(scope.sel).filter((s) => s.included && s.holdPoint).length,
-    [scope.sel],
+    () => Object.values(editingScope.sel).filter((s) => s.included && s.holdPoint).length,
+    [editingScope.sel],
   )
   const templatesForValve = useMemo(
     () =>
@@ -376,11 +681,45 @@ export function ItpTemplateBuilderPanel({
   )
   const pickerValue = loadedTemplateName ?? NEW_TEMPLATE_OPTION
 
+  const catalogForLayer = useMemo(() => {
+    if (builderLayer === 'global') return catalog
+    if (builderLayer === 'job_master') return mergeCatalogWithCustom(catalog, jobMasterScope)
+    if (builderLayer === 'valve_master') {
+      const merged = mergeCatalogWithCustom(catalog, jobMasterScope, valveMasterScope)
+      if (jobMasterIds.size === 0) return merged
+      return merged.filter(
+        (item) => jobMasterIds.has(item.id) || valveMasterCustomIds.has(item.id),
+      )
+    }
+    const merged = mergeCatalogWithCustom(catalog, jobMasterScope, valveMasterScope, scope)
+    if (valveMasterIds.size > 0) {
+      return merged.filter((item) => valveMasterIds.has(item.id) || templateCustomIds.has(item.id))
+    }
+    if (jobMasterIds.size > 0) {
+      return merged.filter((item) => jobMasterIds.has(item.id) || templateCustomIds.has(item.id))
+    }
+    return merged
+  }, [
+    builderLayer,
+    catalog,
+    jobMasterScope,
+    valveMasterScope,
+    scope,
+    jobMasterIds,
+    valveMasterIds,
+    valveMasterCustomIds,
+    templateCustomIds,
+  ])
+
   const catalogBySection = useMemo(() => {
-    const sorted = catalog
+    const sorted = catalogForLayer
       .slice()
       .map((item) => ({ ...item, secId: resolveLibrarySectionId(item.secId) || item.secId }))
-      .sort((a, b) => a.sortOrder - b.sortOrder || a.name.localeCompare(b.name))
+      .sort((a, b) =>
+        builderLayer === 'global'
+          ? a.sortOrder - b.sortOrder || a.name.localeCompare(b.name)
+          : compareItemsForLayer(a, b, editingScope),
+      )
     const known = new Set(processSections.map((section) => section.id))
     const extra = [
       ...new Set(
@@ -401,7 +740,7 @@ export function ItpTemplateBuilderPanel({
       })),
       ...extra,
     ]
-  }, [catalog, processSections])
+  }, [builderLayer, catalogForLayer, processSections, editingScope])
 
   const valveTypeOptions = useMemo(() => {
     const fromSaved = savedRows
@@ -435,7 +774,10 @@ export function ItpTemplateBuilderPanel({
     })
   }, [savedRowsForJob, savedTemplateFilter])
 
-  const catalogById = useMemo(() => new Map(catalog.map((item) => [item.id, item])), [catalog])
+  const catalogById = useMemo(() => {
+    const merged = mergeCatalogWithCustom(catalog, jobMasterScope, valveMasterScope, scope)
+    return new Map(merged.map((item) => [item.id, item]))
+  }, [catalog, jobMasterScope, valveMasterScope, scope])
 
   const refreshSavedList = useCallback(async () => {
     try {
@@ -537,7 +879,7 @@ export function ItpTemplateBuilderPanel({
       try {
         const requestedName = name == null ? null : String(name).trim()
         const stored = await loadItpLibraryTemplate(jt, vt, requestedName || null)
-        if (stored) {
+        if (stored && stored.name !== ITP_LIBRARY_VALVE_MASTER_NAME) {
           setScope(stored.scope)
           setTemplateName(stored.name)
           setLoadedTemplateName(stored.name)
@@ -565,6 +907,88 @@ export function ItpTemplateBuilderPanel({
     [showToast],
   )
 
+  const loadJobMaster = useCallback(
+    async (jt: ItpLibraryJobType) => {
+      try {
+        const stored = await loadJobTypeMaster(jt)
+        if (stored && countIncludedInScope(stored.scope) > 0) {
+          setJobMasterScope(stored.scope)
+          setJobMasterExists(true)
+          setJobMasterDirty(false)
+          return
+        }
+        setJobMasterScope(emptyTemplateScope())
+        setJobMasterExists(false)
+        setJobMasterDirty(false)
+      } catch (error) {
+        showToast(migrationHint(error instanceof Error ? error.message : 'Could not load job type master'))
+        setJobMasterScope(emptyTemplateScope())
+        setJobMasterExists(false)
+        setJobMasterDirty(false)
+      }
+    },
+    [showToast],
+  )
+
+  const loadValveMaster = useCallback(
+    async (jt: ItpLibraryJobType, vt: string) => {
+      if (!vt.trim()) {
+        setValveMasterScope(emptyTemplateScope())
+        setValveMasterExists(false)
+        setValveMasterDirty(false)
+        return
+      }
+      try {
+        const stored = await loadValveTypeMaster(jt, vt)
+        if (stored && countIncludedInScope(stored.scope) > 0) {
+          setValveMasterScope(stored.scope)
+          setValveMasterExists(true)
+          setValveMasterDirty(false)
+          return
+        }
+        setValveMasterScope(emptyTemplateScope())
+        setValveMasterExists(false)
+        setValveMasterDirty(false)
+      } catch (error) {
+        showToast(migrationHint(error instanceof Error ? error.message : 'Could not load valve type master'))
+        setValveMasterScope(emptyTemplateScope())
+        setValveMasterExists(false)
+        setValveMasterDirty(false)
+      }
+    },
+    [showToast],
+  )
+
+  useEffect(() => {
+    void loadJobMaster(jobType)
+  }, [jobType, loadJobMaster])
+
+  useEffect(() => {
+    void loadValveMaster(jobType, valveType)
+  }, [jobType, valveType, loadValveMaster])
+
+  useEffect(() => {
+    if (jobMasterExists || jobMasterDirty) return
+    const fromTemplates = unionIncludedScopes(
+      savedRows.filter((row) => row.job_type === jobType).map((row) => row.scope),
+    )
+    if (countIncludedInScope(fromTemplates) === 0) return
+    setJobMasterScope(fromTemplates)
+    setJobMasterDirty(true)
+  }, [savedRows, jobType, jobMasterExists, jobMasterDirty])
+
+  useEffect(() => {
+    if (!valveType.trim() || valveMasterExists || valveMasterDirty) return
+    const fromTemplates = unionIncludedScopes(
+      savedRows
+        .filter((row) => row.job_type === jobType && row.valve_type === valveType)
+        .map((row) => row.scope),
+    )
+    if (countIncludedInScope(fromTemplates) === 0) return
+    setValveMasterScope(fromTemplates)
+    setValveMasterDirty(true)
+  }, [savedRows, jobType, valveType, valveMasterExists, valveMasterDirty])
+
   useEffect(() => {
     const named = pendingTemplateNameRef.current
     pendingTemplateNameRef.current = undefined
@@ -583,6 +1007,7 @@ export function ItpTemplateBuilderPanel({
     const jt = mapShopJobTypeToLibrary(jtRaw || jobType)
     const nextValve = vt || valveType
     pendingTemplateNameRef.current = tn || null
+    setBuilderLayer('templates')
     if (jt === jobType && nextValve === valveType) {
       void loadTemplate(jt, nextValve, tn || null)
       return
@@ -612,6 +1037,7 @@ export function ItpTemplateBuilderPanel({
     mode: 'edit' | 'traveler' = 'edit',
   ) => {
     if (dirty && !window.confirm('Discard unsaved template changes?')) return
+    setBuilderLayer('templates')
     setWorkspaceMode(mode)
     setTravelerFocusItemId(null)
     const jt = mapShopJobTypeToLibrary(row.job_type)
@@ -631,13 +1057,24 @@ export function ItpTemplateBuilderPanel({
   }
 
   const updateSel = (itemId: string, patch: Partial<ItpLibraryItemSel>) => {
-    setScope((prev) => ({
+    const apply = (prev: ItpLibraryTemplateScope) => ({
       ...prev,
       sel: {
         ...prev.sel,
         [itemId]: { ...(prev.sel[itemId] ?? emptyItemSel()), ...patch },
       },
-    }))
+    })
+    if (builderLayer === 'job_master') {
+      setJobMasterScope(apply)
+      setJobMasterDirty(true)
+      return
+    }
+    if (builderLayer === 'valve_master') {
+      setValveMasterScope(apply)
+      setValveMasterDirty(true)
+      return
+    }
+    setScope(apply)
     setDirty(true)
   }
 
@@ -647,14 +1084,13 @@ export function ItpTemplateBuilderPanel({
     return [...prev.custom, { id: item.id, secId: item.secId, name: item.name }]
   }
 
-  const toggleInclude = (itemId: string) => {
-    if (!valveType.trim()) {
-      showToast('Select a valve type first, then check items to build its template')
-      return
-    }
-    const catalogItem = catalogById.get(itemId)
-    const current = getSel(scope, itemId)
-    const included = !current.included
+  const applyIncludeToScope = (
+    prev: ItpLibraryTemplateScope,
+    itemId: string,
+    included: boolean,
+    catalogItem: ItpMasterCatalogItem | undefined,
+  ): ItpLibraryTemplateScope => {
+    const current = getSel(prev, itemId)
     let nextSel: ItpLibraryItemSel = { ...current, included }
     if (included) {
       let subReqs = current.subReqs
@@ -665,37 +1101,64 @@ export function ItpTemplateBuilderPanel({
           if (found?.item.defaultSubReqs?.length) subReqs = [...found.item.defaultSubReqs]
         }
       }
-      nextSel = {
+      nextSel = migrateFastenerRecordSel(itemId, {
         ...selFromRequirementDefaults(
           { ...current, included: true, subReqs },
           catalogItem ? requirementDefaultsFromCatalogItem(catalogItem) : null,
         ),
         included: true,
         subReqs,
-      }
+        shopArea: current.shopArea.trim() || String(catalogItem?.area ?? '').trim(),
+      })
     }
-    setScope((prev) => {
-      const custom =
-        included && catalogItem ? ensureCustomOnScope(catalogItem, prev) : prev.custom
-      return {
-        ...prev,
-        custom,
-        sel: {
-          ...prev.sel,
-          [itemId]: nextSel,
-        },
-      }
-    })
+    const custom = included && catalogItem ? ensureCustomOnScope(catalogItem, prev) : prev.custom
+    return {
+      ...prev,
+      custom,
+      sel: {
+        ...prev.sel,
+        [itemId]: nextSel,
+      },
+    }
+  }
+
+  const toggleInclude = (itemId: string) => {
+    if (builderLayer === 'global') return
+    if ((builderLayer === 'valve_master' || builderLayer === 'templates') && !valveType.trim()) {
+      showToast('Select a valve type first, then check items')
+      return
+    }
+    if (!catalogForLayer.some((item) => item.id === itemId)) {
+      if (builderLayer === 'valve_master') showToast('Add this item to the Job Type Master first')
+      else if (valveMasterIds.size > 0) showToast('Add this item to the Valve Type Master first')
+      else showToast('Add this item to the Job Type Master first')
+      return
+    }
+    const catalogItem = catalogById.get(itemId)
+    const current = getSel(editingScope, itemId)
+    const included = !current.included
+    if (builderLayer === 'job_master') {
+      setJobMasterScope((prev) => applyIncludeToScope(prev, itemId, included, catalogItem))
+      setJobMasterDirty(true)
+      return
+    }
+    if (builderLayer === 'valve_master') {
+      setValveMasterScope((prev) => applyIncludeToScope(prev, itemId, included, catalogItem))
+      setValveMasterDirty(true)
+      return
+    }
+    setScope((prev) => applyIncludeToScope(prev, itemId, included, catalogItem))
     setDirty(true)
   }
 
   const selectAllInSection = (secId: string, select: boolean) => {
-    if (!valveType.trim()) {
-      showToast('Select a valve type first, then check items to build its template')
+    if (builderLayer === 'global') return
+    if ((builderLayer === 'valve_master' || builderLayer === 'templates') && !valveType.trim()) {
+      showToast('Select a valve type first, then check items')
       return
     }
-    const sectionItems = catalog.filter((item) => item.secId === secId)
-    setScope((prev) => {
+    const sectionItems = catalogForLayer.filter((item) => item.secId === secId)
+    const apply = (prev: ItpLibraryTemplateScope) => {
       let custom = [...prev.custom]
       const sel = { ...prev.sel }
       for (const item of sectionItems) {
@@ -706,14 +1169,15 @@ export function ItpTemplateBuilderPanel({
           if (subReqs.length === 0 && item.defaultSubReqs?.length) {
             subReqs = [...item.defaultSubReqs]
           }
-          nextSel = {
+          nextSel = migrateFastenerRecordSel(item.id, {
             ...selFromRequirementDefaults(
               { ...current, included: true, subReqs },
               requirementDefaultsFromCatalogItem(item),
             ),
             included: true,
             subReqs,
-          }
+            shopArea: current.shopArea.trim() || String(item.area ?? '').trim(),
+          })
         }
         sel[item.id] = nextSel
         if (select && !item.builtIn && !custom.some((c) => c.id === item.id)) {
@@ -721,31 +1185,53 @@ export function ItpTemplateBuilderPanel({
         }
       }
       return { ...prev, sel, custom }
-    })
+    }
+    if (builderLayer === 'job_master') {
+      setJobMasterScope(apply)
+      setJobMasterDirty(true)
+      return
+    }
+    if (builderLayer === 'valve_master') {
+      setValveMasterScope(apply)
+      setValveMasterDirty(true)
+      return
+    }
+    setScope(apply)
     setDirty(true)
   }
 
   const deselectAll = () => {
-    setScope((prev) => {
+    const clear = (prev: ItpLibraryTemplateScope) => {
       const sel = { ...prev.sel }
       for (const [id, value] of Object.entries(sel)) {
         sel[id] = { ...value, included: false }
       }
       return { ...prev, sel }
-    })
+    }
+    if (builderLayer === 'job_master') {
+      setJobMasterScope(clear)
+      setJobMasterDirty(true)
+      return
+    }
+    if (builderLayer === 'valve_master') {
+      setValveMasterScope(clear)
+      setValveMasterDirty(true)
+      return
+    }
+    setScope(clear)
     setDirty(true)
   }
 
   const addSubReq = (itemId: string) => {
     const text = (subReqDrafts[itemId] ?? '').trim()
     if (!text) return
-    const current = getSel(scope, itemId)
+    const current = getSel(editingScope, itemId)
     updateSel(itemId, { subReqs: [...current.subReqs, text] })
     setSubReqDrafts((prev) => ({ ...prev, [itemId]: '' }))
   }
 
   const removeSubReq = (itemId: string, index: number) => {
-    const current = getSel(scope, itemId)
+    const current = getSel(editingScope, itemId)
     updateSel(itemId, { subReqs: current.subReqs.filter((_, i) => i !== index) })
   }
 
@@ -755,9 +1241,17 @@ export function ItpTemplateBuilderPanel({
       showToast('Enter the requirement text')
       return
     }
+    if ((builderLayer === 'valve_master' || builderLayer === 'templates') && !valveType.trim()) {
+      showToast('Select a valve type first')
+      return
+    }
     const secId = newItem.secId
     const id = `master-${secId}-${Date.now().toString(36)}`
-    const nextOrder = catalog.reduce((max, item) => Math.max(max, item.sortOrder), -1) + 1
+    const nextOrder =
+      Math.max(
+        catalog.reduce((max, item) => Math.max(max, item.sortOrder), -1),
+        catalogForLayer.reduce((max, item) => Math.max(max, item.sortOrder), -1),
+      ) + 1
     const measFields =
       newItem.requireNameplate
         ? NAMEPLATE_TRAVELER_FIELDS.map((f) => ({ ...f }))
@@ -778,35 +1272,34 @@ export function ItpTemplateBuilderPanel({
       showToast('Add at least one measurement field label')
       return
     }
-    setCatalog((prev) =>
-      reindexCatalog([
-        ...prev,
-        {
-          id,
-          name,
-          ref: newItem.ref.trim() || 'Custom',
-          secId,
-          area: newItem.area,
-          sortOrder: nextOrder,
-          builtIn: false,
-          requirePicture: newItem.requirePicture || undefined,
-          pictureLabel: newItem.requirePicture
-            ? newItem.pictureLabel.trim() || undefined
-            : undefined,
-          minPhotos: newItem.requirePicture ? Math.max(1, newItem.minPhotos || 1) : undefined,
-          requireMeasurement: newItem.requireMeasurement || newItem.requireNameplate || undefined,
-          requireNameplate: newItem.requireNameplate || undefined,
-          measFields,
-          holdPoint: newItem.holdPoint || undefined,
-          blockNext: newItem.blockNext || undefined,
-        },
-      ]),
-    )
-    setNewItem(emptyNewMasterDraft())
-    setMasterDirty(true)
-    showToast(
-      `Staged in ${processSectionTitle(secId, processSections)} — not saved yet. Click Save master list.`,
-    )
+    const catalogItem: ItpMasterCatalogItem = {
+      id,
+      name,
+      ref: newItem.ref.trim() || 'Custom',
+      secId,
+      area: newItem.area,
+      sortOrder: nextOrder,
+      builtIn: false,
+      requirePicture: newItem.requirePicture || undefined,
+      pictureLabel: newItem.requirePicture ? newItem.pictureLabel.trim() || undefined : undefined,
+      minPhotos: newItem.requirePicture ? clampLinePhotoMin(newItem.minPhotos) : undefined,
+      maxPhotos: newItem.requirePicture ? clampLinePhotoMax(newItem.maxPhotos, newItem.minPhotos) : undefined,
+      requireMeasurement: newItem.requireMeasurement || newItem.requireNameplate || undefined,
+      requireNameplate: newItem.requireNameplate || undefined,
+      measFields,
+      holdPoint: newItem.holdPoint || undefined,
+      blockNext: newItem.blockNext || undefined,
+    }
+    if (builderLayer === 'global') {
+      setCatalog((prev) => reindexCatalog([...prev, catalogItem]))
+      setNewItem(emptyNewMasterDraft())
+      setMasterDirty(true)
+      showToast(
+        `Staged in ${processSectionTitle(secId, processSections)} — not saved yet. Click Save global master.`,
+      )
+      return
+    }
+    setPropagatePrompt({ kind: 'add', item: catalogItem })
   }
 
   /** Manage Traveler: create a catalog item, include it on this template, and put inputs on the traveler. */
@@ -853,7 +1346,8 @@ export function ItpTemplateBuilderPanel({
       builtIn: false,
       requirePicture: draft.requirePicture || undefined,
       pictureLabel: draft.requirePicture ? draft.pictureLabel.trim() || undefined : undefined,
-      minPhotos: draft.requirePicture ? Math.max(1, draft.minPhotos || 1) : undefined,
+      minPhotos: draft.requirePicture ? clampLinePhotoMin(draft.minPhotos) : undefined,
+      maxPhotos: draft.requirePicture ? clampLinePhotoMax(draft.maxPhotos, draft.minPhotos) : undefined,
       requireMeasurement: draft.requireMeasurement || draft.requireNameplate || undefined,
       requireNameplate: draft.requireNameplate || undefined,
       measFields,
@@ -907,9 +1401,19 @@ export function ItpTemplateBuilderPanel({
     setDirty(true)
   }
 
+  const changeChecklistStation = (itemId: string, area: ItpShopArea) => {
+    updateSel(itemId, { shopArea: normalizeShopAreaValue(area) || area })
+  }
+
   const changeItemArea = (itemId: string, area: ItpShopArea) => {
-    setCatalog((prev) => prev.map((item) => (item.id === itemId ? { ...item, area } : item)))
+    const next = normalizeShopAreaValue(area) || area
+    setCatalog((prev) => prev.map((item) => (item.id === itemId ? { ...item, area: next } : item)))
     setMasterDirty(true)
+  }
+
+  const changeRowStation = (itemId: string, area: ItpShopArea) => {
+    if (builderLayer === 'global') changeItemArea(itemId, area)
+    else changeChecklistStation(itemId, area)
   }
 
   const changeItemSection = (itemId: string, secId: string) => {
@@ -917,12 +1421,10 @@ export function ItpTemplateBuilderPanel({
     setMasterDirty(true)
   }
 
-  const patchMasterItem = (itemId: string, patch: Partial<ItpMasterCatalogItem>) => {
+  const patchCatalogAndLinkedSels = (itemId: string, patch: Partial<ItpMasterCatalogItem>) => {
     setCatalog((prev) => prev.map((item) => (item.id === itemId ? { ...item, ...patch } : item)))
     setMasterDirty(true)
-    const included = getSel(scope, itemId).included
-    if (!included) return
-    setScope((prev) => {
+    const applySel = (prev: ItpLibraryTemplateScope): ItpLibraryTemplateScope => {
       const current = prev.sel[itemId]
       if (!current?.included) return prev
       return {
@@ -932,26 +1434,363 @@ export function ItpTemplateBuilderPanel({
           [itemId]: applyCatalogReqToSel(current, patch),
         },
       }
+    }
+    setScope((prev) => applySel(prev))
+    setJobMasterScope((prev) => applySel(prev))
+    setValveMasterScope((prev) => applySel(prev))
+    if (getSel(scope, itemId).included) setDirty(true)
+    if (getSel(jobMasterScope, itemId).included) setJobMasterDirty(true)
+    if (getSel(valveMasterScope, itemId).included) setValveMasterDirty(true)
+  }
+
+  const insertNewItemBelow = (
+    prev: ItpLibraryTemplateScope,
+    newId: string,
+    belowId: string,
+    sectionId: string,
+  ): ItpLibraryTemplateScope => {
+    const rows = catalogForLayer
+      .filter((row) => {
+        if (row.id === newId) return false
+        const sel = getSel(prev, row.id)
+        if (!sel.included) return false
+        return effectiveScopeSectionId(row.secId, sel) === sectionId
+      })
+      .slice()
+      .sort((a, b) => compareItemsForLayer(a, b, prev))
+      .map((row) => row.id)
+    const idx = rows.indexOf(belowId)
+    rows.splice(idx < 0 ? rows.length : idx + 1, 0, newId)
+    return applyScopeOrder(prev, rows)
+  }
+
+  const applyRequirementChange = (
+    item: ItpMasterCatalogItem,
+    patch: Partial<ItpMasterCatalogItem>,
+    propagate: boolean,
+    kind: 'add' | 'edit',
+    options?: { silent?: boolean; insertBelowItemId?: string },
+  ) => {
+    const itemInCatalog = catalog.some((row) => row.id === item.id)
+    const populateParents = propagate && (kind === 'add' || !itemInCatalog)
+    const withDetail = !propagate
+
+    const touchScope = (
+      setter: typeof setScope,
+      dirtySetter: typeof setDirty,
+      include: boolean,
+    ) => {
+      setter((prev) => {
+        let next = prev
+        if (include) next = applyIncludeToScope(next, item.id, true, item)
+        next = { ...next, custom: upsertCustomItem(next.custom, item, withDetail) }
+        if (Object.keys(patch).length > 0) {
+          const current = next.sel[item.id]
+          if (current) {
+            next = {
+              ...next,
+              sel: {
+                ...next.sel,
+                [item.id]: applyCatalogReqToSel(current, patch),
+              },
+            }
+          }
+        }
+        if (!withDetail) {
+          next = {
+            ...next,
+            custom: next.custom.map((row) =>
+              row.id === item.id ? { id: item.id, secId: item.secId, name: item.name } : row,
+            ),
+          }
+        }
+        if (kind === 'add' && include && options?.insertBelowItemId) {
+          next = insertNewItemBelow(next, item.id, options.insertBelowItemId, item.secId)
+        }
+        return next
+      })
+      dirtySetter(true)
+    }
+
+    if (propagate) {
+      setCatalog((prev) => {
+        const exists = prev.some((row) => row.id === item.id)
+        return reindexCatalog(
+          exists ? prev.map((row) => (row.id === item.id ? { ...row, ...item } : row)) : [...prev, item],
+        )
+      })
+      setMasterDirty(true)
+    }
+
+    if (builderLayer === 'job_master') {
+      touchScope(setJobMasterScope, setJobMasterDirty, kind === 'add')
+    } else if (builderLayer === 'valve_master') {
+      touchScope(setValveMasterScope, setValveMasterDirty, kind === 'add')
+      if (populateParents) touchScope(setJobMasterScope, setJobMasterDirty, true)
+      else if (propagate) touchScope(setJobMasterScope, setJobMasterDirty, false)
+    } else if (builderLayer === 'templates') {
+      touchScope(setScope, setDirty, kind === 'add')
+      if (populateParents) {
+        touchScope(setValveMasterScope, setValveMasterDirty, true)
+        touchScope(setJobMasterScope, setJobMasterDirty, true)
+      } else if (propagate) {
+        touchScope(setValveMasterScope, setValveMasterDirty, false)
+        touchScope(setJobMasterScope, setJobMasterDirty, false)
+      }
+    }
+
+    if (options?.silent) return
+    if (kind === 'add') {
+      setNewItem(emptyNewMasterDraft())
+      showToast(
+        propagate
+          ? `Added “${item.name}” here and to parent masters — save each step that shows unsaved`
+          : `Added “${item.name}” on this master only — not saved yet`,
+      )
+    } else {
+      showToast(
+        propagate
+          ? `Updated “${item.name}” on this master and parents — save to keep the change`
+          : `Updated “${item.name}” on this master only — not saved yet`,
+      )
+    }
+  }
+
+  const resolvePropagatePrompt = (propagate: boolean) => {
+    if (!propagatePrompt) return
+    const { kind, item, patch } = propagatePrompt
+    setPropagatePrompt(null)
+    if (kind === 'edit') {
+      setItemNameDrafts((prev) => {
+        if (!(item.id in prev)) return prev
+        const next = { ...prev }
+        delete next[item.id]
+        return next
+      })
+    }
+    applyRequirementChange(item, patch ?? {}, propagate, kind, {
+      insertBelowItemId: propagatePrompt.insertBelowItemId,
     })
-    setDirty(true)
+  }
+
+  const patchMasterItem = (
+    itemId: string,
+    patch: Partial<ItpMasterCatalogItem>,
+    options?: { prompt?: boolean },
+  ) => {
+    if (builderLayer === 'global') {
+      patchCatalogAndLinkedSels(itemId, patch)
+      return
+    }
+    const item = catalogById.get(itemId)
+    if (!item) return
+    const nextItem = { ...item, ...patch }
+    if (options?.prompt === false) {
+      applyRequirementChange(nextItem, patch, false, 'edit', { silent: true })
+      return
+    }
+    setPropagatePrompt({ kind: 'edit', item: nextItem, patch })
+  }
+
+  const commitItemName = (item: ItpMasterCatalogItem) => {
+    const nextName = (itemNameDrafts[item.id] ?? item.name).trim()
+    if (!nextName || nextName === item.name) {
+      setItemNameDrafts((prev) => {
+        if (!(item.id in prev)) return prev
+        const next = { ...prev }
+        delete next[item.id]
+        return next
+      })
+      return
+    }
+    if (builderLayer === 'global') {
+      patchCatalogAndLinkedSels(item.id, { name: nextName })
+      setItemNameDrafts((prev) => {
+        const next = { ...prev }
+        delete next[item.id]
+        return next
+      })
+      return
+    }
+    setPropagatePrompt({
+      kind: 'edit',
+      item: { ...item, name: nextName },
+      patch: { name: nextName },
+    })
+  }
+
+  const openChecklistEdit = (itemId: string) => {
+    const item = catalogById.get(itemId)
+    if (!item) {
+      showToast('Could not find that requirement')
+      return
+    }
+    setChecklistEdit(draftFromCatalogItem(item))
+  }
+
+  const openChecklistAddBelow = (itemId: string, secId: string, area: ItpShopArea) => {
+    if ((builderLayer === 'valve_master' || builderLayer === 'templates') && !valveType.trim()) {
+      showToast('Select a valve type first')
+      return
+    }
+    setChecklistEdit(emptyChecklistAddDraft(itemId, secId, area))
+  }
+
+  const saveChecklistEdit = () => {
+    if (!checklistEdit) return
+    const name = checklistEdit.name.trim()
+    if (!name) {
+      showToast('Enter the requirement text')
+      return
+    }
+    const measFields =
+      checklistEdit.requireNameplate
+        ? NAMEPLATE_TRAVELER_FIELDS.map((field) => ({ ...field }))
+        : checklistEdit.requireMeasurement
+          ? checklistEdit.measFields
+              .map((field) =>
+                emptyMeasField({
+                  id: field.id || newMeasFieldId(),
+                  label: field.label.trim(),
+                  type: field.type,
+                  options: field.options,
+                  required: field.required,
+                }),
+              )
+              .filter((field) => field.label)
+          : undefined
+    if (
+      checklistEdit.requireMeasurement &&
+      !checklistEdit.requireNameplate &&
+      (!measFields || measFields.length === 0)
+    ) {
+      showToast('Add at least one measurement field label')
+      return
+    }
+    if (checklistEdit.mode === 'add') {
+      const secId = checklistEdit.secId
+      const id = `master-${secId}-${Date.now().toString(36)}`
+      const nextOrder =
+        Math.max(
+          catalog.reduce((max, item) => Math.max(max, item.sortOrder), -1),
+          catalogForLayer.reduce((max, item) => Math.max(max, item.sortOrder), -1),
+        ) + 1
+      const catalogItem: ItpMasterCatalogItem = {
+        id,
+        name,
+        ref: checklistEdit.ref.trim() || 'Custom',
+        secId,
+        area: checklistEdit.area,
+        sortOrder: nextOrder,
+        builtIn: false,
+        requirePicture: checklistEdit.requirePicture || undefined,
+        pictureLabel: checklistEdit.requirePicture
+          ? checklistEdit.pictureLabel.trim() || undefined
+          : undefined,
+        minPhotos: checklistEdit.requirePicture ? clampLinePhotoMin(checklistEdit.minPhotos) : undefined,
+        maxPhotos: checklistEdit.requirePicture
+          ? clampLinePhotoMax(checklistEdit.maxPhotos, checklistEdit.minPhotos)
+          : undefined,
+        requireMeasurement: checklistEdit.requireMeasurement || checklistEdit.requireNameplate || undefined,
+        requireNameplate: checklistEdit.requireNameplate || undefined,
+        measFields,
+        holdPoint: checklistEdit.holdPoint || undefined,
+        blockNext: checklistEdit.blockNext || undefined,
+      }
+      const afterId = checklistEdit.afterItemId
+      setChecklistEdit(null)
+      if (builderLayer === 'global') {
+        setCatalog((prev) => reindexCatalog([...prev, catalogItem]))
+        setMasterDirty(true)
+        showToast(`Staged “${name}” — click Save global master`)
+        return
+      }
+      setPropagatePrompt({ kind: 'add', item: catalogItem, insertBelowItemId: afterId })
+      return
+    }
+    const original = catalogById.get(checklistEdit.id)
+    if (!original) {
+      setChecklistEdit(null)
+      return
+    }
+    const patch: Partial<ItpMasterCatalogItem> = {
+      name,
+      ref: checklistEdit.ref.trim() || original.ref || 'Custom',
+      requirePicture: checklistEdit.requirePicture || undefined,
+      pictureLabel: checklistEdit.requirePicture
+        ? checklistEdit.pictureLabel.trim() || undefined
+        : undefined,
+      minPhotos: checklistEdit.requirePicture ? clampLinePhotoMin(checklistEdit.minPhotos) : undefined,
+      maxPhotos: checklistEdit.requirePicture
+        ? clampLinePhotoMax(checklistEdit.maxPhotos, checklistEdit.minPhotos)
+        : undefined,
+      requireMeasurement: checklistEdit.requireMeasurement || checklistEdit.requireNameplate || undefined,
+      requireNameplate: checklistEdit.requireNameplate || undefined,
+      measFields,
+      holdPoint: checklistEdit.holdPoint || undefined,
+      blockNext: checklistEdit.blockNext || undefined,
+    }
+    const nextItem: ItpMasterCatalogItem = { ...original, ...patch }
+    setChecklistEdit(null)
+    if (builderLayer === 'global') {
+      patchCatalogAndLinkedSels(original.id, patch)
+      showToast(`Updated “${name}”`)
+      return
+    }
+    setPropagatePrompt({ kind: 'edit', item: nextItem, patch })
   }
 
   /** Template-only: move a checklist line between ITP sections without changing the master catalog. */
   const changeTemplateItemSection = (itemId: string, secId: string) => {
-    setScope((prev) => ({
-      ...prev,
-      sel: {
-        ...prev.sel,
-        [itemId]: { ...(prev.sel[itemId] ?? emptyItemSel()), sectionId: secId },
-      },
-      custom: prev.custom.map((row) => (row.id === itemId ? { ...row, secId } : row)),
-    }))
-    setDirty(true)
+    updateSel(itemId, { sectionId: secId })
   }
 
   const moveItem = (itemId: string, direction: -1 | 1) => {
     setCatalog((prev) => moveCatalogItemInSection(prev, itemId, direction))
     setMasterDirty(true)
+  }
+
+  const moveLayerItemInSection = (
+    sectionId: string,
+    itemId: string,
+    direction: -1 | 1,
+    includedOnly: boolean,
+  ) => {
+    if (builderLayer === 'global') {
+      moveItem(itemId, direction)
+      return
+    }
+    const rows = catalogForLayer
+      .filter((item) => {
+        const sel = getSel(editingScope, item.id)
+        if (includedOnly) {
+          if (!sel.included) return false
+          return effectiveScopeSectionId(item.secId, sel) === sectionId
+        }
+        return (resolveLibrarySectionId(item.secId) || item.secId) === sectionId
+      })
+      .slice()
+      .sort((a, b) => compareItemsForLayer(a, b, editingScope))
+    const index = rows.findIndex((row) => row.id === itemId)
+    const swapWith = index + direction
+    if (index < 0 || swapWith < 0 || swapWith >= rows.length) return
+    const ordered = [...rows]
+    const current = ordered[index]
+    ordered[index] = ordered[swapWith]
+    ordered[swapWith] = current
+    const orderedIds = ordered.map((row) => row.id)
+    if (builderLayer === 'job_master') {
+      setJobMasterScope((prev) => applyScopeOrder(prev, orderedIds))
+      setJobMasterDirty(true)
+      return
+    }
+    if (builderLayer === 'valve_master') {
+      setValveMasterScope((prev) => applyScopeOrder(prev, orderedIds))
+      setValveMasterDirty(true)
+      return
+    }
+    setScope((prev) => applyScopeOrder(prev, orderedIds))
+    setDirty(true)
   }
 
   const scrollMasterSection = (secId: string) => {
@@ -1055,7 +1894,87 @@ export function ItpTemplateBuilderPanel({
       await saveItpMasterCatalog(catalog, areas, processSections)
       setMasterDirty(false)
       clearMasterCatalogDraft()
-      showToast('Master list saved')
+      showToast('Global master saved')
+    } catch (error) {
+      showToast(formatSaveError(error))
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  const handleSaveJobTypeMaster = async () => {
+    setSaving(true)
+    try {
+      if (masterDirty) {
+        await saveItpMasterCatalog(catalog, areas, processSections)
+        setMasterDirty(false)
+        clearMasterCatalogDraft()
+      }
+      const includedCustom = catalog
+        .filter((item) => !item.builtIn && getSel(jobMasterScope, item.id).included)
+        .map((item) => ({ id: item.id, secId: item.secId, name: item.name }))
+      const mergedCustom = [...jobMasterScope.custom]
+      for (const row of includedCustom) {
+        if (!mergedCustom.some((c) => c.id === row.id)) mergedCustom.push(row)
+      }
+      const toSave = withCatalogShopAreas(
+        { ...jobMasterScope, custom: mergedCustom },
+        catalog,
+      )
+      await saveJobTypeMaster(jobType, toSave)
+      setJobMasterScope(toSave)
+      setJobMasterExists(true)
+      setJobMasterDirty(false)
+      showToast(`Saved ${jobTypeLabel(jobType)} job type master`)
+    } catch (error) {
+      showToast(formatSaveError(error))
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  const handleSaveValveTypeMaster = async () => {
+    if (!valveType.trim()) {
+      showToast('Select a valve type first')
+      return
+    }
+    setSaving(true)
+    try {
+      if (masterDirty) {
+        await saveItpMasterCatalog(catalog, areas, processSections)
+        setMasterDirty(false)
+        clearMasterCatalogDraft()
+      }
+      if (jobMasterDirty) {
+        const jobIncludedCustom = catalog
+          .filter((item) => !item.builtIn && getSel(jobMasterScope, item.id).included)
+          .map((item) => ({ id: item.id, secId: item.secId, name: item.name }))
+        const jobMergedCustom = [...jobMasterScope.custom]
+        for (const row of jobIncludedCustom) {
+          if (!jobMergedCustom.some((c) => c.id === row.id)) jobMergedCustom.push(row)
+        }
+        const jobToSave = { ...jobMasterScope, custom: jobMergedCustom }
+        await saveJobTypeMaster(jobType, jobToSave)
+        setJobMasterScope(jobToSave)
+        setJobMasterExists(true)
+        setJobMasterDirty(false)
+      }
+      const includedCustom = catalog
+        .filter((item) => !item.builtIn && getSel(valveMasterScope, item.id).included)
+        .map((item) => ({ id: item.id, secId: item.secId, name: item.name }))
+      const mergedCustom = [...valveMasterScope.custom]
+      for (const row of includedCustom) {
+        if (!mergedCustom.some((c) => c.id === row.id)) mergedCustom.push(row)
+      }
+      const toSave = withCatalogShopAreas(
+        { ...valveMasterScope, custom: mergedCustom },
+        catalog,
+      )
+      await saveValveTypeMaster(jobType, valveType, toSave)
+      setValveMasterScope(toSave)
+      setValveMasterExists(true)
+      setValveMasterDirty(false)
+      showToast(`Saved ${valveType} valve type master`)
     } catch (error) {
       showToast(formatSaveError(error))
     } finally {
@@ -1070,7 +1989,11 @@ export function ItpTemplateBuilderPanel({
     }
     const name = templateName.trim()
     if (!name) {
-      showToast('Enter a template name (for example Twinseal Template)')
+      showToast('Enter a template name (for example Wedge Gate or Parallel Gate)')
+      return
+    }
+    if (name === ITP_LIBRARY_VALVE_MASTER_NAME) {
+      showToast('That name is reserved for the valve type master')
       return
     }
     setSaving(true)
@@ -1080,6 +2003,16 @@ export function ItpTemplateBuilderPanel({
         setMasterDirty(false)
         clearMasterCatalogDraft()
       }
+      if (jobMasterDirty) {
+        await saveJobTypeMaster(jobType, jobMasterScope)
+        setJobMasterExists(true)
+        setJobMasterDirty(false)
+      }
+      if (valveMasterDirty && valveType.trim()) {
+        await saveValveTypeMaster(jobType, valveType, valveMasterScope)
+        setValveMasterExists(true)
+        setValveMasterDirty(false)
+      }
       const includedCustom = catalog
         .filter((item) => !item.builtIn && getSel(scope, item.id).included)
         .map((item) => ({ id: item.id, secId: item.secId, name: item.name }))
@@ -1087,7 +2020,8 @@ export function ItpTemplateBuilderPanel({
       for (const row of includedCustom) {
         if (!mergedCustom.some((c) => c.id === row.id)) mergedCustom.push(row)
       }
-      const toSave = { ...scope, custom: mergedCustom, processSections }
+      const filled = withCatalogShopAreas({ ...scope, custom: mergedCustom }, catalog)
+      const toSave = { ...filled, processSections }
       const saved = await saveItpLibraryTemplate(jobType, valveType, toSave, {
         name,
         isDefault: isDefaultTemplate || templatesForValve.length === 0,
@@ -1109,6 +2043,47 @@ export function ItpTemplateBuilderPanel({
       setSaving(false)
     }
   }
+
+  const saveCurrentLayer = () => {
+    if (builderLayer === 'global') void handleSaveMaster()
+    else if (builderLayer === 'job_master') void handleSaveJobTypeMaster()
+    else if (builderLayer === 'valve_master') void handleSaveValveTypeMaster()
+    else void handleSaveTemplate()
+  }
+
+  const saveCurrentLayerDisabled =
+    saving ||
+    loading ||
+    Boolean(schemaError) ||
+    (builderLayer === 'global' && !masterDirty) ||
+    (builderLayer !== 'global' && builderLayer !== 'job_master' && !valveType)
+
+  const saveCurrentLayerLabel = saving
+    ? 'Saving…'
+    : builderLayer === 'global'
+      ? masterDirty
+        ? 'Save'
+        : 'Saved'
+      : builderLayer === 'job_master'
+        ? jobMasterDirty
+          ? 'Save'
+          : 'Saved'
+        : builderLayer === 'valve_master'
+          ? valveMasterDirty
+            ? 'Save'
+            : 'Saved'
+          : dirty || masterDirty || jobMasterDirty || valveMasterDirty
+            ? 'Save'
+            : 'Saved'
+
+  const saveCurrentLayerTitle =
+    builderLayer === 'global'
+      ? 'Save the global master'
+      : builderLayer === 'job_master'
+        ? `Save the ${jobTypeLabel(jobType)} job type master`
+        : builderLayer === 'valve_master'
+          ? 'Save the valve type master'
+          : 'Save this ITP template'
 
   const handleSetDefault = async () => {
     if (!valveType.trim() || !loadedTemplateName) {
@@ -1171,14 +2146,14 @@ export function ItpTemplateBuilderPanel({
   }
 
   const checklistSections = useMemo(() => {
-    const sorted = catalog.slice().sort((a, b) => a.sortOrder - b.sortOrder || a.name.localeCompare(b.name))
+    const included = catalogForLayer.filter((item) => getSel(editingScope, item.id).included)
     return catalogBySection
       .map((section) => {
-        const items = sorted
-          .filter((item) => {
-            if (!getSel(scope, item.id).included) return false
-            return effectiveScopeSectionId(item.secId, getSel(scope, item.id)) === section.id
-          })
+        const items = included
+          .filter(
+            (item) => effectiveScopeSectionId(item.secId, getSel(editingScope, item.id)) === section.id,
+          )
+          .sort((a, b) => compareItemsForLayer(a, b, editingScope))
           .map((item) => ({
             id: item.id,
             name: item.name,
@@ -1189,7 +2164,41 @@ export function ItpTemplateBuilderPanel({
         return { section: { id: section.id, title: section.title }, items }
       })
       .filter((row) => row.items.length > 0)
-  }, [catalog, catalogBySection, scope])
+  }, [catalogForLayer, catalogBySection, editingScope])
+
+  const openItpPreview = () => {
+    if (editingSelectedCount === 0) {
+      showToast('Check items into the ITP before previewing')
+      return
+    }
+    const previewName =
+      builderLayer === 'job_master'
+        ? `${jobTypeLabel(jobType)} job type master`
+        : builderLayer === 'valve_master'
+          ? `${valveType.trim() || 'Valve type'} master`
+          : templateName.trim() || loadedTemplateName || 'Untitled'
+    writeTemplatePreviewPayload(
+      buildTemplatePreviewPlan({
+        jobType,
+        valveType: valveType.trim() || 'Preview',
+        templateName: previewName,
+        scope: editingScope,
+        catalogItems: catalogForLayer,
+      }),
+    )
+    const previewUrl = `${ITP_TEMPLATE_PREVIEW_PATH}?t=${Date.now()}`
+    const opened = window.open(previewUrl, 'itp-template-preview')
+    if (!opened) {
+      showToast('Allow pop-ups to open the ITP preview')
+      return
+    }
+    try {
+      opened.location.replace(previewUrl)
+    } catch {
+      // Same-window open still loads the URL from window.open.
+    }
+    opened.focus()
+  }
 
   useEffect(() => {
     if (workspaceMode !== 'traveler') return
@@ -1206,14 +2215,57 @@ export function ItpTemplateBuilderPanel({
     <section className="dashboard-panel admin-lists-panel itp-template-builder">
       <h3>ITP template builder</h3>
       <p className="placeholder-copy">
-        Master list is the shared catalog of all checklist items (grouped by process section). Shop stations stay
-        as an assignment on each item. To make a reusable checklist for one family of valves:{' '}
-        <strong>Job type</strong> (e.g. Valve Repair) → <strong>Valve type</strong> (e.g. Relief Valve) → name the
-        template → check the items you want → <strong>Save template</strong> and optionally{' '}
-        <strong>Default for this valve type</strong>. On a job ITP whose valve type is Relief Valve, that saved
-        template appears in the template dropdown so you can apply it (or pick another Relief Valve template you
-        saved).
+        Work in this order: <strong>Global master</strong> (every checklist item) → <strong>Job type master</strong>{' '}
+        (items for Valve Repair, Test Only, …) → <strong>Valve type master</strong> (Gate, Relief Valve, Twinseal, …) →{' '}
+        <strong>Specific templates</strong> (Wedge Gate, Parallel Gate, Pressure Seal Wedge Gate, …) → those templates
+        create the ITP on a job. Check items on the left to add them to the current step. You can add or edit a
+        requirement on Job type master, Valve type master, or a Specific template; a popup will ask whether to copy
+        it up to the parent masters.
       </p>
+
+      <nav className="itp-builder-layer-nav" aria-label="ITP builder steps">
+        {(
+          [
+            { id: 'global', step: '1', title: 'Global master', hint: `${catalog.length} items` },
+            {
+              id: 'job_master',
+              step: '2',
+              title: 'Job type master',
+              hint: `${jobTypeLabel(jobType)} · ${jobMasterCount} items`,
+            },
+            {
+              id: 'valve_master',
+              step: '3',
+              title: 'Valve type master',
+              hint: valveType
+                ? `${valveType} · ${valveMasterCount} items`
+                : 'Gate, Relief Valve, …',
+            },
+            {
+              id: 'templates',
+              step: '4',
+              title: 'Specific templates',
+              hint: 'Wedge Gate, Parallel Gate, …',
+            },
+          ] as const
+        ).map((layer) => (
+          <button
+            key={layer.id}
+            type="button"
+            className={`itp-builder-layer-btn${builderLayer === layer.id ? ' is-active' : ''}`}
+            onClick={() => {
+              setBuilderLayer(layer.id)
+              if (layer.id !== 'templates') setWorkspaceMode('edit')
+            }}
+          >
+            <span className="itp-builder-layer-step">{layer.step}</span>
+            <span className="itp-builder-layer-copy">
+              <strong>{layer.title}</strong>
+              <span>{layer.hint}</span>
+            </span>
+          </button>
+        ))}
+      </nav>
 
       {schemaError ? (
         <div className="itp-template-schema-error" role="alert">
@@ -1234,12 +2286,13 @@ export function ItpTemplateBuilderPanel({
       ) : null}
 
       <div className="itp-template-builder-toolbar">
+        {builderLayer !== 'global' ? (
         <label className="itp-template-builder-field">
           <span>Job type</span>
           <select
             value={jobType}
             onChange={(e) => {
-              if (dirty && !window.confirm('Discard unsaved template changes?')) return
+              if ((dirty || jobMasterDirty || valveMasterDirty) && !window.confirm('Discard unsaved template or master changes?')) return
               setJobType(e.target.value as ItpLibraryJobType)
             }}
           >
@@ -1250,13 +2303,18 @@ export function ItpTemplateBuilderPanel({
             ))}
           </select>
         </label>
+        ) : null}
+        {builderLayer === 'valve_master' || builderLayer === 'templates' ? (
         <label className="itp-template-builder-field">
           <span>Valve type</span>
           <select
             value={valveType}
             onChange={(e) => {
-              if (dirty && !window.confirm('Discard unsaved template changes?')) return
-              setValveType(e.target.value)
+              const next = e.target.value
+              if (builderLayer === 'valve_master') {
+                if (valveMasterDirty && !window.confirm('Discard unsaved valve type master changes?')) return
+              } else if (dirty && !window.confirm('Discard unsaved template changes?')) return
+              setValveType(next)
             }}
           >
             <option value="">Select valve type…</option>
@@ -1268,6 +2326,9 @@ export function ItpTemplateBuilderPanel({
             ))}
           </select>
         </label>
+        ) : null}
+        {builderLayer === 'templates' ? (
+          <>
         <label className="itp-template-builder-field">
           <span>Saved template</span>
           <select
@@ -1297,7 +2358,7 @@ export function ItpTemplateBuilderPanel({
             type="text"
             value={templateName}
             disabled={!valveType || loading}
-            placeholder="e.g. Twinseal Template"
+            placeholder="e.g. Wedge Gate, Parallel Gate"
             onChange={(e) => {
               setTemplateName(e.target.value)
               setDirty(true)
@@ -1316,22 +2377,48 @@ export function ItpTemplateBuilderPanel({
           />
           <span>Default for this valve type</span>
         </label>
+          </>
+        ) : null}
         <div className="itp-template-builder-actions">
+          {builderLayer === 'global' ? (
           <button
             type="button"
-            className="button-secondary"
+            className="button-primary"
             disabled={saving || !masterDirty || Boolean(schemaError)}
             onClick={() => void handleSaveMaster()}
           >
-            {masterDirty ? 'Save master list' : 'Master saved'}
+            {masterDirty ? 'Save global master' : 'Global master saved'}
           </button>
+          ) : null}
+          {builderLayer === 'job_master' ? (
+          <button
+            type="button"
+            className="button-primary"
+            disabled={saving || loading || Boolean(schemaError)}
+            onClick={() => void handleSaveJobTypeMaster()}
+          >
+            {saving ? 'Saving…' : jobMasterDirty ? 'Save job type master' : 'Job type master saved'}
+          </button>
+          ) : null}
+          {builderLayer === 'valve_master' ? (
+          <button
+            type="button"
+            className="button-primary"
+            disabled={!valveType || saving || loading || Boolean(schemaError)}
+            onClick={() => void handleSaveValveTypeMaster()}
+          >
+            {saving ? 'Saving…' : valveMasterDirty ? 'Save valve type master' : 'Valve type master saved'}
+          </button>
+          ) : null}
+          {builderLayer === 'templates' ? (
+          <>
           <button
             type="button"
             className="button-primary"
             disabled={!valveType || saving || loading || Boolean(schemaError)}
             onClick={() => void handleSaveTemplate()}
           >
-            {saving ? 'Saving…' : dirty || masterDirty ? 'Save template' : 'Template saved'}
+            {saving ? 'Saving…' : dirty || masterDirty || jobMasterDirty || valveMasterDirty ? 'Save template' : 'Template saved'}
           </button>
           <button
             type="button"
@@ -1357,38 +2444,97 @@ export function ItpTemplateBuilderPanel({
           >
             Delete saved
           </button>
+          </>
+          ) : null}
         </div>
       </div>
 
-      {masterDirty ? (
+      {masterDirty && builderLayer === 'global' ? (
         <p className="itp-master-unsaved-banner" role="status">
-          Unsaved master list changes — <strong>Add to master</strong> only stages items until you click{' '}
-          <strong>Save master list</strong>. A local draft is kept if this page closes before save.
+          Unsaved global master changes — <strong>Add to master</strong> only stages items until you click{' '}
+          <strong>Save global master</strong>. A local draft is kept if this page closes before save.
         </p>
       ) : null}
 
-      {savedRowsForJob.length > 0 ? (
-        <div className="itp-template-saved-table-panel">
+      {jobMasterDirty && builderLayer === 'job_master' ? (
+        <p className="itp-master-unsaved-banner" role="status">
+          Unsaved {jobTypeLabel(jobType)} job type master — check items from the global list, then click{' '}
+          <strong>Save job type master</strong>.
+        </p>
+      ) : null}
+
+      {valveMasterDirty && builderLayer === 'valve_master' ? (
+        <p className="itp-master-unsaved-banner" role="status">
+          Unsaved {valveType || 'valve type'} master — check items from the Job Type Master, then click{' '}
+          <strong>Save valve type master</strong>. Gate can hold Wedge, Parallel, Pressure Seal, and other variants on
+          step 4.
+        </p>
+      ) : null}
+
+      {builderLayer === 'valve_master' && !valveType ? (
+        <p className="itp-master-unsaved-banner" role="status">
+          Select a valve type (for example Gate or Relief Valve), then check which Job Type Master items belong to that
+          family.
+        </p>
+      ) : null}
+
+      {builderLayer === 'templates' && !jobMasterExists && jobMasterCount === 0 ? (
+        <p className="itp-master-unsaved-banner" role="status">
+          No Job Type Master yet for {jobTypeLabel(jobType)}. Showing the global list until you build one on step 2.
+        </p>
+      ) : null}
+
+      {builderLayer === 'templates' && valveType && !valveMasterExists && valveMasterCount === 0 && jobMasterCount > 0 ? (
+        <p className="itp-master-unsaved-banner" role="status">
+          No Valve Type Master yet for {valveType}. Showing Job Type Master items until you build one on step 3. Then
+          add specific templates such as Wedge Gate or Parallel Gate here.
+        </p>
+      ) : null}
+
+      {builderLayer === 'templates' && savedRowsForJob.length > 0 ? (
+        <div
+          className={`itp-template-saved-table-panel${savedTemplatesCollapsed ? ' is-collapsed' : ''}`}
+        >
           <div className="itp-template-saved-table-hdr">
             <div>
               <h4>Saved templates ({jobType})</h4>
               <p className="placeholder-copy">
-                {filteredSavedRowsForJob.length === savedRowsForJob.length
-                  ? `${savedRowsForJob.length} template${savedRowsForJob.length === 1 ? '' : 's'}`
-                  : `${filteredSavedRowsForJob.length} of ${savedRowsForJob.length} templates`}
-                — Edit checklist, or Manage Traveler to build traveler inputs.
+                {savedTemplatesCollapsed
+                  ? `${savedRowsForJob.length} template${savedRowsForJob.length === 1 ? '' : 's'} — collapsed to make room for the ITP.`
+                  : filteredSavedRowsForJob.length === savedRowsForJob.length
+                    ? `${savedRowsForJob.length} template${savedRowsForJob.length === 1 ? '' : 's'} — Edit checklist, or Manage Traveler to build traveler inputs.`
+                    : `${filteredSavedRowsForJob.length} of ${savedRowsForJob.length} templates — Edit checklist, or Manage Traveler to build traveler inputs.`}
               </p>
             </div>
-            <label className="itp-template-saved-table-filter">
-              <span>Filter</span>
-              <input
-                type="search"
-                value={savedTemplateFilter}
-                placeholder="Valve type or template name…"
-                onChange={(e) => setSavedTemplateFilter(e.target.value)}
-              />
-            </label>
+            <div className="itp-template-saved-table-hdr-actions">
+              {!savedTemplatesCollapsed ? (
+                <label className="itp-template-saved-table-filter">
+                  <span>Filter</span>
+                  <input
+                    type="search"
+                    value={savedTemplateFilter}
+                    placeholder="Valve type or template name…"
+                    onChange={(e) => setSavedTemplateFilter(e.target.value)}
+                  />
+                </label>
+              ) : null}
+              <button
+                type="button"
+                className="button-secondary itp-template-saved-collapse-btn"
+                aria-expanded={!savedTemplatesCollapsed}
+                onClick={() => {
+                  setSavedTemplatesCollapsed((prev) => {
+                    const next = !prev
+                    writeSavedTemplatesCollapsed(next)
+                    return next
+                  })
+                }}
+              >
+                {savedTemplatesCollapsed ? 'Expand templates' : 'Collapse templates'}
+              </button>
+            </div>
           </div>
+          {savedTemplatesCollapsed ? null : (
           <div className="dashboard-table-wrap itp-template-saved-table-wrap">
             <table className="dashboard-table itp-template-saved-table">
               <thead>
@@ -1454,12 +2600,14 @@ export function ItpTemplateBuilderPanel({
               </tbody>
             </table>
           </div>
+          )}
         </div>
-      ) : (
+      ) : builderLayer === 'templates' ? (
         <p className="itp-template-builder-saved-meta">
-          Saved templates ({jobType}): none yet — pick a valve type, check items, then Save template.
+          Saved templates ({jobType}): none yet — pick a valve type, check items from the Valve Type Master, then Save
+          template (for example Wedge Gate or Parallel Gate).
         </p>
-      )}
+      ) : null}
 
       {workspaceMode === 'traveler' && valveType ? (
         <div className="itp-traveler-manage-banner" role="status">
@@ -1499,17 +2647,27 @@ export function ItpTemplateBuilderPanel({
         />
       ) : (
       <div
-        className={`itp-library-split itp-template-builder-layout${valveType ? ' is-valve-selected' : ' is-master-only'}`}
+        className={`itp-library-split itp-template-builder-layout${
+          builderLayer === 'global' ? ' is-master-only' : ' is-valve-selected'
+        }`}
       >
         <div className="itp-library-panel itp-library-panel-left">
           <div className="itp-library-panel-hdr">
-            <h3>Build Scope · Master</h3>
+            <h3>
+              {builderLayer === 'global'
+                ? 'Build Scope · Global master'
+                : builderLayer === 'job_master'
+                  ? `Build Scope · ${jobTypeLabel(jobType)} master`
+                  : builderLayer === 'valve_master'
+                    ? `Build Scope · ${valveType || 'Valve type'} master`
+                    : 'Build Scope · Valve type master'}
+            </h3>
             <div className="itp-library-ph-actions">
               <span className="itp-library-ph-count">
-                {catalog.length} items
-                {valveType ? ` · ${selectedCount} selected` : ''}
+                {catalogForLayer.length} items
+                {showIncludeChecks ? ` · ${editingSelectedCount} selected` : ''}
               </span>
-              {valveType && selectedCount > 0 ? (
+              {showIncludeChecks && editingSelectedCount > 0 ? (
                 <button type="button" className="itp-library-deselect-all" onClick={deselectAll}>
                   Deselect all
                 </button>
@@ -1594,6 +2752,8 @@ export function ItpTemplateBuilderPanel({
               Sections follow the ITP process. Drag to reorder, click to jump, or use × to delete. New section names
               are also added to the Assigned station dropdown (same as job-card statuses).
             </p>
+            {canEditCatalog ? (
+            <>
             <div className="itp-section-nav-add">
               <input
                 type="text"
@@ -1630,10 +2790,14 @@ export function ItpTemplateBuilderPanel({
                 Add station
               </button>
             </div>
+            </>
+            ) : null}
           </nav>
-          <div className="itp-library-panel-body" ref={masterBodyRef}>
+            {canAddOrEditRequirement ? (
             <div className="itp-master-global-add">
-              <div className="itp-master-global-add-title">Add item to master list</div>
+              <div className="itp-master-global-add-title">
+                {builderLayer === 'global' ? 'Add item to master list' : 'Add requirement to this master'}
+              </div>
               <div className="itp-master-global-add-row">
                 <label className="itp-master-global-field itp-master-global-field--wide">
                   <span>Requirement</span>
@@ -1663,19 +2827,14 @@ export function ItpTemplateBuilderPanel({
                     ))}
                   </select>
                 </label>
-                <label className="itp-master-global-field">
-                  <span>Assigned station</span>
-                  <select
+                <div className="itp-master-global-field">
+                  <ItpStationSelect
+                    variant="field"
                     value={newItem.area}
-                    onChange={(e) => setNewItem((prev) => ({ ...prev, area: e.target.value as ItpShopArea }))}
-                  >
-                    {areas.map((opt) => (
-                      <option key={opt.value} value={opt.value}>
-                        {opt.label}
-                      </option>
-                    ))}
-                  </select>
-                </label>
+                    areas={areas}
+                    onChange={(area) => setNewItem((prev) => ({ ...prev, area }))}
+                  />
+                </div>
                 <label className="itp-master-global-field">
                   <span>Short label</span>
                   <input
@@ -1686,7 +2845,7 @@ export function ItpTemplateBuilderPanel({
                   />
                 </label>
                 <button type="button" className="button-primary itp-master-global-add-btn" onClick={addMasterItem}>
-                  Add to master
+                  {builderLayer === 'global' ? 'Add to master' : 'Add requirement'}
                 </button>
               </div>
               <div className="itp-master-req-toggles">
@@ -1746,6 +2905,15 @@ export function ItpTemplateBuilderPanel({
                   >
                     QA/QC hold point
                   </button>
+                  <button
+                    type="button"
+                    className="button-primary itp-master-req-save"
+                    disabled={saveCurrentLayerDisabled}
+                    onClick={saveCurrentLayer}
+                    title={saveCurrentLayerTitle}
+                  >
+                    {saveCurrentLayerLabel}
+                  </button>
                 </div>
                 <label className="itp-master-block-next">
                   <input
@@ -1766,28 +2934,19 @@ export function ItpTemplateBuilderPanel({
                         onChange={(e) => setNewItem((prev) => ({ ...prev, pictureLabel: e.target.value }))}
                       />
                     </label>
-                    <label className="itp-master-global-field">
-                      <span>Minimum photos</span>
-                      <input
-                        type="number"
-                        min={1}
-                        max={20}
-                        value={newItem.minPhotos}
-                        onChange={(e) =>
-                          setNewItem((prev) => ({
-                            ...prev,
-                            minPhotos: Math.max(1, Number(e.target.value) || 1),
-                          }))
-                        }
-                      />
-                    </label>
+                    <ItpPhotoMinMaxFields
+                      minPhotos={newItem.minPhotos}
+                      maxPhotos={newItem.maxPhotos}
+                      onChange={(next) => setNewItem((prev) => ({ ...prev, ...next }))}
+                    />
                   </div>
                 ) : null}
                 {newItem.requireMeasurement ? (
                   <div className="itp-master-meas-fields">
                     <div className="itp-master-meas-fields-hdr">Technician input fields</div>
                     <p className="placeholder-copy itp-master-meas-fields-hint">
-                      Add labeled controls the tech fills on the traveler (text, dropdown, picture, etc.).
+                      Add labeled controls the tech fills on the traveler (text, dropdown, picture, etc.). Map Size,
+                      Customer, Due Date, Pressure Class, or Body Material to the job card to prefill them.
                     </p>
                     <div className="itp-master-meas-fields-list">
                       {newItem.measFields.map((field, idx) => (
@@ -1796,6 +2955,7 @@ export function ItpTemplateBuilderPanel({
                             type="text"
                             value={field.label}
                             placeholder="Field label"
+                            onKeyDown={(e) => e.stopPropagation()}
                             onChange={(e) => {
                               const label = e.target.value
                               setNewItem((prev) => ({
@@ -1814,7 +2974,7 @@ export function ItpTemplateBuilderPanel({
                               setNewItem((prev) => ({
                                 ...prev,
                                 measFields: prev.measFields.map((f, i) =>
-                                  i === idx ? { ...f, type } : f,
+                                  i === idx ? { ...f, ...measFieldTypePatch(f, type) } : f,
                                 ),
                               }))
                             }}
@@ -1825,43 +2985,39 @@ export function ItpTemplateBuilderPanel({
                               </option>
                             ))}
                           </select>
-                          {field.type === 'dropdown' ? (
-                            <input
-                              type="text"
-                              value={(field.options ?? []).join(', ')}
-                              placeholder="Dropdown options (comma-separated)"
-                              onChange={(e) => {
-                                const options = e.target.value
-                                  .split(',')
-                                  .map((opt) => opt.trim())
-                                  .filter(Boolean)
-                                setNewItem((prev) => ({
-                                  ...prev,
-                                  measFields: prev.measFields.map((f, i) =>
-                                    i === idx ? { ...f, options } : f,
-                                  ),
-                                }))
-                              }}
-                            />
-                          ) : (
-                            <span className="itp-master-meas-field-spacer" />
-                          )}
-                          <label className="itp-master-meas-required">
-                            <input
-                              type="checkbox"
-                              checked={field.required !== false}
-                              onChange={(e) => {
-                                const required = e.target.checked
-                                setNewItem((prev) => ({
-                                  ...prev,
-                                  measFields: prev.measFields.map((f, i) =>
-                                    i === idx ? { ...f, required } : f,
-                                  ),
-                                }))
-                              }}
-                            />
-                            Required
-                          </label>
+                          <ItpMeasDropdownSourceFields
+                            field={field}
+                            onChange={(patch) =>
+                              setNewItem((prev) => ({
+                                ...prev,
+                                measFields: prev.measFields.map((f, i) =>
+                                  i === idx ? { ...f, ...patch } : f,
+                                ),
+                              }))
+                            }
+                          />
+                          <ItpMeasJobCardSourceSelect
+                            field={field}
+                            onChange={(patch) =>
+                              setNewItem((prev) => ({
+                                ...prev,
+                                measFields: prev.measFields.map((f, i) =>
+                                  i === idx ? { ...f, ...patch } : f,
+                                ),
+                              }))
+                            }
+                          />
+                          <ItpMeasRequiredToggle
+                            required={field.required !== false}
+                            onChange={(required) =>
+                              setNewItem((prev) => ({
+                                ...prev,
+                                measFields: prev.measFields.map((f, i) =>
+                                  i === idx ? { ...f, required } : f,
+                                ),
+                              }))
+                            }
+                          />
                           <button
                             type="button"
                             className="itp-library-sr-del"
@@ -1895,12 +3051,14 @@ export function ItpTemplateBuilderPanel({
                 ) : null}
               </div>
             </div>
+            ) : null}
 
+          <div className="itp-library-panel-body" ref={masterBodyRef}>
             {catalogLoading ? (
               <p className="placeholder-copy">Loading master list…</p>
             ) : (
               catalogBySection.map(({ id, title, items }, sectionIndex) => {
-                const selCount = items.filter((item) => getSel(scope, item.id).included).length
+                const selCount = items.filter((item) => getSel(editingScope, item.id).included).length
                 const allSel = items.length > 0 && selCount === items.length
                 return (
                   <div key={id} id={`itp-master-sec-${id}`} className="itp-library-lib-sec">
@@ -1932,6 +3090,7 @@ export function ItpTemplateBuilderPanel({
                         <span>
                           {selCount}/{items.length}
                         </span>
+                        {showIncludeChecks ? (
                         <button
                           type="button"
                           className="itp-library-sel-all"
@@ -1939,6 +3098,8 @@ export function ItpTemplateBuilderPanel({
                         >
                           {allSel ? 'Deselect All' : 'Select All'}
                         </button>
+                        ) : null}
+                        {canEditCatalog ? (
                         <button
                           type="button"
                           className="itp-library-sel-all itp-section-remove"
@@ -1947,6 +3108,7 @@ export function ItpTemplateBuilderPanel({
                         >
                           Remove
                         </button>
+                        ) : null}
                       </div>
                     </div>
 
@@ -1955,15 +3117,18 @@ export function ItpTemplateBuilderPanel({
                     ) : null}
 
                     {items.map((item, indexInSection) => {
-                      const sel = getSel(scope, item.id)
+                      const sel = getSel(editingScope, item.id)
                       return (
-                        <div key={item.id} className={`itp-library-lib-item${sel.included ? ' sel' : ''}`}>
+                        <div key={item.id} className={`itp-library-lib-item${showIncludeChecks && sel.included ? ' sel' : ''}`}>
                           <div className="itp-master-item-toolbar">
                             <button
                               type="button"
                               className="itp-master-order-btn"
                               disabled={indexInSection === 0}
-                              onClick={() => moveItem(item.id, -1)}
+                              onClick={(e) => {
+                                e.stopPropagation()
+                                moveLayerItemInSection(id, item.id, -1, false)
+                              }}
                               title="Move up"
                             >
                               ↑
@@ -1972,24 +3137,22 @@ export function ItpTemplateBuilderPanel({
                               type="button"
                               className="itp-master-order-btn"
                               disabled={indexInSection >= items.length - 1}
-                              onClick={() => moveItem(item.id, 1)}
+                              onClick={(e) => {
+                                e.stopPropagation()
+                                moveLayerItemInSection(id, item.id, 1, false)
+                              }}
                               title="Move down"
                             >
                               ↓
                             </button>
-                            <select
-                              className="itp-master-area-select"
-                              value={item.area}
-                              onChange={(e) => changeItemArea(item.id, e.target.value as ItpShopArea)}
-                              title="Assigned station"
-                              onClick={(e) => e.stopPropagation()}
-                            >
-                              {areas.map((opt) => (
-                                <option key={opt.value} value={opt.value}>
-                                  {opt.label}
-                                </option>
-                              ))}
-                            </select>
+                            <ItpStationSelect
+                              variant="toolbar"
+                              value={resolvedItemStation(sel.shopArea, item.area)}
+                              areas={areas}
+                              onChange={(area) => changeRowStation(item.id, area)}
+                            />
+                            {canEditCatalog ? (
+                            <>
                             <select
                               className="itp-master-section-select"
                               value={item.secId}
@@ -2012,25 +3175,53 @@ export function ItpTemplateBuilderPanel({
                                 Remove
                               </button>
                             ) : null}
+                            </>
+                            ) : null}
                           </div>
                           <div
                             className="itp-library-lib-item-top"
-                            onClick={() => toggleInclude(item.id)}
+                            onClick={() => {
+                              if (showIncludeChecks) toggleInclude(item.id)
+                            }}
                             onKeyDown={(e) => {
+                              if (!showIncludeChecks) return
+                              const typing =
+                                e.target instanceof HTMLElement &&
+                                Boolean(e.target.closest('input, textarea, select'))
+                              if (typing) return
                               if (e.key === 'Enter' || e.key === ' ') {
                                 e.preventDefault()
                                 toggleInclude(item.id)
                               }
                             }}
-                            role="checkbox"
-                            aria-checked={sel.included}
-                            tabIndex={0}
+                            role={showIncludeChecks ? 'checkbox' : undefined}
+                            aria-checked={showIncludeChecks ? sel.included : undefined}
+                            tabIndex={showIncludeChecks ? 0 : undefined}
                           >
+                            {showIncludeChecks ? (
                             <div className="itp-library-cb-cell">
                               <span className="itp-library-cb" />
                             </div>
+                            ) : null}
                             <div className="itp-library-lib-item-name">
-                              <div className="itp-library-lin">{item.name}</div>
+                              <input
+                                className="itp-library-lin-input"
+                                type="text"
+                                value={itemNameDrafts[item.id] ?? item.name}
+                                aria-label="Requirement text"
+                                onClick={(e) => e.stopPropagation()}
+                                onChange={(e) =>
+                                  setItemNameDrafts((prev) => ({ ...prev, [item.id]: e.target.value }))
+                                }
+                                onBlur={() => commitItemName(item)}
+                                onKeyDown={(e) => {
+                                  e.stopPropagation()
+                                  if (e.key === 'Enter') {
+                                    e.preventDefault()
+                                    commitItemName(item)
+                                  }
+                                }}
+                              />
                               <div className="itp-library-lref">
                                 {item.ref}
                                 {!item.builtIn ? ' · custom' : ''}
@@ -2039,9 +3230,16 @@ export function ItpTemplateBuilderPanel({
                                 {item.requireMeasurement ? ' · measurements' : ''}
                                 {item.requireNameplate ? ' · nameplate' : ''}
                                 {item.blockNext ? ' · blocks next' : ''}
+                                <ItpStationSelect
+                                  variant="badge"
+                                  value={resolvedItemStation(sel.shopArea, item.area)}
+                                  areas={areas}
+                                  onChange={(area) => changeRowStation(item.id, area)}
+                                />
                               </div>
                             </div>
                           </div>
+                          {canAddOrEditRequirement ? (
                           <div className="itp-master-item-reqs">
                             <div className="itp-library-attr-bar">
                               <button
@@ -2054,7 +3252,12 @@ export function ItpTemplateBuilderPanel({
                                     pictureLabel: !item.requirePicture
                                       ? item.pictureLabel || ''
                                       : undefined,
-                                    minPhotos: !item.requirePicture ? Math.max(1, item.minPhotos || 1) : undefined,
+                                    minPhotos: !item.requirePicture
+                                      ? clampLinePhotoMin(item.minPhotos)
+                                      : undefined,
+                                    maxPhotos: !item.requirePicture
+                                      ? clampLinePhotoMax(item.maxPhotos, item.minPhotos)
+                                      : undefined,
                                   })
                                 }}
                               >
@@ -2132,25 +3335,16 @@ export function ItpTemplateBuilderPanel({
                                     placeholder="e.g. As-received body photo"
                                     onClick={(e) => e.stopPropagation()}
                                     onChange={(e) =>
-                                      patchMasterItem(item.id, { pictureLabel: e.target.value })
+                                      patchMasterItem(item.id, { pictureLabel: e.target.value }, { prompt: false })
                                     }
                                   />
                                 </label>
-                                <label className="itp-master-global-field">
-                                  <span>Minimum photos</span>
-                                  <input
-                                    type="number"
-                                    min={1}
-                                    max={20}
-                                    value={Math.max(1, item.minPhotos || 1)}
-                                    onClick={(e) => e.stopPropagation()}
-                                    onChange={(e) =>
-                                      patchMasterItem(item.id, {
-                                        minPhotos: Math.max(1, Number(e.target.value) || 1),
-                                      })
-                                    }
-                                  />
-                                </label>
+                                <ItpPhotoMinMaxFields
+                                  minPhotos={item.minPhotos || 1}
+                                  maxPhotos={item.maxPhotos}
+                                  stopClick
+                                  onChange={(next) => patchMasterItem(item.id, next, { prompt: false })}
+                                />
                               </div>
                             ) : null}
                             {item.requireMeasurement ? (
@@ -2158,6 +3352,8 @@ export function ItpTemplateBuilderPanel({
                                 <div className="itp-master-meas-fields-hdr">Technician input fields</div>
                                 <p className="placeholder-copy itp-master-meas-fields-hint">
                                   Add labeled controls the tech fills on the traveler (text, dropdown, picture, etc.).
+                                  Map Size, Customer, Due Date, Pressure Class, or Body Material to the job card to
+                                  prefill them.
                                 </p>
                                 <div className="itp-master-meas-fields-list">
                                   {(item.measFields && item.measFields.length > 0
@@ -2172,19 +3368,27 @@ export function ItpTemplateBuilderPanel({
                                     >
                                       <input
                                         type="text"
-                                        value={typed.label}
+                                        value={field.label}
                                         placeholder="Field label"
                                         onClick={(e) => e.stopPropagation()}
+                                        onKeyDown={(e) => e.stopPropagation()}
                                         onChange={(e) => {
                                           const current =
                                             item.measFields && item.measFields.length > 0
-                                              ? item.measFields.map((row) => emptyMeasField(row))
+                                              ? item.measFields.map((row) => ({
+                                                  ...emptyMeasField(row),
+                                                  label: row.label,
+                                                }))
                                               : DEFAULT_ITP_MEAS_FIELDS.map((row) => ({ ...row }))
-                                          patchMasterItem(item.id, {
+                                          patchMasterItem(
+                                            item.id,
+                                            {
                                             measFields: current.map((row, i) =>
                                               i === idx ? { ...row, label: e.target.value } : row,
                                             ),
-                                          })
+                                            },
+                                            { prompt: false },
+                                          )
                                         }}
                                       />
                                       <select
@@ -2197,11 +3401,15 @@ export function ItpTemplateBuilderPanel({
                                             item.measFields && item.measFields.length > 0
                                               ? item.measFields.map((row) => emptyMeasField(row))
                                               : DEFAULT_ITP_MEAS_FIELDS.map((row) => ({ ...row }))
-                                          patchMasterItem(item.id, {
+                                          patchMasterItem(
+                                            item.id,
+                                            {
                                             measFields: current.map((row, i) =>
-                                              i === idx ? { ...row, type } : row,
+                                              i === idx ? { ...row, ...measFieldTypePatch(row, type) } : row,
                                             ),
-                                          })
+                                            },
+                                            { prompt: false },
+                                          )
                                         }}
                                       >
                                         {ITP_MEAS_FIELD_TYPE_OPTIONS.map((opt) => (
@@ -2210,53 +3418,60 @@ export function ItpTemplateBuilderPanel({
                                           </option>
                                         ))}
                                       </select>
-                                      {typed.type === 'dropdown' ? (
-                                        <input
-                                          type="text"
-                                          value={(typed.options ?? []).join(', ')}
-                                          placeholder="Dropdown options (comma-separated)"
-                                          onClick={(e) => e.stopPropagation()}
-                                          onChange={(e) => {
-                                            const options = e.target.value
-                                              .split(',')
-                                              .map((opt) => opt.trim())
-                                              .filter(Boolean)
-                                            const current =
-                                              item.measFields && item.measFields.length > 0
-                                                ? item.measFields.map((row) => emptyMeasField(row))
-                                                : DEFAULT_ITP_MEAS_FIELDS.map((row) => ({ ...row }))
-                                            patchMasterItem(item.id, {
+                                      <ItpMeasDropdownSourceFields
+                                        field={typed}
+                                        onChange={(patch) => {
+                                          const current =
+                                            item.measFields && item.measFields.length > 0
+                                              ? item.measFields.map((row) => emptyMeasField(row))
+                                              : DEFAULT_ITP_MEAS_FIELDS.map((row) => ({ ...row }))
+                                          patchMasterItem(
+                                            item.id,
+                                            {
                                               measFields: current.map((row, i) =>
-                                                i === idx ? { ...row, options } : row,
+                                                i === idx ? { ...row, ...patch } : row,
                                               ),
-                                            })
-                                          }}
-                                        />
-                                      ) : (
-                                        <span className="itp-master-meas-field-spacer" />
-                                      )}
-                                      <label
-                                        className="itp-master-meas-required"
-                                        onClick={(e) => e.stopPropagation()}
-                                      >
-                                        <input
-                                          type="checkbox"
-                                          checked={typed.required !== false}
-                                          onChange={(e) => {
-                                            const required = e.target.checked
-                                            const current =
-                                              item.measFields && item.measFields.length > 0
-                                                ? item.measFields.map((row) => emptyMeasField(row))
-                                                : DEFAULT_ITP_MEAS_FIELDS.map((row) => ({ ...row }))
-                                            patchMasterItem(item.id, {
+                                            },
+                                            { prompt: false },
+                                          )
+                                        }}
+                                      />
+                                      <ItpMeasJobCardSourceSelect
+                                        field={typed}
+                                        onChange={(patch) => {
+                                          const current =
+                                            item.measFields && item.measFields.length > 0
+                                              ? item.measFields.map((row) => emptyMeasField(row))
+                                              : DEFAULT_ITP_MEAS_FIELDS.map((row) => ({ ...row }))
+                                          patchMasterItem(
+                                            item.id,
+                                            {
+                                              measFields: current.map((row, i) =>
+                                                i === idx ? { ...row, ...patch } : row,
+                                              ),
+                                            },
+                                            { prompt: false },
+                                          )
+                                        }}
+                                      />
+                                      <ItpMeasRequiredToggle
+                                        required={typed.required !== false}
+                                        onChange={(required) => {
+                                          const current =
+                                            item.measFields && item.measFields.length > 0
+                                              ? item.measFields.map((row) => emptyMeasField(row))
+                                              : DEFAULT_ITP_MEAS_FIELDS.map((row) => ({ ...row }))
+                                          patchMasterItem(
+                                            item.id,
+                                            {
                                               measFields: current.map((row, i) =>
                                                 i === idx ? { ...row, required } : row,
                                               ),
-                                            })
-                                          }}
-                                        />
-                                        Required
-                                      </label>
+                                            },
+                                            { prompt: false },
+                                          )
+                                        }}
+                                      />
                                       <button
                                         type="button"
                                         className="itp-library-sr-del"
@@ -2267,9 +3482,13 @@ export function ItpTemplateBuilderPanel({
                                             item.measFields && item.measFields.length > 0
                                               ? item.measFields.map((row) => emptyMeasField(row))
                                               : DEFAULT_ITP_MEAS_FIELDS.map((row) => ({ ...row }))
-                                          patchMasterItem(item.id, {
+                                          patchMasterItem(
+                                            item.id,
+                                            {
                                             measFields: current.filter((_, i) => i !== idx),
-                                          })
+                                            },
+                                            { prompt: false },
+                                          )
                                         }}
                                       >
                                         ✕
@@ -2286,9 +3505,13 @@ export function ItpTemplateBuilderPanel({
                                       item.measFields && item.measFields.length > 0
                                         ? item.measFields.map((row) => emptyMeasField(row))
                                         : DEFAULT_ITP_MEAS_FIELDS.map((row) => ({ ...row }))
-                                    patchMasterItem(item.id, {
+                                    patchMasterItem(
+                                      item.id,
+                                      {
                                       measFields: [...current, emptyMeasField({ label: '' })],
-                                    })
+                                      },
+                                      { prompt: false },
+                                    )
                                   }}
                                 >
                                   + Add field
@@ -2296,7 +3519,8 @@ export function ItpTemplateBuilderPanel({
                               </div>
                             ) : null}
                           </div>
-                          {sel.included ? (
+                          ) : null}
+                          {showIncludeChecks && sel.included ? (
                             <>
                               <div className="itp-library-sub-reqs-area">
                                 <label className="itp-library-scope-notes">
@@ -2309,6 +3533,13 @@ export function ItpTemplateBuilderPanel({
                                     onChange={(e) => updateSel(item.id, { notes: e.target.value })}
                                   />
                                 </label>
+                                {stepUsesOemOrProcedure(item.name) || (sel.resourceDocs?.length ?? 0) > 0 ? (
+                                  <ItpOemProcedureDocs
+                                    docs={sel.resourceDocs ?? []}
+                                    valveType={valveType}
+                                    onChange={(resourceDocs) => updateSel(item.id, { resourceDocs })}
+                                  />
+                                ) : null}
                                 {sel.subReqs.map((sr, idx) => (
                                   <div key={`${item.id}-sr-${idx}`} className="itp-library-sub-req-row">
                                     <span>• {sr}</span>
@@ -2361,39 +3592,64 @@ export function ItpTemplateBuilderPanel({
         <div className="itp-library-panel itp-library-panel-right">
           <div className="itp-library-panel-hdr">
             <h3>
-              ITP Checklist
-              {valveType
-                ? ` · ${valveType}${templateName.trim() ? ` · ${templateName.trim()}` : ''}`
-                : ''}
+              {builderLayer === 'job_master'
+                ? `${jobTypeLabel(jobType)} · Job type master`
+                : builderLayer === 'valve_master'
+                  ? valveType
+                    ? `${valveType} · Valve type master`
+                    : 'Valve type master'
+                  : valveType
+                    ? `ITP Checklist · ${valveType}${templateName.trim() ? ` · ${templateName.trim()}` : ''}`
+                    : 'ITP Checklist'}
             </h3>
             <span className="itp-library-ph-count">
-              {valveType ? `${selectedCount} items · ${holdPointCount} hold pts` : 'Pick a valve type'}
+              {builderLayer === 'job_master'
+                ? `${jobMasterCount} items · ${holdPointCount} hold pts`
+                : builderLayer === 'valve_master'
+                  ? valveType
+                    ? `${valveMasterCount} items · ${holdPointCount} hold pts`
+                    : 'Pick a valve type'
+                  : valveType
+                    ? `${selectedCount} items · ${holdPointCount} hold pts`
+                    : 'Pick a valve type'}
             </span>
           </div>
 
-          {!valveType ? (
+          {builderLayer === 'valve_master' && !valveType ? (
             <div className="itp-library-empty">
               <p>
-                Select a valve type above, name the template (for example Twinseal Template), then check items on the
-                left to build it here.
+                Select a valve type (for example Gate). Check items from the Job Type Master on the left. Then on step 4
+                make specific templates such as Wedge Gate, Parallel Gate, or Pressure Seal Wedge Gate.
               </p>
             </div>
-          ) : loading ? (
+          ) : builderLayer === 'templates' && !valveType ? (
+            <div className="itp-library-empty">
+              <p>
+                Select a valve type above, then add a specific template name (Wedge Gate, Parallel Gate, Pressure Seal
+                Wedge Gate, …) and check items from the Valve Type Master. Job ITPs use this saved template.
+              </p>
+            </div>
+          ) : builderLayer === 'templates' && loading ? (
             <div className="itp-library-empty">
               <p>Loading template…</p>
             </div>
-          ) : selectedCount === 0 ? (
+          ) : editingSelectedCount === 0 ? (
             <div className="itp-library-empty">
               <p>
-                Check items on the left to add them to{' '}
-                {templateName.trim() ? `“${templateName.trim()}”` : 'this template'}.
+                {builderLayer === 'job_master'
+                  ? `Check items on the left to add them to the ${jobTypeLabel(jobType)} job type master.`
+                  : builderLayer === 'valve_master'
+                    ? `Check items on the left to add them to the ${valveType || 'valve type'} master.`
+                    : `Check items on the left to add them to ${
+                        templateName.trim() ? `“${templateName.trim()}”` : 'this template'
+                      }.`}
               </p>
             </div>
           ) : (
             <>
               <div className="itp-library-summary">
                 <div className="itp-library-ss">
-                  <div className="itp-library-sv">{selectedCount}</div>
+                  <div className="itp-library-sv">{editingSelectedCount}</div>
                   <div className="itp-library-sl">Items</div>
                 </div>
                 <div className="itp-library-ss">
@@ -2401,8 +3657,33 @@ export function ItpTemplateBuilderPanel({
                   <div className="itp-library-sl">Hold Pts</div>
                 </div>
                 <div className="itp-library-ss">
-                  <div className="itp-library-sv c-warn">{selectedCount}</div>
-                  <div className="itp-library-sl">In template</div>
+                  <div className="itp-library-sv c-warn">{editingSelectedCount}</div>
+                  <div className="itp-library-sl">
+                    {builderLayer === 'job_master'
+                      ? 'In job master'
+                      : builderLayer === 'valve_master'
+                        ? 'In valve master'
+                        : 'In template'}
+                  </div>
+                </div>
+                <div className="itp-library-ss itp-library-ss-preview">
+                  <button
+                    type="button"
+                    className="button-primary itp-template-preview-itp-btn"
+                    disabled={saveCurrentLayerDisabled}
+                    onClick={saveCurrentLayer}
+                    title={saveCurrentLayerTitle}
+                  >
+                    {saveCurrentLayerLabel}
+                  </button>
+                  <button
+                    type="button"
+                    className="button-secondary itp-template-preview-itp-btn"
+                    onClick={openItpPreview}
+                    title="Open the technician traveler for this ITP in a new window"
+                  >
+                    Preview ITP
+                  </button>
                 </div>
               </div>
               {checklistSections.length > 1 ? (
@@ -2432,8 +3713,9 @@ export function ItpTemplateBuilderPanel({
                         0/{items.length}
                       </span>
                     </div>
-                    {items.map((item) => {
-                      const sel = getSel(scope, item.id)
+                    {items.map((item, indexInSection) => {
+                      const sel = getSel(editingScope, item.id)
+                      const station = resolvedItemStation(sel.shopArea, item.area)
                       return (
                         <div key={item.id} className="itp-library-exec-item itp-template-preview-item">
                           <div className={`itp-library-exec-row${sel.holdPoint ? ' hold-point' : ''}`}>
@@ -2443,33 +3725,43 @@ export function ItpTemplateBuilderPanel({
                                 <div className="itp-library-en">{item.name}</div>
                                 <div className="itp-template-preview-meta">
                                   <span className="itp-library-er">[{item.ref}]</span>
-                                  <span className="itp-template-station-badge">
-                                    Station: {itpShopAreaLabel(item.area, areas)}
-                                  </span>
+                                  <ItpStationSelect
+                                    variant="badge"
+                                    value={station}
+                                    areas={areas}
+                                    onChange={(area) => changeRowStation(item.id, area)}
+                                  />
                                   {sel.holdPoint ? (
                                     <span className="itp-library-hp-badge">HOLD POINT</span>
                                   ) : null}
-                                  {itemRequiresMeasurements(sel) ? (
+                                  {sel.requirePicture || sel.measFields.length > 0 || sel.addToTraveler ? (
+                                    <span className="itp-library-attr-badge traveler">
+                                      Traveler
+                                      {sel.requirePicture
+                                        ? ` · ${clampLinePhotoMin(sel.minPhotos)}–${clampLinePhotoMax(
+                                            sel.maxPhotos,
+                                            sel.minPhotos,
+                                          )} photos`
+                                        : ''}
+                                      {sel.measFields.length > 0
+                                        ? ` · ${sel.measFields.length} field${
+                                            sel.measFields.length === 1 ? '' : 's'
+                                          }`
+                                        : ''}
+                                    </span>
+                                  ) : itemRequiresMeasurements(sel) ? (
                                     <span className="itp-library-attr-badge meas">Measurements</span>
                                   ) : null}
                                 </div>
                                 <div className="itp-template-preview-fields">
-                                  <label className="itp-template-station-field">
-                                    <span>Assigned station</span>
-                                    <select
-                                      value={item.area}
-                                      onChange={(e) =>
-                                        changeItemArea(item.id, e.target.value as ItpShopArea)
-                                      }
-                                      title="Change station assignment"
-                                    >
-                                      {areas.map((opt) => (
-                                        <option key={opt.value} value={opt.value}>
-                                          {opt.label}
-                                        </option>
-                                      ))}
-                                    </select>
-                                  </label>
+                                  <div className="itp-template-station-field">
+                                    <ItpStationSelect
+                                      variant="field"
+                                      value={station}
+                                      areas={areas}
+                                      onChange={(area) => changeRowStation(item.id, area)}
+                                    />
+                                  </div>
                                   <label className="itp-template-station-field">
                                     <span>ITP section</span>
                                     <select
@@ -2492,6 +3784,13 @@ export function ItpTemplateBuilderPanel({
                                   placeholder="Notes, observations…"
                                   onChange={(e) => updateSel(item.id, { notes: e.target.value })}
                                 />
+                                {stepUsesOemOrProcedure(item.name) || (sel.resourceDocs?.length ?? 0) > 0 ? (
+                                  <ItpOemProcedureDocs
+                                    docs={sel.resourceDocs ?? []}
+                                    valveType={valveType}
+                                    onChange={(resourceDocs) => updateSel(item.id, { resourceDocs })}
+                                  />
+                                ) : null}
                                 {sel.subReqs.length > 0 ? (
                                   <div className="itp-library-exec-subreqs">
                                     {sel.subReqs.map((sr, idx) => (
@@ -2506,12 +3805,66 @@ export function ItpTemplateBuilderPanel({
                               <div className="itp-library-exec-acts">
                                 <button
                                   type="button"
-                                  className="itp-library-rm-btn"
-                                  title="Remove from template"
-                                  onClick={() => toggleInclude(item.id)}
+                                  className="itp-library-edit-btn"
+                                  title="Edit requirement"
+                                  onClick={() => openChecklistEdit(item.id)}
                                 >
-                                  ✕
+                                  Edit
                                 </button>
+                                <button
+                                  type="button"
+                                  className={`itp-library-edit-btn${
+                                    sel.requirePicture || sel.measFields.length > 0 || sel.addToTraveler
+                                      ? ' on'
+                                      : ''
+                                  }`}
+                                  title="Traveler requirements: photos, labels, text boxes"
+                                  onClick={() => setLineTravelerItemId(item.id)}
+                                >
+                                  Traveler
+                                </button>
+                                <button
+                                  type="button"
+                                  className="itp-master-order-btn"
+                                  disabled={indexInSection === 0}
+                                  onClick={() => moveLayerItemInSection(section.id, item.id, -1, true)}
+                                  title="Move up"
+                                >
+                                  ↑
+                                </button>
+                                <button
+                                  type="button"
+                                  className="itp-master-order-btn"
+                                  disabled={indexInSection >= items.length - 1}
+                                  onClick={() => moveLayerItemInSection(section.id, item.id, 1, true)}
+                                  title="Move down"
+                                >
+                                  ↓
+                                </button>
+                                <div className="itp-library-exec-acts-row">
+                                  <button
+                                    type="button"
+                                    className="itp-master-order-btn"
+                                    title="Add item below"
+                                    onClick={() =>
+                                      openChecklistAddBelow(
+                                        item.id,
+                                        effectiveScopeSectionId(item.catalogSecId, sel),
+                                        item.area,
+                                      )
+                                    }
+                                  >
+                                    +
+                                  </button>
+                                  <button
+                                    type="button"
+                                    className="itp-library-rm-btn"
+                                    title="Remove from template"
+                                    onClick={() => toggleInclude(item.id)}
+                                  >
+                                    ✕
+                                  </button>
+                                </div>
                               </div>
                             </div>
                           </div>
@@ -2526,6 +3879,245 @@ export function ItpTemplateBuilderPanel({
         </div>
       </div>
       )}
+      {propagatePrompt ? (
+        <div
+          className="modal-overlay itp-modal-overlay"
+          role="presentation"
+          onClick={() => {
+            if (propagatePrompt.kind === 'edit') {
+              setItemNameDrafts((prev) => {
+                const next = { ...prev }
+                delete next[propagatePrompt.item.id]
+                return next
+              })
+            }
+            setPropagatePrompt(null)
+          }}
+        >
+          <div
+            className="modal-card itp-propagate-modal"
+            role="dialog"
+            aria-labelledby="itp-propagate-title"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="modal-header-with-close">
+              <div className="modal-header-text">
+                <h3 id="itp-propagate-title">
+                  {propagatePrompt.kind === 'add' ? 'Add to parent masters?' : 'Apply to parent masters?'}
+                </h3>
+                <p className="modal-subtitle">{propagatePrompt.item.name}</p>
+              </div>
+              <button
+                type="button"
+                className="modal-close-x"
+                onClick={() => {
+                  if (propagatePrompt.kind === 'edit') {
+                    setItemNameDrafts((prev) => {
+                      const next = { ...prev }
+                      delete next[propagatePrompt.item.id]
+                      return next
+                    })
+                  }
+                  setPropagatePrompt(null)
+                }}
+                aria-label="Close"
+              >
+                ×
+              </button>
+            </div>
+            <p className="placeholder-copy" style={{ marginTop: 0 }}>
+              {propagatePrompt.kind === 'add' ? 'Add' : 'Apply this change to'} “{propagatePrompt.item.name}”{' '}
+              {propagatePrompt.kind === 'add' ? 'to' : 'on'}{' '}
+              {parentMasterLabels(builderLayer, jobType, valveType).join(', ')} as well?
+            </p>
+            <div className="itp-propagate-modal-actions">
+              <button type="button" className="button-secondary" onClick={() => resolvePropagatePrompt(false)}>
+                This level only
+              </button>
+              <button type="button" className="button-primary" onClick={() => resolvePropagatePrompt(true)}>
+                {propagatePrompt.kind === 'add' ? 'Yes, add to parents' : 'Yes, apply to parents'}
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+      {checklistEdit ? (
+        <div
+          className="modal-overlay itp-modal-overlay"
+          role="presentation"
+          onClick={() => setChecklistEdit(null)}
+        >
+          <div
+            className="modal-card itp-checklist-edit-modal"
+            role="dialog"
+            aria-labelledby="itp-checklist-edit-title"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="modal-header-with-close">
+              <div className="modal-header-text">
+                <h3 id="itp-checklist-edit-title">
+                  {checklistEdit.mode === 'add' ? 'Add requirement below' : 'Edit requirement'}
+                </h3>
+                <p className="modal-subtitle">
+                  {checklistEdit.mode === 'add'
+                    ? 'Add a requirement under this line, then choose whether to copy it to parent masters.'
+                    : 'Change the requirement text or types, then choose whether to copy it to parent masters.'}
+                </p>
+              </div>
+              <button
+                type="button"
+                className="modal-close-x"
+                onClick={() => setChecklistEdit(null)}
+                aria-label="Close"
+              >
+                ×
+              </button>
+            </div>
+            <div className="itp-master-global-add-row">
+              <label className="itp-master-global-field itp-master-global-field--wide">
+                <span>Requirement</span>
+                <input
+                  type="text"
+                  value={checklistEdit.name}
+                  placeholder="Type the requirement…"
+                  onChange={(e) => setChecklistEdit((prev) => (prev ? { ...prev, name: e.target.value } : prev))}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') {
+                      e.preventDefault()
+                      saveChecklistEdit()
+                    }
+                  }}
+                />
+              </label>
+              <label className="itp-master-global-field">
+                <span>Short label</span>
+                <input
+                  type="text"
+                  value={checklistEdit.ref}
+                  placeholder="Optional"
+                  onChange={(e) => setChecklistEdit((prev) => (prev ? { ...prev, ref: e.target.value } : prev))}
+                />
+              </label>
+            </div>
+            <div className="itp-master-req-toggles">
+              <span className="itp-master-req-toggles-label">Requirement types</span>
+              <div className="itp-master-req-toggle-row">
+                <button
+                  type="button"
+                  className={`itp-library-attr-toggle photo${checklistEdit.requirePicture ? ' on' : ''}`}
+                  onClick={() =>
+                    setChecklistEdit((prev) =>
+                      prev ? { ...prev, requirePicture: !prev.requirePicture } : prev,
+                    )
+                  }
+                >
+                  Picture requirement
+                </button>
+                <button
+                  type="button"
+                  className={`itp-library-attr-toggle meas${checklistEdit.requireMeasurement ? ' on' : ''}`}
+                  onClick={() =>
+                    setChecklistEdit((prev) =>
+                      prev
+                        ? {
+                            ...prev,
+                            requireMeasurement: !prev.requireMeasurement,
+                            measFields:
+                              prev.measFields.length > 0
+                                ? prev.measFields
+                                : DEFAULT_ITP_MEAS_FIELDS.map((field) => ({ ...field })),
+                          }
+                        : prev,
+                    )
+                  }
+                >
+                  Measurement requirement
+                </button>
+                <button
+                  type="button"
+                  className={`itp-library-attr-toggle${checklistEdit.requireNameplate ? ' on' : ''}`}
+                  onClick={() =>
+                    setChecklistEdit((prev) =>
+                      prev
+                        ? {
+                            ...prev,
+                            requireNameplate: !prev.requireNameplate,
+                            requireMeasurement: !prev.requireNameplate ? true : prev.requireMeasurement,
+                            measFields: !prev.requireNameplate
+                              ? NAMEPLATE_TRAVELER_FIELDS.map((field) => ({ ...field }))
+                              : prev.measFields,
+                          }
+                        : prev,
+                    )
+                  }
+                >
+                  Nameplate / job card
+                </button>
+                <button
+                  type="button"
+                  className={`itp-library-attr-toggle hp${checklistEdit.holdPoint ? ' on' : ''}`}
+                  onClick={() =>
+                    setChecklistEdit((prev) => (prev ? { ...prev, holdPoint: !prev.holdPoint } : prev))
+                  }
+                >
+                  QA/QC hold point
+                </button>
+                <button
+                  type="button"
+                  className={`itp-library-attr-toggle${checklistEdit.blockNext ? ' on' : ''}`}
+                  onClick={() =>
+                    setChecklistEdit((prev) => (prev ? { ...prev, blockNext: !prev.blockNext } : prev))
+                  }
+                >
+                  Block next
+                </button>
+              </div>
+            </div>
+            {checklistEdit.requirePicture ? (
+              <div className="itp-master-req-detail-row" style={{ marginTop: 10 }}>
+                <label className="itp-master-global-field itp-master-global-field--wide">
+                  <span>Photo label</span>
+                  <input
+                    type="text"
+                    value={checklistEdit.pictureLabel}
+                    placeholder="e.g. As-received body photo"
+                    onChange={(e) =>
+                      setChecklistEdit((prev) => (prev ? { ...prev, pictureLabel: e.target.value } : prev))
+                    }
+                  />
+                </label>
+                <ItpPhotoMinMaxFields
+                  minPhotos={checklistEdit.minPhotos}
+                  maxPhotos={checklistEdit.maxPhotos}
+                  onChange={(next) =>
+                    setChecklistEdit((prev) => (prev ? { ...prev, ...next } : prev))
+                  }
+                />
+              </div>
+            ) : null}
+            <div className="itp-propagate-modal-actions">
+              <button type="button" className="button-secondary" onClick={() => setChecklistEdit(null)}>
+                Cancel
+              </button>
+              <button type="button" className="button-primary" onClick={saveChecklistEdit}>
+                {checklistEdit.mode === 'add' ? 'Add requirement' : 'Save requirement'}
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+      {lineTravelerItemId ? (
+        <ItpLineTravelerBuilderModal
+          itemName={catalogById.get(lineTravelerItemId)?.name ?? 'Requirement'}
+          sel={getSel(editingScope, lineTravelerItemId)}
+          catalogItem={catalogById.get(lineTravelerItemId)}
+          onCancel={() => setLineTravelerItemId(null)}
+          onSave={(patch) => {
+            updateSel(lineTravelerItemId, patch)
+            setLineTravelerItemId(null)
+          }}
+        />
+      ) : null}
     </section>
   )
 }

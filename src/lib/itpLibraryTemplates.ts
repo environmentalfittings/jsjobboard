@@ -7,15 +7,24 @@ import {
 import { supabase } from './supabase'
 import {
   emptyItemSel,
+  normalizeLinkedResourceDocs,
   type ItpLibraryCustomItem,
   type ItpLibraryItemSel,
   type ItpLibraryPlanPayload,
 } from '../types/itpLibraryPlan'
-import { normalizeMeasFields } from '../types/itpMeasFields'
+import { migrateFastenerRecordScopeSel, migrateFastenerRecordSel } from './itpFastenerRecord'
+import { ensureOrderReplacementPartsSel, ORDER_REPLACEMENT_PARTS_ITEM_ID } from './itpOrderParts'
+import { normalizeLinePhotoCounts, normalizeMeasFields } from '../types/itpMeasFields'
 
 /** Sentinel row storing admin-added master catalog items (left panel). */
 export const ITP_LIBRARY_MASTER_JOB = '__master__'
 export const ITP_LIBRARY_MASTER_VALVE = '__master__'
+
+/** Sentinel valve_type for a job-type master built from the global catalog. */
+export const ITP_LIBRARY_JOB_MASTER_VALVE = '__job_master__'
+
+/** Sentinel template name for a valve-type master built from the job type master. */
+export const ITP_LIBRARY_VALVE_MASTER_NAME = '__valve_master__'
 
 /** Default display name for the first / unnamed template per valve type. */
 export const ITP_LIBRARY_DEFAULT_TEMPLATE_NAME = 'Default'
@@ -126,22 +135,69 @@ function isMasterKey(jobType: string, valveType: string) {
   return jobType === ITP_LIBRARY_MASTER_JOB && valveType === ITP_LIBRARY_MASTER_VALVE
 }
 
+export function isJobTypeMasterKey(jobType: string, valveType: string) {
+  return valveType === ITP_LIBRARY_JOB_MASTER_VALVE && jobType !== ITP_LIBRARY_MASTER_JOB
+}
+
+export function isValveTypeMasterName(name: string) {
+  return String(name ?? '').trim() === ITP_LIBRARY_VALVE_MASTER_NAME
+}
+
+export function isTemplateListRow(
+  row: Pick<ItpLibraryTemplateRow, 'job_type' | 'valve_type' | 'name'>,
+) {
+  return (
+    !isMasterKey(row.job_type, row.valve_type) &&
+    !isJobTypeMasterKey(row.job_type, row.valve_type) &&
+    !isValveTypeMasterName(row.name)
+  )
+}
+
+export function includedItemIds(scope: ItpLibraryTemplateScope): Set<string> {
+  const ids = new Set<string>()
+  for (const [id, sel] of Object.entries(scope.sel)) {
+    if (sel.included) ids.add(id)
+  }
+  for (const custom of scope.custom) {
+    if (scope.sel[custom.id]?.included !== false) ids.add(custom.id)
+  }
+  return ids
+}
+
+export function unionIncludedScopes(scopes: ItpLibraryTemplateScope[]): ItpLibraryTemplateScope {
+  const next = emptyTemplateScope()
+  for (const scope of scopes) {
+    for (const [id, sel] of Object.entries(scope.sel)) {
+      if (!sel.included || next.sel[id]) continue
+      next.sel[id] = { ...sel, included: true }
+    }
+    for (const custom of scope.custom) {
+      if (!next.custom.some((row) => row.id === custom.id)) {
+        next.custom.push({ ...custom })
+      }
+    }
+  }
+  return next
+}
+
 function pickPreferredTemplate(rows: ItpLibraryTemplateRow[]): ItpLibraryTemplateRow | null {
-  if (!rows.length) return null
-  const byDefault = rows.find((row) => row.is_default)
+  const usable = rows.filter((row) => isTemplateListRow(row))
+  if (!usable.length) return null
+  const byDefault = usable.find((row) => row.is_default)
   if (byDefault) return byDefault
-  const namedDefault = rows.find((row) => row.name === ITP_LIBRARY_DEFAULT_TEMPLATE_NAME)
+  const namedDefault = usable.find((row) => row.name === ITP_LIBRARY_DEFAULT_TEMPLATE_NAME)
   if (namedDefault) return namedDefault
-  return [...rows].sort((a, b) => a.name.localeCompare(b.name))[0] ?? null
+  return [...usable].sort((a, b) => a.name.localeCompare(b.name))[0] ?? null
 }
 
 function normalizeSel(raw: unknown): ItpLibraryItemSel {
   const o = (raw && typeof raw === 'object' ? raw : {}) as Partial<ItpLibraryItemSel> & {
     minPhotos?: unknown
+    maxPhotos?: unknown
     measFields?: unknown
     travelerEntry?: unknown
   }
-  const minPhotosRaw = Number(o.minPhotos)
+  const photoCounts = normalizeLinePhotoCounts(o.minPhotos, o.maxPhotos)
   const travelerEntry = (() => {
     if (!o.travelerEntry || typeof o.travelerEntry !== 'object') return null
     const te = o.travelerEntry as Partial<ItpLibraryItemSel['travelerEntry']> & { section?: string }
@@ -167,7 +223,8 @@ function normalizeSel(raw: unknown): ItpLibraryItemSel {
     notes: String(o.notes ?? ''),
     requirePicture: Boolean(o.requirePicture),
     pictureLabel: String(o.pictureLabel ?? '').trim(),
-    minPhotos: Number.isFinite(minPhotosRaw) && minPhotosRaw > 0 ? Math.floor(minPhotosRaw) : 1,
+    minPhotos: photoCounts.minPhotos,
+    maxPhotos: photoCounts.maxPhotos,
     measFields: normalizeMeasFields(o.measFields),
     requireNameplate: Boolean(o.requireNameplate),
     blockNext: Boolean(o.blockNext),
@@ -181,6 +238,7 @@ function normalizeSel(raw: unknown): ItpLibraryItemSel {
     })(),
     addToTraveler: Boolean(o.addToTraveler) || Boolean(travelerEntry),
     travelerEntry,
+    resourceDocs: normalizeLinkedResourceDocs((o as { resourceDocs?: unknown }).resourceDocs),
   }
 }
 
@@ -211,19 +269,28 @@ export function normalizeTemplateScope(raw: unknown): ItpLibraryTemplateScope {
       const secId = String(c.secId ?? '').trim()
       const name = String(c.name ?? '').trim()
       if (!id || !secId || !name) continue
+      const detail =
+        c.detail && typeof c.detail === 'object' && !Array.isArray(c.detail)
+          ? (c.detail as Record<string, unknown>)
+          : undefined
       custom.push({
         id,
         secId,
         name,
+        ...(detail ? { detail } : {}),
       })
     }
   }
-  return {
-    sel,
+  const normalized = {
+    sel: migrateFastenerRecordScopeSel(sel),
     custom,
     ...(o.catalog !== undefined ? { catalog: o.catalog } : {}),
     ...(o.areas !== undefined ? { areas: o.areas } : {}),
     ...(o.processSections !== undefined ? { processSections: o.processSections } : {}),
+  }
+  return {
+    ...normalized,
+    sel: ensureOrderReplacementPartsSel(normalized.sel),
   }
 }
 
@@ -242,13 +309,15 @@ export function compactTemplateScope(scope: ItpLibraryTemplateScope): ItpLibrary
       value.addToTraveler ||
       value.measFields.length > 0 ||
       value.subReqs.length > 0 ||
-      value.notes.trim()
+      value.notes.trim() ||
+      value.sortIndex != null ||
+      value.resourceDocs.length > 0
     ) {
       sel[id] = value
     }
   }
   return {
-    sel,
+    sel: migrateFastenerRecordScopeSel(sel),
     custom: scope.custom.filter((c) => c.name.trim()),
     ...(scope.catalog !== undefined ? { catalog: scope.catalog } : {}),
     ...(scope.areas !== undefined ? { areas: scope.areas } : {}),
@@ -297,7 +366,43 @@ export async function listItpLibraryTemplates(filters?: {
   if (error) throw mapTemplateError(error)
   return (data ?? [])
     .map((row) => mapTemplateRow(row as Record<string, unknown>))
-    .filter((row) => !isMasterKey(row.job_type, row.valve_type))
+    .filter((row) => isTemplateListRow(row))
+}
+
+export async function loadJobTypeMaster(jobType: ItpLibraryJobType | string): Promise<ItpLibraryTemplateRow | null> {
+  return loadItpLibraryTemplate(jobType, ITP_LIBRARY_JOB_MASTER_VALVE, ITP_LIBRARY_DEFAULT_TEMPLATE_NAME)
+}
+
+export async function saveJobTypeMaster(
+  jobType: ItpLibraryJobType | string,
+  scope: ItpLibraryTemplateScope,
+): Promise<ItpLibraryTemplateRow> {
+  return saveItpLibraryTemplate(jobType, ITP_LIBRARY_JOB_MASTER_VALVE, scope, {
+    name: ITP_LIBRARY_DEFAULT_TEMPLATE_NAME,
+    isDefault: false,
+  })
+}
+
+export async function loadValveTypeMaster(
+  jobType: ItpLibraryJobType | string,
+  valveType: string,
+): Promise<ItpLibraryTemplateRow | null> {
+  const vt = String(valveType ?? '').trim()
+  if (!vt) return null
+  return loadItpLibraryTemplate(jobType, vt, ITP_LIBRARY_VALVE_MASTER_NAME)
+}
+
+export async function saveValveTypeMaster(
+  jobType: ItpLibraryJobType | string,
+  valveType: string,
+  scope: ItpLibraryTemplateScope,
+): Promise<ItpLibraryTemplateRow> {
+  const vt = String(valveType ?? '').trim()
+  if (!vt) throw new Error('Valve type is required')
+  return saveItpLibraryTemplate(jobType, vt, scope, {
+    name: ITP_LIBRARY_VALVE_MASTER_NAME,
+    isDefault: false,
+  })
 }
 
 export async function loadItpLibraryTemplate(
@@ -363,8 +468,10 @@ export async function saveItpLibraryTemplate(
   if (!vt) throw new Error('Valve type is required')
 
   const master = isMasterKey(jt, vt)
+  const jobMaster = isJobTypeMasterKey(jt, vt)
+  const valveMaster = isValveTypeMasterName(templateName)
   let isDefault = Boolean(options?.isDefault)
-  if (master) {
+  if (master || jobMaster || valveMaster) {
     isDefault = false
   } else if (options?.isDefault == null) {
     const existing = await listItpLibraryTemplates({ jobType: jt, valveType: vt })
@@ -376,7 +483,7 @@ export async function saveItpLibraryTemplate(
     }
   }
 
-  if (isDefault && !master) {
+  if (isDefault && !master && !jobMaster && !valveMaster) {
     await clearDefaultFlags(jt, vt, templateName)
   }
 
@@ -411,6 +518,7 @@ export async function setDefaultItpLibraryTemplate(
   const vt = String(valveType ?? '').trim()
   const templateName = normalizeTemplateName(name)
   if (!jt || !vt) return null
+  if (isValveTypeMasterName(templateName)) return null
 
   const existing = await loadItpLibraryTemplate(jt, vt, templateName)
   if (!existing) return null
@@ -488,13 +596,13 @@ export function scopeFromCodeTemplate(
   const sel: Record<string, ItpLibraryItemSel> = {}
   for (const itemId of ids) {
     const found = findLibraryItem(itemId)
-    sel[itemId] = {
+    sel[itemId] = migrateFastenerRecordSel(itemId, {
       ...emptyItemSel(),
       included: true,
       subReqs: found?.item.defaultSubReqs ? [...found.item.defaultSubReqs] : [],
-    }
+    })
   }
-  return { sel, custom: [] }
+  return { sel: ensureOrderReplacementPartsSel(sel), custom: [] }
 }
 
 export function applyScopeToPlan(
@@ -541,6 +649,9 @@ export function applyScopeToPlan(
         minPhotos: templateSel.requirePicture
           ? templateSel.minPhotos || prev.minPhotos || 1
           : prev.minPhotos || 1,
+        maxPhotos: templateSel.requirePicture
+          ? templateSel.maxPhotos || prev.maxPhotos || 4
+          : prev.maxPhotos || 4,
         measFields:
           templateSel.measFields.length > 0
             ? templateSel.measFields.map((f) => ({ ...f }))
@@ -554,6 +665,10 @@ export function applyScopeToPlan(
         sortIndex: templateSel.sortIndex != null ? templateSel.sortIndex : prev.sortIndex,
         subReqs,
         notes: templateSel.notes.trim() || prev.notes,
+        resourceDocs:
+          templateSel.resourceDocs.length > 0
+            ? templateSel.resourceDocs.map((doc) => ({ ...doc }))
+            : prev.resourceDocs,
       }
     }
   }
@@ -576,7 +691,11 @@ export function applyScopeToPlan(
         }
   }
 
-  return { ...plan, sel, custom }
+  const migrated = migrateFastenerRecordScopeSel(sel)
+  if (!(ORDER_REPLACEMENT_PARTS_ITEM_ID in scope.sel)) {
+    delete migrated[ORDER_REPLACEMENT_PARTS_ITEM_ID]
+  }
+  return { ...plan, sel: ensureOrderReplacementPartsSel(migrated), custom }
 }
 
 export type ApplyLibraryTemplateResult = {

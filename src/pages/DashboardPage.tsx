@@ -4,6 +4,7 @@ import { DashboardNotesPanel } from '../components/DashboardNotesPanel'
 import { ReceivedValvesDashboardPanel } from '../components/ReceivedValvesDashboardPanel'
 import { ReworkDashboardPanel } from '../components/ReworkDashboardPanel'
 import { WarehouseRtsDashboardPanel } from '../components/WarehouseRtsDashboardPanel'
+import { NeededPartsDashboardPanel } from '../components/NeededPartsDashboardPanel'
 import { useToast } from '../components/ToastNotification'
 import { useAuth } from '../contexts/AuthContext'
 import { useOrganization } from '../contexts/OrganizationContext'
@@ -477,6 +478,8 @@ export function DashboardPage() {
           </section>
 
           <ReworkDashboardPanel />
+
+          <NeededPartsDashboardPanel />
 
           <WarehouseRtsDashboardPanel />
 

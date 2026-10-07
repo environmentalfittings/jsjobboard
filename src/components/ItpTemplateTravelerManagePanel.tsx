@@ -1,5 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import {
+  clampLinePhotoMax,
+  clampLinePhotoMin,
   DEFAULT_ITP_MEAS_FIELDS,
   emptyMeasField,
   followUpLabelOf,
@@ -12,11 +14,15 @@ import {
 } from '../lib/itpItemRequirements'
 import { NAMEPLATE_TRAVELER_FIELDS } from '../lib/itpTravelerNameplate'
 import { itpShopAreaLabel, type ItpShopArea, type ItpShopAreaDef } from '../constants/itpShopAreas'
+import { stepUsesOemOrProcedure } from '../lib/itpOemProcedure'
 import type { ItpLibraryItemSel } from '../types/itpLibraryPlan'
 import type { ItpMasterCatalogItem } from '../lib/itpMasterCatalog'
 import { ItpMeasDropdownSourceFields } from './ItpMeasDropdownSourceFields'
+import { ItpOemProcedureDocs } from './ItpOemProcedureDocs'
 import { ItpMeasJobCardSourceSelect } from './ItpMeasJobCardSourceSelect'
 import { ItpMeasRequiredToggle } from './ItpMeasRequiredToggle'
+import { ItpPhotoMinMaxFields } from './ItpPhotoMinMaxFields'
+import { resourceDocumentPublicUrl } from '../lib/resourceDocuments'
 
 export type TravelerManageSection = {
   section: { id: string; title: string }
@@ -37,6 +43,7 @@ export type TravelerRequirementDraft = {
   requirePicture: boolean
   pictureLabel: string
   minPhotos: number
+  maxPhotos: number
   requireMeasurement: boolean
   requireNameplate: boolean
   measFields: ItpMeasFieldDef[]
@@ -71,6 +78,7 @@ function emptyTravelerDraft(secId: string, area: ItpShopArea): TravelerRequireme
     requirePicture: false,
     pictureLabel: '',
     minPhotos: 1,
+    maxPhotos: 4,
     requireMeasurement: false,
     requireNameplate: false,
     measFields: DEFAULT_ITP_MEAS_FIELDS.map((row) => ({ ...row })),
@@ -473,21 +481,11 @@ export function ItpTemplateTravelerManagePanel({
                       }
                     />
                   </label>
-                  <label className="itp-master-global-field">
-                    <span>Minimum photos</span>
-                    <input
-                      type="number"
-                      min={1}
-                      max={20}
-                      value={draft.minPhotos}
-                      onChange={(e) =>
-                        setDraft((prev) => ({
-                          ...prev,
-                          minPhotos: Math.max(1, Number(e.target.value) || 1),
-                        }))
-                      }
-                    />
-                  </label>
+                  <ItpPhotoMinMaxFields
+                    minPhotos={draft.minPhotos}
+                    maxPhotos={draft.maxPhotos}
+                    onChange={(next) => setDraft((prev) => ({ ...prev, ...next }))}
+                  />
                 </div>
               ) : null}
               {draft.requireMeasurement ? (
@@ -623,7 +621,8 @@ export function ItpTemplateTravelerManagePanel({
                     onUpdateSel(selected.id, {
                       requirePicture: nextOn,
                       pictureLabel: nextOn ? sel.pictureLabel || selected.name : sel.pictureLabel,
-                      minPhotos: nextOn ? Math.max(1, sel.minPhotos || 1) : sel.minPhotos,
+                      minPhotos: nextOn ? clampLinePhotoMin(sel.minPhotos) : sel.minPhotos,
+                      maxPhotos: nextOn ? clampLinePhotoMax(sel.maxPhotos, sel.minPhotos) : sel.maxPhotos,
                       addToTraveler: nextOn || measOn || sel.holdPoint,
                     })
                   }}
@@ -696,6 +695,13 @@ export function ItpTemplateTravelerManagePanel({
                 />
                 <span>Block the next item until this item&apos;s requirements are met</span>
               </label>
+              {stepUsesOemOrProcedure(selected.name) || (sel.resourceDocs?.length ?? 0) > 0 ? (
+                <ItpOemProcedureDocs
+                  docs={sel.resourceDocs ?? []}
+                  valveType={valveType}
+                  onChange={(resourceDocs) => onUpdateSel(selected.id, { resourceDocs })}
+                />
+              ) : null}
 
               {sel.requirePicture ? (
                 <div className="itp-master-req-detail-row">
@@ -708,20 +714,11 @@ export function ItpTemplateTravelerManagePanel({
                       onChange={(e) => onUpdateSel(selected.id, { pictureLabel: e.target.value })}
                     />
                   </label>
-                  <label className="itp-master-global-field">
-                    <span>Minimum photos</span>
-                    <input
-                      type="number"
-                      min={1}
-                      max={20}
-                      value={Math.max(1, sel.minPhotos || 1)}
-                      onChange={(e) =>
-                        onUpdateSel(selected.id, {
-                          minPhotos: Math.max(1, Number(e.target.value) || 1),
-                        })
-                      }
-                    />
-                  </label>
+                  <ItpPhotoMinMaxFields
+                    minPhotos={sel.minPhotos}
+                    maxPhotos={sel.maxPhotos}
+                    onChange={(next) => onUpdateSel(selected.id, next)}
+                  />
                 </div>
               ) : null}
 
@@ -871,11 +868,31 @@ export function ItpTemplateTravelerManagePanel({
                           ) : null}
                         </header>
 
+                        {(itemSel.resourceDocs?.length ?? 0) > 0 ? (
+                          <ul className="itp-oem-docs-list itp-oem-docs-list--preview">
+                            {itemSel.resourceDocs.map((doc) => (
+                              <li key={doc.id}>
+                                <a
+                                  href={resourceDocumentPublicUrl(doc.storagePath)}
+                                  target="_blank"
+                                  rel="noreferrer"
+                                  onClick={(e) => e.stopPropagation()}
+                                >
+                                  {doc.title}
+                                </a>
+                              </li>
+                            ))}
+                          </ul>
+                        ) : null}
+
                         {itemSel.requirePicture ? (
                           <div className="itp-traveler-live-field itp-traveler-live-field--picture">
                             <span>
                               {itemSel.pictureLabel.trim() || 'Photos'}
-                              {` (min ${Math.max(1, itemSel.minPhotos || 1)})`}
+                              {` (${clampLinePhotoMin(itemSel.minPhotos)} required, up to ${clampLinePhotoMax(
+                                itemSel.maxPhotos,
+                                itemSel.minPhotos,
+                              )})`}
                             </span>
                             <div className="itp-traveler-live-photo-slot">Picture upload</div>
                           </div>

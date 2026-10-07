@@ -117,15 +117,12 @@ export const ITP_LIBRARY: ItpLibrarySection[] = [
       {
         "id": "d4",
         "name": "Inspect & replace fasteners — record all fastener data on traveler",
-        "ref": "Fastener Record",
-        "defaultSubReqs": [
-          "Fastener size & thread spec (dia. × pitch × length)",
-          "Material / grade (e.g. A193 B7, A320 L7, SS316)",
-          "Quantity replaced",
-          "Replacement part number / heat number",
-          "MTR / material certification number obtained",
-          "Verify replacement fasteners meet original design spec"
-        ]
+        "ref": "Fastener Record"
+      },
+      {
+        "id": "parts_order",
+        "name": "Order replacement parts",
+        "ref": "Parts"
       }
     ]
   },

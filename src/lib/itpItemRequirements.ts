@@ -1,5 +1,6 @@
 import type { ItpLibraryItemExec, ItpLibraryItemSel } from '../types/itpLibraryPlan'
 import {
+  clampLinePhotoMax,
   DEFAULT_ITP_MEAS_FIELDS,
   followUpApplies,
   followUpFieldId,
@@ -31,6 +32,11 @@ export {
   patchFromDropdownSourceSelect,
   pictureFieldMax,
   clampPictureFieldMax,
+  clampLinePhotoMin,
+  clampLinePhotoMax,
+  normalizeLinePhotoCounts,
+  DEFAULT_PICTURE_FIELD_MAX,
+  MEAS_PICTURE_MAX,
   measFieldTypePatch,
   resolveDropdownChoices,
   resolveJobCardField,
@@ -42,6 +48,7 @@ export type ItpItemRequirementDefaults = {
   requirePicture?: boolean
   pictureLabel?: string
   minPhotos?: number
+  maxPhotos?: number
   requireMeasurement?: boolean
   measFields?: ItpMeasFieldDef[]
   /** Traveler nameplate / job-card transfer requirement. */
@@ -240,6 +247,10 @@ export function selFromRequirementDefaults(
     requirePicture: Boolean(defaults.requirePicture) || base.requirePicture,
     pictureLabel: (defaults.pictureLabel ?? '').trim() || base.pictureLabel,
     minPhotos: defaults.minPhotos && defaults.minPhotos > 0 ? defaults.minPhotos : base.minPhotos || 1,
+    maxPhotos: clampLinePhotoMax(
+      defaults.maxPhotos ?? base.maxPhotos,
+      defaults.minPhotos && defaults.minPhotos > 0 ? defaults.minPhotos : base.minPhotos || 1,
+    ),
     beforeMeas: requireMeasurement || base.beforeMeas,
     afterMeas: requireMeasurement || base.afterMeas,
     measVerify: requireMeasurement || base.measVerify,

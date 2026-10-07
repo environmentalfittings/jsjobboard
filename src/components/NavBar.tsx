@@ -296,6 +296,7 @@ export function NavBar({ role, username, userId, onLogout }: NavBarProps) {
     { to: '/job-board', label: 'Status board' },
     { to: '/calendar', label: 'Calendar' },
     { to: '/shop-tv', label: 'TV board' },
+    { to: '/needed-parts', label: 'Needs parts' },
   ]
 
   const messagesMenu = userId ? <NavMessagesMenu userId={userId} username={username} /> : null

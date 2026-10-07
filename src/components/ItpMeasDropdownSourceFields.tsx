@@ -1,3 +1,4 @@
+import { useEffect, useState } from 'react'
 import { LOOKUP_CATEGORY_DEFS, isLookupCategory } from '../constants/lookupCategories'
 import {
   clampPictureFieldMax,
@@ -15,7 +16,24 @@ type Props = {
   onChange: (patch: Partial<ItpMeasFieldDef>) => void
 }
 
+function formatCustomOptions(options: string[] | undefined): string {
+  return (options ?? []).join(', ')
+}
+
+function parseCustomOptions(raw: string): string[] {
+  return raw
+    .split(',')
+    .map((opt) => opt.trim())
+    .filter(Boolean)
+}
+
 export function ItpMeasDropdownSourceFields({ field, onChange }: Props) {
+  const [optionsDraft, setOptionsDraft] = useState<string | null>(null)
+
+  useEffect(() => {
+    setOptionsDraft(null)
+  }, [field.id])
+
   if (field.type === 'picture') {
     const maxPhotos = pictureFieldMax(field)
     return (
@@ -38,13 +56,19 @@ export function ItpMeasDropdownSourceFields({ field, onChange }: Props) {
   }
   const source = dropdownOptionSource(field)
   const selectValue = dropdownSourceSelectValue(field)
+  const commitCustomOptions = (raw: string) => {
+    onChange({ options: parseCustomOptions(raw) })
+  }
   return (
     <>
       <select
         aria-label="Dropdown source"
         value={selectValue}
         onClick={(e) => e.stopPropagation()}
-        onChange={(e) => onChange(patchFromDropdownSourceSelect(e.target.value))}
+        onChange={(e) => {
+          setOptionsDraft(null)
+          onChange(patchFromDropdownSourceSelect(e.target.value))
+        }}
       >
         <option value="custom">Custom options</option>
         <option value="manufacturers">Manufacturers list</option>
@@ -59,19 +83,21 @@ export function ItpMeasDropdownSourceFields({ field, onChange }: Props) {
       {source === 'custom' ? (
         <input
           type="text"
-          value={(field.options ?? []).join(', ')}
+          value={optionsDraft ?? formatCustomOptions(field.options)}
           placeholder="RF, RTJ, SW, THR, SW/THR, BWE"
           aria-label="Custom dropdown options"
           onClick={(e) => e.stopPropagation()}
           onKeyDown={(e) => e.stopPropagation()}
-          onChange={(e) =>
-            onChange({
-              options: e.target.value
-                .split(',')
-                .map((opt) => opt.trim())
-                .filter(Boolean),
-            })
-          }
+          onChange={(e) => {
+            const raw = e.target.value
+            setOptionsDraft(raw)
+            commitCustomOptions(raw)
+          }}
+          onBlur={() => {
+            const raw = optionsDraft ?? formatCustomOptions(field.options)
+            commitCustomOptions(raw)
+            setOptionsDraft(null)
+          }}
         />
       ) : (
         <span className="itp-master-meas-field-source">

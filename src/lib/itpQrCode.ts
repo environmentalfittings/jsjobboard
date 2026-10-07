@@ -18,6 +18,16 @@ export function buildItpPageUrl(valveRowId: number, origin = resolveItpPublicOri
   return `${base}/itp/${valveRowId}`
 }
 
+/** Technician traveler for a job — scan opens this after shop login. */
+export function buildItpTravelerUrl(valveRowId: number, origin = resolveItpPublicOrigin()): string {
+  return `${buildItpPageUrl(valveRowId, origin)}/traveler`
+}
+
+export function buildShopLoginUrl(origin = resolveItpPublicOrigin()): string {
+  const base = origin.replace(/\/$/, '')
+  return `${base}/login`
+}
+
 export async function createItpQrDataUrl(url: string, size = 160): Promise<string> {
   return QRCode.toDataURL(url, {
     errorCorrectionLevel: 'M',
