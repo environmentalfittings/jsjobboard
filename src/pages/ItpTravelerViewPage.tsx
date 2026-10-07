@@ -8,6 +8,7 @@ import { useAuth } from '../contexts/AuthContext'
 import { useJobNeededParts } from '../hooks/useJobNeededParts'
 import { hasAdminAccess } from '../lib/roles'
 import { loadItpLibraryPlan, saveItpLibraryPlan } from '../lib/itpLibraryStorage'
+import { applyTravelerStepUnlocks } from '../lib/itpMeasUnlocks'
 import { buildItpTravelerReport, findTravelerReportItem } from '../lib/itpTravelerReport'
 import { toggleItemExecDone } from '../lib/itpItemRequirements'
 import {
@@ -121,17 +122,7 @@ export function ItpTravelerViewPage() {
     if (!valve || !plan || !openItemId) return
     setSaving(true)
     try {
-      const nextPlan: ItpLibraryPlanPayload = {
-        ...plan,
-        sel: {
-          ...plan.sel,
-          [openItemId]: next.sel,
-        },
-        exec: {
-          ...plan.exec,
-          [openItemId]: next.exec,
-        },
-      }
+      const nextPlan = applyTravelerStepUnlocks(plan, openItemId, next)
       const result = await saveItpLibraryPlan(valve, nextPlan)
       setPlan(result.plan)
       setOpenItemId(null)
@@ -265,6 +256,7 @@ export function ItpTravelerViewPage() {
           item={openItem}
           sel={getSel(plan, openItem.id) ?? emptyItemSel()}
           exec={getExec(plan, openItem.id) ?? emptyItemExec()}
+          plan={plan}
           valveRowId={valve.id}
           jobCard={valve}
           canSignOffHold={canSignOffHold}

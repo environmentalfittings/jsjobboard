@@ -2,7 +2,7 @@
  * Default lists from the Excel “Lists” sheet — same data as
  * `supabase/seed-lookup-values.sql` and `supabase/seed-customers-from-spreadsheet.sql`.
  */
-import type { LookupCategory } from './lookupCategories'
+import type { JobLookupCategory, LookupCategory } from './lookupCategories'
 import { INVENTORY_PART_TYPES, LOOKUP_CATEGORY_DEFS } from './lookupCategories'
 import {
   API_TRIMS,
@@ -21,7 +21,7 @@ import {
   VALVE_TYPES,
 } from './jobLookups'
 
-const BY_CATEGORY: Record<LookupCategory, readonly string[]> = {
+const BY_CATEGORY: Record<JobLookupCategory, readonly string[]> = {
   test_type: TEST_TYPES,
   test_media: TEST_MEDIA,
   test_procedure: TEST_PROCEDURE_REQUIREMENTS,

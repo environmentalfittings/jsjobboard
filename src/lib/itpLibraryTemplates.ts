@@ -15,6 +15,7 @@ import {
 import { migrateFastenerRecordScopeSel, migrateFastenerRecordSel } from './itpFastenerRecord'
 import { ensureOrderReplacementPartsSel, ORDER_REPLACEMENT_PARTS_ITEM_ID } from './itpOrderParts'
 import { normalizeLinePhotoCounts, normalizeMeasFields } from '../types/itpMeasFields'
+import { collectUnlockItemIdsFromSels } from './itpMeasUnlocks'
 
 /** Sentinel row storing admin-added master catalog items (left panel). */
 export const ITP_LIBRARY_MASTER_JOB = '__master__'
@@ -296,6 +297,7 @@ export function normalizeTemplateScope(raw: unknown): ItpLibraryTemplateScope {
 
 /** Compact scope for storage — only included (or configured) items. */
 export function compactTemplateScope(scope: ItpLibraryTemplateScope): ItpLibraryTemplateScope {
+  const unlockIds = new Set(collectUnlockItemIdsFromSels(scope.sel))
   const sel: Record<string, ItpLibraryItemSel> = {}
   for (const [id, value] of Object.entries(scope.sel)) {
     if (
@@ -311,7 +313,8 @@ export function compactTemplateScope(scope: ItpLibraryTemplateScope): ItpLibrary
       value.subReqs.length > 0 ||
       value.notes.trim() ||
       value.sortIndex != null ||
-      value.resourceDocs.length > 0
+      value.resourceDocs.length > 0 ||
+      unlockIds.has(id)
     ) {
       sel[id] = value
     }

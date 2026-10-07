@@ -41,7 +41,12 @@ import {
   type ItpLibraryAttachment,
   type ItpLibraryItemExec,
   type ItpLibraryItemSel,
+  type ItpLibraryPlanPayload,
 } from '../types/itpLibraryPlan'
+import {
+  describeUnlockItemsForValue,
+  fieldHasUnlockRoutes,
+} from '../lib/itpMeasUnlocks'
 import type { ItpMeasFieldDef } from '../types/itpMeasFields'
 import type { ItpTravelerReportItem } from '../lib/itpTravelerReport'
 import { loadManufacturerDropdownNames } from '../lib/specDocuments'
@@ -119,6 +124,7 @@ type ItpTravelerStepModalProps = {
   item: ItpTravelerReportItem
   sel: ItpLibraryItemSel
   exec: ItpLibraryItemExec
+  plan?: ItpLibraryPlanPayload
   valveRowId: number
   /** Job card fields used for “Transfer from job card” on nameplate steps. */
   jobCard: JobCardNameplateSource
@@ -141,6 +147,7 @@ export function ItpTravelerStepModal({
   item,
   sel: initialSel,
   exec: initialExec,
+  plan,
   valveRowId,
   jobCard,
   previewMode = false,
@@ -610,6 +617,10 @@ export function ItpTravelerStepModal({
             { manufacturers: manufacturerNames, lookups: lookupOptions },
           )
         : []
+      const unlockAdds =
+        plan && fieldHasUnlockRoutes(field) && value && !naOn
+          ? describeUnlockItemsForValue(plan, field, value)
+          : null
       return (
         <div key={field.id} className={`itp-traveler-step-field${naOn ? ' is-na' : ''}`}>
           {renderFieldHeader(field, required, naOn)}
@@ -634,6 +645,27 @@ export function ItpTravelerStepModal({
               </option>
             ))}
           </select>
+          {unlockAdds ? (
+            <div className="itp-traveler-unlock-preview">
+              {unlockAdds.length === 0 ? (
+                <span>This choice does not add extra steps.</span>
+              ) : (
+                <>
+                  <div className="itp-traveler-unlock-preview-title">This repair adds:</div>
+                  <ul>
+                    {unlockAdds.map((row) => (
+                      <li key={row.id}>
+                        {row.name}
+                        {row.shopAreaLabel ? (
+                          <span className="itp-template-station-badge">Station: {row.shopAreaLabel}</span>
+                        ) : null}
+                      </li>
+                    ))}
+                  </ul>
+                </>
+              )}
+            </div>
+          ) : null}
           {showFollowUp ? (
             <label className="itp-traveler-followup">
               <span>

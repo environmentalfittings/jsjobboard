@@ -1,6 +1,7 @@
 import { ITP_LIBRARY, type ItpLibraryJobType } from '../constants/itpLibrary'
 import type { ItpMasterCatalogItem } from './itpMasterCatalog'
 import { applyScopeToPlan, type ItpLibraryTemplateScope } from './itpLibraryTemplates'
+import { collectUnlockItemIdsFromSels } from './itpMeasUnlocks'
 import type { JobCardNameplateSource } from './itpTravelerNameplate'
 import type { JobNeededPart, JobNeededPartDraft } from './jobNeededParts'
 import {
@@ -57,10 +58,11 @@ function extraCustomFromCatalog(
   catalogItems: ItpMasterCatalogItem[],
 ): ItpLibraryCustomItem[] {
   const existing = new Set(scope.custom.map((row) => row.id))
+  const unlockIds = new Set(collectUnlockItemIdsFromSels(scope.sel))
   const extra: ItpLibraryCustomItem[] = []
   for (const item of catalogItems) {
     const sel = scope.sel[item.id]
-    if (!sel?.included) continue
+    if (!sel?.included && !unlockIds.has(item.id)) continue
     if (LIBRARY_ITEM_IDS.has(item.id) || existing.has(item.id)) continue
     extra.push({ id: item.id, secId: item.secId, name: item.name })
     existing.add(item.id)

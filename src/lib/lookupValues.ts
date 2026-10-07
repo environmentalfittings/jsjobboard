@@ -1,5 +1,15 @@
-import type { LookupCategory } from '../constants/lookupCategories'
-import { LOOKUP_CATEGORY_DEFS } from '../constants/lookupCategories'
+import type { ItpTravelerListDef, LookupCategory } from '../constants/lookupCategories'
+import {
+  DEFAULT_ITP_TRAVELER_LISTS,
+  ITP_TRAVELER_LIST_REGISTRY,
+  LOOKUP_CATEGORY_DEFS,
+  REPAIR_NEEDED_LIST_FALLBACK,
+  REPAIR_NEEDED_LOOKUP_CATEGORY,
+  formatItpTravelerRegistryValue,
+  isLookupCategory,
+  itpTravelerListCategory,
+  parseItpTravelerRegistryValue,
+} from '../constants/lookupCategories'
 import { PRIORITY_API_TRIMS } from '../constants/jobLookups'
 import { supabase } from './supabase'
 
@@ -27,11 +37,48 @@ export type LookupValueRow = {
   sort_order: number
 }
 
+const travelerListLabelByCategory = new Map<string, string>()
+
+export function cachedItpTravelerListLabel(category: string | undefined): string | undefined {
+  if (!category) return undefined
+  return travelerListLabelByCategory.get(category)
+}
+
+function rememberTravelerListLabel(def: ItpTravelerListDef) {
+  travelerListLabelByCategory.set(def.category, def.label)
+}
+
+export function travelerListDefsFromRows(rows: LookupValueRow[]): ItpTravelerListDef[] {
+  const fromRegistry: ItpTravelerListDef[] = []
+  const seen = new Set<string>()
+  for (const row of rows) {
+    if (row.category !== ITP_TRAVELER_LIST_REGISTRY) continue
+    const parsed = parseItpTravelerRegistryValue(row.value)
+    if (!parsed || seen.has(parsed.key)) continue
+    seen.add(parsed.key)
+    const def = {
+      key: parsed.key,
+      label: parsed.label,
+      category: itpTravelerListCategory(parsed.key),
+    }
+    rememberTravelerListLabel(def)
+    fromRegistry.push(def)
+  }
+  const defs = [...fromRegistry]
+  for (const fallback of DEFAULT_ITP_TRAVELER_LISTS) {
+    if (seen.has(fallback.key)) continue
+    rememberTravelerListLabel(fallback)
+    defs.push({ ...fallback })
+  }
+  return defs
+}
+
 /** Values per category, ordered for dropdowns. Uses DB when rows exist, else spreadsheet fallbacks. */
 export async function loadLookupOptionsMap(): Promise<Record<LookupCategory, string[]>> {
   const base = Object.fromEntries(
     LOOKUP_CATEGORY_DEFS.map((d) => [d.key, [...d.fallback]]),
   ) as Record<LookupCategory, string[]>
+  base[REPAIR_NEEDED_LOOKUP_CATEGORY] = [...REPAIR_NEEDED_LIST_FALLBACK]
 
   const { data, error } = await supabase
     .from('lookup_values')
@@ -39,17 +86,20 @@ export async function loadLookupOptionsMap(): Promise<Record<LookupCategory, str
     .order('sort_order', { ascending: true })
     .order('id', { ascending: true })
 
-  if (error || !data?.length) return base
-
-  const byCat = new Map<LookupCategory, string[]>()
-  for (const d of LOOKUP_CATEGORY_DEFS) {
-    byCat.set(d.key, [])
+  if (error || !data?.length) {
+    for (const def of DEFAULT_ITP_TRAVELER_LISTS) rememberTravelerListLabel(def)
+    return base
   }
 
-  for (const row of data as LookupValueRow[]) {
-    const cat = row.category as LookupCategory
-    if (!byCat.has(cat)) continue
-    byCat.get(cat)!.push(row.value)
+  const rows = data as LookupValueRow[]
+  const travelerDefs = travelerListDefsFromRows(rows)
+  const byCat = new Map<string, string[]>()
+  for (const d of LOOKUP_CATEGORY_DEFS) byCat.set(d.key, [])
+  for (const def of travelerDefs) byCat.set(def.category, [])
+
+  for (const row of rows) {
+    if (!isLookupCategory(row.category) || !byCat.has(row.category)) continue
+    byCat.get(row.category)!.push(row.value)
   }
 
   const out = { ...base }
@@ -76,7 +126,60 @@ export async function loadLookupOptionsMap(): Promise<Record<LookupCategory, str
     }
     out[d.key] = d.key === 'api_trim' ? pinValuesFirst(merged, PRIORITY_API_TRIMS) : merged
   }
+  for (const def of travelerDefs) {
+    const fromDb = byCat.get(def.category) ?? []
+    if (fromDb.length > 0) {
+      out[def.category] = fromDb
+      continue
+    }
+    out[def.category] =
+      def.category === REPAIR_NEEDED_LOOKUP_CATEGORY ? [...REPAIR_NEEDED_LIST_FALLBACK] : []
+  }
   return out
+}
+
+export async function loadItpTravelerListDefs(): Promise<ItpTravelerListDef[]> {
+  const { data, error } = await supabase
+    .from('lookup_values')
+    .select('id,category,value,sort_order')
+    .eq('category', ITP_TRAVELER_LIST_REGISTRY)
+    .order('sort_order', { ascending: true })
+    .order('id', { ascending: true })
+  if (error) return DEFAULT_ITP_TRAVELER_LISTS.map((row) => ({ ...row }))
+  return travelerListDefsFromRows((data ?? []) as LookupValueRow[])
+}
+
+export async function seedItpTravelerListsIfEmpty(): Promise<boolean> {
+  const { data, error } = await supabase
+    .from('lookup_values')
+    .select('id,category,value,sort_order')
+    .in('category', [ITP_TRAVELER_LIST_REGISTRY, REPAIR_NEEDED_LOOKUP_CATEGORY])
+  if (error) return false
+  const rows = (data ?? []) as LookupValueRow[]
+  const defs = travelerListDefsFromRows(rows)
+  const inserts: { category: string; value: string; sort_order: number }[] = []
+  if (!rows.some((row) => row.category === ITP_TRAVELER_LIST_REGISTRY)) {
+    inserts.push({
+      category: ITP_TRAVELER_LIST_REGISTRY,
+      value: formatItpTravelerRegistryValue(
+        DEFAULT_ITP_TRAVELER_LISTS[0].key,
+        DEFAULT_ITP_TRAVELER_LISTS[0].label,
+      ),
+      sort_order: 0,
+    })
+  }
+  const repairHasOptions = rows.some((row) => row.category === REPAIR_NEEDED_LOOKUP_CATEGORY)
+  if (!repairHasOptions) {
+    REPAIR_NEEDED_LIST_FALLBACK.forEach((value, sort_order) => {
+      inserts.push({ category: REPAIR_NEEDED_LOOKUP_CATEGORY, value, sort_order })
+    })
+  }
+  if (inserts.length === 0) {
+    for (const def of defs) rememberTravelerListLabel(def)
+    return false
+  }
+  const { error: insertError } = await supabase.from('lookup_values').insert(inserts)
+  return !insertError
 }
 
 /** Insert a Manage-lists value. Returns the saved value (trimmed). */
@@ -111,6 +214,9 @@ export async function addLookupValue(category: LookupCategory, rawValue: string)
 
 /** Insert fallback options when a Job field list has never been saved (e.g. Outlet / end connection). */
 export async function seedLookupCategoryIfEmpty(category: LookupCategory): Promise<boolean> {
+  if (category === REPAIR_NEEDED_LOOKUP_CATEGORY) {
+    return seedItpTravelerListsIfEmpty()
+  }
   const def = LOOKUP_CATEGORY_DEFS.find((row) => row.key === category)
   if (!def || def.fallback.length === 0) return false
   const { data, error } = await supabase

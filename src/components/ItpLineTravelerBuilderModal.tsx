@@ -16,6 +16,8 @@ import { ItpMeasDropdownSourceFields } from './ItpMeasDropdownSourceFields'
 import { ItpMeasJobCardSourceSelect } from './ItpMeasJobCardSourceSelect'
 import { ItpMeasRequiredToggle } from './ItpMeasRequiredToggle'
 import { ItpPhotoMinMaxFields } from './ItpPhotoMinMaxFields'
+import { ItpMeasUnlockItemsFields } from './ItpMeasUnlockItemsFields'
+import { ensureRepairNeededDropdown, type ItpUnlockCandidate } from '../lib/itpMeasUnlocks'
 
 type TravelerBuilderDraft = {
   requirePicture: boolean
@@ -28,6 +30,7 @@ type TravelerBuilderDraft = {
 function draftFromLine(
   sel: ItpLibraryItemSel,
   catalogItem: ItpMasterCatalogItem | undefined,
+  itemName: string,
 ): TravelerBuilderDraft {
   const requirePicture = Boolean(sel.requirePicture || catalogItem?.requirePicture)
   const fieldsSource =
@@ -42,26 +45,33 @@ function draftFromLine(
     pictureLabel: sel.pictureLabel || catalogItem?.pictureLabel || '',
     minPhotos,
     maxPhotos: clampLinePhotoMax(sel.maxPhotos ?? catalogItem?.maxPhotos, minPhotos),
-    fields: fieldsSource.map((field) => emptyMeasField(field)),
+    fields: ensureRepairNeededDropdown(
+      fieldsSource.map((field) => emptyMeasField(field)),
+      itemName || catalogItem?.name || '',
+    ),
   }
 }
 
 type Props = {
   itemName: string
+  sourceItemId?: string
   sel: ItpLibraryItemSel
   catalogItem: ItpMasterCatalogItem | undefined
+  unlockCandidates?: ItpUnlockCandidate[]
   onCancel: () => void
   onSave: (patch: Partial<ItpLibraryItemSel>) => void
 }
 
 export function ItpLineTravelerBuilderModal({
   itemName,
+  sourceItemId = '',
   sel,
   catalogItem,
+  unlockCandidates = [],
   onCancel,
   onSave,
 }: Props) {
-  const [draft, setDraft] = useState<TravelerBuilderDraft>(() => draftFromLine(sel, catalogItem))
+  const [draft, setDraft] = useState<TravelerBuilderDraft>(() => draftFromLine(sel, catalogItem, itemName))
 
   const save = () => {
     const fields = draft.fields
@@ -156,57 +166,65 @@ export function ItpLineTravelerBuilderModal({
           <p className="placeholder-copy itp-master-meas-fields-hint">
             Add labeled controls the technician fills on the traveler (text box, notes, dropdown, picture, etc.).
             Choose <strong>Job card</strong> to prefill Size, Customer, Due Date, Pressure Class, Body Material, and
-            similar fields. For dropdowns, pick a <strong>Job field list</strong> from Admin (or type comma-separated
-            custom options). N/A is always available as an answer.
+            similar fields. For dropdowns, pick an <strong>ITP traveler list</strong> or <strong>Job field list</strong>{' '}
+            from Admin (or type comma-separated custom options). N/A is always available as an answer.
           </p>
           <div className="itp-master-meas-fields-list">
             {draft.fields.map((field, idx) => (
-              <div key={field.id || `tf-${idx}`} className="itp-master-meas-field-row itp-master-meas-field-row--typed">
-                <input
-                  type="text"
-                  value={field.label}
-                  placeholder="Field label"
-                  onChange={(e) => patchField(idx, { label: e.target.value })}
-                />
-                <select
-                  value={field.type || 'text'}
-                  aria-label="Field type"
-                  onChange={(e) => {
-                    const type = e.target.value as ItpMeasFieldType
-                    patchField(idx, measFieldTypePatch(field, type))
-                  }}
-                >
-                  {ITP_MEAS_FIELD_TYPE_OPTIONS.map((opt) => (
-                    <option key={opt.value} value={opt.value}>
-                      {opt.label}
-                    </option>
-                  ))}
-                </select>
-                <ItpMeasDropdownSourceFields
+              <div key={field.id || `tf-${idx}`} className="itp-master-meas-field-stack">
+                <div className="itp-master-meas-field-row itp-master-meas-field-row--typed">
+                  <input
+                    type="text"
+                    value={field.label}
+                    placeholder="Field label"
+                    onChange={(e) => patchField(idx, { label: e.target.value })}
+                  />
+                  <select
+                    value={field.type || 'text'}
+                    aria-label="Field type"
+                    onChange={(e) => {
+                      const type = e.target.value as ItpMeasFieldType
+                      patchField(idx, measFieldTypePatch(field, type))
+                    }}
+                  >
+                    {ITP_MEAS_FIELD_TYPE_OPTIONS.map((opt) => (
+                      <option key={opt.value} value={opt.value}>
+                        {opt.label}
+                      </option>
+                    ))}
+                  </select>
+                  <ItpMeasDropdownSourceFields
+                    field={field}
+                    onChange={(patch) => patchField(idx, patch)}
+                  />
+                  <ItpMeasJobCardSourceSelect
+                    field={field}
+                    onChange={(patch) => patchField(idx, patch)}
+                  />
+                  <ItpMeasRequiredToggle
+                    required={field.required !== false}
+                    onChange={(required) => patchField(idx, { required })}
+                  />
+                  <button
+                    type="button"
+                    className="itp-library-sr-del"
+                    title="Remove field"
+                    onClick={() =>
+                      setDraft((prev) => ({
+                        ...prev,
+                        fields: prev.fields.filter((_, i) => i !== idx),
+                      }))
+                    }
+                  >
+                    ✕
+                  </button>
+                </div>
+                <ItpMeasUnlockItemsFields
                   field={field}
+                  sourceItemId={sourceItemId}
+                  candidates={unlockCandidates}
                   onChange={(patch) => patchField(idx, patch)}
                 />
-                <ItpMeasJobCardSourceSelect
-                  field={field}
-                  onChange={(patch) => patchField(idx, patch)}
-                />
-                <ItpMeasRequiredToggle
-                  required={field.required !== false}
-                  onChange={(required) => patchField(idx, { required })}
-                />
-                <button
-                  type="button"
-                  className="itp-library-sr-del"
-                  title="Remove field"
-                  onClick={() =>
-                    setDraft((prev) => ({
-                      ...prev,
-                      fields: prev.fields.filter((_, i) => i !== idx),
-                    }))
-                  }
-                >
-                  ✕
-                </button>
               </div>
             ))}
           </div>

@@ -1,5 +1,10 @@
 import { useEffect, useState } from 'react'
-import { LOOKUP_CATEGORY_DEFS, isLookupCategory } from '../constants/lookupCategories'
+import {
+  DEFAULT_ITP_TRAVELER_LISTS,
+  LOOKUP_CATEGORY_DEFS,
+  isLookupCategory,
+  type ItpTravelerListDef,
+} from '../constants/lookupCategories'
 import {
   clampPictureFieldMax,
   dropdownOptionSource,
@@ -10,6 +15,7 @@ import {
   pictureFieldMax,
   type ItpMeasFieldDef,
 } from '../lib/itpItemRequirements'
+import { loadItpTravelerListDefs } from '../lib/lookupValues'
 
 type Props = {
   field: ItpMeasFieldDef
@@ -29,10 +35,23 @@ function parseCustomOptions(raw: string): string[] {
 
 export function ItpMeasDropdownSourceFields({ field, onChange }: Props) {
   const [optionsDraft, setOptionsDraft] = useState<string | null>(null)
+  const [travelerLists, setTravelerLists] = useState<ItpTravelerListDef[]>(() =>
+    DEFAULT_ITP_TRAVELER_LISTS.map((row) => ({ ...row })),
+  )
 
   useEffect(() => {
     setOptionsDraft(null)
   }, [field.id])
+
+  useEffect(() => {
+    let cancelled = false
+    void loadItpTravelerListDefs().then((rows) => {
+      if (!cancelled && rows.length > 0) setTravelerLists(rows)
+    })
+    return () => {
+      cancelled = true
+    }
+  }, [])
 
   if (field.type === 'picture') {
     const maxPhotos = pictureFieldMax(field)
@@ -72,6 +91,13 @@ export function ItpMeasDropdownSourceFields({ field, onChange }: Props) {
       >
         <option value="custom">Custom options</option>
         <option value="manufacturers">Manufacturers list</option>
+        <optgroup label="ITP traveler lists (Admin)">
+          {travelerLists.map((row) => (
+            <option key={row.category} value={`lookup:${row.category}`}>
+              {row.label}
+            </option>
+          ))}
+        </optgroup>
         <optgroup label="Job field lists (Admin)">
           {LOOKUP_CATEGORY_DEFS.filter((row) => row.key !== 'manufacturer').map((row) => (
             <option key={row.key} value={`lookup:${row.key}`}>
@@ -103,7 +129,10 @@ export function ItpMeasDropdownSourceFields({ field, onChange }: Props) {
         <span className="itp-master-meas-field-source">
           {source === 'manufacturers'
             ? 'Uses the Manufacturers table'
-            : `Uses Admin · ${lookupListLabel(field.lookupCategory)}`}
+            : `Uses Admin · ${
+                travelerLists.find((row) => row.category === field.lookupCategory)?.label ??
+                lookupListLabel(field.lookupCategory)
+              }`}
         </span>
       )}
       <div className="itp-master-meas-followup" onClick={(e) => e.stopPropagation()}>
@@ -145,6 +174,11 @@ export function ItpMeasDropdownSourceFields({ field, onChange }: Props) {
             }}
           >
             <option value="text">Text box</option>
+            {travelerLists.map((row) => (
+              <option key={row.category} value={`lookup:${row.category}`}>
+                {row.label} list
+              </option>
+            ))}
             {LOOKUP_CATEGORY_DEFS.filter((row) => row.key !== 'manufacturer').map((row) => (
               <option key={row.key} value={`lookup:${row.key}`}>
                 {row.label} list

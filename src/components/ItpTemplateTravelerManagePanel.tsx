@@ -22,6 +22,12 @@ import { ItpOemProcedureDocs } from './ItpOemProcedureDocs'
 import { ItpMeasJobCardSourceSelect } from './ItpMeasJobCardSourceSelect'
 import { ItpMeasRequiredToggle } from './ItpMeasRequiredToggle'
 import { ItpPhotoMinMaxFields } from './ItpPhotoMinMaxFields'
+import { ItpMeasUnlockItemsFields } from './ItpMeasUnlockItemsFields'
+import {
+  ensureRepairNeededDropdown,
+  looksLikeBodyBodyBore,
+  type ItpUnlockCandidate,
+} from '../lib/itpMeasUnlocks'
 import { resourceDocumentPublicUrl } from '../lib/resourceDocuments'
 
 export type TravelerManageSection = {
@@ -61,6 +67,7 @@ type ItpTemplateTravelerManagePanelProps = {
   getSel: (itemId: string) => ItpLibraryItemSel
   catalogById: Map<string, ItpMasterCatalogItem>
   areas: ItpShopAreaDef[]
+  unlockCandidates?: ItpUnlockCandidate[]
   onUpdateSel: (itemId: string, patch: Partial<ItpLibraryItemSel>) => void
   onAddRequirement: (draft: TravelerRequirementDraft) => string | null
   onBackToEdit: () => void
@@ -97,13 +104,16 @@ function hasMeasInputs(sel: ItpLibraryItemSel): boolean {
   )
 }
 
-function resolveTravelerFields(sel: ItpLibraryItemSel): ItpMeasFieldDef[] {
-  if (sel.measFields.length > 0) return sel.measFields.map((row) => emptyMeasField(row))
-  if (sel.requireNameplate) return NAMEPLATE_TRAVELER_FIELDS.map((row) => ({ ...row }))
-  if (sel.beforeMeas || sel.afterMeas || sel.measVerify) {
-    return DEFAULT_ITP_MEAS_FIELDS.map((row) => ({ ...row }))
-  }
-  return []
+function resolveTravelerFields(sel: ItpLibraryItemSel, itemName = ''): ItpMeasFieldDef[] {
+  const base =
+    sel.measFields.length > 0
+      ? sel.measFields.map((row) => emptyMeasField(row))
+      : sel.requireNameplate
+        ? NAMEPLATE_TRAVELER_FIELDS.map((row) => ({ ...row }))
+        : sel.beforeMeas || sel.afterMeas || sel.measVerify
+          ? DEFAULT_ITP_MEAS_FIELDS.map((row) => ({ ...row }))
+          : []
+  return ensureRepairNeededDropdown(base, itemName)
 }
 
 function fieldSummary(sel: ItpLibraryItemSel): string {
@@ -186,6 +196,7 @@ export function ItpTemplateTravelerManagePanel({
   getSel,
   catalogById,
   areas,
+  unlockCandidates = [],
   onUpdateSel,
   onAddRequirement,
   onBackToEdit,
@@ -218,8 +229,26 @@ export function ItpTemplateTravelerManagePanel({
     : null
   const sel = selectedItemId ? getSel(selectedItemId) : null
   const catalogItem = selectedItemId ? catalogById.get(selectedItemId) : null
-  const measFields = sel ? resolveTravelerFields(sel) : []
-  const measOn = sel ? hasMeasInputs(sel) : false
+  const measFields = sel ? resolveTravelerFields(sel, selected?.name ?? catalogItem?.name ?? '') : []
+  const measOn = sel ? hasMeasInputs(sel) || measFields.length > 0 : false
+
+  useEffect(() => {
+    if (!selected || !sel) return
+    if (!looksLikeBodyBodyBore(selected.name)) return
+    if (sel.measFields.some((field) => field.type === 'dropdown' && /repair/i.test(field.label))) return
+    const seeded = ensureRepairNeededDropdown(
+      sel.measFields.map((row) => emptyMeasField(row)),
+      selected.name,
+    )
+    if (seeded.length === sel.measFields.length) return
+    onUpdateSel(selected.id, {
+      measFields: seeded,
+      beforeMeas: true,
+      afterMeas: true,
+      measVerify: true,
+      addToTraveler: true,
+    })
+  }, [selected?.id, selected?.name])
 
   const configuredStepCount = useMemo(() => {
     let count = 0
@@ -729,8 +758,9 @@ export function ItpTemplateTravelerManagePanel({
                     {measFields.map((field, idx) => (
                       <div
                         key={field.id || `${selected.id}-tf-${idx}`}
-                        className="itp-master-meas-field-row itp-master-meas-field-row--typed"
+                        className="itp-master-meas-field-stack"
                       >
+                      <div className="itp-master-meas-field-row itp-master-meas-field-row--typed">
                         <input
                           type="text"
                           value={field.label}
@@ -794,6 +824,17 @@ export function ItpTemplateTravelerManagePanel({
                         >
                           ✕
                         </button>
+                      </div>
+                      <ItpMeasUnlockItemsFields
+                        field={field}
+                        sourceItemId={selected.id}
+                        candidates={unlockCandidates}
+                        onChange={(patch) =>
+                          patchFields(
+                            measFields.map((row, i) => (i === idx ? { ...row, ...patch } : row)),
+                          )
+                        }
+                      />
                       </div>
                     ))}
                   </div>

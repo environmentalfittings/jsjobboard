@@ -14,6 +14,7 @@ import {
   type ItpTemplatePreviewPayload,
 } from '../lib/itpTemplatePreview'
 import { toggleItemExecDone } from '../lib/itpItemRequirements'
+import { applyTravelerStepUnlocks } from '../lib/itpMeasUnlocks'
 import type { JobNeededPartDraft } from '../lib/jobNeededParts'
 import {
   emptyItemExec,
@@ -22,7 +23,6 @@ import {
   getSel,
   type ItpLibraryItemExec,
   type ItpLibraryItemSel,
-  type ItpLibraryPlanPayload,
 } from '../types/itpLibraryPlan'
 import type { JobCardNameplateSource } from '../lib/itpTravelerNameplate'
 
@@ -71,11 +71,7 @@ export function ItpTemplatePreviewPage() {
 
   const saveStep = async (next: { sel: ItpLibraryItemSel; exec: ItpLibraryItemExec }) => {
     if (!payload || !plan || !openItemId) return
-    const nextPlan: ItpLibraryPlanPayload = {
-      ...plan,
-      sel: { ...plan.sel, [openItemId]: next.sel },
-      exec: { ...plan.exec, [openItemId]: next.exec },
-    }
+    const nextPlan = applyTravelerStepUnlocks(plan, openItemId, next)
     persist({ ...payload, plan: nextPlan })
     setOpenItemId(null)
     showToast(`Saved on preview traveler ${ITP_PREVIEW_TRAVELER_ID} — not a shop job`)
@@ -223,6 +219,7 @@ export function ItpTemplatePreviewPage() {
           item={openItem}
           sel={getSel(plan, openItem.id) ?? emptyItemSel()}
           exec={getExec(plan, openItem.id) ?? emptyItemExec()}
+          plan={plan}
           valveRowId={0}
           jobCard={jobCard as JobCardNameplateSource}
           previewMode

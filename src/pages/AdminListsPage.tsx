@@ -6,7 +6,17 @@ import { ItpTemplateBuilderPanel } from '../components/ItpTemplateBuilderPanel'
 import { ShopWorkflowAdminPanel } from '../components/ShopWorkflowAdminPanel'
 import { ValveTypeProceduresPanel } from '../components/ValveTypeProceduresPanel'
 import { JOB_TYPES, normalizeJobType } from '../constants/jobTypes'
-import { LOOKUP_CATEGORY_DEFS, type LookupCategory } from '../constants/lookupCategories'
+import {
+  ITP_TRAVELER_LIST_REGISTRY,
+  LOOKUP_CATEGORY_DEFS,
+  REPAIR_NEEDED_LOOKUP_CATEGORY,
+  formatItpTravelerRegistryValue,
+  isItpTravelerListCategory,
+  itpTravelerListCategory,
+  parseItpTravelerRegistryValue,
+  slugifyItpTravelerListKey,
+  type LookupCategory,
+} from '../constants/lookupCategories'
 import { useEmployees } from '../hooks/useEmployees'
 import {
   formatCustomerUsageSummary,
@@ -37,12 +47,13 @@ import {
   type B1634WallThicknessReferenceRow,
 } from '../lib/b1634WallThickness'
 import type { LookupValueRow } from '../lib/lookupValues'
-import { seedLookupCategoryIfEmpty } from '../lib/lookupValues'
+import { seedItpTravelerListsIfEmpty, seedLookupCategoryIfEmpty, travelerListDefsFromRows } from '../lib/lookupValues'
 import { supabase } from '../lib/supabase'
 import { canWriteShop } from '../lib/roles'
 
 type Tab =
   | 'lookups'
+  | 'itpTravelerLists'
   | 'customers'
   | 'itpTemplates'
   | 'itpTemplateBuilder'
@@ -88,6 +99,7 @@ const MANAGE_LISTS_PIN = '1582'
 
 const ADMIN_LIST_TABS: Tab[] = [
   'lookups',
+  'itpTravelerLists',
   'customers',
   'itpTemplates',
   'itpTemplateBuilder',
@@ -163,6 +175,9 @@ export function AdminListsPage() {
   const [editingId, setEditingId] = useState<number | null>(null)
   const [editDraft, setEditDraft] = useState('')
   const [savingLookup, setSavingLookup] = useState(false)
+  const [newTravelerListName, setNewTravelerListName] = useState('')
+  const [renamingTravelerList, setRenamingTravelerList] = useState(false)
+  const [travelerListDraft, setTravelerListDraft] = useState('')
 
   const [customers, setCustomers] = useState<CustomerRow[]>([])
   const [customersLoading, setCustomersLoading] = useState(true)
@@ -248,6 +263,7 @@ export function AdminListsPage() {
     const seeded = await Promise.all([
       seedLookupCategoryIfEmpty('end_connection'),
       seedLookupCategoryIfEmpty('pipe_schedule'),
+      seedItpTravelerListsIfEmpty(),
     ])
     if (seeded.some(Boolean)) {
       const { data: again } = await supabase
@@ -444,7 +460,19 @@ export function AdminListsPage() {
     return items
   }, [lookupRows, activeCategory])
 
-  const activeLabel = LOOKUP_CATEGORY_DEFS.find((d) => d.key === activeCategory)?.label ?? activeCategory
+  const travelerListDefs = useMemo(() => travelerListDefsFromRows(lookupRows), [lookupRows])
+  const activeTravelerList = travelerListDefs.find((row) => row.category === activeCategory) ?? travelerListDefs[0]
+  const activeLabel =
+    (isItpTravelerListCategory(activeCategory)
+      ? activeTravelerList?.label
+      : LOOKUP_CATEGORY_DEFS.find((d) => d.key === activeCategory)?.label) ?? activeCategory
+
+  useEffect(() => {
+    if (tab !== 'itpTravelerLists') return
+    if (!isItpTravelerListCategory(activeCategory) || !travelerListDefs.some((row) => row.category === activeCategory)) {
+      setActiveCategory(travelerListDefs[0]?.category ?? REPAIR_NEEDED_LOOKUP_CATEGORY)
+    }
+  }, [tab, activeCategory, travelerListDefs])
   const valveTypeOptions = useMemo(
     () => lookupRows.filter((r) => r.category === 'valve_type').map((r) => r.value),
     [lookupRows],
@@ -532,6 +560,107 @@ export function AdminListsPage() {
       showToast('Could not reorder')
       return
     }
+    loadLookups()
+  }
+
+  const addTravelerList = async () => {
+    const label = newTravelerListName.trim()
+    if (!label) {
+      showToast('Enter a list name')
+      return
+    }
+    const existing = new Set(travelerListDefs.map((row) => row.key))
+    let key = slugifyItpTravelerListKey(label)
+    let n = 2
+    while (existing.has(key)) {
+      key = `${slugifyItpTravelerListKey(label)}_${n}`
+      n += 1
+    }
+    const maxOrder = lookupRows
+      .filter((row) => row.category === ITP_TRAVELER_LIST_REGISTRY)
+      .reduce((max, row) => Math.max(max, row.sort_order), -1)
+    setSavingLookup(true)
+    const { error } = await supabase.from('lookup_values').insert({
+      category: ITP_TRAVELER_LIST_REGISTRY,
+      value: formatItpTravelerRegistryValue(key, label),
+      sort_order: maxOrder + 1,
+    })
+    setSavingLookup(false)
+    if (error) {
+      showToast(error.message.includes('duplicate') ? 'That list already exists' : 'Could not add list')
+      return
+    }
+    setNewTravelerListName('')
+    setActiveCategory(itpTravelerListCategory(key))
+    showToast(`Added “${label}”`)
+    loadLookups()
+  }
+
+  const saveTravelerListRename = async () => {
+    const label = travelerListDraft.trim()
+    const current = activeTravelerList
+    if (!label || !current) {
+      showToast('Enter a list name')
+      return
+    }
+    const registryRow = lookupRows.find((row) => {
+      if (row.category !== ITP_TRAVELER_LIST_REGISTRY) return false
+      return parseItpTravelerRegistryValue(row.value)?.key === current.key
+    })
+    if (!registryRow) {
+      const maxOrder = lookupRows
+        .filter((row) => row.category === ITP_TRAVELER_LIST_REGISTRY)
+        .reduce((max, row) => Math.max(max, row.sort_order), -1)
+      setSavingLookup(true)
+      const { error } = await supabase.from('lookup_values').insert({
+        category: ITP_TRAVELER_LIST_REGISTRY,
+        value: formatItpTravelerRegistryValue(current.key, label),
+        sort_order: maxOrder + 1,
+      })
+      setSavingLookup(false)
+      if (error) {
+        showToast('Could not rename list')
+        return
+      }
+    } else {
+      setSavingLookup(true)
+      const { error } = await supabase
+        .from('lookup_values')
+        .update({ value: formatItpTravelerRegistryValue(current.key, label) })
+        .eq('id', registryRow.id)
+      setSavingLookup(false)
+      if (error) {
+        showToast('Could not rename list')
+        return
+      }
+    }
+    setRenamingTravelerList(false)
+    showToast('List name saved')
+    loadLookups()
+  }
+
+  const deleteTravelerList = async () => {
+    const current = activeTravelerList
+    if (!current) return
+    if (!window.confirm(`Remove the “${current.label}” list and its options? Traveler fields using it will need a new list.`)) {
+      return
+    }
+    const registryIds = lookupRows
+      .filter((row) => row.category === ITP_TRAVELER_LIST_REGISTRY)
+      .filter((row) => parseItpTravelerRegistryValue(row.value)?.key === current.key)
+      .map((row) => row.id)
+    const optionIds = lookupRows.filter((row) => row.category === current.category).map((row) => row.id)
+    const ids = [...registryIds, ...optionIds]
+    if (ids.length === 0) return
+    const { error } = await supabase.from('lookup_values').delete().in('id', ids)
+    if (error) {
+      showToast('Could not delete list')
+      return
+    }
+    const remaining = travelerListDefs.filter((row) => row.key !== current.key)
+    setActiveCategory(remaining[0]?.category ?? REPAIR_NEEDED_LOOKUP_CATEGORY)
+    setRenamingTravelerList(false)
+    showToast('List removed')
     loadLookups()
   }
 
@@ -1092,6 +1221,7 @@ export function AdminListsPage() {
         {canWrite
           ? 'Admin only. Changes apply for everyone. Edit each list tab below to add, rename, or remove options. Use '
           : 'Read-only — you can browse these lists, but you cannot add, rename, or remove options. Use '}
+        <strong>ITP traveler lists</strong> for Repair needed and other traveler dropdowns,{' '}
         <strong>ITP template builder</strong> for the live ITP Build Scope masters, and <strong>Shop workflow</strong>{' '}
         for rework path order.
       </p>
@@ -1102,9 +1232,26 @@ export function AdminListsPage() {
           role="tab"
           aria-selected={tab === 'lookups'}
           className={`admin-lists-tab ${tab === 'lookups' ? 'active' : ''}`}
-          onClick={() => selectTab('lookups')}
+          onClick={() => {
+            if (isItpTravelerListCategory(activeCategory)) setActiveCategory('test_type')
+            selectTab('lookups')
+          }}
         >
           Job field lists
+        </button>
+        <button
+          type="button"
+          role="tab"
+          aria-selected={tab === 'itpTravelerLists'}
+          className={`admin-lists-tab ${tab === 'itpTravelerLists' ? 'active' : ''}`}
+          onClick={() => {
+            if (!isItpTravelerListCategory(activeCategory)) {
+              setActiveCategory(travelerListDefs[0]?.category ?? REPAIR_NEEDED_LOOKUP_CATEGORY)
+            }
+            selectTab('itpTravelerLists')
+          }}
+        >
+          ITP traveler lists
         </button>
         <button
           type="button"
@@ -1181,30 +1328,121 @@ export function AdminListsPage() {
       </div>
 
       <fieldset className="shop-readonly-fieldset" disabled={!canWrite}>
-      {tab === 'lookups' && (
+      {(tab === 'lookups' || tab === 'itpTravelerLists') && (
         <section className="dashboard-panel admin-lists-panel">
-          <h3>Dropdown options</h3>
+          <h3>{tab === 'itpTravelerLists' ? 'ITP traveler dropdowns' : 'Dropdown options'}</h3>
           <p className="placeholder-copy" style={{ marginTop: '0.35rem' }}>
-            These lists feed job cards and traveler dropdowns. Traveler requirements can pick a list here
-            (for example Outlet / end connection) instead of typing options on each field. Edit them once
-            and every valve that uses that traveler field stays in sync.
+            {tab === 'itpTravelerLists'
+              ? 'These lists feed Repair needed and other traveler dropdowns. Add a list (Seat repair, Stem repair, …), then add the choices. On the template traveler, pick this list as the dropdown source. Extra ITP steps still map with the checkboxes under each choice.'
+              : 'These lists feed job cards and traveler dropdowns. Traveler requirements can pick a list here (for example Outlet / end connection) instead of typing options on each field. Edit them once and every valve that uses that traveler field stays in sync.'}
           </p>
           <div className="admin-category-tabs">
-            {LOOKUP_CATEGORY_DEFS.map((d) => (
-              <button
-                key={d.key}
-                type="button"
-                className={`admin-category-tab ${activeCategory === d.key ? 'active' : ''}`}
-                onClick={() => {
-                  setActiveCategory(d.key)
-                  setEditingId(null)
-                  setNewLookupValue('')
-                }}
-              >
-                {d.label}
-              </button>
-            ))}
+            {tab === 'itpTravelerLists'
+              ? travelerListDefs.map((d) => (
+                  <button
+                    key={d.key}
+                    type="button"
+                    className={`admin-category-tab ${activeCategory === d.category ? 'active' : ''}`}
+                    onClick={() => {
+                      setActiveCategory(d.category)
+                      setEditingId(null)
+                      setNewLookupValue('')
+                      setRenamingTravelerList(false)
+                    }}
+                  >
+                    {d.label}
+                  </button>
+                ))
+              : LOOKUP_CATEGORY_DEFS.map((d) => (
+                  <button
+                    key={d.key}
+                    type="button"
+                    className={`admin-category-tab ${activeCategory === d.key ? 'active' : ''}`}
+                    onClick={() => {
+                      setActiveCategory(d.key)
+                      setEditingId(null)
+                      setNewLookupValue('')
+                    }}
+                  >
+                    {d.label}
+                  </button>
+                ))}
           </div>
+          {tab === 'itpTravelerLists' ? (
+            <div className="admin-add-row" style={{ marginTop: 8 }}>
+              {renamingTravelerList ? (
+                <>
+                  <span className="admin-add-label">Rename list</span>
+                  <div className="admin-add-controls">
+                    <input
+                      type="text"
+                      value={travelerListDraft}
+                      onChange={(e) => setTravelerListDraft(e.target.value)}
+                      placeholder="List name"
+                      aria-label="Rename traveler list"
+                    />
+                    <button
+                      type="button"
+                      className="button-primary"
+                      disabled={savingLookup}
+                      onClick={() => void saveTravelerListRename()}
+                    >
+                      Save name
+                    </button>
+                    <button
+                      type="button"
+                      className="button-secondary"
+                      onClick={() => setRenamingTravelerList(false)}
+                    >
+                      Cancel
+                    </button>
+                  </div>
+                </>
+              ) : (
+                <>
+                  <span className="admin-add-label">New list</span>
+                  <div className="admin-add-controls">
+                    <input
+                      type="text"
+                      value={newTravelerListName}
+                      onChange={(e) => setNewTravelerListName(e.target.value)}
+                      placeholder="e.g. Seat repair"
+                      aria-label="New traveler list name"
+                    />
+                    <button
+                      type="button"
+                      className="button-primary"
+                      disabled={savingLookup}
+                      onClick={() => void addTravelerList()}
+                    >
+                      Add list
+                    </button>
+                    {activeTravelerList ? (
+                      <>
+                        <button
+                          type="button"
+                          className="button-secondary"
+                          onClick={() => {
+                            setTravelerListDraft(activeTravelerList.label)
+                            setRenamingTravelerList(true)
+                          }}
+                        >
+                          Rename
+                        </button>
+                        <button
+                          type="button"
+                          className="button-secondary danger"
+                          onClick={() => void deleteTravelerList()}
+                        >
+                          Delete list
+                        </button>
+                      </>
+                    ) : null}
+                  </div>
+                </>
+              )}
+            </div>
+          ) : null}
 
           {lookupLoading ? (
             <p className="placeholder-copy">Loading…</p>

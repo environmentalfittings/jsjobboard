@@ -21270,6 +21270,136 @@ body.shop-tv-fullscreen-active .page-content {
   padding-right: 2px;
 }
 
+.itp-master-meas-fields-list:has(.itp-meas-unlock) {
+  max-height: min(72vh, 720px);
+}
+
+.itp-master-meas-field-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.itp-meas-unlock {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 8px 10px;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  background: #f8fafc;
+}
+
+.itp-meas-unlock-title {
+  font-size: 0.72rem;
+  font-weight: 700;
+  color: #334155;
+}
+
+.itp-meas-unlock-hint {
+  margin: 0;
+  font-size: 0.75rem;
+  line-height: 1.35;
+  color: #64748b;
+}
+
+.itp-meas-unlock-option {
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  background: #fff;
+  padding: 6px 8px;
+}
+
+.itp-meas-unlock-option summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  cursor: pointer;
+  font-size: 0.8rem;
+  font-weight: 700;
+  color: #0f172a;
+  list-style: none;
+}
+
+.itp-meas-unlock-option summary::-webkit-details-marker {
+  display: none;
+}
+
+.itp-meas-unlock-count {
+  font-size: 0.68rem;
+  font-weight: 700;
+  color: #0369a1;
+  white-space: nowrap;
+}
+
+.itp-meas-unlock-groups {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px solid #e2e8f0;
+}
+
+.itp-meas-unlock-group-title {
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: #64748b;
+  margin-bottom: 4px;
+}
+
+.itp-meas-unlock-item {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 0;
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: #1e293b;
+}
+
+.itp-meas-unlock-item-name {
+  flex: 1;
+  min-width: 120px;
+}
+
+.itp-traveler-unlock-preview {
+  margin-top: 8px;
+  padding: 8px 10px;
+  border-radius: 8px;
+  background: #f0f9ff;
+  border: 1px solid #bae6fd;
+  color: #0c4a6e;
+  font-size: 0.78rem;
+  font-weight: 600;
+  text-transform: none;
+  letter-spacing: 0;
+}
+
+.itp-traveler-unlock-preview-title {
+  font-weight: 800;
+  margin-bottom: 4px;
+}
+
+.itp-traveler-unlock-preview ul {
+  margin: 0;
+  padding-left: 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.itp-traveler-unlock-preview li {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+
 .itp-master-meas-field-row {
   display: flex;
   gap: 6px;

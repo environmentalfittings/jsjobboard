@@ -41,6 +41,7 @@ export {
   resolveDropdownChoices,
   resolveJobCardField,
   withPersistedJobCardField,
+  normalizeUnlockItemIdsByOption,
 } from '../types/itpMeasFields'
 
 /** Requirement defaults stored on a master-catalog (or built-in library) item. */

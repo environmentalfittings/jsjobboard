@@ -19,6 +19,7 @@ import {
 import {
   defaultShopAreas,
   ensureShopAreaDef,
+  itpShopAreaLabel,
   normalizeShopAreaValue,
   normalizeShopAreas,
   type ItpShopArea,
@@ -91,6 +92,10 @@ import { ItpMeasRequiredToggle } from './ItpMeasRequiredToggle'
 import { ItpPhotoMinMaxFields } from './ItpPhotoMinMaxFields'
 import { ItpOemProcedureDocs } from './ItpOemProcedureDocs'
 import { ItpStationSelect } from './ItpStationSelect'
+import {
+  collectUnlockItemIdsFromSels,
+  type ItpUnlockCandidate,
+} from '../lib/itpMeasUnlocks'
 import { migrateFastenerRecordSel } from '../lib/itpFastenerRecord'
 import { stepUsesOemOrProcedure } from '../lib/itpOemProcedure'
 import {
@@ -303,6 +308,66 @@ function resolvedItemStation(shopArea: string | undefined, catalogArea: string |
     catalogArea ||
     ''
   )
+}
+
+function unlockCandidatesFor(
+  items: ItpMasterCatalogItem[],
+  scope: ItpLibraryTemplateScope,
+  areas: ItpShopAreaDef[],
+  processSections: ItpProcessSectionDef[],
+  sourceItemId: string,
+): ItpUnlockCandidate[] {
+  return items
+    .filter((item) => item.id !== sourceItemId)
+    .map((item) => {
+      const sel = getSel(scope, item.id)
+      const secId = effectiveScopeSectionId(item.secId, sel)
+      const station = resolvedItemStation(sel.shopArea, item.area)
+      return {
+        id: item.id,
+        name: item.name,
+        secId,
+        secTitle: processSectionTitle(secId, processSections),
+        shopAreaLabel: station ? itpShopAreaLabel(station, areas) : '',
+      }
+    })
+}
+
+function withUnlockLatentItems(
+  scope: ItpLibraryTemplateScope,
+  items: ItpMasterCatalogItem[],
+): ItpLibraryTemplateScope {
+  const unlockIds = collectUnlockItemIdsFromSels(scope.sel)
+  if (unlockIds.length === 0) return scope
+  const catalogById = new Map(items.map((item) => [item.id, item]))
+  const sel = { ...scope.sel }
+  const custom = [...scope.custom]
+  for (const id of unlockIds) {
+    const item = catalogById.get(id)
+    const current = sel[id] ?? emptyItemSel()
+    const shopArea = resolvedItemStation(current.shopArea, item?.area)
+    sel[id] = {
+      ...current,
+      included: current.included,
+      shopArea: shopArea || current.shopArea,
+      requirePicture: current.requirePicture || Boolean(item?.requirePicture),
+      pictureLabel: current.pictureLabel.trim() || String(item?.pictureLabel ?? '').trim(),
+      measFields:
+        current.measFields.length > 0
+          ? current.measFields
+          : (item?.measFields ?? []).map((field) => ({ ...field })),
+      holdPoint: current.holdPoint || Boolean(item?.holdPoint),
+      addToTraveler:
+        current.addToTraveler ||
+        Boolean(item?.requirePicture) ||
+        Boolean(item?.measFields?.length) ||
+        Boolean(item?.requireNameplate),
+    }
+    if (item && !item.builtIn && !custom.some((row) => row.id === id)) {
+      custom.push({ id: item.id, secId: item.secId, name: item.name, detail: { ...item } })
+    }
+  }
+  return { ...scope, sel, custom }
 }
 
 function parseProcessSectionDefs(raw: unknown, items: ItpMasterCatalogItem[]): ItpProcessSectionDef[] {
@@ -1917,8 +1982,8 @@ export function ItpTemplateBuilderPanel({
       for (const row of includedCustom) {
         if (!mergedCustom.some((c) => c.id === row.id)) mergedCustom.push(row)
       }
-      const toSave = withCatalogShopAreas(
-        { ...jobMasterScope, custom: mergedCustom },
+      const toSave = withUnlockLatentItems(
+        withCatalogShopAreas({ ...jobMasterScope, custom: mergedCustom }, catalog),
         catalog,
       )
       await saveJobTypeMaster(jobType, toSave)
@@ -1966,8 +2031,8 @@ export function ItpTemplateBuilderPanel({
       for (const row of includedCustom) {
         if (!mergedCustom.some((c) => c.id === row.id)) mergedCustom.push(row)
       }
-      const toSave = withCatalogShopAreas(
-        { ...valveMasterScope, custom: mergedCustom },
+      const toSave = withUnlockLatentItems(
+        withCatalogShopAreas({ ...valveMasterScope, custom: mergedCustom }, catalog),
         catalog,
       )
       await saveValveTypeMaster(jobType, valveType, toSave)
@@ -2020,7 +2085,10 @@ export function ItpTemplateBuilderPanel({
       for (const row of includedCustom) {
         if (!mergedCustom.some((c) => c.id === row.id)) mergedCustom.push(row)
       }
-      const filled = withCatalogShopAreas({ ...scope, custom: mergedCustom }, catalog)
+      const filled = withUnlockLatentItems(
+        withCatalogShopAreas({ ...scope, custom: mergedCustom }, catalog),
+        catalog,
+      )
       const toSave = { ...filled, processSections }
       const saved = await saveItpLibraryTemplate(jobType, valveType, toSave, {
         name,
@@ -2182,7 +2250,7 @@ export function ItpTemplateBuilderPanel({
         jobType,
         valveType: valveType.trim() || 'Preview',
         templateName: previewName,
-        scope: editingScope,
+        scope: withUnlockLatentItems(editingScope, catalogForLayer),
         catalogItems: catalogForLayer,
       }),
     )
@@ -2638,6 +2706,13 @@ export function ItpTemplateBuilderPanel({
           getSel={(itemId) => getSel(scope, itemId)}
           catalogById={catalogById}
           areas={areas}
+          unlockCandidates={unlockCandidatesFor(
+            catalogForLayer,
+            editingScope,
+            areas,
+            processSections,
+            travelerFocusItemId ?? '',
+          )}
           onUpdateSel={updateSel}
           onAddRequirement={addTravelerRequirement}
           onBackToEdit={() => setWorkspaceMode('edit')}
@@ -4109,8 +4184,16 @@ export function ItpTemplateBuilderPanel({
       {lineTravelerItemId ? (
         <ItpLineTravelerBuilderModal
           itemName={catalogById.get(lineTravelerItemId)?.name ?? 'Requirement'}
+          sourceItemId={lineTravelerItemId}
           sel={getSel(editingScope, lineTravelerItemId)}
           catalogItem={catalogById.get(lineTravelerItemId)}
+          unlockCandidates={unlockCandidatesFor(
+            catalogForLayer,
+            editingScope,
+            areas,
+            processSections,
+            lineTravelerItemId,
+          )}
           onCancel={() => setLineTravelerItemId(null)}
           onSave={(patch) => {
             updateSel(lineTravelerItemId, patch)

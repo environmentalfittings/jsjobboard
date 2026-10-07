@@ -1,5 +1,13 @@
 /** Supported technician input controls on an ITP / traveler line. */
-import { LOOKUP_CATEGORY_DEFS, isLookupCategory, type LookupCategory } from '../constants/lookupCategories'
+import {
+  LOOKUP_CATEGORY_DEFS,
+  REPAIR_NEEDED_LIST_FALLBACK,
+  REPAIR_NEEDED_LOOKUP_CATEGORY,
+  humanizeItpTravelerListKey,
+  isItpTravelerListCategory,
+  isLookupCategory,
+  type LookupCategory,
+} from '../constants/lookupCategories'
 
 export type ItpMeasFieldType = 'text' | 'textarea' | 'dropdown' | 'yes_no' | 'number' | 'picture'
 
@@ -91,7 +99,7 @@ export type ItpMeasFieldDef = {
    * Optional fields can still be left empty. Required fields need at least one.
    */
   maxPhotos?: number
-  /** When optionSource is `lookup`, which Admin → Job field list to use. */
+  /** When optionSource is `lookup`, which Admin Job field list or ITP traveler list to use. */
   lookupCategory?: LookupCategory
   /**
    * Dropdown follow-up: when the selected value matches (e.g. BWE), require another input.
@@ -100,6 +108,11 @@ export type ItpMeasFieldDef = {
   followUpLabel?: string
   /** When set, the follow-up is a dropdown from this Job field list. Otherwise a text box. */
   followUpLookupCategory?: LookupCategory
+  /**
+   * Dropdown repair routes: when the technician picks this option, include these
+   * other checklist item ids on the job ITP (Machine 1 / Welding / Machine 2, …).
+   */
+  unlockItemIdsByOption?: Record<string, string[]>
 }
 
 /** Classic Body/bonnet triple — used as the default when enabling measurements. */
@@ -164,6 +177,27 @@ export function normalizeLinePhotoCounts(
   return { minPhotos, maxPhotos: clampLinePhotoMax(maxRaw, minPhotos) }
 }
 
+/** Option label → checklist item ids. Empty maps are omitted. */
+export function normalizeUnlockItemIdsByOption(
+  raw: unknown,
+  options: string[] = [],
+): Record<string, string[]> | undefined {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return undefined
+  const allowed = new Set(options.map((opt) => opt.trim().toLowerCase()).filter(Boolean))
+  const map: Record<string, string[]> = {}
+  for (const [key, value] of Object.entries(raw as Record<string, unknown>)) {
+    const label = String(key ?? '').trim()
+    if (!label) continue
+    if (allowed.size > 0 && !allowed.has(label.toLowerCase())) continue
+    const ids = Array.isArray(value)
+      ? [...new Set(value.map((id) => String(id ?? '').trim()).filter(Boolean))]
+      : []
+    if (ids.length === 0) continue
+    map[label] = ids
+  }
+  return Object.keys(map).length > 0 ? map : undefined
+}
+
 export function normalizeMeasFieldType(raw: unknown): ItpMeasFieldType {
   const value = String(raw ?? '').trim().toLowerCase()
   if (value === 'textarea' || value === 'notes') return 'textarea'
@@ -189,6 +223,10 @@ function dropdownPersistPatch(partial?: Partial<ItpMeasFieldDef>): Partial<ItpMe
   const followUpLookupCategory = isLookupCategory(partial?.followUpLookupCategory)
     ? partial!.followUpLookupCategory
     : undefined
+  const options = Array.isArray(partial?.options)
+    ? partial!.options.map((opt) => String(opt).trim()).filter(Boolean)
+    : []
+  const unlockItemIdsByOption = normalizeUnlockItemIdsByOption(partial?.unlockItemIdsByOption, options)
   return {
     optionSource,
     ...(optionSource === 'lookup' && lookupCategory ? { lookupCategory } : {}),
@@ -199,6 +237,7 @@ function dropdownPersistPatch(partial?: Partial<ItpMeasFieldDef>): Partial<ItpMe
           ...(followUpLookupCategory ? { followUpLookupCategory } : {}),
         }
       : {}),
+    ...(unlockItemIdsByOption ? { unlockItemIdsByOption } : {}),
   }
 }
 
@@ -300,6 +339,9 @@ export function patchFromDropdownSourceSelect(value: string): Partial<ItpMeasFie
 
 export function lookupListLabel(category: LookupCategory | undefined): string {
   if (!category) return 'Job field list'
+  if (isItpTravelerListCategory(category)) {
+    return humanizeItpTravelerListKey(category)
+  }
   return LOOKUP_CATEGORY_DEFS.find((row) => row.key === category)?.label ?? category
 }
 
@@ -313,6 +355,7 @@ export function resolveDropdownChoices(
   if (cat) {
     const fromList = lists.lookups?.[cat]
     if (fromList && fromList.length > 0) return fromList.map((opt) => String(opt).trim()).filter(Boolean)
+    if (cat === REPAIR_NEEDED_LOOKUP_CATEGORY) return [...REPAIR_NEEDED_LIST_FALLBACK]
     return [...(LOOKUP_CATEGORY_DEFS.find((row) => row.key === cat)?.fallback ?? [])]
   }
   return (field.options ?? []).map((opt) => String(opt).trim()).filter(Boolean)
