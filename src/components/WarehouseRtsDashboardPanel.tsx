@@ -5,6 +5,7 @@ import { useOrganization } from '../contexts/OrganizationContext'
 import { useCompanyWorkflow } from '../hooks/useCompanyWorkflow'
 import { filterRowsByCompanyValveIdAsync, resolveActiveCompanyKey } from '../lib/companyDataScope'
 import { isActiveShopWork } from '../lib/jobDisplayStatus'
+import { completeItpQcSignOffForShipment, itpQcSignOffToastSuffix } from '../lib/itpShipmentQc'
 import { canWriteShop, permissionDeniedReason } from '../lib/roles'
 import { supabase } from '../lib/supabase'
 import { valveStatusPatch } from '../lib/valveStatusPatch'
@@ -105,7 +106,7 @@ export function readyToShipStatusForWorkflow(workflowKey: string) {
 
 export function WarehouseRtsDashboardPanel() {
   const { showToast } = useToast()
-  const { role, username } = useAuth()
+  const { role, user, username } = useAuth()
   const { activeOrganization } = useOrganization()
   const workflow = useCompanyWorkflow()
   const canWrite = canWriteShop(role)
@@ -211,9 +212,9 @@ export function WarehouseRtsDashboardPanel() {
 
     setSavingId(row.id)
     const { error } = await supabase.from('valves').update(patch).eq('id', row.id)
-    setSavingId(null)
 
     if (error) {
+      setSavingId(null)
       showToast(
         isMissingApprovalColumn(error.message)
           ? 'Run supabase/migration-valve-shipment-final-approval.sql in Supabase to enable final approval.'
@@ -235,9 +236,21 @@ export function WarehouseRtsDashboardPanel() {
           : item,
       ),
     )
+
+    let itpSuffix: string | null = null
+    if (checked) {
+      const result = await completeItpQcSignOffForShipment({
+        valve: asValveForActiveCheck(row),
+        acceptedByUserId: user?.id ?? null,
+        acceptedByName: approvedBy,
+        role,
+      })
+      itpSuffix = itpQcSignOffToastSuffix(result)
+    }
+    setSavingId(null)
     showToast(
       checked
-        ? `${row.valve_id} moved to Final QC Approval`
+        ? `${row.valve_id} moved to Final QC Approval${itpSuffix ? ` · ${itpSuffix}` : ''}`
         : `${row.valve_id} moved back to awaiting Final QC Approval`,
     )
   }
@@ -271,7 +284,18 @@ export function WarehouseRtsDashboardPanel() {
 
     setSavingId(row.id)
     const { error } = await supabase.from('valves').update(patch).eq('id', row.id)
-    setSavingId(null)
+
+    const finishShipped = async (message: string) => {
+      const result = await completeItpQcSignOffForShipment({
+        valve: asValveForActiveCheck(row),
+        acceptedByUserId: user?.id ?? null,
+        acceptedByName: closedBy,
+        role,
+      })
+      const itpSuffix = itpQcSignOffToastSuffix(result)
+      setSavingId(null)
+      showToast(itpSuffix ? `${message} · ${itpSuffix}` : message)
+    }
 
     if (error) {
       if (/shipment_closed_by|shipment_closed_at|schema cache|column.*does not exist/i.test(error.message)) {
@@ -285,21 +309,23 @@ export function WarehouseRtsDashboardPanel() {
           })
           .eq('id', row.id)
         if (fallbackError) {
+          setSavingId(null)
           showToast(`Could not mark shipped: ${fallbackError.message}`)
           return
         }
         setRows((prev) => prev.filter((item) => item.id !== row.id))
-        showToast(
+        await finishShipped(
           `${row.valve_id} set to Completed. Run migration-valve-shipment-closed.sql to record who shipped and when.`,
         )
         return
       }
+      setSavingId(null)
       showToast(`Could not mark shipped: ${error.message}`)
       return
     }
 
     setRows((prev) => prev.filter((item) => item.id !== row.id))
-    showToast(
+    await finishShipped(
       `${row.valve_id} set to Completed · closed by ${closedBy} · ${new Date(closedAt).toLocaleString()}`,
     )
   }
@@ -321,9 +347,10 @@ export function WarehouseRtsDashboardPanel() {
         <div>
           <h3>{statusLabel}</h3>
           <p className="status-breakdown-note">
-            Check <strong>Final QC Approval</strong> to move a valve into the green table below, then
-            press <strong>Shipped</strong> to set status to <strong>Completed</strong> (records who
-            closed it and when).
+            Check <strong>Final QC Approval</strong> to move a valve into the green table below (this
+            also completes ITP QC sign-off when an ITP already exists), then press{' '}
+            <strong>Shipped</strong> to set status to <strong>Completed</strong> (records who closed
+            it and when).
             {rows.length > 0 ? (
               <>
                 {' '}
