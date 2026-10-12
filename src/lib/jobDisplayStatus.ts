@@ -11,7 +11,11 @@ const ACTIVE_ORDER_TYPES = new Set(['In-Process Order', 'On-Hold', 'Waiting on A
 export function displayJobStatus(valve: Valve | null | undefined): string {
   if (!valve) return '-'
   if (valve.order_type === 'Completed') return 'Completed'
-  if (valve.order_type === 'On-Hold') return 'On Hold'
+  if (valve.order_type === 'On-Hold') {
+    const shopStatus = String(valve.status ?? '').trim()
+    if (/^hold$/i.test(shopStatus)) return shopStatus
+    return 'On Hold'
+  }
   if (valve.order_type === 'Waiting on Arrival') return 'Waiting on Arrival'
   return valve.status
 }

@@ -188,10 +188,46 @@ function writeLocalOrganizations(rows: Organization[]) {
   writeJson(LOCAL_ORGS_STORAGE_KEY, rows)
 }
 
+/** Local Superadmin must keep JS Valve and VSI even if localStorage memberships were edited. */
+function ensureLocalDevAdminCompanyAccess() {
+  if (!isLocalOrganizationsDevMode()) return
+  const orgs = listLocalOrganizations()
+  const members = listLocalMembers()
+  const ts = nowIso()
+  let changed = false
+  for (const org of orgs) {
+    const existing = members.find(
+      (row) => row.user_id === LOCAL_DEV_ADMIN_USER_ID && row.organization_id === org.id,
+    )
+    if (existing) {
+      if (!existing.can_access || existing.role !== 'super_admin') {
+        existing.can_access = true
+        existing.role = 'super_admin'
+        existing.updated_at = ts
+        changed = true
+      }
+      continue
+    }
+    members.push({
+      id: `local-member-dev-admin-${org.id}`,
+      organization_id: org.id,
+      user_id: LOCAL_DEV_ADMIN_USER_ID,
+      employee_id: null,
+      role: 'super_admin',
+      can_access: true,
+      created_at: ts,
+      updated_at: ts,
+    })
+    changed = true
+  }
+  if (changed) writeLocalMembers(members)
+}
+
 export function listLocalMembershipsForUser(
   userId: string,
   employeeId?: string | null,
 ): OrganizationMembership[] {
+  if (userId === LOCAL_DEV_ADMIN_USER_ID) ensureLocalDevAdminCompanyAccess()
   const orgs = listLocalOrganizations()
   const orgById = new Map(orgs.map((org) => [org.id, org]))
   const rows: OrganizationMembership[] = []

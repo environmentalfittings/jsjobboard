@@ -100,8 +100,11 @@ export async function loadYesterdayStatusMoves(
   departmentIds: readonly string[],
   valvesByWo: Map<string, Valve>,
   now = new Date(),
+  statuses?: readonly string[],
 ): Promise<{ moves: YesterdayStatusMove[]; error: string | null }> {
-  const statusSet = new Set(statusesForDepartments(departmentIds))
+  const statusSet = new Set(
+    statuses?.length ? statuses : statusesForDepartments(departmentIds),
+  )
   if (!statusSet.size) return { moves: [], error: null }
 
   const { startIso, endIso } = localYesterdayBounds(now)
@@ -137,6 +140,7 @@ export async function loadYesterdayStatusMoves(
     const wo = valveIdFromJson(raw.valve_row_id, raw.new_row ?? raw.old_row)
     if (!wo) continue
     const valve = valvesByWo.get(wo)
+    if (!valve) continue
     moves.push({
       valve_id: wo,
       customer: valve?.customer ?? customerFromJson(raw.new_row) ?? customerFromJson(raw.old_row),

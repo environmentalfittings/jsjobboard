@@ -21,6 +21,9 @@ const FINISH_CELL_TONES: Record<string, FinishCellTone> = {
   'Machine Shop': { background: '#E8E8E8', color: '#1f2937' },
   Welding: { background: '#D0D0D0', color: '#1f2937' },
   'Machining only': { background: '#E8E8E8', color: '#1f2937' },
+  RV: { background: '#F59E0B', color: '#1f2937' },
+  CV: { background: '#38BDF8', color: '#1f2937' },
+  UL: { background: '#A78BFA', color: '#1f2937' },
 }
 
 const ALIASES: Record<string, string> = {
@@ -39,6 +42,9 @@ const ALIASES: Record<string, string> = {
   prv: 'PRV',
   welding: 'Welding',
   outsourced: 'Outsourced',
+  rv: 'RV',
+  cv: 'CV',
+  ul: 'UL',
 }
 
 export function normalizeFinishCellKey(cell: string | null | undefined): string | null {

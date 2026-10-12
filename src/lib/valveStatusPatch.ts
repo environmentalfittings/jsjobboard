@@ -1,4 +1,5 @@
 import { DONE_STATUSES } from '../constants/statuses'
+import { statusRequiresPreTest } from './jobTestCriteria'
 import { isOtdPauseStatus } from './onTimeDelivery'
 import type { Valve } from '../types'
 
@@ -45,6 +46,10 @@ export function valveStatusPatch(
 
   if (nextIsHold) {
     patch.order_type = 'On-Hold'
+  }
+
+  if (statusRequiresPreTest(nextStatus)) {
+    patch.pre_test_required = true
   }
 
   // Leaving an OTD-pause status for active shop work — clear hold / waiting-arrival order types

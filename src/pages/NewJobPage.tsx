@@ -8,7 +8,9 @@ import { rememberValveForCompany } from '../lib/companyDataScope'
 import { loadLookupOptionsMap } from '../lib/lookupValues'
 import { hasAdminAccess } from '../lib/roles'
 import { TEST_PROCEDURE_OTHER } from '../lib/testLogProcedure'
-import { formatJobTestTypes } from '../lib/jobTestTypes'
+import { formatJobTestSelections, isPreTestRequiredForced, preTestLockReason, resolvePreTestRequired, isMissingPreTestRequiredColumn, omitPreTestRequiredColumn } from '../lib/jobTestCriteria'
+import { isReliefValveType } from '../lib/reliefValveTest'
+import { JobTestCriteriaFields } from '../components/JobTestCriteriaFields'
 import { openValveTicketPdfForPrint } from '../lib/valveTicketPrint'
 import { supabase } from '../lib/supabase'
 import type { Valve } from '../types'
@@ -59,6 +61,7 @@ export function NewJobPage({ role }: NewJobPageProps) {
   const [notes, setNotes] = useState('')
   const [isTurnaround, setIsTurnaround] = useState(false)
   const [needsFailureAnalysis, setNeedsFailureAnalysis] = useState(false)
+  const [preTestRequired, setPreTestRequired] = useState(false)
   const [addToPriority, setAddToPriority] = useState(false)
   const [saving, setSaving] = useState(false)
   const [createdJob, setCreatedJob] = useState<Valve | null>(null)
@@ -85,6 +88,21 @@ export function NewJobPage({ role }: NewJobPageProps) {
       prev && !(workflow.workCells as readonly string[]).includes(prev) ? '' : prev,
     )
   }, [workflow.key, STATUS_ORDER, defaultStatus, workflow.workCells])
+
+  useEffect(() => {
+    if (isPreTestRequiredForced({ needsFailureAnalysis, status })) {
+      setPreTestRequired(true)
+    }
+  }, [needsFailureAnalysis, status])
+
+  const reliefType = isReliefValveType(valveType)
+  const prevReliefType = useRef(reliefType)
+  useEffect(() => {
+    if (prevReliefType.current === reliefType) return
+    prevReliefType.current = reliefType
+    setTestTypes([])
+    setTestTypeOther('')
+  }, [reliefType])
 
   const loadCustomers = useCallback(async () => {
     setLoadingCustomers(true)
@@ -153,6 +171,7 @@ export function NewJobPage({ role }: NewJobPageProps) {
     setNotes('')
     setIsTurnaround(false)
     setNeedsFailureAnalysis(false)
+    setPreTestRequired(false)
     setAddToPriority(false)
     setStatus(defaultStatus)
   }
@@ -180,45 +199,60 @@ export function NewJobPage({ role }: NewJobPageProps) {
     }
     const normalizedJobType = normalizeJobType(jobType)
     const valveRelated = isValveRelatedJobType(normalizedJobType)
-    const selectedTypes = testTypes.includes(TEST_PROCEDURE_OTHER)
-      ? [
-          ...testTypes.filter((value) => value !== TEST_PROCEDURE_OTHER),
-          testTypeOther.trim(),
-        ]
-      : testTypes
-    const resolvedTestType = formatJobTestTypes(selectedTypes)
+    const resolvedTestType = formatJobTestSelections({
+      valveType,
+      selected: testTypes,
+      otherText: testTypeOther,
+    })
+    const resolvedPreTestRequired = resolvePreTestRequired({
+      preTestRequired,
+      needsFailureAnalysis,
+      status,
+    })
 
+    if (valveRelated && isReliefValveType(valveType) && testTypes.includes('Other') && !testTypeOther.trim()) {
+      showToast('Describe the other test media')
+      return
+    }
     if (valveRelated && testTypes.includes(TEST_PROCEDURE_OTHER) && !testTypeOther.trim()) {
       showToast('Describe the other test type')
       return
     }
 
+    const payload = {
+      valve_id: id,
+      job_type: normalizedJobType,
+      customer: customer.trim() || null,
+      cell: cell.trim() || null,
+      size: size.trim() || null,
+      pressure_class: pressureClass.trim() || null,
+      body_material: bodyMaterial.trim() || null,
+      test_type: valveRelated ? resolvedTestType || null : null,
+      valve_type: valveRelated ? valveType.trim() || null : null,
+      order_type: orderType.trim() || null,
+      status,
+      due_date: dueDate || null,
+      description: description.trim() || null,
+      notes: notes.trim() || null,
+      material_spec: valveRelated ? null : materialSpec.trim() || null,
+      drawing_po_number: valveRelated ? null : drawingPoNumber.trim() || null,
+      is_turnaround: isTurnaround,
+      needs_failure_analysis: needsFailureAnalysis,
+      pre_test_required: resolvedPreTestRequired,
+      assigned_technician_ids: [],
+    }
+
     setSaving(true)
-    const { data: inserted, error } = await supabase
-      .from('valves')
-      .insert({
-        valve_id: id,
-        job_type: normalizedJobType,
-        customer: customer.trim() || null,
-        cell: cell.trim() || null,
-        size: size.trim() || null,
-        pressure_class: pressureClass.trim() || null,
-        body_material: bodyMaterial.trim() || null,
-        test_type: valveRelated ? resolvedTestType || null : null,
-        valve_type: valveRelated ? valveType.trim() || null : null,
-        order_type: orderType.trim() || null,
-        status,
-        due_date: dueDate || null,
-        description: description.trim() || null,
-        notes: notes.trim() || null,
-        material_spec: valveRelated ? null : materialSpec.trim() || null,
-        drawing_po_number: valveRelated ? null : drawingPoNumber.trim() || null,
-        is_turnaround: isTurnaround,
-        needs_failure_analysis: needsFailureAnalysis,
-        assigned_technician_ids: [],
-      })
-      .select('*')
-      .single()
+    let { data: inserted, error } = await supabase.from('valves').insert(payload).select('*').single()
+    if (error && isMissingPreTestRequiredColumn(error.message)) {
+      const retry = await supabase
+        .from('valves')
+        .insert(omitPreTestRequiredColumn(payload))
+        .select('*')
+        .single()
+      inserted = retry.data
+      error = retry.error
+    }
     setSaving(false)
 
     if (error) {
@@ -467,57 +501,21 @@ export function NewJobPage({ role }: NewJobPageProps) {
             <legend>Job Details</legend>
             <div className="new-job-grid">
               {isValveRelatedJobType(jobType) ? (
-                <>
-                  <fieldset className="new-job-test-types new-job-span-full">
-                    <legend>Test type(s)</legend>
-                    <div className="new-job-test-type-checkboxes" role="group" aria-label="Test types">
-                      {[...lookupOptions.test_procedure, TEST_PROCEDURE_OTHER].map((option) => (
-                        <label key={option} className="new-job-test-type-checkbox">
-                          <input
-                            type="checkbox"
-                            checked={testTypes.includes(option)}
-                            onChange={(e) => {
-                              const checked = e.target.checked
-                              setTestTypes((prev) => {
-                                const next = checked
-                                  ? [...prev, option]
-                                  : prev.filter((value) => value !== option)
-                                if (!next.includes(TEST_PROCEDURE_OTHER)) setTestTypeOther('')
-                                return next
-                              })
-                            }}
-                          />
-                          <span>{option === TEST_PROCEDURE_OTHER ? 'Other…' : option}</span>
-                        </label>
-                      ))}
-                    </div>
-                    {testTypes.includes(TEST_PROCEDURE_OTHER) ? (
-                      <label className="new-job-test-type-other">
-                        Other test type
-                        <input
-                          type="text"
-                          value={testTypeOther}
-                          onChange={(e) => setTestTypeOther(e.target.value)}
-                          placeholder="Describe other test requirements"
-                          required
-                        />
-                      </label>
-                    ) : null}
-                    {testTypes.length > 0 ? (
-                      <p className="new-job-test-type-selected">
-                        Selected:{' '}
-                        {formatJobTestTypes(
-                          testTypes.includes(TEST_PROCEDURE_OTHER)
-                            ? [
-                                ...testTypes.filter((value) => value !== TEST_PROCEDURE_OTHER),
-                                testTypeOther.trim() || 'Other…',
-                              ]
-                            : testTypes,
-                        )}
-                      </p>
-                    ) : null}
-                  </fieldset>
-                </>
+                <JobTestCriteriaFields
+                  idPrefix="new-job"
+                  valveType={valveType}
+                  procedureOptions={lookupOptions.test_procedure}
+                  selected={testTypes}
+                  otherText={testTypeOther}
+                  onSelectedChange={setTestTypes}
+                  onOtherTextChange={setTestTypeOther}
+                  preTestRequired={preTestRequired}
+                  onPreTestRequiredChange={setPreTestRequired}
+                  preTestLocked={isPreTestRequiredForced({ needsFailureAnalysis, status })}
+                  preTestLockReason={preTestLockReason({ needsFailureAnalysis, status })}
+                  disabled={saving}
+                  layout="new-job"
+                />
               ) : null}
               <label>
                 Work status
@@ -596,7 +594,11 @@ export function NewJobPage({ role }: NewJobPageProps) {
               <input
                 type="checkbox"
                 checked={needsFailureAnalysis}
-                onChange={(e) => setNeedsFailureAnalysis(e.target.checked)}
+                onChange={(e) => {
+                  const checked = e.target.checked
+                  setNeedsFailureAnalysis(checked)
+                  if (checked) setPreTestRequired(true)
+                }}
               />
               <div className="new-job-flag-text">
                 <span className="new-job-flag-title">Needs failure analysis</span>

@@ -1,5 +1,6 @@
 import { isValveRelatedJobType, normalizeJobType } from '../constants/jobTypes'
 import type { Valve } from '../types'
+import { isMissingPreTestRequiredColumn, omitPreTestRequiredColumn } from './jobTestCriteria'
 import { supabase } from './supabase'
 
 export function buildCopiedValveInsert(source: Valve, valveId: string) {
@@ -26,6 +27,7 @@ export function buildCopiedValveInsert(source: Valve, valveId: string) {
     drawing_po_number: valveRelated ? null : source.drawing_po_number?.trim() || null,
     is_turnaround: source.is_turnaround === true,
     needs_failure_analysis: source.needs_failure_analysis === true,
+    pre_test_required: source.pre_test_required === true || source.needs_failure_analysis === true,
     assigned_technician_ids: [],
     assigned_technician_id: null,
     assigned_by: null,
@@ -43,7 +45,12 @@ export async function createCopiedJob(source: Valve, valveId: string): Promise<{
   const id = valveId.trim()
   if (!id) return { error: 'Valve ID is required' }
 
-  const { error } = await supabase.from('valves').insert(buildCopiedValveInsert(source, id))
+  const payload = buildCopiedValveInsert(source, id)
+  let { error } = await supabase.from('valves').insert(payload)
+  if (error && isMissingPreTestRequiredColumn(error.message)) {
+    const retry = await supabase.from('valves').insert(omitPreTestRequiredColumn(payload))
+    error = retry.error
+  }
   if (error) {
     if (error.message.includes('duplicate') || error.code === '23505') {
       return { error: 'That Valve ID already exists' }

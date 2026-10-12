@@ -2,7 +2,7 @@ import { useCallback, useEffect, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { useOrganization } from '../contexts/OrganizationContext'
 import { useCompanyWorkflow } from '../hooks/useCompanyWorkflow'
-import { filterRowsByCompanyValveId } from '../lib/companyDataScope'
+import { filterRowsByCompanyValveIdAsync } from '../lib/companyDataScope'
 import {
   fetchReworkActionQueue,
   markReworkDispositionNa,
@@ -33,7 +33,7 @@ export function ReworkDashboardPanel() {
       return
     }
     setRows(
-      filterRowsByCompanyValveId(data, {
+      await filterRowsByCompanyValveIdAsync(data, {
         workflowKey: workflow.key,
         activeOrganization,
       }),

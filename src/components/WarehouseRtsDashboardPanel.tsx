@@ -3,7 +3,7 @@ import { Link } from 'react-router-dom'
 import { useAuth } from '../contexts/AuthContext'
 import { useOrganization } from '../contexts/OrganizationContext'
 import { useCompanyWorkflow } from '../hooks/useCompanyWorkflow'
-import { filterRowsByCompanyValveId } from '../lib/companyDataScope'
+import { filterRowsByCompanyValveIdAsync, resolveActiveCompanyKey } from '../lib/companyDataScope'
 import { isActiveShopWork } from '../lib/jobDisplayStatus'
 import { canWriteShop, permissionDeniedReason } from '../lib/roles'
 import { supabase } from '../lib/supabase'
@@ -12,8 +12,8 @@ import type { Valve } from '../types'
 import { useToast } from './ToastNotification'
 
 const APPROVAL_SELECT =
-  'id,valve_id,customer,cell,status,order_type,due_date,date_closed,shipment_final_approved,shipment_final_approved_by,shipment_final_approved_at'
-const BASE_SELECT = 'id,valve_id,customer,cell,status,order_type,due_date,date_closed'
+  'id,valve_id,customer,cell,status,order_type,due_date,date_closed,organization_id,shipment_final_approved,shipment_final_approved_by,shipment_final_approved_at'
+const BASE_SELECT = 'id,valve_id,customer,cell,status,order_type,due_date,date_closed,organization_id'
 
 /** Same open-work filter as Job board → Ready to ship (excludes closed Completed order types). */
 const OPEN_ORDER_TYPES = ['In-Process Order', 'On-Hold', 'Waiting on Arrival'] as const
@@ -27,6 +27,7 @@ type WarehouseRtsRow = {
   order_type: string | null
   due_date: string | null
   date_closed: string | null
+  organization_id: string | null
   shipment_final_approved: boolean
   shipment_final_approved_by: string | null
   shipment_final_approved_at: string | null
@@ -46,6 +47,10 @@ function mapRow(raw: Record<string, unknown>, approvalColumnsAvailable: boolean)
     order_type: (raw.order_type as string | null) ?? null,
     due_date: (raw.due_date as string | null) ?? null,
     date_closed: (raw.date_closed as string | null) ?? null,
+    organization_id:
+      typeof raw.organization_id === 'string' && raw.organization_id.trim()
+        ? raw.organization_id.trim()
+        : null,
     shipment_final_approved: approvalColumnsAvailable
       ? Boolean(raw.shipment_final_approved)
       : false,
@@ -104,7 +109,8 @@ export function WarehouseRtsDashboardPanel() {
   const { activeOrganization } = useOrganization()
   const workflow = useCompanyWorkflow()
   const canWrite = canWriteShop(role)
-  const statusLabel = readyToShipStatusForWorkflow(workflow.key)
+  const companyKey = resolveActiveCompanyKey(workflow.key, activeOrganization)
+  const statusLabel = readyToShipStatusForWorkflow(companyKey)
 
   const [rows, setRows] = useState<WarehouseRtsRow[]>([])
   const [loading, setLoading] = useState(true)
@@ -113,7 +119,9 @@ export function WarehouseRtsDashboardPanel() {
 
   const load = useCallback(async () => {
     setLoading(true)
-    const status = readyToShipStatusForWorkflow(workflow.key)
+    const status = readyToShipStatusForWorkflow(
+      resolveActiveCompanyKey(workflow.key, activeOrganization),
+    )
 
     const primary = await supabase
       .from('valves')
@@ -154,10 +162,13 @@ export function WarehouseRtsDashboardPanel() {
       return { ...item, valve_row_id: item.id }
     })
     const openOnly = mapped.filter((row) => isActiveShopWork(asValveForActiveCheck(row)))
-    const scoped = filterRowsByCompanyValveId(openOnly, {
-      workflowKey: workflow.key,
-      activeOrganization,
-    }).map(({ valve_row_id: _valveRowId, ...row }) => row)
+    const scoped = (
+      await filterRowsByCompanyValveIdAsync(openOnly, {
+        workflowKey: workflow.key,
+        activeOrganization,
+        valves: openOnly.map((row) => ({ id: row.id, organization_id: row.organization_id })),
+      })
+    ).map(({ valve_row_id: _valveRowId, ...row }) => row)
     setRows(scoped)
   }, [workflow.key, activeOrganization, showToast])
 

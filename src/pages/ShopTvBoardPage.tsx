@@ -27,6 +27,7 @@ import {
   countMovedOutToday,
   parseShopTvStatusMoves,
   valveMatchesTvColumn,
+  VSI_TV_CHART_BASE,
   type ShopTvDeptMoveRow,
   type ShopTvStatusMove,
 } from '../lib/shopTvBoard'
@@ -113,6 +114,9 @@ const DEPT_CHART_COLORS: Record<string, string> = {
   'dept-testing': '#34d399',
   'dept-painting': '#fb7185',
   'dept-prv': '#f87171',
+  'dept-RV': '#f59e0b',
+  'dept-CV': '#38bdf8',
+  'dept-UL': '#a78bfa',
 }
 
 const DEPT_CHART_BASE: readonly Omit<ShopTvDeptMoveRow, 'moveCount'>[] = [
@@ -133,22 +137,31 @@ function niceChartMax(value: number): number {
 }
 
 function barColorForDeptRow(row: ShopTvDeptMoveRow): string {
-  if (row.kind === 'department') return DEPT_CHART_COLORS[row.id] ?? '#14b8a6'
+  if (row.kind === 'department') {
+    const chart = DEPT_CHART_COLORS[row.id]
+    if (chart) return chart
+    const tone = finishCellTone(row.cell ?? row.label)
+    return tone?.background ?? '#14b8a6'
+  }
   const tone = finishCellTone(row.cell ?? row.label)
   return tone?.background ?? '#94a3b8'
 }
 
-function buildDeptMoveChartRows(leaderboard: readonly ShopTvDeptMoveRow[]): ShopTvDeptMoveRow[] {
+function buildDeptMoveChartRows(
+  leaderboard: readonly ShopTvDeptMoveRow[],
+  workflowKey: 'js-valve' | 'vsi',
+): ShopTvDeptMoveRow[] {
   const byId = new Map(leaderboard.map((row) => [row.id, row]))
-  const departments = DEPT_CHART_BASE.map((base) => ({
-    ...base,
-    moveCount: byId.get(base.id)?.moveCount ?? 0,
+  const base = workflowKey === 'vsi' ? VSI_TV_CHART_BASE : DEPT_CHART_BASE
+  const departments = base.map((item) => ({
+    ...item,
+    moveCount: byId.get(item.id)?.moveCount ?? 0,
   }))
-  const cells = leaderboard
-    .filter((row) => row.kind === 'finish-cell' && row.moveCount > 0)
-    .slice(0, 8)
+  const extras = workflowKey === 'vsi'
+    ? []
+    : leaderboard.filter((row) => row.kind === 'finish-cell' && row.moveCount > 0).slice(0, 8)
   // Winner (most moves) on the left → least on the right. Skip zeros so bars stay wide.
-  return [...departments, ...cells]
+  return [...departments, ...extras]
     .filter((row) => row.moveCount > 0)
     .sort((a, b) => b.moveCount - a.moveCount || a.label.localeCompare(b.label))
 }
@@ -386,6 +399,7 @@ export function ShopTvBoardPage() {
       })
       const parsed = parseShopTvStatusMoves(
         scopedLog as Parameters<typeof parseShopTvStatusMoves>[0],
+        { workflowKey: workflow.key },
       )
       setMovesToday(parsed.moves)
       setDeptLeaderboard(parsed.deptLeaderboard)
@@ -440,8 +454,14 @@ export function ShopTvBoardPage() {
   }, [priorityQueueIds])
 
   const columns = useMemo(() => {
-    const active = valves.filter(isActiveShopWork)
-    const defs = buildShopTvColumns(active)
+    const active = valves.filter((valve) => {
+      if (!isActiveShopWork(valve)) return false
+      if (workflow.doneStatuses.has(valve.status) || workflow.terminalStatuses.has(valve.status)) {
+        return false
+      }
+      return true
+    })
+    const defs = buildShopTvColumns(active, { workflowKey: workflow.key })
     return defs.map((column) => {
       let rows = active.filter((valve) => valveMatchesTvColumn(valve, column))
       if (priorityOnly) {
@@ -451,9 +471,12 @@ export function ShopTvBoardPage() {
       const movedOutToday = countMovedOutToday(column, movesToday)
       return { ...column, rows, movedOutToday }
     })
-  }, [valves, priorityQueueIds, priorityOnly, priorityRank, columnRestOrder, movesToday])
+  }, [valves, workflow, priorityQueueIds, priorityOnly, priorityRank, columnRestOrder, movesToday])
 
-  const chartRows = useMemo(() => buildDeptMoveChartRows(deptLeaderboard), [deptLeaderboard])
+  const chartRows = useMemo(
+    () => buildDeptMoveChartRows(deptLeaderboard, workflow.key),
+    [deptLeaderboard, workflow.key],
+  )
   const chartMax = useMemo(
     () => niceChartMax(chartRows.reduce((max, row) => Math.max(max, row.moveCount), 0)),
     [chartRows],
@@ -592,13 +615,16 @@ export function ShopTvBoardPage() {
   )
 
   return (
-    <section className={`shop-tv-board${fullscreen ? ' shop-tv-board--fullscreen' : ''}`}>
+    <section
+      className={`shop-tv-board${fullscreen ? ' shop-tv-board--fullscreen' : ''}${workflow.key === 'vsi' ? ' shop-tv-board--vsi' : ''}`}
+    >
       <header className="shop-tv-toolbar">
         <div className="shop-tv-toolbar-left">
-          <h2 className="shop-tv-title">Shop TV board</h2>
+          <h2 className="shop-tv-title">{workflow.key === 'vsi' ? 'VSI TV board' : 'Shop TV board'}</h2>
           <p className="shop-tv-subtitle">
-            Pull from Customer Yard · Teardown · Welding · Machine shop · Testing · Painting · Assembly /
-            Fitting / Waiting on Parts by finish cell · Other. Hover a column to pause scroll.
+            {workflow.key === 'vsi'
+              ? 'Columns are VSI departments RV, CV, and UL. Cards show each job’s current shop status. Hover a column to pause scroll.'
+              : 'Pull from Customer Yard · Teardown · Welding · Machine shop · Testing · Painting · Assembly / Fitting / Waiting on Parts by finish cell · Other. Hover a column to pause scroll.'}
           </p>
         </div>
         <div className="shop-tv-toolbar-actions">
@@ -689,7 +715,7 @@ export function ShopTvBoardPage() {
                         </div>
                       </div>
                       <div className="shop-tv-chart-xlabel">
-                        {row.kind === 'finish-cell' && row.cell && row.cell !== 'Unassigned' ? (
+                        {row.cell && row.cell !== 'Unassigned' ? (
                           <FinishCellBadge cell={row.cell} />
                         ) : (
                           <span>{row.label}</span>
@@ -708,23 +734,33 @@ export function ShopTvBoardPage() {
 
       <div
         className="shop-tv-columns"
-        aria-label="Shop priority columns by status"
+        aria-label={
+          workflow.key === 'vsi' ? 'Shop priority columns by department' : 'Shop priority columns by status'
+        }
         style={
           {
-            ['--shop-tv-col-count']: String(Math.max(1, Math.ceil(columns.length / 2))),
+            ['--shop-tv-col-count']:
+              workflow.key === 'vsi'
+                ? String(Math.max(1, columns.length))
+                : String(Math.max(1, Math.ceil(columns.length / 2))),
           } as CSSProperties
         }
       >
         {columns.map((column) => (
           <section
             key={column.id}
-            className={`shop-tv-column${column.kind === 'finish-cell' ? ' shop-tv-column--cell' : ''}${column.kind === 'other' ? ' shop-tv-column--other' : ''}`}
+            className={`shop-tv-column${column.kind === 'finish-cell' || column.kind === 'department' ? ' shop-tv-column--cell' : ''}${column.kind === 'other' ? ' shop-tv-column--other' : ''}`}
           >
             <header className="shop-tv-column-header">
               <div className="shop-tv-column-heading">
                 <h3>{column.label}</h3>
                 {column.kind === 'finish-cell' ? (
                   <span className="shop-tv-column-sub">Assembly · Fitting · Waiting on Parts</span>
+                ) : null}
+                {column.kind === 'department' ? (
+                  <span className="shop-tv-column-sub">
+                    {column.finishCell ? 'VSI department' : 'No RV / CV / UL assigned'}
+                  </span>
                 ) : null}
                 {column.kind === 'other' ? (
                   <span className="shop-tv-column-sub">All remaining active statuses</span>

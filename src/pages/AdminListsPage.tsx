@@ -1547,7 +1547,8 @@ export function AdminListsPage() {
         <section className="dashboard-panel admin-lists-panel">
           <h3>Shop workflow</h3>
           <p className="placeholder-copy" style={{ marginTop: '0.35rem' }}>
-            Company-specific — switch company in the header to edit JS Valve or VSI stages.
+            Company-specific — switch company in the header to edit JS Valve or VSI stages. Added stages show on the
+            job Status dropdown after Save.
           </p>
           <ShopWorkflowAdminPanel showToast={showToast} />
         </section>

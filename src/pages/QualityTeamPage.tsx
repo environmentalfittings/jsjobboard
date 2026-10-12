@@ -5,7 +5,13 @@ import { useAuth } from '../contexts/AuthContext'
 import { useOrganization } from '../contexts/OrganizationContext'
 import { useEmployees } from '../hooks/useEmployees'
 import { useCompanyWorkflow } from '../hooks/useCompanyWorkflow'
-import { valveRowBelongsToCompany, resolveActiveCompanyKey, employeeBelongsToCompany } from '../lib/companyDataScope'
+import {
+  valveRowBelongsToCompany,
+  valveOrganizationId,
+  resolveActiveCompanyKey,
+  employeeBelongsToCompany,
+  loadValveOrganizationIdMap,
+} from '../lib/companyDataScope'
 import { saveItpLibraryPlan } from '../lib/itpLibraryStorage'
 import { notifyFlaggerItpResolution } from '../lib/messages'
 import { listQualityIncrs } from '../lib/qualityIncrs'
@@ -99,11 +105,17 @@ export function QualityTeamPage() {
   const companyReportName = activeOrganization?.name?.trim() || (companyScope.workflowKey === 'vsi' ? 'VSI' : '')
 
   const filterByCompanyValve = useCallback(
-    <T extends { valveRowId: number }>(items: T[]) =>
+    <T extends { valveRowId: number }>(
+      items: T[],
+      organizationIdByValveRowId?: Map<number, string | null>,
+    ): T[] =>
       items.filter((item) =>
         valveRowBelongsToCompany(item.valveRowId, {
           workflowKey: companyScope.workflowKey,
           activeOrganization: companyScope.activeOrganization,
+          valveOrganizationId:
+            organizationIdByValveRowId?.get(item.valveRowId) ??
+            valveOrganizationId((item as T & { valve?: unknown }).valve),
         }),
       ),
     [companyScope],
@@ -135,7 +147,10 @@ export function QualityTeamPage() {
       setRtsUnsignedLoading(true)
       const rtsResult = await loadWarehouseRtsUnsignedItps({ lookback, includeAccepted })
       if (rtsResult.error) showToast(rtsResult.error)
-      setRtsUnsignedRows(filterByCompanyValve(rtsResult.rows))
+      const organizationIdByValveRowId = await loadValveOrganizationIdMap(
+        rtsResult.rows.map((row) => row.valveRowId),
+      )
+      setRtsUnsignedRows(filterByCompanyValve(rtsResult.rows, organizationIdByValveRowId))
       setRtsUnsignedLoading(false)
     },
     [filterByCompanyValve, rtsIncludeAccepted, rtsUnsignedLookback, showToast],
@@ -156,18 +171,24 @@ export function QualityTeamPage() {
     await reloadEmployees()
     if (itpResult.error) showToast(itpResult.error)
     if (rtsResult.error) showToast(rtsResult.error)
-    setRows(filterByCompanyValve(itpResult.rows))
+    const organizationIdByValveRowId = await loadValveOrganizationIdMap([
+      ...itpResult.rows.map((row) => row.valveRowId),
+      ...incrResult.data.map((row) => row.valve_row_id),
+      ...rtsResult.rows.map((row) => row.valveRowId),
+    ])
+    setRows(filterByCompanyValve(itpResult.rows, organizationIdByValveRowId))
     setIncrRows(
       incrResult.data.filter((row) => {
         if (row.valve_row_id == null) return companyScope.workflowKey === 'js-valve'
         return valveRowBelongsToCompany(row.valve_row_id, {
           workflowKey: companyScope.workflowKey,
           activeOrganization: companyScope.activeOrganization,
+          valveOrganizationId: organizationIdByValveRowId.get(row.valve_row_id) ?? null,
         })
       }),
     )
     setIncrError(incrResult.error)
-    setRtsUnsignedRows(filterByCompanyValve(rtsResult.rows))
+    setRtsUnsignedRows(filterByCompanyValve(rtsResult.rows, organizationIdByValveRowId))
     setLoading(false)
     setIncrLoading(false)
     setRtsUnsignedLoading(false)

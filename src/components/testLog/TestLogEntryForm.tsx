@@ -24,6 +24,11 @@ import { notifyWarehouseTestAndDispose } from '../../lib/messages'
 import { loadActiveTestGauges, filterChartRecorderGauges, filterPressureTestGauges } from '../../lib/testGaugeRegistry'
 import { isFourHourChartTestSelected, normalizeTestProcedures, mapJobTestTypeToProcedures, jobTestTypeLooksLikeMedia } from '../../lib/testLogProcedure'
 import { parseJobTestTypes } from '../../lib/jobTestTypes'
+import {
+  isPreTestRequiredForced,
+  parseJobTestSelections,
+  reliefJobTestToLogMedia,
+} from '../../lib/jobTestCriteria'
 import { applyTestMediaPrefill } from '../../lib/testLogMedia'
 import { normalizeTestTimeLabel } from '../../lib/testLogTime'
 import { TEST_LOG_VALVE_TYPES, TEST_PROCEDURE_REQUIREMENTS } from '../../constants/jobLookups'
@@ -438,6 +443,10 @@ export function TestLogEntryForm({
         applyReliefPrefill: (jobSize, jobPressure, jobTestType) => {
           const sizes = prefillReliefSizesFromJobSize(jobSize)
           const inferredType = inferReliefValveTestType(jobTestType)
+          const parsed = parseJobTestSelections(jobTestType, 'Relief Valve', [])
+          const selectedMedia = parsed.selected.includes('Other')
+            ? 'Other'
+            : reliefJobTestToLogMedia(parsed.selected[0] ?? '')
           setTesting((prev) => ({
             ...prev,
             reliefValve: {
@@ -446,6 +455,10 @@ export function TestLogEntryForm({
               outletSize: sizes.outletSize || prev.reliefValve?.outletSize || '',
               setPressure: jobPressure?.trim() || prev.reliefValve?.setPressure || '',
               testType: inferredType || prev.reliefValve?.testType || '',
+              media: selectedMedia || prev.reliefValve?.media || '',
+              mediaOther: parsed.selected.includes('Other')
+                ? parsed.otherText || prev.reliefValve?.mediaOther || ''
+                : prev.reliefValve?.mediaOther || '',
             },
           }))
         },
@@ -456,7 +469,18 @@ export function TestLogEntryForm({
       setValveLookupStatus('found')
       lastPrefilledValveId.current = prefill.valveId
       const urlTestType = searchParams.get(TEST_LOG_PREFILL_KEYS.testType)
-      setShopTestKind(isPretestLogText(urlTestType, prefill.testType) ? 'pre' : 'final')
+      const urlPreTestRequired = searchParams.get('preTestRequired') === '1'
+      setShopTestKind(
+        urlPreTestRequired ||
+          prefill.preTestRequired ||
+          isPreTestRequiredForced({
+            needsFailureAnalysis: prefill.needsFailureAnalysis,
+            status: prefill.jobStatus,
+          }) ||
+          isPretestLogText(urlTestType, prefill.testType)
+          ? 'pre'
+          : 'final',
+      )
     } else {
       setValveLookupStatus('missing')
       const urlTestType = searchParams.get(TEST_LOG_PREFILL_KEYS.testType)

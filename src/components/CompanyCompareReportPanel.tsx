@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import { useOrganization } from '../contexts/OrganizationContext'
 import { getCompanyWorkflow } from '../constants/companyWorkflows'
-import { valveRowBelongsToCompany } from '../lib/companyDataScope'
+import { filterRowsByCompanyValveIdAsync, valveRowBelongsToCompany } from '../lib/companyDataScope'
 import { isExcludedFromOnTimeDelivery } from '../lib/onTimeDelivery'
 import { fetchStatusReworkLog } from '../lib/statusReworkLog'
 import { supabase } from '../lib/supabase'
@@ -44,12 +44,12 @@ async function loadCompareForOrganization(
   const [completedResult, activeResult, reworkResult] = await Promise.all([
     supabase
       .from('valves')
-      .select('id,date_closed,due_date,status,order_type,customer')
+      .select('id,date_closed,due_date,status,order_type,customer,organization_id')
       .in('status', ['Completed', 'Warehouse RTS', 'Shipping'])
       .gte('date_closed', start)
       .lte('date_closed', end)
       .limit(5000),
-    supabase.from('valves').select('id,status').limit(5000),
+    supabase.from('valves').select('id,status,organization_id').limit(5000),
     fetchStatusReworkLog(start, end),
   ])
 
@@ -65,8 +65,14 @@ async function loadCompareForOrganization(
     status: string | null
     order_type: string | null
     customer: string | null
+    organization_id?: string | null
   }[])
-    .filter((row) => valveRowBelongsToCompany(row.id, scope))
+    .filter((row) =>
+      valveRowBelongsToCompany(row.id, {
+        ...scope,
+        valveOrganizationId: row.organization_id ?? null,
+      }),
+    )
     .filter((row) => !isExcludedFromOnTimeDelivery(row))
 
   const withDue = completed.filter((row) => row.due_date)
@@ -74,13 +80,20 @@ async function loadCompareForOrganization(
   const late = withDue.length - onTime
 
   const terminal = new Set(['Completed', 'Warehouse RTS', 'Shipping', 'Junked'])
-  const activeJobs = ((activeResult.data ?? []) as { id: number; status: string | null }[])
+  const activeJobs = ((activeResult.data ?? []) as {
+    id: number
+    status: string | null
+    organization_id?: string | null
+  }[])
     .filter((row) => !terminal.has(String(row.status ?? '')))
-    .filter((row) => valveRowBelongsToCompany(row.id, scope)).length
+    .filter((row) =>
+      valveRowBelongsToCompany(row.id, {
+        ...scope,
+        valveOrganizationId: row.organization_id ?? null,
+      }),
+    ).length
 
-  const companyRework = (reworkResult.data ?? []).filter((row) =>
-    valveRowBelongsToCompany(row.valve_row_id, scope),
-  )
+  const companyRework = await filterRowsByCompanyValveIdAsync(reworkResult.data ?? [], scope)
   const reworkMoves = companyRework.length
   const reworkBecameIncrCount = companyRework.filter(reworkBecameIncr).length
 

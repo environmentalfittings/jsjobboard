@@ -45,6 +45,13 @@ export async function countDueDateChanges(): Promise<number> {
   return count ?? 0
 }
 
+/** All logged valve row ids — used to company-scope the all-time total. */
+export async function fetchDueDateChangeValveRowIds(): Promise<{ valve_row_id: number }[]> {
+  const { data, error } = await supabase.from('due_date_changes').select('valve_row_id')
+  if (error || !data) return []
+  return data.filter((row): row is { valve_row_id: number } => typeof row.valve_row_id === 'number')
+}
+
 export async function resolveChangedByName(fallback = 'Unknown'): Promise<string> {
   const { data } = await supabase.auth.getUser()
   const user = data.user

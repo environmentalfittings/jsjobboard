@@ -67,6 +67,12 @@ import { replaceJobTechnicians } from '../lib/jobTechnicianAssignments'
 import { loadLookupOptionsMap } from '../lib/lookupValues'
 import { supabase } from '../lib/supabase'
 import type { JobCardSaveFields } from '../lib/jobCardSave'
+import {
+  isMissingPreTestRequiredColumn,
+  omitPreTestRequiredColumn,
+  resolvePreTestRequired,
+  valveRequiresPreTest,
+} from '../lib/jobTestCriteria'
 import { can, canWriteShop, permissionDeniedReason } from '../lib/roles'
 import { VALVE_LIST_SELECT } from '../lib/valveSelect'
 import type { Technician, Valve } from '../types'
@@ -337,6 +343,9 @@ function KanbanJobCard({
         ) : null}
         {valve.needs_failure_analysis === true ? (
           <div className="job-card-failure-analysis-flag">Failure analysis</div>
+        ) : null}
+        {valveRequiresPreTest(valve) ? (
+          <div className="job-card-pretest-required-flag">Pre-test required</div>
         ) : null}
         <div className="job-card-job-type-badge">{normalizeJobType(valve.job_type)}</div>
         <JobTestBadges valve={valve} />
@@ -1220,6 +1229,11 @@ export function JobBoardPage({ role, username }: { role?: UserRole; username?: s
       valve_type: fields.valveType?.trim() || null,
       is_turnaround: fields.isTurnaround,
       needs_failure_analysis: fields.needsFailureAnalysis,
+      pre_test_required: resolvePreTestRequired({
+        preTestRequired: fields.preTestRequired,
+        needsFailureAnalysis: fields.needsFailureAnalysis,
+        status: nextStatus,
+      }),
       assigned_technician_id: fields.assignedTechnicianId,
       pressure_class: fields.pressureClass,
       body_material: fields.bodyMaterial,
@@ -1243,7 +1257,14 @@ export function JobBoardPage({ role, username }: { role?: UserRole; username?: s
     const dueDateChanged = (previousDueDate ?? null) !== nextDueDate
 
     setIsSaving(true)
-    const { error } = await supabase.from('valves').update(patch).eq('id', valve.id)
+    let { error } = await supabase.from('valves').update(patch).eq('id', valve.id)
+    if (error && isMissingPreTestRequiredColumn(error.message)) {
+      const retry = await supabase
+        .from('valves')
+        .update(omitPreTestRequiredColumn(patch as Record<string, unknown>))
+        .eq('id', valve.id)
+      error = retry.error
+    }
     if (error) {
       setIsSaving(false)
       showToast(`Could not save changes: ${error.message}`)
@@ -1344,7 +1365,14 @@ export function JobBoardPage({ role, username }: { role?: UserRole; username?: s
       setSelectedStatus(nextStatus)
     }
 
-    const { error } = await supabase.from('valves').update(patch).eq('id', valve.id)
+    let { error } = await supabase.from('valves').update(patch).eq('id', valve.id)
+    if (error && isMissingPreTestRequiredColumn(error.message)) {
+      const retry = await supabase
+        .from('valves')
+        .update(omitPreTestRequiredColumn(patch as Record<string, unknown>))
+        .eq('id', valve.id)
+      error = retry.error
+    }
     if (error) {
       setValveRows((prev) => prev.map((v) => (v.id === previous.id ? previous : v)))
       if (activeValve?.id === valve.id) {

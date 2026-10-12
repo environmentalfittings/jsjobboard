@@ -80,8 +80,9 @@ export function localValveIdsForCompany(companyKey: CompanyWorkflowKey): Set<num
   return new Set(readLocalCompanyValveMap()[companyKey] ?? [])
 }
 
-function valveOrganizationId(valve: Valve): string | null {
-  const raw = (valve as Valve & { organization_id?: string | null }).organization_id
+export function valveOrganizationId(valve: unknown): string | null {
+  if (!valve || typeof valve !== 'object') return null
+  const raw = (valve as { organization_id?: unknown }).organization_id
   return typeof raw === 'string' && raw.trim() ? raw.trim() : null
 }
 
@@ -145,20 +146,128 @@ export function filterValvesForCompany(
   )
 }
 
+function numericValveRowId(value: unknown): number {
+  const id = Number(value)
+  return Number.isFinite(id) ? id : 0
+}
+
+function organizationIdFromRow<T extends { valve_row_id: number }>(
+  row: T,
+  orgById: Map<number, string | null>,
+): string | null {
+  const mapped = orgById.get(numericValveRowId(row.valve_row_id))
+  if (mapped) return mapped
+  const rec = row as T & {
+    organization_id?: string | null
+    valve?: { organization_id?: string | null }
+  }
+  return valveOrganizationId(rec) ?? valveOrganizationId(rec.valve)
+}
+
 /** Scope rework / change-log style rows that only carry valve_row_id. */
 export function filterRowsByCompanyValveId<T extends { valve_row_id: number }>(
   rows: T[],
   options: {
     workflowKey: CompanyWorkflowKey
     activeOrganization: Organization | null
+    valves?: Array<{ id: number }>
+    organizationIdByValveRowId?: Map<number, string | null>
   },
 ): T[] {
+  const orgById = new Map(options.organizationIdByValveRowId ?? [])
+  for (const valve of options.valves ?? []) {
+    const orgId = valveOrganizationId(valve)
+    if (orgId && !orgById.get(valve.id)) orgById.set(valve.id, orgId)
+  }
   return rows.filter((row) =>
-    valveRowBelongsToCompany(row.valve_row_id, {
+    valveRowBelongsToCompany(numericValveRowId(row.valve_row_id), {
       workflowKey: options.workflowKey,
       activeOrganization: options.activeOrganization,
+      valveOrganizationId: organizationIdFromRow(row, orgById),
     }),
   )
+}
+
+/** Load valves.organization_id for rework / Quality rows that only store valve_row_id. */
+export async function loadValveOrganizationIdMap(
+  valveRowIds: Array<number | string | null | undefined>,
+): Promise<Map<number, string | null>> {
+  const unique = [
+    ...new Set(
+      valveRowIds.map((id) => numericValveRowId(id)).filter((id) => id > 0),
+    ),
+  ]
+  const map = new Map<number, string | null>()
+  const chunkSize = 150
+  for (let i = 0; i < unique.length; i += chunkSize) {
+    const chunk = unique.slice(i, i + chunkSize)
+    const { data, error } = await supabase.from('valves').select('id,organization_id').in('id', chunk)
+    if (error || !data?.length) continue
+    for (const row of data) {
+      const id = Number((row as { id?: unknown }).id)
+      if (!Number.isFinite(id)) continue
+      map.set(id, valveOrganizationId(row as { organization_id?: string | null }))
+    }
+  }
+  return map
+}
+
+/** Also resolve org from work-order `valve_id` when the log row id is missing or untagged. */
+export async function loadValveOrganizationMapForLogRows(
+  rows: Array<{ valve_row_id?: number | string | null; valve_id?: string | null }>,
+): Promise<Map<number, string | null>> {
+  const map = await loadValveOrganizationIdMap(rows.map((row) => row.valve_row_id))
+  const unresolved = rows.filter((row) => {
+    const id = numericValveRowId(row.valve_row_id)
+    return !map.get(id)
+  })
+  const workOrders = [
+    ...new Set(
+      unresolved
+        .map((row) => String(row.valve_id ?? '').trim())
+        .filter(Boolean),
+    ),
+  ]
+  const chunkSize = 150
+  for (let i = 0; i < workOrders.length; i += chunkSize) {
+    const chunk = workOrders.slice(i, i + chunkSize)
+    const { data, error } = await supabase
+      .from('valves')
+      .select('id,valve_id,organization_id')
+      .in('valve_id', chunk)
+    if (error || !data?.length) continue
+    const byWo = new Map<string, { id: number; organizationId: string | null }>()
+    for (const raw of data) {
+      const id = Number((raw as { id?: unknown }).id)
+      const wo = String((raw as { valve_id?: unknown }).valve_id ?? '').trim()
+      if (!Number.isFinite(id) || !wo) continue
+      const organizationId = valveOrganizationId(raw)
+      byWo.set(wo, { id, organizationId })
+      if (organizationId) map.set(id, organizationId)
+    }
+    for (const row of unresolved) {
+      const found = byWo.get(String(row.valve_id ?? '').trim())
+      if (!found?.organizationId) continue
+      const logId = numericValveRowId(row.valve_row_id)
+      if (logId > 0) map.set(logId, found.organizationId)
+      else map.set(found.id, found.organizationId)
+    }
+  }
+  return map
+}
+
+export async function filterRowsByCompanyValveIdAsync<
+  T extends { valve_row_id: number; valve_id?: string | null },
+>(
+  rows: T[],
+  options: {
+    workflowKey: CompanyWorkflowKey
+    activeOrganization: Organization | null
+    valves?: Array<{ id: number }>
+  },
+): Promise<T[]> {
+  const organizationIdByValveRowId = await loadValveOrganizationMapForLogRows(rows)
+  return filterRowsByCompanyValveId(rows, { ...options, organizationIdByValveRowId })
 }
 
 type LocalCompanyGaugeMap = Partial<Record<CompanyWorkflowKey, string[]>>

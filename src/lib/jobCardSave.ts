@@ -5,6 +5,7 @@ export type JobCardSaveFields = {
   valveType: string | null
   isTurnaround: boolean
   needsFailureAnalysis: boolean
+  preTestRequired: boolean
   assignedTechnicianId: number | null
   pressureClass: string | null
   bodyMaterial: string | null

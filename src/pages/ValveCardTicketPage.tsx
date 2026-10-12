@@ -10,6 +10,7 @@ import { technicianIdsForValve } from '../lib/valveTechnicianIds'
 import { fetchAllValves } from '../lib/fetchAllValves'
 import { downloadValveTicketPdf, openValveTicketPdfForPrint } from '../lib/valveTicketPrint'
 import { valveMatchesWorkOrderFilter, suggestWorkOrders } from '../lib/valveWorkOrderSearch'
+import { valveRequiresPreTest } from '../lib/jobTestCriteria'
 import { supabase } from '../lib/supabase'
 import type { Technician, Valve } from '../types'
 
@@ -466,6 +467,9 @@ export function ValveCardTicketPage() {
                   </p>
                   <p>
                     <strong>Test type:</strong> {selected.test_type ?? '-'}
+                  </p>
+                  <p>
+                    <strong>Pre-test required:</strong> {valveRequiresPreTest(selected) ? 'Yes' : 'No'}
                   </p>
                 </>
               ) : (

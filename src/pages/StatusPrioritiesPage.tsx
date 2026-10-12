@@ -7,6 +7,7 @@ export function StatusPrioritiesPage() {
   const [searchParams] = useSearchParams()
   const legacyKind = searchParams.get('kind')
   const legacyKey = searchParams.get('key')?.trim()
+  const statusKey = legacyKind === 'status' && legacyKey ? legacyKey : null
 
   const cellParam =
     searchParams.get('cells') ||
@@ -21,20 +22,19 @@ export function StatusPrioritiesPage() {
     Boolean(cellParam?.trim()) &&
     (legacyKind === 'cell' || singleDepartment === 'finish-cell')
 
-  const departmentParam = explicitDepartments
-    ? explicitDepartments
-    : fromWorkCell
-      ? openShopDepartmentsParam()
-      : singleDepartment ||
-        (legacyKind === 'status' && legacyKey
-          ? (departmentIdForShopStatus(legacyKey) ?? legacyKey)
-          : legacyKey && !legacyKind
-            ? (departmentIdForShopStatus(legacyKey) ?? legacyKey)
-            : null)
+  const departmentParam = statusKey
+    ? null
+    : explicitDepartments
+      ? explicitDepartments
+      : fromWorkCell
+        ? openShopDepartmentsParam()
+        : singleDepartment ||
+          (legacyKey && !legacyKind ? (departmentIdForShopStatus(legacyKey) ?? legacyKey) : null)
 
   return (
     <DailyPriorityWorksheet
       initialDepartments={departmentParam}
+      initialStatus={statusKey}
       initialCells={cellParam}
       showBackLink
     />

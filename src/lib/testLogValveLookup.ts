@@ -1,4 +1,5 @@
 import { TERMINAL_STATUSES } from '../constants/statuses'
+import { isMissingPreTestRequiredColumn } from './jobTestCriteria'
 import { supabase } from './supabase'
 import { canonicalizeValveType, valveTypeMatches, valveTypeOrFilter } from './testLogValveType'
 import { normalizeValveId } from './valveId'
@@ -15,10 +16,13 @@ export type TestLogValvePrefill = {
   cell: string | null
   description: string | null
   jobStatus: string | null
+  needsFailureAnalysis: boolean
+  preTestRequired: boolean
 }
 
-const VALVE_PREFILL_SELECT =
-  'id,valve_id,size,pressure_class,body_material,valve_type,test_type,customer,cell,description,status'
+const VALVE_PREFILL_SELECT_BASE =
+  'id,valve_id,size,pressure_class,body_material,valve_type,test_type,customer,cell,description,status,needs_failure_analysis'
+const VALVE_PREFILL_SELECT = `${VALVE_PREFILL_SELECT_BASE},pre_test_required`
 
 type ValvePrefillRow = {
   id: number
@@ -32,6 +36,8 @@ type ValvePrefillRow = {
   cell: string | null
   description: string | null
   status: string
+  needs_failure_analysis?: boolean | null
+  pre_test_required?: boolean | null
 }
 
 function mapValveRow(row: ValvePrefillRow): TestLogValvePrefill {
@@ -47,6 +53,8 @@ function mapValveRow(row: ValvePrefillRow): TestLogValvePrefill {
     cell: row.cell,
     description: row.description,
     jobStatus: row.status,
+    needsFailureAnalysis: row.needs_failure_analysis === true,
+    preTestRequired: row.pre_test_required === true,
   }
 }
 
@@ -70,7 +78,7 @@ export async function fetchValveForTestLog(valveIdInput: string): Promise<TestLo
   const candidates = Array.from(new Set([normalized, trimmed].filter(Boolean)))
 
   for (const candidate of candidates) {
-    const { data: valve } = await supabase
+    let { data: valve, error } = await supabase
       .from('valves')
       .select(VALVE_PREFILL_SELECT)
       .eq('valve_id', candidate)
@@ -78,18 +86,39 @@ export async function fetchValveForTestLog(valveIdInput: string): Promise<TestLo
       .limit(1)
       .maybeSingle()
 
+    if (error && isMissingPreTestRequiredColumn(error.message)) {
+      const retry = await supabase
+        .from('valves')
+        .select(VALVE_PREFILL_SELECT_BASE)
+        .eq('valve_id', candidate)
+        .order('id', { ascending: false })
+        .limit(1)
+        .maybeSingle()
+      valve = retry.data as typeof valve
+    }
+
     if (valve) return mapValveRow(valve as ValvePrefillRow)
   }
 
   // Shop often types the work order without the line suffix (506269 → 506269-1).
   const baseId = normalized || trimmed
   if (!baseId.includes('-')) {
-    const { data: matches } = await supabase
+    let { data: matches, error } = await supabase
       .from('valves')
       .select(VALVE_PREFILL_SELECT)
       .ilike('valve_id', `${baseId}-%`)
       .order('id', { ascending: false })
       .limit(25)
+
+    if (error && isMissingPreTestRequiredColumn(error.message)) {
+      const retry = await supabase
+        .from('valves')
+        .select(VALVE_PREFILL_SELECT_BASE)
+        .ilike('valve_id', `${baseId}-%`)
+        .order('id', { ascending: false })
+        .limit(25)
+      matches = retry.data as typeof matches
+    }
 
     const rows = (matches ?? []) as ValvePrefillRow[]
     if (rows.length) {

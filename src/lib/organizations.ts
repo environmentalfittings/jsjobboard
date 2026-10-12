@@ -1,3 +1,4 @@
+import { companyWorkflowKeyFromOrganization, type CompanyWorkflowKey } from '../constants/companyWorkflows'
 import {
   createLocalOrganization,
   ensureLocalJsValveAccessForEmployees,
@@ -22,7 +23,11 @@ export { LOCAL_DEV_ADMIN_USER_ID }
 export type OrganizationsBackend = 'remote' | 'local' | 'none'
 
 /**
- * Prefer live Supabase tables; in Vite DEV fall back to localStorage demo companies.
+ * Prefer live Supabase companies when the current session can actually read them.
+ *
+ * Local Superadmin is not a Supabase user (signed out), so RLS returns zero
+ * organization rows even though the tables exist. Treat that as the Vite DEV
+ * localStorage JS / VSI demo so the header switcher still works.
  *
  * Production / Vercel stays single-company JS Valve unless both are true:
  * 1) `organizations` tables exist, and
@@ -30,8 +35,9 @@ export type OrganizationsBackend = 'remote' | 'local' | 'none'
  * SQL migrations in /supabase are never auto-applied by Vercel.
  */
 export async function resolveOrganizationsBackend(): Promise<OrganizationsBackend> {
-  const tablesPresent = await detectOrganizationsEnabled()
-  if (tablesPresent) {
+  const { data, error } = await supabase.from('organizations').select('id').limit(1)
+  const canSeeCompanies = !error && (data?.length ?? 0) > 0
+  if (canSeeCompanies) {
     if (isLocalOrganizationsDevMode()) return 'remote'
     const prodFlag =
       String(import.meta.env.VITE_ENABLE_MULTI_COMPANY ?? '')
@@ -83,11 +89,65 @@ export async function detectOrganizationsEnabled(): Promise<boolean> {
   return false
 }
 
+const JS_STATUS_HINT = /^(on[-\s]?hold|not arrived|machine [12]|water jet|prv |warehouse rts|arrived - not started)$/i
+const VSI_STATUS_HINT = /^(hold|quarantine|staging area|receiving|tear down|pre-test|final test|tagging|qc|test\/failure analysis|new valve)$/i
+
+let inferredLiveOrgIdsPromise: Promise<Map<CompanyWorkflowKey, string>> | null = null
+
+/** Local Superadmin cannot read `organizations` (RLS). Infer JS vs VSI from tagged jobs. */
+async function inferLiveOrganizationIdsByWorkflowKey(): Promise<Map<CompanyWorkflowKey, string>> {
+  if (!inferredLiveOrgIdsPromise) {
+    inferredLiveOrgIdsPromise = (async () => {
+      const map = new Map<CompanyWorkflowKey, string>()
+      const { data, error } = await supabase
+        .from('valves')
+        .select('organization_id,status')
+        .not('organization_id', 'is', null)
+        .limit(4000)
+      if (error || !data?.length) return map
+
+      const byOrg = new Map<string, { js: number; vsi: number; n: number }>()
+      for (const row of data) {
+        const id = String((row as { organization_id?: string | null }).organization_id ?? '').trim()
+        if (!id || id.startsWith('local-org-')) continue
+        const rec = byOrg.get(id) ?? { js: 0, vsi: 0, n: 0 }
+        rec.n += 1
+        const status = String((row as { status?: string | null }).status ?? '').trim()
+        if (VSI_STATUS_HINT.test(status)) rec.vsi += 1
+        if (JS_STATUS_HINT.test(status)) rec.js += 1
+        byOrg.set(id, rec)
+      }
+
+      const ranked = [...byOrg.entries()].sort((a, b) => b[1].n - a[1].n)
+      for (const [id, rec] of ranked) {
+        if (rec.vsi > rec.js && !map.has('vsi')) map.set('vsi', id)
+        else if (rec.js >= rec.vsi && !map.has('js-valve')) map.set('js-valve', id)
+      }
+      if (!map.has('js-valve') && ranked[0]) map.set('js-valve', ranked[0][0])
+      if (!map.has('vsi')) {
+        const leftover = ranked.find(([id]) => id !== map.get('js-valve'))
+        if (leftover) map.set('vsi', leftover[0])
+      }
+      return map
+    })()
+  }
+  return inferredLiveOrgIdsPromise
+}
+
+async function listLocalOrganizationsAlignedToLiveIds(): Promise<Organization[]> {
+  const rows = listLocalOrganizations()
+  const inferred = await inferLiveOrganizationIdsByWorkflowKey()
+  return rows.map((org) => {
+    const liveId = inferred.get(companyWorkflowKeyFromOrganization(org))
+    return liveId ? { ...org, id: liveId } : org
+  })
+}
+
 export async function listOrganizations(): Promise<{ data: Organization[]; error: string | null; enabled: boolean }> {
   const backend = await resolveOrganizationsBackend()
   if (backend === 'none') return { data: [], error: null, enabled: false }
   if (backend === 'local') {
-    return { data: listLocalOrganizations(), error: null, enabled: true }
+    return { data: await listLocalOrganizationsAlignedToLiveIds(), error: null, enabled: true }
   }
 
   const { data, error } = await supabase
@@ -124,6 +184,24 @@ async function resolveEmployeeIdForAuthUser(userId: string): Promise<string | nu
   return String(data.id)
 }
 
+function membershipsForAllOrganizations(
+  userId: string,
+  organizations: Organization[],
+): OrganizationMembership[] {
+  return organizations
+    .filter((organization) => organization.is_active !== false && organization.id)
+    .map((organization) => ({
+      id: `local-dev-member-${organization.id}`,
+      organization_id: organization.id,
+      user_id: userId,
+      employee_id: null,
+      role: 'super_admin' as const,
+      can_access: true,
+      organization,
+    }))
+    .sort((a, b) => a.organization.name.localeCompare(b.organization.name))
+}
+
 export async function listMembershipsForUser(
   userId: string,
   options?: { employeeId?: string | null },
@@ -133,6 +211,16 @@ export async function listMembershipsForUser(
   const employeeId = options?.employeeId ?? (await resolveEmployeeIdForAuthUser(userId))
   const backend = await resolveOrganizationsBackend()
   if (backend === 'none') return { data: [], error: null, enabled: false }
+
+  // Local Superadmin bypass is not a Supabase user, so it has no organization_members
+  // rows. Grant every company (live UUIDs when they can be inferred) so localhost
+  // can switch JS / VSI like production.
+  if (userId === LOCAL_DEV_ADMIN_USER_ID) {
+    const orgs = await listOrganizations()
+    if (!orgs.enabled) return { data: [], error: null, enabled: false }
+    return { data: membershipsForAllOrganizations(userId, orgs.data), error: null, enabled: true }
+  }
+
   if (backend === 'local') {
     return { data: listLocalMembershipsForUser(userId, employeeId), error: null, enabled: true }
   }

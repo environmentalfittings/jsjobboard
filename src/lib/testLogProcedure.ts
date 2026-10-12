@@ -92,8 +92,9 @@ export function mapJobTestTypeToProcedures(
       continue
     }
 
-    // Legacy media-ish values (Water, AIR, etc.) are not test requirements.
-    if (/^(air|water|helium|mineral\s*oil|diesel|methane|prv)\b/i.test(part.trim())) {
+    // Legacy media-ish values (Water, AIR, AIR/GAS, etc.) are not test requirements.
+    if (/^pre[-\s]?test required$/i.test(part.trim())) continue
+    if (/^(air(\/gas)?|gas|liquid|steam|water|helium|mineral\s*oil|diesel|methane|prv)\b/i.test(part.trim())) {
       if (/4[\s-]?hour/i.test(part)) selected.push(FOUR_HOUR_CHART_TEST_LABEL)
       continue
     }
@@ -120,7 +121,7 @@ export function jobTestTypeLooksLikeMedia(value: string, mediaOptions: string[])
   const trimmed = value.trim()
   if (!trimmed) return false
   if (mediaOptions.some((option) => option.toLowerCase() === trimmed.toLowerCase())) return true
-  return /^(air|water|helium|mineral\s*oil|diesel|methane)\b/i.test(trimmed)
+  return /^(air(\/gas)?|gas|liquid|steam|water|helium|mineral\s*oil|diesel|methane)\b/i.test(trimmed)
 }
 
 export function parseTestProcedureFields(raw: Record<string, unknown> | undefined): TestProcedureFields {

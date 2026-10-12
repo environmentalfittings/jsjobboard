@@ -27,13 +27,30 @@ export function ShopWorkflowAdminPanel({ showToast }: ShopWorkflowAdminPanelProp
   const { activeOrganization } = useOrganization()
   const workflow = useCompanyWorkflow()
   const companyKey = workflow.key
-  const statusCatalog = useMemo(() => [...workflow.statusOrder], [workflow.statusOrder])
   const defaults = useMemo(() => defaultStatusWorkflowForCompany(companyKey), [companyKey])
 
   const [draft, setDraft] = useState<StatusWorkflowConfig>(() => cloneConfig(defaults))
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [expandedIndex, setExpandedIndex] = useState<number | null>(0)
+
+  const statusCatalog = useMemo(() => {
+    const seen = new Set<string>()
+    const list: string[] = []
+    const add = (raw: string) => {
+      const status = raw.trim()
+      if (!status || seen.has(status)) return
+      seen.add(status)
+      list.push(status)
+    }
+    for (const status of workflow.statusOrder) add(status)
+    for (const stage of draft.stages) {
+      add(stage.label)
+      for (const status of stage.statuses) add(status)
+    }
+    for (const status of draft.neutrals) add(status)
+    return list
+  }, [workflow.statusOrder, draft.stages, draft.neutrals])
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -63,7 +80,18 @@ export function ShopWorkflowAdminPanel({ showToast }: ShopWorkflowAdminPanelProp
 
   const updateStage = (index: number, patch: Partial<WorkflowStage>) => {
     setDraft((prev) => {
-      const stages = prev.stages.map((stage, i) => (i === index ? { ...stage, ...patch } : stage))
+      const stages = prev.stages.map((stage, i) => {
+        if (i !== index) return stage
+        const next = { ...stage, ...patch }
+        if (typeof patch.label === 'string') {
+          const previousLabel = stage.label.trim()
+          const onlySelf =
+            stage.statuses.length === 0 ||
+            (stage.statuses.length === 1 && stage.statuses[0] === previousLabel)
+          if (onlySelf) next.statuses = next.label.trim() ? [next.label.trim()] : []
+        }
+        return next
+      })
       return { ...prev, stages }
     })
   }
@@ -177,8 +205,9 @@ export function ShopWorkflowAdminPanel({ showToast }: ShopWorkflowAdminPanelProp
             {companyKey === 'vsi' ? ' (departments RV / CV / UL)' : ''}.{' '}
           </>
         ) : null}
-        This order is used to detect <strong>rework</strong> (backward status moves). Cards may skip stages. Moving to
-        an earlier stage requires a reason. Hold / waiting statuses listed below do not count as forward or reverse.
+        This order is used for the job <strong>Status</strong> dropdown and to detect <strong>rework</strong> (backward
+        status moves). A new stage name becomes a selectable status. Cards may skip stages. Moving to an earlier stage
+        requires a reason. Hold / waiting statuses listed below do not count as forward or reverse.
       </p>
 
       {unassignedStatuses.length > 0 ? (

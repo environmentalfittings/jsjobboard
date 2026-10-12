@@ -2,6 +2,8 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { useToast } from './ToastNotification'
 import { useAuth } from '../contexts/AuthContext'
+import { useOrganization } from '../contexts/OrganizationContext'
+import { useCompanyWorkflow } from '../hooks/useCompanyWorkflow'
 import { FINISH_CELLS } from '../constants/jobLookups'
 import {
   PRIORITY_DEPARTMENTS,
@@ -9,6 +11,8 @@ import {
   statusesForDepartments,
   type PriorityDepartmentId,
 } from '../constants/priorityDepartments'
+import type { CompanyWorkflowProfile } from '../constants/companyWorkflows'
+import { filterValvesForCompany, resolveActiveCompanyKey } from '../lib/companyDataScope'
 import { openDailyPriorityReportPrint } from '../lib/dailyPriorityReportPrint'
 import {
   filterClosedYesterday,
@@ -35,7 +39,9 @@ import {
   orderValvesByPriorityScope,
   saveHandoutAssignments,
   valvesForHandoutFilters,
+  valvesForStatusAndCellFilters,
   type HandoutAssignment,
+  type PriorityScope,
 } from '../lib/statusPriorityQueue'
 import { supabase } from '../lib/supabase'
 import type { Technician, Valve } from '../types'
@@ -52,9 +58,46 @@ function toggleId<T extends string | number>(list: T[], id: T): T[] {
   return list.includes(id) ? list.filter((x) => x !== id) : [...list, id]
 }
 
+function openShopStatuses(workflow: CompanyWorkflowProfile): string[] {
+  return workflow.statusOrder.filter(
+    (status) => !workflow.doneStatuses.has(status) && !workflow.terminalStatuses.has(status),
+  )
+}
+
+function parseCellList(value: string | null | undefined): string[] {
+  return (value ?? '')
+    .split(',')
+    .map((cell) => cell.trim())
+    .filter(Boolean)
+}
+
+function workCellPlural(label: string, lowercase = false): string {
+  const trimmed = label.trim()
+  const plural = /s$/i.test(trimmed) ? trimmed : `${trimmed}s`
+  return lowercase ? plural.toLowerCase() : plural
+}
+
+function statusesFromUrl(options: {
+  workflow: CompanyWorkflowProfile
+  useCompanyStatuses: boolean
+  initialStatus?: string | null
+  initialDepartments?: string | null
+}): string[] {
+  const open = openShopStatuses(options.workflow)
+  const status = options.initialStatus?.trim()
+  if (status) return open.includes(status) ? [status] : [status]
+  if (!options.useCompanyStatuses || !options.initialDepartments?.trim()) return []
+  const mapped = statusesForDepartments(parsePriorityDepartmentIds(options.initialDepartments)).filter(
+    (item) => open.includes(item),
+  )
+  return mapped
+}
+
 type DailyPriorityWorksheetProps = {
   /** Initial departments from URL, comma-separated. */
   initialDepartments?: string | null
+  /** Exact shop status from a dashboard chip (VSI Hold, etc.). */
+  initialStatus?: string | null
   /** Initial finish cells from URL, comma-separated. */
   initialCells?: string | null
   showBackLink?: boolean
@@ -64,6 +107,7 @@ type DailyPriorityWorksheetProps = {
 
 export function DailyPriorityWorksheet({
   initialDepartments,
+  initialStatus = null,
   initialCells,
   showBackLink = false,
   embedded = false,
@@ -71,18 +115,27 @@ export function DailyPriorityWorksheet({
   const { role } = useAuth()
   const canWrite = canWriteShop(role)
   const { showToast } = useToast()
+  const { activeOrganization } = useOrganization()
+  const workflow = useCompanyWorkflow()
+  const companyKey = resolveActiveCompanyKey(workflow.key, activeOrganization)
+  const useCompanyStatuses = companyKey === 'vsi'
 
   const [departmentIds, setDepartmentIds] = useState<PriorityDepartmentId[]>(() =>
-    parsePriorityDepartmentIds(initialDepartments),
+    initialStatus?.trim() || useCompanyStatuses
+      ? []
+      : parsePriorityDepartmentIds(initialDepartments),
   )
-  const [selectedCells, setSelectedCells] = useState<string[]>(() =>
-    (initialCells ?? '')
-      .split(',')
-      .map((c) => c.trim())
-      .filter(Boolean),
+  const [selectedStatuses, setSelectedStatuses] = useState<string[]>(() =>
+    statusesFromUrl({
+      workflow,
+      useCompanyStatuses,
+      initialStatus,
+      initialDepartments,
+    }),
   )
+  const [selectedCells, setSelectedCells] = useState<string[]>(() => parseCellList(initialCells))
 
-  const [valves, setValves] = useState<Valve[]>([])
+  const [catalogValves, setCatalogValves] = useState<Valve[]>([])
   const [assignments, setAssignments] = useState<HandoutAssignment[]>([])
   const [technicians, setTechnicians] = useState<Technician[]>([])
   const [finishCellLookups, setFinishCellLookups] = useState<string[]>([...FINISH_CELLS])
@@ -94,24 +147,59 @@ export function DailyPriorityWorksheet({
   const [yesterdayMoves, setYesterdayMoves] = useState<YesterdayStatusMove[]>([])
   const yesterdayLabel = useMemo(() => localYesterdayDateString(), [])
 
-  const scope = useMemo(
-    () => buildHandoutScopeKey(departmentIds, selectedCells),
-    [departmentIds, selectedCells],
+  const valves = useMemo(
+    () =>
+      filterValvesForCompany(catalogValves, {
+        workflowKey: companyKey,
+        activeOrganization,
+      }),
+    [catalogValves, companyKey, activeOrganization],
   )
-  const title = handoutScopeLabel(scope.key)
-  const defaultStatuses = useMemo(() => statusesForDepartments(departmentIds), [departmentIds])
+  const shopStatusOptions = useMemo(() => openShopStatuses(workflow), [workflow])
+  const scope = useMemo((): PriorityScope => {
+    if (useCompanyStatuses) {
+      const statusKey = selectedStatuses.length ? [...selectedStatuses].sort().join('+') : 'all'
+      const cellKeys = [...selectedCells].map((cell) => cell.trim()).filter(Boolean).sort()
+      return {
+        kind: 'status',
+        key: cellKeys.length ? `${statusKey}::${cellKeys.join('+')}` : statusKey,
+      }
+    }
+    return buildHandoutScopeKey(departmentIds, selectedCells)
+  }, [useCompanyStatuses, selectedStatuses, selectedCells, departmentIds])
+  const title = useCompanyStatuses
+    ? `${selectedStatuses.length ? selectedStatuses.join(' + ') : 'All statuses'}${
+        selectedCells.length ? ` · ${selectedCells.join(', ')}` : ''
+      }`
+    : handoutScopeLabel(scope.key)
+  const defaultStatuses = useMemo(
+    () => (useCompanyStatuses ? selectedStatuses : statusesForDepartments(departmentIds)),
+    [useCompanyStatuses, selectedStatuses, departmentIds],
+  )
   const cellOptions = useMemo(() => {
-    const fromJobs = finishCellsForDepartments(valves, departmentIds)
+    const fromJobs = useCompanyStatuses
+      ? valvesForStatusAndCellFilters(valves, selectedStatuses).map(
+          (valve) => (valve.cell ?? '').trim() || 'Unassigned',
+        )
+      : finishCellsForDepartments(valves, departmentIds)
+    const seed = useCompanyStatuses ? [...workflow.workCells] : [...finishCellLookups]
     const seen = new Set<string>()
     const ordered: string[] = []
-    for (const cell of [...finishCellLookups, ...fromJobs]) {
+    for (const cell of [...seed, ...fromJobs]) {
       const key = cell.trim()
       if (!key || seen.has(key)) continue
       seen.add(key)
       ordered.push(key)
     }
     return ordered
-  }, [valves, departmentIds, finishCellLookups])
+  }, [
+    valves,
+    departmentIds,
+    finishCellLookups,
+    useCompanyStatuses,
+    selectedStatuses,
+    workflow.workCells,
+  ])
   const allDepartmentsSelected =
     PRIORITY_DEPARTMENTS.length > 0 &&
     PRIORITY_DEPARTMENTS.every((dept) => departmentIds.includes(dept.id))
@@ -146,7 +234,7 @@ export function DailyPriorityWorksheet({
     ])
     if (error) {
       showToast(`Could not load valves: ${error.message}`)
-      setValves([])
+      setCatalogValves([])
       setAssignments([])
       setYesterdayClosed([])
       setYesterdayMoves([])
@@ -155,17 +243,29 @@ export function DailyPriorityWorksheet({
     }
     if (!techRes.error && techRes.data) setTechnicians(techRes.data as Technician[])
     if (lookupMap.finish_cell?.length) setFinishCellLookups(lookupMap.finish_cell)
-    setValves(data ?? [])
+    setCatalogValves(data ?? [])
     setLoading(false)
   }, [showToast])
 
   /** Apply department/cell scope using valves already in memory. */
   const applyScope = useCallback(
     async (allValves: Valve[]) => {
-      const inScope = valvesForHandoutFilters(allValves, departmentIds, selectedCells)
+      const inScope = useCompanyStatuses
+        ? valvesForStatusAndCellFilters(allValves, selectedStatuses, selectedCells)
+        : valvesForHandoutFilters(allValves, departmentIds, selectedCells)
       setYesterdayClosed(filterClosedYesterday(allValves, selectedCells))
       const byWo = new Map(allValves.map((v) => [v.valve_id, v]))
-      const { moves, error: movesError } = await loadYesterdayStatusMoves(departmentIds, byWo)
+      const moveStatuses = useCompanyStatuses
+        ? selectedStatuses.length
+          ? selectedStatuses
+          : shopStatusOptions
+        : undefined
+      const { moves, error: movesError } = await loadYesterdayStatusMoves(
+        departmentIds,
+        byWo,
+        new Date(),
+        moveStatuses,
+      )
       if (movesError) {
         showToast(
           movesError.includes('permission') || movesError.includes('policy')
@@ -197,7 +297,15 @@ export function DailyPriorityWorksheet({
         setAssignments(mergeWithJobTechs(mergeHandoutAssignments([], inScope)))
       }
     },
-    [departmentIds, selectedCells, scope, showToast],
+    [
+      departmentIds,
+      selectedCells,
+      selectedStatuses,
+      useCompanyStatuses,
+      shopStatusOptions,
+      scope,
+      showToast,
+    ],
   )
 
   useEffect(() => {
@@ -205,12 +313,31 @@ export function DailyPriorityWorksheet({
   }, [refreshCatalog])
 
   useEffect(() => {
+    setSelectedCells(parseCellList(initialCells))
+    setSelectedStatuses(
+      statusesFromUrl({
+        workflow,
+        useCompanyStatuses,
+        initialStatus,
+        initialDepartments,
+      }),
+    )
+    setDepartmentIds(
+      initialStatus?.trim() || useCompanyStatuses
+        ? []
+        : parsePriorityDepartmentIds(initialDepartments),
+    )
+  }, [initialCells, initialStatus, initialDepartments, useCompanyStatuses, workflow.key])
+
+  useEffect(() => {
     if (loading && valves.length === 0) return
     void applyScope(valves)
   }, [valves, applyScope, loading])
 
   const rows = useMemo(() => {
-    const inScope = valvesForHandoutFilters(valves, departmentIds, selectedCells)
+    const inScope = useCompanyStatuses
+      ? valvesForStatusAndCellFilters(valves, selectedStatuses, selectedCells)
+      : valvesForHandoutFilters(valves, departmentIds, selectedCells)
     const ordered = orderValvesByPriorityScope(
       inScope,
       assignments.map((row) => row.valve_id),
@@ -226,7 +353,15 @@ export function DailyPriorityWorksheet({
         },
       }))
       .filter(({ assignment }) => matchesTechnicianFilter(assignment.assigned_technician_ids))
-  }, [valves, departmentIds, selectedCells, assignments, matchesTechnicianFilter])
+  }, [
+    valves,
+    departmentIds,
+    selectedCells,
+    selectedStatuses,
+    useCompanyStatuses,
+    assignments,
+    matchesTechnicianFilter,
+  ])
 
   const persist = async (next: HandoutAssignment[]) => {
     setAssignments(next)
@@ -343,8 +478,11 @@ export function DailyPriorityWorksheet({
       {embedded ? (
         <>
           <p className="placeholder-copy resources-hint">
-            Pick one or more departments and finish cells. Clear departments to include all.
-            Technician assignments update the job card across the app; notes stay on this handout.
+            Pick one or more {useCompanyStatuses ? 'statuses' : 'departments'} and{' '}
+            {workCellPlural(workflow.workCellLabel, true)}. Clear{' '}
+            {useCompanyStatuses ? 'statuses' : 'departments'} to
+            include all. Technician assignments update the job card across the app; notes stay on this
+            handout.
           </p>
           {actions}
         </>
@@ -358,8 +496,11 @@ export function DailyPriorityWorksheet({
             ) : null}
             <h2 className="dashboard-title">Daily priorities</h2>
             <p className="placeholder-copy resources-hint">
-              Pick one or more departments and finish cells. Clear departments to include all.
-              Technician assignments update the job card across the app; notes stay on this handout.
+              Pick one or more {useCompanyStatuses ? 'statuses' : 'departments'} and{' '}
+              {workCellPlural(workflow.workCellLabel, true)}. Clear{' '}
+              {useCompanyStatuses ? 'statuses' : 'departments'}{' '}
+              to include all. Technician assignments update the job card across the app; notes stay on this
+              handout.
             </p>
           </div>
           {actions}
@@ -369,17 +510,33 @@ export function DailyPriorityWorksheet({
       <section className="dashboard-panel">
         <div className="daily-priority-filter-grid">
           <fieldset className="daily-priority-multiselect">
-            <legend>Departments</legend>
+            <legend>{useCompanyStatuses ? 'Statuses' : 'Departments'}</legend>
             <p className="daily-priority-filter-hint">
-              {departmentIds.length
-                ? `Selected statuses: ${defaultStatuses.join(', ') || '—'}`
-                : 'None selected = all departments'}
+              {useCompanyStatuses
+                ? selectedStatuses.length
+                  ? `Selected: ${selectedStatuses.join(', ')}`
+                  : 'None selected = all statuses'
+                : departmentIds.length
+                  ? `Selected statuses: ${defaultStatuses.join(', ') || '—'}`
+                  : 'None selected = all departments'}
             </p>
             <label className="daily-priority-check daily-priority-check-all">
               <input
                 type="checkbox"
-                checked={allDepartmentsSelected}
+                checked={
+                  useCompanyStatuses
+                    ? shopStatusOptions.length > 0 &&
+                      shopStatusOptions.every((status) => selectedStatuses.includes(status))
+                    : allDepartmentsSelected
+                }
                 onChange={() => {
+                  if (useCompanyStatuses) {
+                    const allSelected =
+                      shopStatusOptions.length > 0 &&
+                      shopStatusOptions.every((status) => selectedStatuses.includes(status))
+                    setSelectedStatuses(allSelected ? [] : [...shopStatusOptions])
+                    return
+                  }
                   if (allDepartmentsSelected) {
                     setDepartmentIds([])
                   } else {
@@ -387,28 +544,40 @@ export function DailyPriorityWorksheet({
                   }
                 }}
               />
-              <span>Select all departments</span>
+              <span>{useCompanyStatuses ? 'Select all statuses' : 'Select all departments'}</span>
             </label>
             <div className="daily-priority-check-list">
-              {PRIORITY_DEPARTMENTS.map((dept) => (
-                <label key={dept.id} className="daily-priority-check">
-                  <input
-                    type="checkbox"
-                    checked={departmentIds.includes(dept.id)}
-                    onChange={() => {
-                      setDepartmentIds(toggleId(departmentIds, dept.id))
-                    }}
-                  />
-                  <span>{dept.label}</span>
-                </label>
-              ))}
+              {useCompanyStatuses
+                ? shopStatusOptions.map((status) => (
+                    <label key={status} className="daily-priority-check">
+                      <input
+                        type="checkbox"
+                        checked={selectedStatuses.includes(status)}
+                        onChange={() => setSelectedStatuses(toggleId(selectedStatuses, status))}
+                      />
+                      <span>{status}</span>
+                    </label>
+                  ))
+                : PRIORITY_DEPARTMENTS.map((dept) => (
+                    <label key={dept.id} className="daily-priority-check">
+                      <input
+                        type="checkbox"
+                        checked={departmentIds.includes(dept.id)}
+                        onChange={() => {
+                          setDepartmentIds(toggleId(departmentIds, dept.id))
+                        }}
+                      />
+                      <span>{dept.label}</span>
+                    </label>
+                  ))}
             </div>
           </fieldset>
 
           <fieldset className="daily-priority-multiselect">
-            <legend>Finish cells</legend>
+            <legend>{workCellPlural(workflow.workCellLabel)}</legend>
             <p className="daily-priority-filter-hint">
-              None selected = all cells in the chosen departments
+              None selected = all {workCellPlural(workflow.workCellLabel, true)} in the chosen{' '}
+              {useCompanyStatuses ? 'statuses' : 'departments'}
             </p>
             {cellOptions.length > 0 ? (
               <label className="daily-priority-check daily-priority-check-all">
@@ -419,7 +588,7 @@ export function DailyPriorityWorksheet({
                     setSelectedCells(allCellsSelected ? [] : [...cellOptions])
                   }}
                 />
-                <span>Select all finish cells</span>
+                <span>Select all {workCellPlural(workflow.workCellLabel, true)}</span>
               </label>
             ) : null}
             <div className="daily-priority-check-list">

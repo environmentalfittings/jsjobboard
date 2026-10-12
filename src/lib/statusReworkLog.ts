@@ -171,6 +171,20 @@ export async function countStatusReworkLog(): Promise<number> {
   return count ?? 0
 }
 
+/** All logged rework refs — used to company-scope the all-time total. */
+export async function fetchStatusReworkLogValveRefs(): Promise<
+  { valve_row_id: number; valve_id: string }[]
+> {
+  const { data, error } = await supabase.from('status_rework_log').select('valve_row_id,valve_id')
+  if (error || !data) return []
+  return data
+    .map((row) => ({
+      valve_row_id: Number((row as { valve_row_id?: unknown }).valve_row_id),
+      valve_id: String((row as { valve_id?: unknown }).valve_id ?? ''),
+    }))
+    .filter((row) => Number.isFinite(row.valve_row_id))
+}
+
 /** Count rework / backward moves for a local calendar day range (inclusive YYYY-MM-DD). */
 export async function countStatusReworkLogInRange(
   startDate: string,

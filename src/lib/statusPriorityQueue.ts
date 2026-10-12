@@ -7,7 +7,7 @@ import {
 } from '../constants/priorityDepartments'
 import { blockSharedShopDeletes, SHARED_SHOP_DELETE_BLOCKED_MESSAGE } from './companyDataGuard'
 import { compareValveIdSequential } from './valveWorkOrderSearch'
-import { displayJobStatus, isActiveShopWork } from './jobDisplayStatus'
+import { displayJobStatus, isActiveShopWork, isClosedWorkOrder } from './jobDisplayStatus'
 import { supabase } from './supabase'
 import type { Valve } from '../types'
 
@@ -127,6 +127,25 @@ export function valvesForHandoutFilters(
 
   return valves.filter((v) => {
     if (!statusSet.has(handoutStatusForValve(v))) return false
+    if (cellSet && !cellSet.has((v.cell ?? '').trim())) return false
+    return true
+  })
+}
+
+/** Filter open jobs by exact shop statuses (empty = all open) and optional cells. */
+export function valvesForStatusAndCellFilters(
+  valves: Valve[],
+  statuses: readonly string[] = [],
+  cells: readonly string[] = [],
+): Valve[] {
+  const statusSet = statuses.length
+    ? new Set(statuses.map((status) => status.trim()).filter(Boolean))
+    : null
+  const cellSet = cells.length ? new Set(cells.map((cell) => cell.trim()).filter(Boolean)) : null
+
+  return valves.filter((v) => {
+    if (isClosedWorkOrder(v)) return false
+    if (statusSet && !statusSet.has(handoutStatusForValve(v))) return false
     if (cellSet && !cellSet.has((v.cell ?? '').trim())) return false
     return true
   })

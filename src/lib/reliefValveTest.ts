@@ -72,6 +72,7 @@ export function isReliefValveType(valveType: string | null | undefined): boolean
     n.includes('relief') ||
     n.includes('safety valve') ||
     n === 'prv' ||
+    n === 'rv' ||
     n.includes('pressure relief')
   )
 }

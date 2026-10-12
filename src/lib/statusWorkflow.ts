@@ -7,7 +7,7 @@
  * VSI uses localStorage in the multi-company demo until org-scoped DB config exists.
  */
 
-import type { CompanyWorkflowKey } from '../constants/companyWorkflows'
+import type { CompanyWorkflowKey, CompanyWorkflowProfile } from '../constants/companyWorkflows'
 import { VSI_STATUS_ORDER } from '../constants/companyWorkflows'
 import { supabase } from './supabase'
 
@@ -95,6 +95,18 @@ type CompanyWorkflowCache = {
 
 const caches = new Map<CompanyWorkflowKey, CompanyWorkflowCache>()
 const loadPromises = new Map<CompanyWorkflowKey, Promise<StatusWorkflowConfig>>()
+const workflowListeners = new Set<() => void>()
+
+export function subscribeStatusWorkflow(listener: () => void): () => void {
+  workflowListeners.add(listener)
+  return () => {
+    workflowListeners.delete(listener)
+  }
+}
+
+function notifyStatusWorkflowListeners() {
+  for (const listener of workflowListeners) listener()
+}
 
 function getCache(companyKey: CompanyWorkflowKey): CompanyWorkflowCache {
   let cache = caches.get(companyKey)
@@ -150,6 +162,7 @@ function buildStatusIndex(config: StatusWorkflowConfig): Map<string, number> {
 function applyConfig(companyKey: CompanyWorkflowKey, config: StatusWorkflowConfig): StatusWorkflowConfig {
   const cache = buildCache(config)
   caches.set(companyKey, cache)
+  notifyStatusWorkflowListeners()
   return cloneConfig(cache.config)
 }
 
@@ -164,6 +177,11 @@ export function normalizeConfig(config: StatusWorkflowConfig): StatusWorkflowCon
       if (!status || seen.has(status)) continue
       seen.add(status)
       statuses.push(status)
+    }
+    // Empty stage (Add stage → name it) still becomes a selectable shop status.
+    if (statuses.length === 0 && label && !seen.has(label)) {
+      seen.add(label)
+      statuses.push(label)
     }
     stages.push({
       key: stage.key?.trim() || slugKey(label, index),
@@ -329,6 +347,96 @@ export async function saveStatusWorkflowConfig(
   if (error) return { error: new Error(error.message) }
   applyConfig('js-valve', normalized)
   return { error: null }
+}
+
+/** Shop statuses in workflow order: each stage's assigned statuses, or the stage name. */
+export function statusOrderFromConfig(config: StatusWorkflowConfig): string[] {
+  const seen = new Set<string>()
+  const order: string[] = []
+  const add = (raw: string) => {
+    const status = raw.trim()
+    if (!status || seen.has(status)) return
+    seen.add(status)
+    order.push(status)
+  }
+  for (const stage of config.stages) {
+    if (stage.statuses.length) stage.statuses.forEach(add)
+    else add(stage.label)
+  }
+  for (const status of config.neutrals) add(status)
+  return order
+}
+
+function classifyUnmappedStatus(
+  status: string,
+  profile: CompanyWorkflowProfile,
+): 'incoming' | 'in-shop' | 'testing' | 'waiting' | 'done' {
+  if (profile.incomingStatuses.has(status)) return 'incoming'
+  if (profile.inShopStatuses.has(status)) return 'in-shop'
+  if (profile.testingStatuses.has(status)) return 'testing'
+  if (profile.waitingStatuses.has(status)) return 'waiting'
+  if (profile.doneStatuses.has(status) || profile.terminalStatuses.has(status)) return 'done'
+  if (/wait|hold|quarantine|staging/i.test(status)) return 'waiting'
+  if (/test/i.test(status)) return 'testing'
+  if (/incoming|receiving|not arrived|new valve/i.test(status)) return 'incoming'
+  if (/ship|complete|warehouse rts|junked|replaced/i.test(status)) return 'done'
+  return 'in-shop'
+}
+
+/** Overlay Admin → Shop workflow onto the company profile (Status dropdown, kanban phases). */
+export function overlayWorkflowProfile(profile: CompanyWorkflowProfile): CompanyWorkflowProfile {
+  const config = getStatusWorkflowConfig(profile.key)
+  const statusOrder = statusOrderFromConfig(config)
+  if (statusOrder.length === 0) return profile
+
+  const incoming = new Set(profile.incomingStatuses)
+  const inShop = new Set(profile.inShopStatuses)
+  const testing = new Set(profile.testingStatuses)
+  const waiting = new Set(profile.waitingStatuses)
+  const done = new Set(profile.doneStatuses)
+  const terminal = new Set(profile.terminalStatuses)
+  const neutrals = new Set(config.neutrals)
+
+  for (const status of statusOrder) {
+    if (
+      incoming.has(status) ||
+      inShop.has(status) ||
+      testing.has(status) ||
+      waiting.has(status) ||
+      done.has(status)
+    ) {
+      continue
+    }
+    const bucket = neutrals.has(status) ? 'waiting' : classifyUnmappedStatus(status, profile)
+    if (bucket === 'incoming') incoming.add(status)
+    else if (bucket === 'testing') testing.add(status)
+    else if (bucket === 'waiting') waiting.add(status)
+    else if (bucket === 'done') {
+      done.add(status)
+      terminal.add(status)
+    } else inShop.add(status)
+  }
+
+  const phases = profile.phases.map((phase) => {
+    if (phase.key === 'incoming') return { ...phase, statuses: incoming }
+    if (phase.key === 'in-shop') return { ...phase, statuses: inShop }
+    if (phase.key === 'testing') return { ...phase, statuses: testing }
+    if (phase.key === 'waiting') return { ...phase, statuses: waiting }
+    if (phase.key === 'done') return { ...phase, statuses: done }
+    return phase
+  })
+
+  return {
+    ...profile,
+    statusOrder,
+    incomingStatuses: incoming,
+    inShopStatuses: inShop,
+    testingStatuses: testing,
+    waitingStatuses: waiting,
+    doneStatuses: done,
+    terminalStatuses: terminal,
+    phases,
+  }
 }
 
 /** @deprecated Use getNeutralWorkflowStatuses() */

@@ -12,8 +12,11 @@ import { useCompanyWorkflow } from '../hooks/useCompanyWorkflow'
 import { companyLogoUrl } from '../lib/companyBranding'
 import {
   filterGaugesForCompany,
-  filterRowsByCompanyValveId,
+  filterRowsByCompanyValveIdAsync,
+  filterTestLogsForCompany,
   filterValvesForCompany,
+  loadVsiValveIdStrings,
+  resolveActiveCompanyKey,
 } from '../lib/companyDataScope'
 import {
   calcActiveJobsByCell,
@@ -119,21 +122,101 @@ export function DashboardPage() {
     } else if (valvesData) {
       setValveRows(valvesData)
 
-      const { data: testLogRows, error: testLogError } = await supabase
-        .from('test_logs')
-        .select('tested_on,valve_id,pass_fail')
-        .order('tested_on', { ascending: false })
-        .limit(40)
+      const companyScope = {
+        workflowKey: workflow.key,
+        activeOrganization,
+      }
+      const scopedValves = filterValvesForCompany(valvesData, companyScope)
+      const byValveId = new Map<string, Valve>()
+      for (const valve of scopedValves) {
+        const key = String(valve.valve_id ?? '')
+          .trim()
+          .toUpperCase()
+        if (key && !byValveId.has(key)) byValveId.set(key, valve)
+      }
+
+      let testLogRows: { tested_on: string; valve_id: string; pass_fail: string | null }[] = []
+      let testLogError: { message: string } | null = null
+      const companyKey = resolveActiveCompanyKey(workflow.key, activeOrganization)
+
+      if (companyKey === 'vsi') {
+        const vsiIds = await loadVsiValveIdStrings(activeOrganization)
+        const originalIds: string[] = []
+        for (const valve of scopedValves) {
+          const raw = String(valve.valve_id ?? '').trim()
+          if (raw) originalIds.push(raw)
+          const key = raw.toUpperCase()
+          if (key) vsiIds.add(key)
+        }
+        if (originalIds.length) {
+          const { data, error } = await supabase
+            .from('test_logs')
+            .select('tested_on,valve_id,pass_fail')
+            .in('valve_id', originalIds.slice(0, 200))
+            .order('tested_on', { ascending: false })
+            .limit(40)
+          testLogError = error
+          if (!error) {
+            testLogRows = (data ?? []) as {
+              tested_on: string
+              valve_id: string
+              pass_fail: string | null
+            }[]
+          }
+        }
+        if (!testLogError && testLogRows.length < 5 && vsiIds.size) {
+          const pageSize = 100
+          for (let page = 0; page < 12 && testLogRows.length < 40; page += 1) {
+            const from = page * pageSize
+            const { data, error } = await supabase
+              .from('test_logs')
+              .select('tested_on,valve_id,pass_fail')
+              .order('tested_on', { ascending: false })
+              .range(from, from + pageSize - 1)
+            if (error) {
+              testLogError = error
+              break
+            }
+            const batch = (data ?? []) as { tested_on: string; valve_id: string; pass_fail: string | null }[]
+            if (!batch.length) break
+            testLogRows.push(
+              ...batch.filter((entry) =>
+                vsiIds.has(
+                  String(entry.valve_id ?? '')
+                    .trim()
+                    .toUpperCase(),
+                ),
+              ),
+            )
+            if (batch.length < pageSize) break
+          }
+        }
+      } else {
+        const { data, error } = await supabase
+          .from('test_logs')
+          .select('tested_on,valve_id,pass_fail')
+          .order('tested_on', { ascending: false })
+          .limit(80)
+        testLogError = error
+        if (!error) {
+          testLogRows = await filterTestLogsForCompany(
+            (data ?? []) as { tested_on: string; valve_id: string; pass_fail: string | null }[],
+            companyScope,
+          )
+        }
+      }
 
       if (testLogError) {
         showToast(`Could not load recent test log: ${testLogError.message}`)
         setRecentTested([])
       } else {
-        const byValveId = new Map(valvesData.map((v) => [v.valve_id, v]))
         const rows: RecentTestedRow[] = []
-        for (const entry of testLogRows ?? []) {
+        for (const entry of testLogRows) {
           if (!String(entry.pass_fail ?? '').toUpperCase().includes('PASS')) continue
-          const valve = byValveId.get(entry.valve_id)
+          const key = String(entry.valve_id ?? '')
+            .trim()
+            .toUpperCase()
+          const valve = byValveId.get(key)
           rows.push({
             valve_id: entry.valve_id,
             customer: valve?.customer ?? null,
@@ -180,10 +263,13 @@ export function DashboardPage() {
     const today = localTodayDateString()
     const { data: reworkToday } = await fetchStatusReworkLog(today, today)
     setReworkTodayCount(
-      filterRowsByCompanyValveId(reworkToday, {
-        workflowKey: workflow.key,
-        activeOrganization,
-      }).length,
+      (
+        await filterRowsByCompanyValveIdAsync(reworkToday, {
+          workflowKey: workflow.key,
+          activeOrganization,
+          valves: valvesData ?? [],
+        })
+      ).length,
     )
 
     setLastRefreshed(new Date())
@@ -264,7 +350,8 @@ export function DashboardPage() {
 
   const visibleRecentTested = useMemo(() => {
     const ids = new Set(valves.map((v) => v.id))
-    return recentTested.filter((row) => row.valveRowId != null && ids.has(row.valveRowId)).slice(0, 5)
+    const matched = recentTested.filter((row) => row.valveRowId != null && ids.has(row.valveRowId))
+    return (matched.length ? matched : recentTested).slice(0, 5)
   }, [recentTested, valves])
 
   const persistPriorityOrder = async (nextOrder: string[]) => {
@@ -458,7 +545,11 @@ export function DashboardPage() {
                 <Link
                   key={row.cell}
                   className="cell-row"
-                  to={`/status-priorities?departments=${encodeURIComponent(openShopDepartmentsParam())}&cell=${encodeURIComponent(row.cell)}`}
+                  to={
+                    workflow.key === 'vsi'
+                      ? `/status-priorities?cell=${encodeURIComponent(row.cell)}`
+                      : `/status-priorities?departments=${encodeURIComponent(openShopDepartmentsParam())}&cell=${encodeURIComponent(row.cell)}`
+                  }
                   title={`Daily priorities for ${workflow.workCellLabel.toLowerCase()} ${row.cell}`}
                 >
                   <div className="cell-name">{row.cell}</div>
@@ -550,6 +641,9 @@ export function DashboardPage() {
                     key={item.status}
                     className={`status-breakdown-chip ${toneClass}${item.count === 0 ? ' status-breakdown-chip-empty' : ''}`}
                     to={(() => {
+                      if (workflow.key === 'vsi') {
+                        return `/status-priorities?kind=status&key=${encodeURIComponent(item.status)}`
+                      }
                       const dept = departmentIdForShopStatus(item.status)
                       return dept
                         ? `/status-priorities?department=${dept}`

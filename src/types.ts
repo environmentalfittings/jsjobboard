@@ -35,6 +35,8 @@ export interface Valve {
   is_turnaround?: boolean | null
   /** Job flagged for failure analysis / engineering review. */
   needs_failure_analysis?: boolean | null
+  /** Shop must run a pre-test. Forced on when failure analysis is required. */
+  pre_test_required?: boolean | null
   pressure_class?: string | null
   body_material?: string | null
   /** Dashboard final approval for Warehouse RTS / Shipping. */

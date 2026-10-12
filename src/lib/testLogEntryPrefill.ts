@@ -23,6 +23,7 @@ export type JobCardTestLogPrefill = {
   cell?: string | null
   description?: string | null
   jobStatus?: string | null
+  preTestRequired?: boolean
   editId?: number | string | null
 }
 
@@ -57,6 +58,8 @@ export function buildTestLogEntryHref(p: JobCardTestLogPrefill): string {
 
   const st = (p.jobStatus ?? '').trim()
   if (st) params.set(TEST_LOG_PREFILL_KEYS.jobStatus, st)
+
+  if (p.preTestRequired) params.set('preTestRequired', '1')
 
   const editRaw = p.editId == null ? '' : String(p.editId).trim()
   if (editRaw && /^\d+$/.test(editRaw)) {

@@ -15,7 +15,7 @@ import { JOB_TYPES, normalizeJobType } from '../constants/jobTypes'
 import { TERMINAL_STATUSES } from '../constants/statuses'
 import { useCompanyWorkflow } from '../hooks/useCompanyWorkflow'
 import {
-  filterRowsByCompanyValveId,
+  filterRowsByCompanyValveIdAsync,
   filterTestLogsForCompany,
   filterValvesForCompany,
   resolveActiveCompanyKey,
@@ -25,9 +25,12 @@ import { pieColorForIndex, printPieChartReport, printTableReport } from '../lib/
 import { downloadCompletedJobsReportPdf } from '../lib/completedJobsReportPdf'
 import { loadLookupOptionsMap } from '../lib/lookupValues'
 import { supabase } from '../lib/supabase'
-import { countDueDateChanges, fetchDueDateChanges } from '../lib/dueDateChanges'
+import {
+  fetchDueDateChanges,
+  fetchDueDateChangeValveRowIds,
+} from '../lib/dueDateChanges'
 import { clearReworkQaDisposition, markReworkDispositionNa } from '../lib/statusReworkLog'
-import { countStatusReworkLog, fetchStatusReworkLog } from '../lib/statusReworkLog'
+import { fetchStatusReworkLog, fetchStatusReworkLogValveRefs } from '../lib/statusReworkLog'
 import { isExcludedFromOnTimeDelivery, OTD_EXCLUDED_CUSTOMER_LABEL, OTD_PAUSE_STATUS_LABEL } from '../lib/onTimeDelivery'
 import { printOnTimeDeliveryReport } from '../lib/onTimeDeliveryPrint'
 import {
@@ -500,18 +503,25 @@ export function ReportsPage() {
   const loadDueDateChanges = async () => {
     if (!dueDateStart || !dueDateEnd) return
     setDueDateChangeLoading(true)
-    const [{ data, error }, totalLogged] = await Promise.all([
+    const [{ data, error }, allRefs] = await Promise.all([
       fetchDueDateChanges(dueDateStart, dueDateEnd),
-      countDueDateChanges(),
+      fetchDueDateChangeValveRowIds(),
     ])
-    setDueDateChangeLoading(false)
-    setDueDateChangeTotalLogged(totalLogged)
     if (error) {
+      setDueDateChangeLoading(false)
       showToast(`Could not load due date changes: ${error.message}`)
       setDueDateChangeRows([])
+      setDueDateChangeTotalLogged(null)
       return
     }
-    setDueDateChangeRows(data)
+    const scope = { workflowKey: companyKey, activeOrganization }
+    const [scoped, totalScoped] = await Promise.all([
+      filterRowsByCompanyValveIdAsync(data, scope),
+      filterRowsByCompanyValveIdAsync(allRefs, scope),
+    ])
+    setDueDateChangeLoading(false)
+    setDueDateChangeRows(scoped)
+    setDueDateChangeTotalLogged(totalScoped.length)
   }
 
   const exportDueDateChangesCsv = () => {
@@ -567,24 +577,25 @@ export function ReportsPage() {
     const end = range?.end ?? reworkEnd
     if (!start || !end) return
     setReworkLoading(true)
-    const [{ data, error }, totalLogged] = await Promise.all([
+    const [{ data, error }, allRefs] = await Promise.all([
       fetchStatusReworkLog(start, end),
-      countStatusReworkLog(),
+      fetchStatusReworkLogValveRefs(),
     ])
-    setReworkLoading(false)
     if (error) {
+      setReworkLoading(false)
       showToast(`Could not load rework log: ${error.message}`)
       setReworkRows([])
-      setReworkTotalLogged(totalLogged)
+      setReworkTotalLogged(null)
       return
     }
-    const scoped = filterRowsByCompanyValveId(data, {
-      workflowKey: companyKey,
-      activeOrganization,
-    })
+    const scope = { workflowKey: companyKey, activeOrganization }
+    const [scoped, totalScoped] = await Promise.all([
+      filterRowsByCompanyValveIdAsync(data, scope),
+      filterRowsByCompanyValveIdAsync(allRefs, scope),
+    ])
+    setReworkLoading(false)
     setReworkRows(scoped)
-    // Prefer scoped row count for the active company; all-time total stays global until org column exists.
-    setReworkTotalLogged(companyKey === 'vsi' ? scoped.length : totalLogged)
+    setReworkTotalLogged(totalScoped.length)
   }
 
   const applyReworkDatePreset = (preset: ReworkDatePreset) => {
@@ -726,7 +737,8 @@ export function ReportsPage() {
 
   useEffect(() => {
     void loadReworkLog()
-    // Reload when active company changes so VSI does not show JS Valve rework.
+    void loadDueDateChanges()
+    // Reload when active company changes so VSI does not show JS Valve rows.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [companyKey, activeOrganization?.id])
 
@@ -1497,12 +1509,12 @@ export function ReportsPage() {
 
   const reworkReportSection = (
       <CollapsibleReportPanel id="rework"
-      title="Rework / backward status moves"
+      title={`Rework / backward status moves${companyReportName ? ` · ${companyReportName}` : ''}`}
       defaultOpen={focusReworkReport}
     >
       <p className="placeholder-copy">
-          Forward shop flow (editable in Manage Lists → Shop workflow): Pull → Teardown → Machine 1 → Welding →
-          Machine 2 → Fitting → Assembly → Adaption → Actuation → Testing → Painting → Warehouse RTS → Completed.
+          Forward shop flow for {companyReportName || workflow.label} (editable in Manage Lists → Shop workflow):{' '}
+          {workflow.statusOrder.join(' → ')}.
           Cards may skip steps. When a card moves to an earlier stage, the technician must enter a rework reason. Only
           moves logged <strong>after</strong> the rework table is set up in Supabase appear here. Use <strong>NA</strong>{' '}
           to acknowledge no report is needed, or <strong>INCR</strong> to open an Internal Non-Conformance Report (stored
@@ -2399,7 +2411,10 @@ export function ReportsPage() {
         ) : null}
       </CollapsibleReportPanel>
 
-      <CollapsibleReportPanel id="daily-priorities" title="Daily priorities">
+      <CollapsibleReportPanel
+        id="daily-priorities"
+        title={`Daily priorities${companyReportName ? ` · ${companyReportName}` : ''}`}
+      >
         <DailyPriorityWorksheet embedded />
       </CollapsibleReportPanel>
 
@@ -2817,7 +2832,7 @@ export function ReportsPage() {
       </CollapsibleReportPanel>
 
       <CollapsibleReportPanel
-      title="Due date changes"
+      title={`Due date changes${companyReportName ? ` · ${companyReportName}` : ''}`}
     >
       <p className="placeholder-copy">
           Logs due date moves from the job board (click the due date on a card, or change it on the job card and save).

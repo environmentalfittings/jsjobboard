@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { Link, useNavigate } from 'react-router-dom'
 import { JOB_TYPES, isValveRelatedJobType, normalizeJobType } from '../constants/jobTypes'
@@ -7,8 +7,16 @@ import { VALVE_TYPE_EDIT_PIN } from '../constants/valveTypeEditGate'
 import { useCompanyWorkflow } from '../hooks/useCompanyWorkflow'
 import { useToast } from './ToastNotification'
 import { loadLookupOptionsMap } from '../lib/lookupValues'
-import { formatJobTestTypes, parseJobTestTypes } from '../lib/jobTestTypes'
+import {
+  formatJobTestSelections,
+  isPreTestRequiredForced,
+  parseJobTestSelections,
+  preTestLockReason,
+  resolvePreTestRequired,
+} from '../lib/jobTestCriteria'
+import { isReliefValveType } from '../lib/reliefValveTest'
 import { TEST_PROCEDURE_OTHER } from '../lib/testLogProcedure'
+import { JobTestCriteriaFields } from './JobTestCriteriaFields'
 import { buildTestLogEntryHref } from '../lib/testLogEntryPrefill'
 import { type JobCardSaveFields, toDateInputValue } from '../lib/jobCardSave'
 import { isPretestLogText, type ShopTestKind } from '../lib/testKind'
@@ -169,6 +177,12 @@ export function StatusChangeModal({
   const [turnaroundDraft, setTurnaroundDraft] = useState(() => valve.is_turnaround === true)
   const [needsFailureAnalysisDraft, setNeedsFailureAnalysisDraft] = useState(
     () => valve.needs_failure_analysis === true,
+  )
+  const [preTestRequiredDraft, setPreTestRequiredDraft] = useState(
+    () =>
+      valve.pre_test_required === true ||
+      valve.needs_failure_analysis === true ||
+      /failure\s*analysis/i.test(valve.status),
   )
   const [isMaximized, setIsMaximized] = useState(forceMaximized)
   const [assignedTechDraft, setAssignedTechDraft] = useState<number[]>(assignedTechnicianIds)
@@ -369,15 +383,15 @@ export function StatusChangeModal({
     setJobTypeDraft(valve.job_type ?? 'Valve Repair')
     setOrderTypeDraft(valve.order_type ?? '')
     setDueDateDraft(toDateInputValue(valve.due_date))
-    const known = testTypeOptions.length
-      ? [...testTypeOptions, TEST_PROCEDURE_OTHER]
-      : [TEST_PROCEDURE_OTHER]
-    const parsed = parseJobTestTypes(valve.test_type, known)
-    const knownSet = new Set(known)
-    const recognized = parsed.filter((value) => knownSet.has(value))
-    const custom = parsed.filter((value) => !knownSet.has(value))
-    setTestTypesDraft(custom.length ? [...recognized, TEST_PROCEDURE_OTHER] : recognized)
-    setTestTypeOtherDraft(custom.join(', '))
+    const parsed = parseJobTestSelections(valve.test_type, valve.valve_type, testTypeOptions)
+    setTestTypesDraft(parsed.selected)
+    setTestTypeOtherDraft(parsed.otherText)
+    setPreTestRequiredDraft(
+      valve.pre_test_required === true ||
+        parsed.preTestRequired ||
+        valve.needs_failure_analysis === true ||
+        /failure\s*analysis/i.test(valve.status),
+    )
     setMaterialSpecDraft(valve.material_spec ?? '')
     setDrawingPoNumberDraft(valve.drawing_po_number ?? '')
     setPreTestedDraft(toDateInputValue(valve.date_pre_tested))
@@ -396,12 +410,36 @@ export function StatusChangeModal({
     valve.order_type,
     valve.due_date,
     valve.test_type,
+    valve.valve_type,
+    valve.pre_test_required,
+    valve.needs_failure_analysis,
+    valve.status,
     valve.material_spec,
     valve.drawing_po_number,
     valve.date_pre_tested,
     valve.date_tested,
     testTypeOptions,
   ])
+
+  useEffect(() => {
+    if (
+      isPreTestRequiredForced({
+        needsFailureAnalysis: needsFailureAnalysisDraft,
+        status: selectedStatus,
+      })
+    ) {
+      setPreTestRequiredDraft(true)
+    }
+  }, [needsFailureAnalysisDraft, selectedStatus])
+
+  const reliefTypeDraft = isReliefValveType(valveTypeDraft)
+  const prevReliefTypeDraft = useRef(reliefTypeDraft)
+  useEffect(() => {
+    if (prevReliefTypeDraft.current === reliefTypeDraft) return
+    prevReliefTypeDraft.current = reliefTypeDraft
+    setTestTypesDraft([])
+    setTestTypeOtherDraft('')
+  }, [reliefTypeDraft])
 
   useEffect(() => {
     setValveTypeDraft(valve.valve_type ?? '')
@@ -477,6 +515,18 @@ export function StatusChangeModal({
   const bowlSummaryLabel =
     bowlTypeDraft.trim() === '' ? 'Auto (from valve type)' : itpTemplateLabel(bowlTypeDraft)
 
+  const liveJobTestType =
+    formatJobTestSelections({
+      valveType: valveTypeUnlocked ? valveTypeDraft : valve.valve_type,
+      selected: testTypesDraft,
+      otherText: testTypeOtherDraft,
+    }) || valve.test_type
+  const livePreTestRequired = resolvePreTestRequired({
+    preTestRequired: preTestRequiredDraft,
+    needsFailureAnalysis: needsFailureAnalysisDraft,
+    status: selectedStatus,
+  })
+
   const testLogEntryHref = useMemo(
     () =>
       buildTestLogEntryHref({
@@ -484,17 +534,18 @@ export function StatusChangeModal({
         size: valve.size,
         pressure: valve.pressure_class,
         valveType: (valveTypeUnlocked ? valveTypeDraft : (valve.valve_type ?? '')).trim() || null,
-        testType: valve.test_type,
+        testType: liveJobTestType,
         customer: valve.customer,
         cell: valve.cell,
         description,
         jobStatus: selectedStatus,
+        preTestRequired: livePreTestRequired,
       }),
     [
       valve.valve_id,
       valve.size,
       valve.pressure_class,
-      valve.test_type,
+      liveJobTestType,
       valve.customer,
       valve.cell,
       valve.valve_type,
@@ -502,6 +553,7 @@ export function StatusChangeModal({
       valveTypeDraft,
       description,
       selectedStatus,
+      livePreTestRequired,
     ],
   )
 
@@ -550,6 +602,14 @@ export function StatusChangeModal({
     }
     const normalizedJobType = normalizeJobType(jobTypeDraft)
     const valveRelated = isValveRelatedJobType(normalizedJobType)
+    if (valveRelated && isReliefValveType(valveTypeDraft) && testTypesDraft.includes('Other') && !testTypeOtherDraft.trim()) {
+      showToast('Describe the other test media')
+      return
+    }
+    if (valveRelated && testTypesDraft.includes(TEST_PROCEDURE_OTHER) && !testTypeOtherDraft.trim()) {
+      showToast('Describe the other test type')
+      return
+    }
     void onSaveAll({
       description,
       notes,
@@ -557,6 +617,11 @@ export function StatusChangeModal({
       valveType: valveTypeDraft.trim() || null,
       isTurnaround: turnaroundDraft,
       needsFailureAnalysis: needsFailureAnalysisDraft,
+      preTestRequired: resolvePreTestRequired({
+        preTestRequired: preTestRequiredDraft,
+        needsFailureAnalysis: needsFailureAnalysisDraft,
+        status: selectedStatus,
+      }),
       assignedTechnicianId: assignedTechSingleDraft,
       pressureClass: pressureClassDraft.trim() || null,
       bodyMaterial: bodyMaterialDraft.trim() || null,
@@ -567,14 +632,11 @@ export function StatusChangeModal({
       orderType: orderTypeDraft.trim() || null,
       dueDate: dueDateDraft.trim() || null,
       testType: valveRelated
-        ? formatJobTestTypes(
-            testTypesDraft.includes(TEST_PROCEDURE_OTHER)
-              ? [
-                  ...testTypesDraft.filter((value) => value !== TEST_PROCEDURE_OTHER),
-                  testTypeOtherDraft.trim(),
-                ]
-              : testTypesDraft,
-          ) || null
+        ? formatJobTestSelections({
+            valveType: valveTypeDraft,
+            selected: testTypesDraft,
+            otherText: testTypeOtherDraft,
+          }) || null
         : null,
       materialSpec: valveRelated ? null : materialSpecDraft.trim() || null,
       drawingPoNumber: valveRelated ? null : drawingPoNumberDraft.trim() || null,
@@ -583,6 +645,14 @@ export function StatusChangeModal({
 
   const normalizedJobType = normalizeJobType(jobTypeDraft)
   const valveRelatedJob = isValveRelatedJobType(normalizedJobType)
+  const preTestForced = isPreTestRequiredForced({
+    needsFailureAnalysis: needsFailureAnalysisDraft,
+    status: selectedStatus,
+  })
+  const preTestForcedReason = preTestLockReason({
+    needsFailureAnalysis: needsFailureAnalysisDraft,
+    status: selectedStatus,
+  })
   const allowNaSizeAndClass =
     !valveRelatedJob || (valveRelatedJob && /actuator/i.test((valveTypeDraft ?? '').trim()))
 
@@ -834,11 +904,12 @@ export function StatusChangeModal({
                       pressure: valve.pressure_class,
                       valveType:
                         (valveTypeUnlocked ? valveTypeDraft : (valve.valve_type ?? '')).trim() || null,
-                      testType: valve.test_type,
+                      testType: liveJobTestType,
                       customer: valve.customer,
                       cell: valve.cell,
                       description,
                       jobStatus: selectedStatus,
+                      preTestRequired: livePreTestRequired,
                       editId: r.id,
                     })}
                     className="button-secondary modal-test-log-stamp-btn"
@@ -925,10 +996,23 @@ export function StatusChangeModal({
                   <input
                     type="checkbox"
                     checked={needsFailureAnalysisDraft}
-                    onChange={(e) => setNeedsFailureAnalysisDraft(e.target.checked)}
+                    onChange={(e) => {
+                      const checked = e.target.checked
+                      setNeedsFailureAnalysisDraft(checked)
+                      if (checked) setPreTestRequiredDraft(true)
+                    }}
                     disabled={isSaving || !canEditJobDetails}
                   />
                   <span>Failure analysis</span>
+                </label>
+                <label className="job-card-turnaround-pill job-card-pretest-required-pill">
+                  <input
+                    type="checkbox"
+                    checked={preTestRequiredDraft}
+                    onChange={(e) => setPreTestRequiredDraft(e.target.checked)}
+                    disabled={isSaving || !canEditJobDetails || preTestForced}
+                  />
+                  <span>Pre-Test Required</span>
                 </label>
                 <div className="job-card-status-field">
                   <span className="job-card-status-prefix" id="job-card-status-label">
@@ -1380,45 +1464,21 @@ export function StatusChangeModal({
                         ))}
                       </datalist>
 
-                      <fieldset className="modal-test-types">
-                        <legend className="modal-label">Test type(s)</legend>
-                        <div className="modal-test-type-checkboxes" role="group" aria-label="Test types">
-                          {[...testTypeOptions, TEST_PROCEDURE_OTHER].map((option) => (
-                            <label key={option} className="modal-test-type-checkbox">
-                              <input
-                                type="checkbox"
-                                checked={testTypesDraft.includes(option)}
-                                disabled={isSaving}
-                                onChange={(e) => {
-                                  const checked = e.target.checked
-                                  setTestTypesDraft((prev) => {
-                                    const next = checked
-                                      ? [...prev, option]
-                                      : prev.filter((value) => value !== option)
-                                    if (!next.includes(TEST_PROCEDURE_OTHER)) setTestTypeOtherDraft('')
-                                    return next
-                                  })
-                                }}
-                              />
-                              <span>{option === TEST_PROCEDURE_OTHER ? 'Other…' : option}</span>
-                            </label>
-                          ))}
-                        </div>
-                        {testTypesDraft.includes(TEST_PROCEDURE_OTHER) ? (
-                          <label className="modal-label" htmlFor="modal-test-type-other">
-                            Other test type
-                            <input
-                              id="modal-test-type-other"
-                              type="text"
-                              className="modal-status-select"
-                              value={testTypeOtherDraft}
-                              onChange={(e) => setTestTypeOtherDraft(e.target.value)}
-                              disabled={isSaving}
-                              placeholder="Describe other test requirements"
-                            />
-                          </label>
-                        ) : null}
-                      </fieldset>
+                      <JobTestCriteriaFields
+                        idPrefix={`job-modal-${valve.id}`}
+                        valveType={valveTypeDraft}
+                        procedureOptions={testTypeOptions}
+                        selected={testTypesDraft}
+                        otherText={testTypeOtherDraft}
+                        onSelectedChange={setTestTypesDraft}
+                        onOtherTextChange={setTestTypeOtherDraft}
+                        preTestRequired={preTestRequiredDraft}
+                        onPreTestRequiredChange={setPreTestRequiredDraft}
+                        preTestLocked={preTestForced}
+                        preTestLockReason={preTestForcedReason}
+                        disabled={isSaving}
+                        layout="modal"
+                      />
                     </>
                   ) : (
                     <>
