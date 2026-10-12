@@ -1333,7 +1333,7 @@ export function AdminListsPage() {
           <h3>{tab === 'itpTravelerLists' ? 'ITP traveler dropdowns' : 'Dropdown options'}</h3>
           <p className="placeholder-copy" style={{ marginTop: '0.35rem' }}>
             {tab === 'itpTravelerLists'
-              ? 'These lists feed Repair needed and other traveler dropdowns. Add a list (Seat repair, Stem repair, …), then add the choices. On the template traveler, pick this list as the dropdown source. Extra ITP steps still map with the checkboxes under each choice.'
+              ? 'These lists feed Repair needed and other traveler dropdowns. Repair needed defaults to Repair Needed, Accepted, Polish and Remeasure, and Other. On the template traveler, pick this list as the dropdown source. Extra ITP steps still map with the checkboxes under each choice; Other also asks the technician to type what it is.'
               : 'These lists feed job cards and traveler dropdowns. Traveler requirements can pick a list here (for example Outlet / end connection) instead of typing options on each field. Edit them once and every valve that uses that traveler field stays in sync.'}
           </p>
           <div className="admin-category-tabs">

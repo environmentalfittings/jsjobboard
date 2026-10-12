@@ -93,8 +93,12 @@ import { ItpPhotoMinMaxFields } from './ItpPhotoMinMaxFields'
 import { ItpOemProcedureDocs } from './ItpOemProcedureDocs'
 import { ItpStationSelect } from './ItpStationSelect'
 import {
+  catalogReqFromUnlockDraft,
   collectUnlockItemIdsFromSels,
+  latentSelFromUnlockDraft,
+  unlockStepHasTraveler,
   type ItpUnlockCandidate,
+  type ItpUnlockStepDraft,
 } from '../lib/itpMeasUnlocks'
 import { migrateFastenerRecordSel } from '../lib/itpFastenerRecord'
 import { stepUsesOemOrProcedure } from '../lib/itpOemProcedure'
@@ -310,6 +314,32 @@ function resolvedItemStation(shopArea: string | undefined, catalogArea: string |
   )
 }
 
+function toUnlockCandidate(
+  item: ItpMasterCatalogItem,
+  sel: ItpLibraryItemSel,
+  areas: ItpShopAreaDef[],
+  processSections: ItpProcessSectionDef[],
+): ItpUnlockCandidate {
+  const secId = effectiveScopeSectionId(item.secId, sel)
+  const station = resolvedItemStation(sel.shopArea, item.area)
+  const measFields = sel.measFields.length > 0 ? sel.measFields : (item.measFields ?? [])
+  const requirePicture = Boolean(sel.requirePicture || item.requirePicture)
+  return {
+    id: item.id,
+    name: item.name,
+    secId,
+    secTitle: processSectionTitle(secId, processSections),
+    shopAreaLabel: station ? itpShopAreaLabel(station, areas) : '',
+    area: station,
+    canEditTraveler: !item.builtIn && !sel.included,
+    requirePicture,
+    pictureLabel: sel.pictureLabel || item.pictureLabel || '',
+    minPhotos: sel.minPhotos || item.minPhotos || 1,
+    maxPhotos: sel.maxPhotos || item.maxPhotos || 4,
+    measFields,
+  }
+}
+
 function unlockCandidatesFor(
   items: ItpMasterCatalogItem[],
   scope: ItpLibraryTemplateScope,
@@ -319,18 +349,7 @@ function unlockCandidatesFor(
 ): ItpUnlockCandidate[] {
   return items
     .filter((item) => item.id !== sourceItemId)
-    .map((item) => {
-      const sel = getSel(scope, item.id)
-      const secId = effectiveScopeSectionId(item.secId, sel)
-      const station = resolvedItemStation(sel.shopArea, item.area)
-      return {
-        id: item.id,
-        name: item.name,
-        secId,
-        secTitle: processSectionTitle(secId, processSections),
-        shopAreaLabel: station ? itpShopAreaLabel(station, areas) : '',
-      }
-    })
+    .map((item) => toUnlockCandidate(item, getSel(scope, item.id), areas, processSections))
 }
 
 function withUnlockLatentItems(
@@ -1446,6 +1465,112 @@ export function ItpTemplateBuilderPanel({
     setTravelerFocusItemId(id)
     showToast(`Added “${name}” to traveler — Save template when ready`)
     return id
+  }
+
+  const attachUnlockStepToLayer = (catalogItem: ItpMasterCatalogItem, sel: ItpLibraryItemSel) => {
+    const attachToScope = (prev: ItpLibraryTemplateScope): ItpLibraryTemplateScope => ({
+      ...prev,
+      custom: upsertCustomItem(prev.custom, catalogItem, true),
+      sel: { ...prev.sel, [catalogItem.id]: sel },
+    })
+    if (builderLayer === 'global') {
+      setCatalog((prev) => {
+        const idx = prev.findIndex((row) => row.id === catalogItem.id)
+        if (idx < 0) return reindexCatalog([...prev, catalogItem])
+        return prev.map((row) => (row.id === catalogItem.id ? { ...row, ...catalogItem } : row))
+      })
+      setMasterDirty(true)
+      setScope(attachToScope)
+      setDirty(true)
+      return
+    }
+    if (builderLayer === 'job_master') {
+      setJobMasterScope(attachToScope)
+      setJobMasterDirty(true)
+      return
+    }
+    if (builderLayer === 'valve_master') {
+      setValveMasterScope(attachToScope)
+      setValveMasterDirty(true)
+      return
+    }
+    setScope(attachToScope)
+    setDirty(true)
+  }
+
+  const addUnlockExtraStep = (draft: ItpUnlockStepDraft): ItpUnlockCandidate | null => {
+    const name = draft.name.trim()
+    if (!name) {
+      showToast('Enter the extra step')
+      return null
+    }
+    const existing = catalogForLayer.find(
+      (item) => item.name.trim().toLowerCase() === name.toLowerCase(),
+    )
+    if (existing && existing.id !== lineTravelerItemId) {
+      showToast(`“${existing.name}” is already on this ITP — it is checked for this choice`)
+      return toUnlockCandidate(existing, getSel(editingScope, existing.id), areas, processSections)
+    }
+    const secId = draft.secId.trim() || 'repair'
+    const area = normalizeShopAreaValue(draft.area) || defaultAreaForSection(secId)
+    const id = `master-${secId}-${Date.now().toString(36)}`
+    const nextOrder =
+      Math.max(
+        catalog.reduce((max, item) => Math.max(max, item.sortOrder), -1),
+        catalogForLayer.reduce((max, item) => Math.max(max, item.sortOrder), -1),
+      ) + 1
+    const req = catalogReqFromUnlockDraft(draft)
+    const catalogItem: ItpMasterCatalogItem = {
+      id,
+      name,
+      ref: 'Custom',
+      secId,
+      area,
+      sortOrder: nextOrder,
+      builtIn: false,
+      ...req,
+    }
+    const latentSel: ItpLibraryItemSel = {
+      ...latentSelFromUnlockDraft({ ...draft, secId, area }),
+      included: false,
+    }
+    attachUnlockStepToLayer(catalogItem, latentSel)
+    const travelerNote = unlockStepHasTraveler(draft)
+      ? ' Traveler fields are on this step.'
+      : ''
+    showToast(
+      `Saved “${name}” — it turns on when this choice is selected.${travelerNote} Save traveler requirements, then save the template.`,
+    )
+    return toUnlockCandidate(catalogItem, latentSel, areas, processSections)
+  }
+
+  const updateUnlockExtraStep = (
+    itemId: string,
+    draft: ItpUnlockStepDraft,
+  ): ItpUnlockCandidate | null => {
+    const existing = catalogById.get(itemId)
+    if (!existing) {
+      showToast('Could not find that extra step')
+      return null
+    }
+    const name = draft.name.trim() || existing.name
+    const secId = draft.secId.trim() || existing.secId || 'repair'
+    const area = normalizeShopAreaValue(draft.area) || existing.area || defaultAreaForSection(secId)
+    const catalogItem: ItpMasterCatalogItem = {
+      ...existing,
+      name,
+      secId,
+      area,
+      ...catalogReqFromUnlockDraft({ ...draft, name, secId, area }),
+    }
+    const current = getSel(editingScope, itemId)
+    const nextSel: ItpLibraryItemSel = {
+      ...latentSelFromUnlockDraft({ ...draft, name, secId, area }, current),
+      included: current.included,
+    }
+    attachUnlockStepToLayer(catalogItem, nextSel)
+    showToast(`Saved traveler on “${name}”. Save traveler requirements, then save the template.`)
+    return toUnlockCandidate(catalogItem, nextSel, areas, processSections)
   }
 
   const removeMasterItem = (itemId: string) => {
@@ -2713,6 +2838,8 @@ export function ItpTemplateBuilderPanel({
             processSections,
             travelerFocusItemId ?? '',
           )}
+          onCreateUnlockStep={addUnlockExtraStep}
+          onUpdateUnlockStep={updateUnlockExtraStep}
           onUpdateSel={updateSel}
           onAddRequirement={addTravelerRequirement}
           onBackToEdit={() => setWorkspaceMode('edit')}
@@ -4194,6 +4321,10 @@ export function ItpTemplateBuilderPanel({
             processSections,
             lineTravelerItemId,
           )}
+          processSections={processSections}
+          shopAreas={areas}
+          onCreateUnlockStep={addUnlockExtraStep}
+          onUpdateUnlockStep={updateUnlockExtraStep}
           onCancel={() => setLineTravelerItemId(null)}
           onSave={(patch) => {
             updateSel(lineTravelerItemId, patch)

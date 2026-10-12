@@ -220,7 +220,8 @@ export function markDoneBlockedReason(
       return !isNaAnswer(followUp) && !followUp.trim()
     })
     if (missingFollowUp) {
-      return `Enter ${followUpLabelOf(missingFollowUp)} for ${missingFollowUp.label} (${missingFollowUp.followUpWhen})`
+      const when = String(missingFollowUp.followUpWhen ?? '').trim() || 'Other'
+      return `Enter ${followUpLabelOf(missingFollowUp)} for ${missingFollowUp.label} (${when})`
     }
     return 'Fill in all required fields or mark them N/A before marking done'
   }

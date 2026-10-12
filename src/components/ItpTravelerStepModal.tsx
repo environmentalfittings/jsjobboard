@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
 import { useToast } from './ToastNotification'
 import {
@@ -15,7 +15,6 @@ import {
   getFieldPhotos,
   getMeasValue,
   isNaAnswer,
-  ITP_JOB_CARD_FIELD_OPTIONS,
   itemRequiresMeasurements,
   itemRequiresPicture,
   markDoneBlockedReason,
@@ -461,9 +460,27 @@ export function ItpTravelerStepModal({
     })
   }
 
-  const renderFieldHeader = (field: ItpMeasFieldDef, required: boolean, naOn: boolean) => {
+  const renderNaToggle = (fieldId: string, naOn: boolean) => (
+    <button
+      type="button"
+      className={`itp-traveler-na-btn${naOn ? ' on' : ''}`}
+      disabled={saving}
+      aria-pressed={naOn}
+      title={naOn ? 'Clear N/A and enter a value' : 'Mark this field not applicable'}
+      onClick={() => toggleFieldNa(fieldId)}
+    >
+      N/A
+    </button>
+  )
+
+  const renderFieldHeader = (
+    field: ItpMeasFieldDef,
+    required: boolean,
+    naOn: boolean,
+    options?: { naInHeader?: boolean },
+  ) => {
     const jobKey = resolveJobCardField(field)
-    const jobLabel = ITP_JOB_CARD_FIELD_OPTIONS.find((opt) => opt.value === jobKey)?.label
+    const fromJobCard = Boolean(jobKey)
     return (
       <div className="itp-traveler-step-field-hdr">
         <div className="itp-traveler-step-field-title">
@@ -471,25 +488,23 @@ export function ItpTravelerStepModal({
             {field.label}
             {required ? (
               <span className="itp-traveler-step-field-req" aria-hidden>
-                {' '}
                 *
               </span>
             ) : null}
           </span>
-          {jobLabel ? <span className="itp-traveler-jobcard-hint">From job card · {jobLabel}</span> : null}
+          {fromJobCard ? <span className="itp-traveler-jobcard-hint">Job card</span> : null}
         </div>
-        <button
-          type="button"
-          className={`itp-traveler-na-btn${naOn ? ' on' : ''}`}
-          disabled={saving}
-          title={naOn ? 'Clear N/A and enter a value' : 'Mark this field not applicable'}
-          onClick={() => toggleFieldNa(field.id)}
-        >
-          N/A
-        </button>
+        {options?.naInHeader ? renderNaToggle(field.id, naOn) : null}
       </div>
     )
   }
+
+  const renderFieldControl = (fieldId: string, naOn: boolean, control: ReactNode) => (
+    <div className="itp-traveler-step-field-control">
+      {control}
+      {renderNaToggle(fieldId, naOn)}
+    </div>
+  )
 
   const renderTechField = (field: ItpMeasFieldDef) => {
     const required = field.required !== false
@@ -507,7 +522,7 @@ export function ItpTravelerStepModal({
             required && !naOn ? ` itp-traveler-req-photo${met ? ' is-met' : ''}` : ''
           }${naOn ? ' is-na' : ''}`}
         >
-          {renderFieldHeader(field, required, naOn)}
+          {renderFieldHeader(field, required, naOn, { naInHeader: true })}
           {naOn ? (
             <p className="placeholder-copy">Marked N/A — no picture required on this job.</p>
           ) : (
@@ -576,7 +591,7 @@ export function ItpTravelerStepModal({
     if (field.type === 'textarea') {
       return (
         <div key={field.id} className={`itp-traveler-step-field itp-traveler-step-field--wide${naOn ? ' is-na' : ''}`}>
-          {renderFieldHeader(field, required, naOn)}
+          {renderFieldHeader(field, required, naOn, { naInHeader: true })}
           {naOn ? (
             <input value={NA_MEAS_VALUE} disabled readOnly aria-label={`${field.label} not applicable`} />
           ) : (
@@ -624,27 +639,31 @@ export function ItpTravelerStepModal({
       return (
         <div key={field.id} className={`itp-traveler-step-field${naOn ? ' is-na' : ''}`}>
           {renderFieldHeader(field, required, naOn)}
-          <select
-            value={value}
-            disabled={saving}
-            onChange={(e) => {
-              const next = e.target.value
-              setExec((prev) => {
-                let patch = patchMeasValue(prev, field.id, next)
-                if (!followUpApplies(field, next)) {
-                  patch = { ...patch, ...patchMeasValue({ ...prev, ...patch }, followUpId, '') }
-                }
-                return { ...prev, ...patch }
-              })
-            }}
-          >
-            <option value="">{loadingList ? '— Loading manufacturers —' : '— Select —'}</option>
-            {options.map((opt) => (
-              <option key={opt} value={opt}>
-                {opt}
-              </option>
-            ))}
-          </select>
+          {renderFieldControl(
+            field.id,
+            naOn,
+            <select
+              value={value}
+              disabled={saving}
+              onChange={(e) => {
+                const next = e.target.value
+                setExec((prev) => {
+                  let patch = patchMeasValue(prev, field.id, next)
+                  if (!followUpApplies(field, next)) {
+                    patch = { ...patch, ...patchMeasValue({ ...prev, ...patch }, followUpId, '') }
+                  }
+                  return { ...prev, ...patch }
+                })
+              }}
+            >
+              <option value="">{loadingList ? '— Loading manufacturers —' : '— Select —'}</option>
+              {options.map((opt) => (
+                <option key={opt} value={opt}>
+                  {opt}
+                </option>
+              ))}
+            </select>,
+          )}
           {unlockAdds ? (
             <div className="itp-traveler-unlock-preview">
               {unlockAdds.length === 0 ? (
@@ -712,16 +731,20 @@ export function ItpTravelerStepModal({
       return (
         <div key={field.id} className={`itp-traveler-step-field${naOn ? ' is-na' : ''}`}>
           {renderFieldHeader(field, required, naOn)}
-          <select
-            value={value}
-            disabled={saving}
-            onChange={(e) => setFieldValue(field.id, e.target.value)}
-          >
-            <option value="">— Select —</option>
-            <option value="Yes">Yes</option>
-            <option value="No">No</option>
-            <option value={NA_MEAS_VALUE}>{NA_MEAS_VALUE}</option>
-          </select>
+          {renderFieldControl(
+            field.id,
+            naOn,
+            <select
+              value={value}
+              disabled={saving}
+              onChange={(e) => setFieldValue(field.id, e.target.value)}
+            >
+              <option value="">— Select —</option>
+              <option value="Yes">Yes</option>
+              <option value="No">No</option>
+              <option value={NA_MEAS_VALUE}>{NA_MEAS_VALUE}</option>
+            </select>,
+          )}
         </div>
       )
     }
@@ -729,14 +752,18 @@ export function ItpTravelerStepModal({
     return (
       <div key={field.id} className={`itp-traveler-step-field${naOn ? ' is-na' : ''}`}>
         {renderFieldHeader(field, required, naOn)}
-        <input
-          type={field.type === 'number' ? 'number' : 'text'}
-          value={value}
-          disabled={saving || naOn}
-          readOnly={naOn}
-          placeholder={required ? 'Required' : 'Optional'}
-          onChange={(e) => setFieldValue(field.id, e.target.value)}
-        />
+        {renderFieldControl(
+          field.id,
+          naOn,
+          <input
+            type={field.type === 'number' ? 'number' : 'text'}
+            value={value}
+            disabled={saving || naOn}
+            readOnly={naOn}
+            placeholder={required ? 'Enter value' : ''}
+            onChange={(e) => setFieldValue(field.id, e.target.value)}
+          />,
+        )}
       </div>
     )
   }
@@ -856,18 +883,23 @@ export function ItpTravelerStepModal({
     >
       <div className={`modal-card itp-traveler-step-modal${measFields.length > 4 ? ' is-wide' : ''}`}>
         <header className="itp-traveler-step-hdr">
-          <div>
-            <p className="itp-traveler-step-kicker">
-              {item.secTitle}
+          <div className="itp-traveler-step-hdr-main">
+            <div className="itp-traveler-step-kicker-row">
+              <p className="itp-traveler-step-kicker">{item.secTitle}</p>
               {item.shopAreaLabel ? (
-                <span className="itp-template-station-badge">Station: {item.shopAreaLabel}</span>
+                <span className="itp-template-station-badge">{item.shopAreaLabel}</span>
               ) : null}
-              {item.holdPoint ? ' · Hold point' : ''}
-            </p>
+              {item.holdPoint ? <span className="itp-traveler-step-hold-badge">Hold point</span> : null}
+            </div>
             <h2 id="itp-traveler-step-title">{item.name}</h2>
-            <p className="itp-traveler-step-ref">[{item.ref}]</p>
+            {item.ref ? <p className="itp-traveler-step-ref">{item.ref}</p> : null}
           </div>
-          <button type="button" className="button-secondary" disabled={saving || uploading} onClick={onClose}>
+          <button
+            type="button"
+            className="button-secondary itp-traveler-step-close"
+            disabled={saving || uploading}
+            onClick={onClose}
+          >
             Close
           </button>
         </header>
@@ -968,15 +1000,15 @@ export function ItpTravelerStepModal({
           {isNameplate ? (
             <div className="itp-traveler-step-meas itp-traveler-step-nameplate">
               <div className="itp-traveler-step-nameplate-hdr">
-                <div>
+                <div className="itp-traveler-step-meas-intro">
                   <h3>Nameplate / basic information</h3>
                   <p className="placeholder-copy">
-                    Required fields must be filled or marked N/A. Values from the job card can be edited here.
+                    Fill every required field, or mark N/A. Job-card values can be edited here.
                   </p>
                 </div>
                 <button
                   type="button"
-                  className="button-primary"
+                  className="button-secondary"
                   disabled={saving}
                   onClick={transferFromJobCard}
                 >
@@ -984,23 +1016,25 @@ export function ItpTravelerStepModal({
                 </button>
               </div>
               {measSections.map((section) => (
-                <div key={section.id} className="itp-traveler-step-section">
+                <section key={section.id} className="itp-traveler-step-section">
                   {section.title ? <h4>{section.title}</h4> : null}
                   <div className="itp-traveler-step-meas-grid">{section.fields.map(renderTechField)}</div>
-                </div>
+                </section>
               ))}
             </div>
           ) : requireMeasurement && measFields.length > 0 ? (
             <div className="itp-traveler-step-meas">
-              <h3>Technician inputs</h3>
-              <p className="placeholder-copy">
-                Fields mapped to the job card fill in automatically. You can still edit them or mark N/A.
-              </p>
+              <div className="itp-traveler-step-meas-intro">
+                <h3>Technician inputs</h3>
+                <p className="placeholder-copy">
+                  Job-card fields fill in automatically. Edit a value or mark N/A if it does not apply.
+                </p>
+              </div>
               {measSections.map((section) => (
-                <div key={section.id} className="itp-traveler-step-section">
+                <section key={section.id} className="itp-traveler-step-section">
                   {section.title ? <h4>{section.title}</h4> : null}
                   <div className="itp-traveler-step-meas-grid">{section.fields.map(renderTechField)}</div>
-                </div>
+                </section>
               ))}
             </div>
           ) : null}

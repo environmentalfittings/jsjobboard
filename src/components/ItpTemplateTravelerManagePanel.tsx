@@ -27,6 +27,7 @@ import {
   ensureRepairNeededDropdown,
   looksLikeBodyBodyBore,
   type ItpUnlockCandidate,
+  type ItpUnlockStepDraft,
 } from '../lib/itpMeasUnlocks'
 import { resourceDocumentPublicUrl } from '../lib/resourceDocuments'
 
@@ -68,6 +69,8 @@ type ItpTemplateTravelerManagePanelProps = {
   catalogById: Map<string, ItpMasterCatalogItem>
   areas: ItpShopAreaDef[]
   unlockCandidates?: ItpUnlockCandidate[]
+  onCreateUnlockStep?: (draft: ItpUnlockStepDraft) => ItpUnlockCandidate | null
+  onUpdateUnlockStep?: (itemId: string, draft: ItpUnlockStepDraft) => ItpUnlockCandidate | null
   onUpdateSel: (itemId: string, patch: Partial<ItpLibraryItemSel>) => void
   onAddRequirement: (draft: TravelerRequirementDraft) => string | null
   onBackToEdit: () => void
@@ -197,6 +200,8 @@ export function ItpTemplateTravelerManagePanel({
   catalogById,
   areas,
   unlockCandidates = [],
+  onCreateUnlockStep,
+  onUpdateUnlockStep,
   onUpdateSel,
   onAddRequirement,
   onBackToEdit,
@@ -829,6 +834,10 @@ export function ItpTemplateTravelerManagePanel({
                         field={field}
                         sourceItemId={selected.id}
                         candidates={unlockCandidates}
+                        processSections={processSections}
+                        shopAreas={areas}
+                        onCreateUnlockStep={onCreateUnlockStep}
+                        onUpdateUnlockStep={onUpdateUnlockStep}
                         onChange={(patch) =>
                           patchFields(
                             measFields.map((row, i) => (i === idx ? { ...row, ...patch } : row)),

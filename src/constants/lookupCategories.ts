@@ -40,7 +40,13 @@ export const ITP_TRAVELER_LIST_REGISTRY = '__itp_traveler_lists__'
 export const REPAIR_NEEDED_LIST_KEY = 'repair_needed'
 export const REPAIR_NEEDED_LIST_LABEL = 'Repair needed'
 export const REPAIR_NEEDED_LOOKUP_CATEGORY = `${ITP_TRAVELER_LIST_PREFIX}${REPAIR_NEEDED_LIST_KEY}` as const
-export const REPAIR_NEEDED_LIST_FALLBACK = ['Acceptable', 'Restrip and redo with stainless'] as const
+export const REPAIR_NEEDED_LIST_FALLBACK = [
+  'Repair Needed',
+  'Accepted',
+  'Polish and Remeasure',
+  'Other',
+] as const
+export const REPAIR_NEEDED_LIST_LEGACY = ['Acceptable', 'Restrip and redo with stainless'] as const
 
 export type ItpTravelerListCategory = `${typeof ITP_TRAVELER_LIST_PREFIX}${string}`
 export type LookupCategory = JobLookupCategory | ItpTravelerListCategory

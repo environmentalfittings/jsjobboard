@@ -11,6 +11,8 @@ import {
   type ItpLibraryPlanPayload,
 } from '../types/itpLibraryPlan'
 import {
+  clampLinePhotoMax,
+  clampLinePhotoMin,
   emptyMeasField,
   type ItpMeasFieldDef,
 } from '../types/itpMeasFields'
@@ -30,6 +32,102 @@ export type ItpUnlockCandidate = {
   secId: string
   secTitle: string
   shopAreaLabel: string
+  area?: string
+  canEditTraveler?: boolean
+  requirePicture?: boolean
+  pictureLabel?: string
+  minPhotos?: number
+  maxPhotos?: number
+  measFields?: ItpMeasFieldDef[]
+}
+
+export type ItpUnlockStepDraft = {
+  name: string
+  secId: string
+  area: string
+  requirePicture?: boolean
+  pictureLabel?: string
+  minPhotos?: number
+  maxPhotos?: number
+  measFields?: ItpMeasFieldDef[]
+}
+
+export function normalizedUnlockMeasFields(
+  fields: ItpMeasFieldDef[] | undefined,
+): ItpMeasFieldDef[] {
+  return (fields ?? [])
+    .map((field) => emptyMeasField(field))
+    .filter((field) => field.label.trim())
+}
+
+export function unlockStepHasTraveler(
+  draft: Pick<ItpUnlockStepDraft, 'requirePicture' | 'measFields'>,
+): boolean {
+  return Boolean(draft.requirePicture) || normalizedUnlockMeasFields(draft.measFields).length > 0
+}
+
+export function unlockCandidateHasTraveler(row: ItpUnlockCandidate): boolean {
+  return unlockStepHasTraveler(row)
+}
+
+export function catalogReqFromUnlockDraft(draft: ItpUnlockStepDraft): {
+  requirePicture?: boolean
+  pictureLabel?: string
+  minPhotos?: number
+  maxPhotos?: number
+  requireMeasurement?: boolean
+  measFields?: ItpMeasFieldDef[]
+} {
+  const measFields = normalizedUnlockMeasFields(draft.measFields)
+  const requirePicture = Boolean(draft.requirePicture)
+  const minPhotos = clampLinePhotoMin(draft.minPhotos)
+  const maxPhotos = clampLinePhotoMax(draft.maxPhotos, minPhotos)
+  return {
+    requirePicture: requirePicture || undefined,
+    pictureLabel: requirePicture ? (draft.pictureLabel ?? '').trim() || undefined : undefined,
+    minPhotos: requirePicture ? minPhotos : undefined,
+    maxPhotos: requirePicture ? maxPhotos : undefined,
+    requireMeasurement: measFields.length > 0 || undefined,
+    measFields: measFields.length ? measFields : undefined,
+  }
+}
+
+export function latentSelFromUnlockDraft(
+  draft: ItpUnlockStepDraft,
+  base?: ItpLibraryItemSel,
+): ItpLibraryItemSel {
+  const measFields = normalizedUnlockMeasFields(draft.measFields)
+  const requirePicture = Boolean(draft.requirePicture)
+  const minPhotos = clampLinePhotoMin(draft.minPhotos)
+  const maxPhotos = clampLinePhotoMax(draft.maxPhotos, minPhotos)
+  const current = base ?? emptyItemSel()
+  return {
+    ...current,
+    shopArea: draft.area || current.shopArea,
+    sectionId: draft.secId || current.sectionId,
+    requirePicture,
+    pictureLabel: requirePicture ? (draft.pictureLabel ?? '').trim() : '',
+    minPhotos,
+    maxPhotos,
+    measFields,
+    beforeMeas: measFields.length > 0,
+    afterMeas: measFields.length > 0,
+    measVerify: measFields.length > 0,
+    addToTraveler: requirePicture || measFields.length > 0 || current.addToTraveler,
+  }
+}
+
+export function draftFromUnlockCandidate(row: ItpUnlockCandidate): ItpUnlockStepDraft {
+  return {
+    name: row.name,
+    secId: row.secId,
+    area: row.area || '',
+    requirePicture: Boolean(row.requirePicture),
+    pictureLabel: row.pictureLabel || '',
+    minPhotos: row.minPhotos || 1,
+    maxPhotos: row.maxPhotos || 4,
+    measFields: (row.measFields ?? []).map((field) => emptyMeasField(field)),
+  }
 }
 
 export const REPAIR_NEEDED_FIELD_LABEL = 'Repair needed'
@@ -56,6 +154,8 @@ export function ensureRepairNeededDropdown(
       required: true,
       optionSource: 'lookup',
       lookupCategory: REPAIR_NEEDED_LOOKUP_CATEGORY,
+      followUpWhen: 'Other',
+      followUpLabel: 'Describe other',
     }),
     ...fields,
   ]

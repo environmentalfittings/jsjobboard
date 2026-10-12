@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import {
   DEFAULT_ITP_TRAVELER_LISTS,
   LOOKUP_CATEGORY_DEFS,
+  REPAIR_NEEDED_LOOKUP_CATEGORY,
   isLookupCategory,
   type ItpTravelerListDef,
 } from '../constants/lookupCategories'
@@ -9,6 +10,7 @@ import {
   clampPictureFieldMax,
   dropdownOptionSource,
   dropdownSourceSelectValue,
+  fieldLookupCategory,
   followUpLabelOf,
   lookupListLabel,
   patchFromDropdownSourceSelect,
@@ -141,7 +143,7 @@ export function ItpMeasDropdownSourceFields({ field, onChange }: Props) {
           <input
             type="text"
             value={field.followUpWhen ?? ''}
-            placeholder="e.g. BWE"
+            placeholder={fieldLookupCategory(field) === REPAIR_NEEDED_LOOKUP_CATEGORY ? 'Other' : 'e.g. BWE'}
             aria-label="Follow-up when this answer is selected"
             onKeyDown={(e) => e.stopPropagation()}
             onChange={(e) => onChange({ followUpWhen: e.target.value })}

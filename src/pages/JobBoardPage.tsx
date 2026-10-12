@@ -143,6 +143,28 @@ function isDeliveryDueSoon(valve: Valve): boolean {
 
 const ORDER_STORAGE_KEY = 'job-board-phase-order-v1'
 const LIST_REST_ORDER_STORAGE_KEY = 'job-board-list-rest-order-v1'
+const LIST_CLASSIC_VIEW_STORAGE_KEY = 'job-board-list-classic-view'
+const CLOSED_VALVES_PAGE_SIZE = 25
+
+function compareClosedRecentFirst(a: Valve, b: Valve): number {
+  const aClosed = (a.date_closed ?? '').trim()
+  const bClosed = (b.date_closed ?? '').trim()
+  if (aClosed !== bClosed) {
+    if (!aClosed) return 1
+    if (!bClosed) return -1
+    return bClosed.localeCompare(aClosed)
+  }
+  return b.valve_id.localeCompare(a.valve_id)
+}
+
+function readStoredListClassicView(): boolean {
+  if (typeof window === 'undefined') return false
+  try {
+    return window.localStorage.getItem(LIST_CLASSIC_VIEW_STORAGE_KEY) === '1'
+  } catch {
+    return false
+  }
+}
 
 function readStoredListRestOrder(): string[] {
   if (typeof window === 'undefined') return []
@@ -541,6 +563,8 @@ export function JobBoardPage({ role, username }: { role?: UserRole; username?: s
   const [listRestOrder, setListRestOrder] = useState<string[]>(() => readStoredListRestOrder())
   const [scopeFilter, setScopeFilter] = useState<ScopeFilter>(initialScope)
   const viewingCompletedValves = scopeFilter === 'closed'
+  const [closedPage, setClosedPage] = useState(1)
+  const [listClassicView, setListClassicView] = useState(readStoredListClassicView)
   const canCopyJobs = can(role, 'copyJob')
   const canWrite = canWriteShop(role)
   const [technicians, setTechnicians] = useState<Technician[]>([])
@@ -963,16 +987,7 @@ export function JobBoardPage({ role, username }: { role?: UserRole; username?: s
   const activeNonTerminal = useMemo(() => valves.filter((v) => isActiveShopWork(v)), [valves])
 
   const closedWorkOrders = useMemo(
-    () =>
-      valves
-        .filter((v) => isClosedWorkOrder(v))
-        .sort((a, b) => {
-          const rank = (v: Valve) =>
-            v.status === 'Junked' ? 0 : v.status === 'Replaced' ? 1 : 2
-          const rankDiff = rank(a) - rank(b)
-          if (rankDiff !== 0) return rankDiff
-          return (b.date_closed ?? '').localeCompare(a.date_closed ?? '')
-        }),
+    () => valves.filter((v) => isClosedWorkOrder(v)).sort(compareClosedRecentFirst),
     [valves],
   )
 
@@ -1077,6 +1092,9 @@ export function JobBoardPage({ role, username }: { role?: UserRole; username?: s
     const usingCustomOrder =
       listSort === 'default' && listColumnSort.column === 'default'
 
+    if (scopeFilter === 'closed' && usingCustomOrder) {
+      return [...filtered].sort(compareClosedRecentFirst)
+    }
     if (usingCustomOrder) {
       return sortValvesWithPriorityAndRest(filtered, priorityQueueIds, listRestOrder)
     }
@@ -1099,7 +1117,32 @@ export function JobBoardPage({ role, username }: { role?: UserRole; username?: s
     descriptionQuery,
     priorityQueueIds,
     listRestOrder,
+    scopeFilter,
   ])
+
+  useEffect(() => {
+    setClosedPage(1)
+  }, [
+    viewingCompletedValves,
+    workOrderQuery,
+    selectedWorkOrder,
+    customerQuery,
+    descriptionQuery,
+    columnFilters,
+    listColumnSort,
+    listSort,
+  ])
+
+  const closedPageCount = Math.max(1, Math.ceil(tableRows.length / CLOSED_VALVES_PAGE_SIZE))
+  const safeClosedPage = viewingCompletedValves
+    ? Math.min(Math.max(1, closedPage), closedPageCount)
+    : 1
+  const closedRangeStart =
+    tableRows.length === 0 ? 0 : (safeClosedPage - 1) * CLOSED_VALVES_PAGE_SIZE + 1
+  const closedRangeEnd = Math.min(safeClosedPage * CLOSED_VALVES_PAGE_SIZE, tableRows.length)
+  const visibleTableRows = viewingCompletedValves
+    ? tableRows.slice((safeClosedPage - 1) * CLOSED_VALVES_PAGE_SIZE, safeClosedPage * CLOSED_VALVES_PAGE_SIZE)
+    : tableRows
 
   // Keep persisted rest-order stable: drop removed jobs, append newly seen non-priority jobs at the end.
   useEffect(() => {
@@ -1125,6 +1168,14 @@ export function JobBoardPage({ role, username }: { role?: UserRole; username?: s
       // ignore
     }
   }, [listRestOrder])
+
+  useEffect(() => {
+    try {
+      window.localStorage.setItem(LIST_CLASSIC_VIEW_STORAGE_KEY, listClassicView ? '1' : '0')
+    } catch {
+      // ignore
+    }
+  }, [listClassicView])
 
   const openModal = (valve: Valve, tab: JobCardTab = 'summary') => {
     setModalInitialTab(tab)
@@ -2053,8 +2104,32 @@ export function JobBoardPage({ role, username }: { role?: UserRole; username?: s
             </button>
             <span className="list-view-scope-spacer" aria-hidden="true" />
             <span className="list-view-count">
-              {tableRows.length} row{tableRows.length === 1 ? '' : 's'}
+              {viewingCompletedValves
+                ? tableRows.length === 0
+                  ? '0 rows'
+                  : `${closedRangeStart}–${closedRangeEnd} of ${tableRows.length}`
+                : `${tableRows.length} row${tableRows.length === 1 ? '' : 's'}`}
             </span>
+            {viewingCompletedValves && tableRows.length > CLOSED_VALVES_PAGE_SIZE ? (
+              <span className="list-view-pager list-view-pager--inline">
+                <button
+                  type="button"
+                  className="button-secondary"
+                  disabled={safeClosedPage <= 1}
+                  onClick={() => setClosedPage((page) => Math.max(1, page - 1))}
+                >
+                  Previous
+                </button>
+                <button
+                  type="button"
+                  className="button-secondary"
+                  disabled={safeClosedPage >= closedPageCount}
+                  onClick={() => setClosedPage((page) => Math.min(closedPageCount, page + 1))}
+                >
+                  Next 25
+                </button>
+              </span>
+            ) : null}
             <button
               type="button"
               className="button-secondary"
@@ -2062,6 +2137,13 @@ export function JobBoardPage({ role, username }: { role?: UserRole; username?: s
               disabled={tableRows.length === 0}
             >
               Export CSV
+            </button>
+            <button
+              type="button"
+              className={`button-secondary list-view-classic-toggle ${listClassicView ? 'active' : ''}`}
+              onClick={() => setListClassicView((on) => !on)}
+            >
+              {listClassicView ? 'Dropdown view' : 'Classic view'}
             </button>
             <button
               type="button"
@@ -2073,8 +2155,9 @@ export function JobBoardPage({ role, username }: { role?: UserRole; username?: s
           </div>
           {viewingCompletedValves ? (
             <p className="list-view-completed-hint">
-              Includes Completed, Junked, and Replaced. Search by customer above, or use the filter icon on any column
-              (Customer, Size, Class, Status, etc.). Open a card to change status if one was marked by mistake.
+              Newest closed jobs first, {CLOSED_VALVES_PAGE_SIZE} at a time. Includes Completed, Junked, and Replaced.
+              Search or use a column filter to find older jobs. Open a card to change status if one was marked by
+              mistake.
             </p>
           ) : (
             <p className="list-view-priority-hint">
@@ -2085,7 +2168,7 @@ export function JobBoardPage({ role, username }: { role?: UserRole; username?: s
             </p>
           )}
           <div className="table-wrap list-table-wrap">
-            <table className="list-view-table">
+            <table className={`list-view-table${listClassicView ? ' list-view-table--classic' : ''}`}>
               <thead>
                 <tr className="list-filter-row">
                   {LIST_FILTER_COLUMNS.map(({ key, label }) => (
@@ -2134,7 +2217,7 @@ export function JobBoardPage({ role, username }: { role?: UserRole; username?: s
                 </tr>
               </thead>
               <tbody>
-                {tableRows.map((valve) => {
+                {visibleTableRows.map((valve) => {
                   const priorityIndex = priorityQueueIds.indexOf(valve.valve_id)
                   const inPriorityQueue = priorityIndex >= 0
                   const visibleRestIds = tableRows
@@ -2147,6 +2230,7 @@ export function JobBoardPage({ role, username }: { role?: UserRole; username?: s
                     : restIndex >= 0 && restIndex < visibleRestIds.length - 1
                   const usingCustomOrder = listSort === 'default' && listColumnSort.column === 'default'
                   const jobType = normalizeJobType(valve.job_type ?? '')
+                  const showListEditors = canWrite && !listClassicView
                   const allowNaSizeAndClass =
                     !isValveRelatedJobType(jobType) ||
                     (isValveRelatedJobType(jobType) && /actuator/i.test((valve.valve_type ?? '').trim()))
@@ -2165,7 +2249,7 @@ export function JobBoardPage({ role, username }: { role?: UserRole; username?: s
                     <td>{valve.valve_id}</td>
                     <td>{valve.customer ?? '-'}</td>
                     <td onClick={(e) => e.stopPropagation()}>
-                      {canWrite ? (
+                      {showListEditors ? (
                         <select
                           className="report-inline-select"
                           value={(valve.cell ?? '').trim()}
@@ -2185,7 +2269,7 @@ export function JobBoardPage({ role, username }: { role?: UserRole; username?: s
                       )}
                     </td>
                     <td onClick={(e) => e.stopPropagation()}>
-                      {canWrite ? (
+                      {showListEditors ? (
                         <select
                           className="report-inline-select"
                           value={(valve.size ?? '').trim()}
@@ -2206,7 +2290,7 @@ export function JobBoardPage({ role, username }: { role?: UserRole; username?: s
                       )}
                     </td>
                     <td onClick={(e) => e.stopPropagation()}>
-                      {canWrite ? (
+                      {showListEditors ? (
                         <select
                           className="report-inline-select"
                           value={(valve.pressure_class ?? '').trim()}
@@ -2229,7 +2313,7 @@ export function JobBoardPage({ role, username }: { role?: UserRole; username?: s
                       )}
                     </td>
                     <td onClick={(e) => e.stopPropagation()}>
-                      {canWrite ? (
+                      {showListEditors ? (
                         <select
                           className="report-inline-select"
                           value={isTurnaroundValve(valve) ? 'yes' : 'no'}
@@ -2247,7 +2331,7 @@ export function JobBoardPage({ role, username }: { role?: UserRole; username?: s
                       )}
                     </td>
                     <td onClick={(e) => e.stopPropagation()}>
-                      {canWrite && !viewingCompletedValves ? (
+                      {showListEditors && !viewingCompletedValves ? (
                         <div className="list-status-cell">
                           <select
                             className="report-inline-select"
@@ -2280,7 +2364,7 @@ export function JobBoardPage({ role, username }: { role?: UserRole; username?: s
                       )}
                     </td>
                     <td onClick={(e) => e.stopPropagation()}>
-                      {canWrite ? (
+                      {showListEditors ? (
                         <div className="job-list-techs">
                           {technicianIdsForValve(valve).map((techId) => {
                             const tech = techniciansById.get(techId)
@@ -2339,7 +2423,7 @@ export function JobBoardPage({ role, username }: { role?: UserRole; username?: s
                         <span title={valve.status === 'Completed' ? 'Date completed' : 'Date closed'}>
                           {valve.date_closed ?? '—'}
                         </span>
-                      ) : canWrite ? (
+                      ) : showListEditors ? (
                         <button
                           type="button"
                           className="job-list-due-date-button"
@@ -2364,7 +2448,7 @@ export function JobBoardPage({ role, username }: { role?: UserRole; username?: s
                       )}
                     </td>
                     <td className="table-cell-clamp" onClick={(e) => e.stopPropagation()}>
-                      {canWrite ? (
+                      {showListEditors ? (
                         <input
                           type="text"
                           className="job-list-inline-input"
@@ -2383,7 +2467,7 @@ export function JobBoardPage({ role, username }: { role?: UserRole; username?: s
                       )}
                     </td>
                     <td className="table-cell-clamp" onClick={(e) => e.stopPropagation()}>
-                      {canWrite ? (
+                      {showListEditors ? (
                         <input
                           type="text"
                           className="job-list-inline-input"
@@ -2497,6 +2581,29 @@ export function JobBoardPage({ role, username }: { role?: UserRole; username?: s
               </tbody>
             </table>
           </div>
+          {viewingCompletedValves && tableRows.length > CLOSED_VALVES_PAGE_SIZE ? (
+            <div className="list-view-pager">
+              <button
+                type="button"
+                className="button-secondary"
+                disabled={safeClosedPage <= 1}
+                onClick={() => setClosedPage((page) => Math.max(1, page - 1))}
+              >
+                Previous
+              </button>
+              <span>
+                Page {safeClosedPage} of {closedPageCount}
+              </span>
+              <button
+                type="button"
+                className="button-secondary"
+                disabled={safeClosedPage >= closedPageCount}
+                onClick={() => setClosedPage((page) => Math.min(closedPageCount, page + 1))}
+              >
+                Next 25
+              </button>
+            </div>
+          ) : null}
         </div>
       ) : null}
 

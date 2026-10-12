@@ -218,8 +218,12 @@ function dropdownPersistPatch(partial?: Partial<ItpMeasFieldDef>): Partial<ItpMe
     optionSource: partial?.optionSource,
     lookupCategory,
   })
-  const followUpWhen = String(partial?.followUpWhen ?? '').trim()
-  const followUpLabel = String(partial?.followUpLabel ?? '').trim()
+  let followUpWhen = String(partial?.followUpWhen ?? '').trim()
+  let followUpLabel = String(partial?.followUpLabel ?? '').trim()
+  if (lookupCategory === REPAIR_NEEDED_LOOKUP_CATEGORY && !followUpWhen) {
+    followUpWhen = 'Other'
+    if (!followUpLabel) followUpLabel = 'Describe other'
+  }
   const followUpLookupCategory = isLookupCategory(partial?.followUpLookupCategory)
     ? partial!.followUpLookupCategory
     : undefined
@@ -233,7 +237,7 @@ function dropdownPersistPatch(partial?: Partial<ItpMeasFieldDef>): Partial<ItpMe
     ...(followUpWhen
       ? {
           followUpWhen,
-          followUpLabel: followUpLabel || 'Details',
+          followUpLabel: followUpLabel || (isOtherDropdownAnswer(followUpWhen) ? 'Describe other' : 'Details'),
           ...(followUpLookupCategory ? { followUpLookupCategory } : {}),
         }
       : {}),
@@ -365,14 +369,24 @@ export function followUpFieldId(fieldId: string): string {
   return `${fieldId}__followup`
 }
 
+export function isOtherDropdownAnswer(value: string | null | undefined): boolean {
+  return String(value ?? '').trim().toLowerCase() === 'other'
+}
+
 export function followUpApplies(field: Pick<ItpMeasFieldDef, 'followUpWhen'>, value: string): boolean {
+  const answer = String(value ?? '').trim()
+  if (!answer) return false
   const when = String(field.followUpWhen ?? '').trim()
-  if (!when) return false
-  return String(value ?? '').trim().toLowerCase() === when.toLowerCase()
+  if (when) return answer.toLowerCase() === when.toLowerCase()
+  return isOtherDropdownAnswer(answer)
 }
 
 export function followUpLabelOf(field: Pick<ItpMeasFieldDef, 'followUpLabel' | 'followUpWhen'>): string {
-  return String(field.followUpLabel ?? '').trim() || String(field.followUpWhen ?? '').trim() || 'Details'
+  const explicit = String(field.followUpLabel ?? '').trim()
+  if (explicit) return explicit
+  const when = String(field.followUpWhen ?? '').trim()
+  if (!when || isOtherDropdownAnswer(when)) return 'Describe other'
+  return when
 }
 
 export function resolveJobCardField(

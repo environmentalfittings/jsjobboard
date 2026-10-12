@@ -17,7 +17,11 @@ import { ItpMeasJobCardSourceSelect } from './ItpMeasJobCardSourceSelect'
 import { ItpMeasRequiredToggle } from './ItpMeasRequiredToggle'
 import { ItpPhotoMinMaxFields } from './ItpPhotoMinMaxFields'
 import { ItpMeasUnlockItemsFields } from './ItpMeasUnlockItemsFields'
-import { ensureRepairNeededDropdown, type ItpUnlockCandidate } from '../lib/itpMeasUnlocks'
+import {
+  ensureRepairNeededDropdown,
+  type ItpUnlockCandidate,
+  type ItpUnlockStepDraft,
+} from '../lib/itpMeasUnlocks'
 
 type TravelerBuilderDraft = {
   requirePicture: boolean
@@ -58,6 +62,10 @@ type Props = {
   sel: ItpLibraryItemSel
   catalogItem: ItpMasterCatalogItem | undefined
   unlockCandidates?: ItpUnlockCandidate[]
+  processSections?: Array<{ id: string; title: string }>
+  shopAreas?: Array<{ value: string; label: string }>
+  onCreateUnlockStep?: (draft: ItpUnlockStepDraft) => ItpUnlockCandidate | null
+  onUpdateUnlockStep?: (itemId: string, draft: ItpUnlockStepDraft) => ItpUnlockCandidate | null
   onCancel: () => void
   onSave: (patch: Partial<ItpLibraryItemSel>) => void
 }
@@ -68,6 +76,10 @@ export function ItpLineTravelerBuilderModal({
   sel,
   catalogItem,
   unlockCandidates = [],
+  processSections,
+  shopAreas,
+  onCreateUnlockStep,
+  onUpdateUnlockStep,
   onCancel,
   onSave,
 }: Props) {
@@ -223,6 +235,10 @@ export function ItpLineTravelerBuilderModal({
                   field={field}
                   sourceItemId={sourceItemId}
                   candidates={unlockCandidates}
+                  processSections={processSections}
+                  shopAreas={shopAreas}
+                  onCreateUnlockStep={onCreateUnlockStep}
+                  onUpdateUnlockStep={onUpdateUnlockStep}
                   onChange={(patch) => patchField(idx, patch)}
                 />
               </div>
