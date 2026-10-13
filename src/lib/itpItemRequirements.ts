@@ -1,5 +1,6 @@
 import type { ItpLibraryItemExec, ItpLibraryItemSel } from '../types/itpLibraryPlan'
 import {
+  clampLinePhotoMin,
   clampLinePhotoMax,
   DEFAULT_ITP_MEAS_FIELDS,
   followUpApplies,
@@ -34,6 +35,7 @@ export {
   clampPictureFieldMax,
   clampLinePhotoMin,
   clampLinePhotoMax,
+  linePhotoRequirementLabel,
   normalizeLinePhotoCounts,
   DEFAULT_PICTURE_FIELD_MAX,
   MEAS_PICTURE_MAX,
@@ -194,7 +196,7 @@ function measFieldComplete(field: ItpMeasFieldDef, exec: ItpLibraryItemExec): bo
 
 export function picturesComplete(sel: ItpLibraryItemSel, exec: ItpLibraryItemExec): boolean {
   if (!sel.requirePicture) return true
-  const min = Math.max(1, sel.minPhotos || 1)
+  const min = clampLinePhotoMin(sel.minPhotos ?? 1)
   return (exec.photos?.length ?? 0) >= min
 }
 
@@ -207,7 +209,7 @@ export function markDoneBlockedReason(
   exec: ItpLibraryItemExec,
 ): string | null {
   if (!picturesComplete(sel, exec)) {
-    const min = Math.max(1, sel.minPhotos || 1)
+    const min = clampLinePhotoMin(sel.minPhotos ?? 1)
     const label = sel.pictureLabel.trim() || 'required photos'
     const have = exec.photos?.length ?? 0
     return `Attach at least ${min} photo${min === 1 ? '' : 's'} (${label}) — ${have}/${min}`
@@ -248,10 +250,10 @@ export function selFromRequirementDefaults(
     blockNext: Boolean(defaults.blockNext) || base.blockNext,
     requirePicture: Boolean(defaults.requirePicture) || base.requirePicture,
     pictureLabel: (defaults.pictureLabel ?? '').trim() || base.pictureLabel,
-    minPhotos: defaults.minPhotos && defaults.minPhotos > 0 ? defaults.minPhotos : base.minPhotos || 1,
+    minPhotos: clampLinePhotoMin(defaults.minPhotos ?? base.minPhotos ?? 1),
     maxPhotos: clampLinePhotoMax(
       defaults.maxPhotos ?? base.maxPhotos,
-      defaults.minPhotos && defaults.minPhotos > 0 ? defaults.minPhotos : base.minPhotos || 1,
+      defaults.minPhotos ?? base.minPhotos ?? 1,
     ),
     beforeMeas: requireMeasurement || base.beforeMeas,
     afterMeas: requireMeasurement || base.afterMeas,

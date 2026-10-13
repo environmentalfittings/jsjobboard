@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import {
   clampLinePhotoMax,
   clampLinePhotoMin,
+  linePhotoRequirementLabel,
   DEFAULT_ITP_MEAS_FIELDS,
   emptyMeasField,
   followUpLabelOf,
@@ -939,10 +940,7 @@ export function ItpTemplateTravelerManagePanel({
                           <div className="itp-traveler-live-field itp-traveler-live-field--picture">
                             <span>
                               {itemSel.pictureLabel.trim() || 'Photos'}
-                              {` (${clampLinePhotoMin(itemSel.minPhotos)} required, up to ${clampLinePhotoMax(
-                                itemSel.maxPhotos,
-                                itemSel.minPhotos,
-                              )})`}
+                              {` (${linePhotoRequirementLabel(itemSel.minPhotos, itemSel.maxPhotos)})`}
                             </span>
                             <div className="itp-traveler-live-photo-slot">Picture upload</div>
                           </div>

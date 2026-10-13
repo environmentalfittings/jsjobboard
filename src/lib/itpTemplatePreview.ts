@@ -130,7 +130,7 @@ export function buildTemplatePreviewPlan(options: {
       ...current,
       requirePicture,
       pictureLabel: current.pictureLabel.trim() || String(item.pictureLabel ?? '').trim(),
-      minPhotos: Math.max(1, current.minPhotos || item.minPhotos || 1),
+      minPhotos: current.minPhotos ?? item.minPhotos ?? 1,
       maxPhotos: Math.max(1, current.maxPhotos || item.maxPhotos || 4),
       shopArea: current.shopArea.trim() || String(item.area ?? '').trim() || current.shopArea,
       measFields,

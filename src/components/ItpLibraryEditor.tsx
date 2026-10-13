@@ -30,9 +30,12 @@ import {
   uploadItpLibraryAttachment,
 } from '../lib/itpLibraryAttachments'
 import {
+  clampLinePhotoMax,
+  clampLinePhotoMin,
   DEFAULT_ITP_MEAS_FIELDS,
   getMeasValue,
   itemRequiresMeasurements,
+  linePhotoRequirementLabel,
   markDoneBlockedReason,
   patchMeasValue,
   resolvedMeasFields,
@@ -2363,9 +2366,16 @@ export function ItpLibraryEditor({ valve, onClose, readOnly = false }: ItpLibrar
                                   {sel.requirePicture ? (
                                     <div className="itp-library-item-photos screen-only">
                                       <div className="itp-library-item-photos-hdr">
-                                        {sel.pictureLabel.trim() || 'Required photos'}{' '}
+                                        {sel.pictureLabel.trim() ||
+                                          (clampLinePhotoMin(sel.minPhotos) === 0
+                                            ? 'Photos'
+                                            : 'Required photos')}{' '}
                                         <span>
-                                          ({(ex.photos ?? []).length}/{Math.max(1, sel.maxPhotos || sel.minPhotos || 1)})
+                                          ({(ex.photos ?? []).length}/
+                                          {clampLinePhotoMax(sel.maxPhotos, sel.minPhotos)})
+                                          {clampLinePhotoMin(sel.minPhotos) === 0
+                                            ? ` · ${linePhotoRequirementLabel(sel.minPhotos, sel.maxPhotos)}`
+                                            : ''}
                                         </span>
                                       </div>
                                       <div className="itp-library-item-photos-grid">

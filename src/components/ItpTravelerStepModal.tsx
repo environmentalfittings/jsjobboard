@@ -8,6 +8,7 @@ import {
 import {
   clampLinePhotoMax,
   clampLinePhotoMin,
+  linePhotoRequirementLabel,
   dropdownOptionSource,
   followUpApplies,
   followUpFieldId,
@@ -179,7 +180,7 @@ export function ItpTravelerStepModal({
     if (item.requirePicture) {
       base.requirePicture = true
       if (!base.pictureLabel.trim()) base.pictureLabel = item.pictureLabel || 'Required photo'
-      base.minPhotos = clampLinePhotoMin(base.minPhotos || item.minPhotos || 1)
+      base.minPhotos = clampLinePhotoMin(base.minPhotos ?? item.minPhotos ?? 1)
       base.maxPhotos = clampLinePhotoMax(base.maxPhotos ?? item.maxPhotos, base.minPhotos)
     }
     return isNameplate
@@ -207,7 +208,7 @@ export function ItpTravelerStepModal({
     if (item.requirePicture) {
       base.requirePicture = true
       if (!base.pictureLabel.trim()) base.pictureLabel = item.pictureLabel || 'Required photo'
-      base.minPhotos = clampLinePhotoMin(base.minPhotos || item.minPhotos || 1)
+      base.minPhotos = clampLinePhotoMin(base.minPhotos ?? item.minPhotos ?? 1)
       base.maxPhotos = clampLinePhotoMax(base.maxPhotos ?? item.maxPhotos, base.minPhotos)
     }
     const nextSel = nameplate
@@ -941,19 +942,27 @@ export function ItpTravelerStepModal({
             >
               <div className="itp-traveler-req-photo-hdr">
                 <h3>
-                  {sel.pictureLabel.trim() || 'Required photo'} <span>*</span>
+                  {sel.pictureLabel.trim() || (photoMin === 0 ? 'Photos' : 'Required photo')}
+                  {photoMin > 0 ? <span>*</span> : null}
                 </h3>
                 <span>
                   {photoCount}/{photoMax}
-                  {photoMin === photoMax ? ' required' : ` · ${photoMin} required`}
+                  {photoMin === 0
+                    ? ' optional'
+                    : photoMin === photoMax
+                      ? ' required'
+                      : ` · ${photoMin} required`}
                 </span>
               </div>
               <p className="placeholder-copy">
-                Take a photo with the camera or upload a file. This step needs{' '}
-                {photoMin === photoMax
-                  ? `${photoMin} photo${photoMin === 1 ? '' : 's'}`
-                  : `at least ${photoMin} photo${photoMin === 1 ? '' : 's'} (up to ${photoMax})`}{' '}
-                before it can be marked complete.
+                Take a photo with the camera or upload a file.{' '}
+                {photoMin === 0
+                  ? `${linePhotoRequirementLabel(photoMin, photoMax)}.`
+                  : `This step needs ${
+                      photoMin === photoMax
+                        ? `${photoMin} photo${photoMin === 1 ? '' : 's'}`
+                        : `at least ${photoMin} photo${photoMin === 1 ? '' : 's'} (up to ${photoMax})`
+                    } before it can be marked complete.`}
               </p>
               {photoCount === 0 ? (
                 <p className="itp-traveler-req-photo-empty">No photo yet.</p>

@@ -43,7 +43,7 @@ function draftFromLine(
       : catalogItem?.measFields && catalogItem.measFields.length > 0
         ? catalogItem.measFields
         : []
-  const minPhotos = clampLinePhotoMin(sel.minPhotos || catalogItem?.minPhotos || 1)
+  const minPhotos = clampLinePhotoMin(sel.minPhotos ?? catalogItem?.minPhotos ?? 1)
   return {
     requirePicture,
     pictureLabel: sel.pictureLabel || catalogItem?.pictureLabel || '',

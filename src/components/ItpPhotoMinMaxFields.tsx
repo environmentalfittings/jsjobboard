@@ -24,7 +24,7 @@ export function ItpPhotoMinMaxFields({ minPhotos, maxPhotos, onChange, stopClick
         <span>Pictures required</span>
         <input
           type="number"
-          min={1}
+          min={0}
           max={max}
           value={min}
           aria-label="Pictures required"
@@ -48,7 +48,7 @@ export function ItpPhotoMinMaxFields({ minPhotos, maxPhotos, onChange, stopClick
           aria-label="Allow up to"
           onClick={stop}
           onChange={(e) => {
-            const nextMax = clampLinePhotoMax(e.target.value, 1)
+            const nextMax = clampLinePhotoMax(e.target.value, min)
             onChange({
               minPhotos: Math.min(min, nextMax),
               maxPhotos: nextMax,

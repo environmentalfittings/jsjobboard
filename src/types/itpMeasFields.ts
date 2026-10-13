@@ -153,12 +153,13 @@ export function clampPictureFieldMax(raw: unknown): number {
 }
 
 export function clampLinePhotoMin(raw: unknown): number {
+  if (raw == null || raw === '') return 1
   const n = Number(raw)
-  if (!Number.isFinite(n) || n < 1) return 1
+  if (!Number.isFinite(n) || n < 0) return 1
   return Math.min(MEAS_PICTURE_MAX, Math.floor(n))
 }
 
-/** Line-level photo cap. Missing values default to 4, and never go below the required count. */
+/** Line-level photo cap. Missing values default to 4, and never go below 1 or the required count. */
 export function clampLinePhotoMax(raw: unknown, minPhotos: unknown = 1): number {
   const min = clampLinePhotoMin(minPhotos)
   const n = Number(raw)
@@ -166,7 +167,16 @@ export function clampLinePhotoMax(raw: unknown, minPhotos: unknown = 1): number 
     raw == null || raw === '' || !Number.isFinite(n) || n < 1
       ? DEFAULT_PICTURE_FIELD_MAX
       : Math.min(MEAS_PICTURE_MAX, Math.floor(n))
-  return Math.max(min, max)
+  return Math.max(1, min, max)
+}
+
+/** Shop-facing copy for a picture requirement. 0 minimum means photos are optional. */
+export function linePhotoRequirementLabel(minPhotos: unknown, maxPhotos: unknown): string {
+  const min = clampLinePhotoMin(minPhotos)
+  const max = clampLinePhotoMax(maxPhotos, min)
+  if (min === 0) return `Pictures optional (up to ${max})`
+  if (min === max) return `${min} picture${min === 1 ? '' : 's'} required`
+  return `at least ${min} picture${min === 1 ? '' : 's'} (up to ${max})`
 }
 
 export function normalizeLinePhotoCounts(

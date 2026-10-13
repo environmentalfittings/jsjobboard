@@ -77,7 +77,7 @@ function UnlockStepForm({
   )
   const [requirePicture, setRequirePicture] = useState(Boolean(initial?.requirePicture))
   const [pictureLabel, setPictureLabel] = useState(initial?.pictureLabel ?? '')
-  const [minPhotos, setMinPhotos] = useState(initial?.minPhotos || 1)
+  const [minPhotos, setMinPhotos] = useState(initial?.minPhotos ?? 1)
   const [maxPhotos, setMaxPhotos] = useState(initial?.maxPhotos || 4)
   const [fields, setFields] = useState<ItpMeasFieldDef[]>(
     () => (initial?.measFields ?? []).map((field) => emptyMeasField(field)),

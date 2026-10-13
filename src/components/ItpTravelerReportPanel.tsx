@@ -18,6 +18,7 @@ import {
   jobNeededPartStatusLabel,
   type JobNeededPart,
 } from '../lib/jobNeededParts'
+import { linePhotoRequirementLabel } from '../lib/itpItemRequirements'
 
 export type ItpTravelerHeaderMeta = {
   valveId: string
@@ -72,12 +73,7 @@ function metaValue(value: string | null | undefined): string {
 function travelerReqHint(item: ItpTravelerReportItem): string {
   const parts: string[] = []
   if (item.requirePicture) {
-    const label = item.pictureLabel.trim() || 'required photo'
-    parts.push(
-      item.minPhotos === item.maxPhotos
-        ? `${item.minPhotos || 1} ${label}`
-        : `at least ${item.minPhotos || 1} ${label} (up to ${item.maxPhotos || 4})`,
-    )
+    parts.push(linePhotoRequirementLabel(item.minPhotos, item.maxPhotos))
   }
   if (item.requireMeasurement) parts.push(item.requireNameplate ? 'nameplate fields' : 'traveler fields')
   if (parts.length === 0) return 'traveler requirement'

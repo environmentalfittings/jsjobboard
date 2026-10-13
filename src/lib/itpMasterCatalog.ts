@@ -248,7 +248,7 @@ function normalizeCatalogItem(raw: unknown, fallbackOrder: number): ItpMasterCat
     requirePicture: row.requirePicture != null ? Boolean(row.requirePicture) : undefined,
     pictureLabel: row.pictureLabel != null ? String(row.pictureLabel) : undefined,
     minPhotos:
-      row.minPhotos != null && Number.isFinite(minPhotosRaw) && minPhotosRaw > 0
+      row.minPhotos != null && Number.isFinite(minPhotosRaw) && minPhotosRaw >= 0
         ? Math.floor(minPhotosRaw)
         : undefined,
     maxPhotos:

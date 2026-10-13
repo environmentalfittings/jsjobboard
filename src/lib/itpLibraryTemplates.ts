@@ -650,8 +650,8 @@ export function applyScopeToPlan(
         requirePicture: templateSel.requirePicture || prev.requirePicture,
         pictureLabel: templateSel.pictureLabel.trim() || prev.pictureLabel,
         minPhotos: templateSel.requirePicture
-          ? templateSel.minPhotos || prev.minPhotos || 1
-          : prev.minPhotos || 1,
+          ? templateSel.minPhotos ?? prev.minPhotos ?? 1
+          : prev.minPhotos ?? 1,
         maxPhotos: templateSel.requirePicture
           ? templateSel.maxPhotos || prev.maxPhotos || 4
           : prev.maxPhotos || 4,

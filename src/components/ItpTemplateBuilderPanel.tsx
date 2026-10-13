@@ -65,6 +65,7 @@ import {
 import {
   clampLinePhotoMax,
   clampLinePhotoMin,
+  linePhotoRequirementLabel,
   DEFAULT_ITP_MEAS_FIELDS,
   emptyMeasField,
   ITP_MEAS_FIELD_TYPE_OPTIONS,
@@ -334,7 +335,7 @@ function toUnlockCandidate(
     canEditTraveler: !item.builtIn && !sel.included,
     requirePicture,
     pictureLabel: sel.pictureLabel || item.pictureLabel || '',
-    minPhotos: sel.minPhotos || item.minPhotos || 1,
+    minPhotos: sel.minPhotos ?? item.minPhotos ?? 1,
     maxPhotos: sel.maxPhotos || item.maxPhotos || 4,
     measFields,
   }
@@ -3542,7 +3543,7 @@ export function ItpTemplateBuilderPanel({
                                   />
                                 </label>
                                 <ItpPhotoMinMaxFields
-                                  minPhotos={item.minPhotos || 1}
+                                  minPhotos={item.minPhotos ?? 1}
                                   maxPhotos={item.maxPhotos}
                                   stopClick
                                   onChange={(next) => patchMasterItem(item.id, next, { prompt: false })}
@@ -3940,10 +3941,7 @@ export function ItpTemplateBuilderPanel({
                                     <span className="itp-library-attr-badge traveler">
                                       Traveler
                                       {sel.requirePicture
-                                        ? ` · ${clampLinePhotoMin(sel.minPhotos)}–${clampLinePhotoMax(
-                                            sel.maxPhotos,
-                                            sel.minPhotos,
-                                          )} photos`
+                                        ? ` · ${linePhotoRequirementLabel(sel.minPhotos, sel.maxPhotos)}`
                                         : ''}
                                       {sel.measFields.length > 0
                                         ? ` · ${sel.measFields.length} field${

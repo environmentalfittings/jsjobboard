@@ -124,7 +124,7 @@ export function draftFromUnlockCandidate(row: ItpUnlockCandidate): ItpUnlockStep
     area: row.area || '',
     requirePicture: Boolean(row.requirePicture),
     pictureLabel: row.pictureLabel || '',
-    minPhotos: row.minPhotos || 1,
+    minPhotos: row.minPhotos ?? 1,
     maxPhotos: row.maxPhotos || 4,
     measFields: (row.measFields ?? []).map((field) => emptyMeasField(field)),
   }

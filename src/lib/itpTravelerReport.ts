@@ -136,7 +136,7 @@ export function buildItpTravelerReport(plan: ItpLibraryPlanPayload): {
       notes,
       requirePicture,
       pictureLabel: item.sel.pictureLabel.trim() || 'Photos',
-      minPhotos: Math.max(1, item.sel.minPhotos || 1),
+      minPhotos: item.sel.minPhotos ?? 1,
       maxPhotos: Math.max(1, item.sel.maxPhotos || 4),
       photos: [...(exec.photos ?? [])],
       requireMeasurement,
