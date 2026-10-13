@@ -7424,11 +7424,32 @@ a.test-log-reports-item-name:hover {
   text-align: right;
 }
 
+.customer-yoy-sort {
+  border: 0;
+  background: none;
+  padding: 0;
+  font: inherit;
+  font-weight: 700;
+  color: inherit;
+  cursor: pointer;
+  text-align: left;
+}
+
+.customer-yoy-sort:hover {
+  color: #1d4ed8;
+  text-decoration: underline;
+}
+
 .customer-yoy-table th.customer-yoy-num,
 .customer-yoy-table td.customer-yoy-num {
   text-align: right;
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
+}
+
+.customer-yoy-table th.customer-yoy-inshop,
+.customer-yoy-table td.customer-yoy-inshop {
+  color: #1e3a8a;
 }
 
 .customer-yoy-table tfoot td {

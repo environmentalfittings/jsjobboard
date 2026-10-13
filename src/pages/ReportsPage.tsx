@@ -45,6 +45,12 @@ import {
 } from '../lib/topJobsAggregation'
 import { fetchValveDescriptionsByIds } from '../lib/testLogValveLookup'
 import { VALVE_LIST_SELECT } from '../lib/valveSelect'
+import {
+  activeValveGroupLabel,
+  compareActiveByCellSlices,
+  type ActiveByCellGroup,
+} from '../lib/activeValvesByCell'
+import { isClosedWorkOrder } from '../lib/jobDisplayStatus'
 import type { DueDateChangeRecord, StatusReworkRecord, TestLogEntry, Valve } from '../types'
 
 type TurnaroundReportFilter = 'all' | 'turnaround' | 'not_turnaround'
@@ -390,6 +396,9 @@ export function ReportsPage() {
   const [activeByCellRows, setActiveByCellRows] = useState<Valve[]>([])
   const [activeByCellLoading, setActiveByCellLoading] = useState(false)
   const [activeByCellFilter, setActiveByCellFilter] = useState(searchParams.get('cell') ?? 'all')
+  const [activeByCellGroup, setActiveByCellGroup] = useState<ActiveByCellGroup>(
+    searchParams.get('cell') && searchParams.get('cell') !== 'all' ? 'finish-cell' : 'shop-area',
+  )
 
   const currentYear = new Date().getFullYear()
   const currentMonth = new Date().getMonth()
@@ -1333,23 +1342,33 @@ export function ReportsPage() {
 
   const loadActiveByCell = async () => {
     setActiveByCellLoading(true)
-    const { data, error } = await supabase
-      .from('valves')
-      .select(VALVE_LIST_SELECT)
-      .order('cell', { ascending: true })
-      .order('valve_id', { ascending: true })
-      .limit(1200)
-    setActiveByCellLoading(false)
-    if (error) {
-      showToast(`Could not load active-by-cell report: ${error.message}`)
-      setActiveByCellRows([])
-      return
+    const collected: Valve[] = []
+    const pageSize = 1000
+    let from = 0
+    while (true) {
+      const { data, error } = await supabase
+        .from('valves')
+        .select(VALVE_LIST_SELECT)
+        .not('status', 'in', '(Completed,Junked,Replaced)')
+        .order('valve_id', { ascending: true })
+        .range(from, from + pageSize - 1)
+      if (error) {
+        setActiveByCellLoading(false)
+        showToast(`Could not load active-by-cell report: ${error.message}`)
+        setActiveByCellRows([])
+        return
+      }
+      if (!data?.length) break
+      collected.push(...(data as Valve[]))
+      if (data.length < pageSize) break
+      from += pageSize
     }
-    const list = filterValvesForCompany((data as Valve[]) ?? [], {
+    setActiveByCellLoading(false)
+    const list = filterValvesForCompany(collected, {
       workflowKey: workflow.key,
       activeOrganization,
     })
-    setActiveByCellRows(list.filter((v) => !TERMINAL_STATUSES.has(v.status) && Boolean(v.cell)))
+    setActiveByCellRows(list.filter((v) => !isClosedWorkOrder(v)))
   }
 
   useEffect(() => {
@@ -1360,27 +1379,31 @@ export function ReportsPage() {
 
   const activeByCellOptions = useMemo(
     () =>
-      [...new Set(activeByCellRows.map((v) => v.cell).filter((c): c is string => Boolean(c && c.trim())))].sort(
-        (a, b) => a.localeCompare(b),
+      [...new Set(activeByCellRows.map((v) => activeValveGroupLabel(v, activeByCellGroup)))].sort(
+        compareActiveByCellSlices,
       ),
-    [activeByCellRows],
+    [activeByCellGroup, activeByCellRows],
   )
 
   const activeByCellSlices = useMemo(() => {
     const counts = new Map<string, number>()
     for (const row of activeByCellRows) {
-      const cell = (row.cell ?? '').trim()
-      if (!cell) continue
-      counts.set(cell, (counts.get(cell) ?? 0) + 1)
+      const label = activeValveGroupLabel(row, activeByCellGroup)
+      counts.set(label, (counts.get(label) ?? 0) + 1)
     }
     return [...counts.entries()]
+      .sort(([aLabel, aCount], [bLabel, bCount]) => {
+        if (activeByCellGroup === 'finish-cell') return bCount - aCount || aLabel.localeCompare(bLabel)
+        const byArea = compareActiveByCellSlices(aLabel, bLabel)
+        if (byArea) return byArea
+        return bCount - aCount
+      })
       .map(([label, count], index) => ({
         label,
         count,
         color: pieColorForIndex(index),
       }))
-      .sort((a, b) => b.count - a.count || a.label.localeCompare(b.label))
-  }, [activeByCellRows])
+  }, [activeByCellGroup, activeByCellRows])
 
   const activeByCellTotal = useMemo(
     () => activeByCellSlices.reduce((sum, slice) => sum + slice.count, 0),
@@ -1388,15 +1411,21 @@ export function ReportsPage() {
   )
 
   const visibleActiveByCellRows = useMemo(
-    () => activeByCellRows.filter((v) => (activeByCellFilter === 'all' ? true : (v.cell ?? '') === activeByCellFilter)),
-    [activeByCellRows, activeByCellFilter],
+    () =>
+      activeByCellRows.filter((v) =>
+        activeByCellFilter === 'all' ? true : activeValveGroupLabel(v, activeByCellGroup) === activeByCellFilter,
+      ),
+    [activeByCellFilter, activeByCellGroup, activeByCellRows],
   )
 
   const printActiveByCellPie = () => {
     const companyName = activeOrganization?.name?.trim() || (workflow.key === 'vsi' ? 'VSI' : 'JS Valve')
     const { error } = printPieChartReport({
-      title: 'Active valves per cell',
-      subtitle: `${companyName} · open jobs (excludes Completed / Junked / Replaced)`,
+      title: activeByCellGroup === 'shop-area' ? 'Active valves by shop area' : 'Active valves per cell',
+      subtitle:
+        activeByCellGroup === 'shop-area'
+          ? `${companyName} · open jobs by where they are now (Machine 1, Machine 2, Welding, Actuation, Testing, Painting, Warehouse, and assembly finish cells)`
+          : `${companyName} · open jobs by finish cell (excludes Completed / Junked / Replaced)`,
       slices: activeByCellSlices,
       valueLabel: 'Valves',
     })
@@ -1415,7 +1444,7 @@ export function ReportsPage() {
     const url = URL.createObjectURL(blob)
     const a = document.createElement('a')
     a.href = url
-    a.download = `active-valves-by-cell-${activeByCellFilter === 'all' ? 'all-cells' : activeByCellFilter}-${new Date().toISOString().slice(0, 10)}.csv`
+    a.download = `active-valves-by-cell-${activeByCellGroup}-${activeByCellFilter === 'all' ? 'all' : activeByCellFilter}-${new Date().toISOString().slice(0, 10)}.csv`
     a.click()
     URL.revokeObjectURL(url)
   }
@@ -2543,14 +2572,29 @@ export function ReportsPage() {
       title="Active valves by cell"
     >
       <p className="placeholder-copy">
-          Open valves grouped by work cell / department (excludes Completed / Junked / Replaced). Printable pie chart
-          shows counts per cell for the active company.
+          Open valves on the job board (excludes Completed / Junked / Replaced). <strong>All shop areas</strong> splits
+          the pie by where the valve is now — Machine 1, Machine 2, Welding, Actuation, Testing, Painting, Warehouse,
+          plus assembly finish cells. <strong>Finish cells</strong> is the older view (Ball Valve, Durco, and so on).
         </p>
         <div className="report-filters">
           <label>
-            Cell
+            Group by
+            <select
+              value={activeByCellGroup}
+              aria-label="Group active valves"
+              onChange={(e) => {
+                setActiveByCellGroup(e.target.value as ActiveByCellGroup)
+                setActiveByCellFilter('all')
+              }}
+            >
+              <option value="shop-area">All shop areas</option>
+              <option value="finish-cell">Finish cells</option>
+            </select>
+          </label>
+          <label>
+            Filter
             <select value={activeByCellFilter} onChange={(e) => setActiveByCellFilter(e.target.value)}>
-              <option value="all">All cells</option>
+              <option value="all">All</option>
               {activeByCellOptions.map((cell) => (
                 <option key={cell} value={cell}>
                   {cell}
@@ -2648,7 +2692,7 @@ export function ReportsPage() {
               {visibleActiveByCellRows.length === 0 ? (
                 <tr>
                   <td colSpan={7} className="job-muted">
-                    {activeByCellLoading ? 'Loading…' : 'No open valves with a cell assigned.'}
+                    {activeByCellLoading ? 'Loading…' : 'No open valves in this view.'}
                   </td>
                 </tr>
               ) : (
