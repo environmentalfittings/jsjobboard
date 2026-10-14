@@ -682,7 +682,12 @@ export function ItpTemplateBuilderPanel({
   const [newStationName, setNewStationName] = useState('')
   const [draggingSection, setDraggingSection] = useState<string | null>(null)
   const [dragOverSection, setDragOverSection] = useState<string | null>(null)
+  /** Section ids that are expanded; all others stay rolled up by default. */
+  const [expandedMasterSecs, setExpandedMasterSecs] = useState<Set<string>>(() => new Set())
+  const [expandedChecklistSecs, setExpandedChecklistSecs] = useState<Set<string>>(() => new Set())
   const skipSectionChipClickRef = useRef(false)
+  const sectionAddInputRef = useRef<HTMLInputElement | null>(null)
+  const stationAddInputRef = useRef<HTMLInputElement | null>(null)
   const masterBodyRef = useRef<HTMLDivElement | null>(null)
   const checklistBodyRef = useRef<HTMLDivElement | null>(null)
   /** When set, the next jobType/valveType load uses this template name (null = preferred default). */
@@ -1984,18 +1989,75 @@ export function ItpTemplateBuilderPanel({
     setDirty(true)
   }
 
+  const expandMasterSection = (secId: string) => {
+    setExpandedMasterSecs((prev) => {
+      if (prev.has(secId)) return prev
+      const next = new Set(prev)
+      next.add(secId)
+      return next
+    })
+  }
+
+  const toggleMasterSection = (secId: string) => {
+    setExpandedMasterSecs((prev) => {
+      const next = new Set(prev)
+      if (next.has(secId)) next.delete(secId)
+      else next.add(secId)
+      return next
+    })
+  }
+
+  const expandChecklistSection = (secId: string) => {
+    setExpandedChecklistSecs((prev) => {
+      if (prev.has(secId)) return prev
+      const next = new Set(prev)
+      next.add(secId)
+      return next
+    })
+  }
+
+  const toggleChecklistSection = (secId: string) => {
+    setExpandedChecklistSecs((prev) => {
+      const next = new Set(prev)
+      if (next.has(secId)) next.delete(secId)
+      else next.add(secId)
+      return next
+    })
+  }
+
   const scrollMasterSection = (secId: string) => {
-    scrollChildIntoView(masterBodyRef.current, `#itp-master-sec-${CSS.escape(secId)}`)
+    expandMasterSection(secId)
+    window.setTimeout(() => {
+      scrollChildIntoView(masterBodyRef.current, `#itp-master-sec-${CSS.escape(secId)}`)
+    }, 40)
   }
 
   const scrollChecklistSection = (sectionId: string) => {
-    scrollChildIntoView(checklistBodyRef.current, `#itp-check-sec-${CSS.escape(sectionId)}`)
+    expandChecklistSection(sectionId)
+    window.setTimeout(() => {
+      scrollChildIntoView(checklistBodyRef.current, `#itp-check-sec-${CSS.escape(sectionId)}`)
+    }, 40)
+  }
+
+  const focusAddSection = () => {
+    const input = sectionAddInputRef.current
+    if (!input) return
+    input.scrollIntoView({ behavior: 'smooth', block: 'center' })
+    window.setTimeout(() => input.focus(), 80)
+  }
+
+  const focusAddStation = () => {
+    const input = stationAddInputRef.current
+    if (!input) return
+    input.scrollIntoView({ behavior: 'smooth', block: 'center' })
+    window.setTimeout(() => input.focus(), 80)
   }
 
   const addMasterSection = () => {
     const title = newSectionName.trim()
     if (!title) {
       showToast('Enter a section name')
+      focusAddSection()
       return
     }
     if (processSections.some((section) => section.title.toLowerCase() === title.toLowerCase())) {
@@ -2017,7 +2079,12 @@ export function ItpTemplateBuilderPanel({
     }))
     setNewSectionName('')
     setMasterDirty(true)
-    showToast(`Added “${title}” as section and station — click Save master list`)
+    expandMasterSection(id)
+    showToast(
+      builderLayer === 'global'
+        ? `Added “${title}” as section and station — click Save global master`
+        : `Added “${title}” as section and station — click Save to keep it`,
+    )
     window.setTimeout(() => scrollMasterSection(id), 50)
   }
 
@@ -2025,6 +2092,7 @@ export function ItpTemplateBuilderPanel({
     const title = newStationName.trim()
     if (!title) {
       showToast('Enter a station name')
+      focusAddStation()
       return
     }
     const before = areas.length
@@ -2038,7 +2106,11 @@ export function ItpTemplateBuilderPanel({
     setNewItem((prev) => ({ ...prev, area: added.value }))
     setNewStationName('')
     setMasterDirty(true)
-    showToast(`Added station “${title}” — click Save master list`)
+    showToast(
+      builderLayer === 'global'
+        ? `Added station “${title}” — click Save global master`
+        : `Added station “${title}” — click Save to keep it`,
+    )
   }
 
   const moveMasterSection = (secId: string, direction: -1 | 1) => {
@@ -2952,16 +3024,23 @@ export function ItpTemplateBuilderPanel({
               ))}
             </div>
             <p className="itp-section-nav-hint">
-              Sections follow the ITP process. Drag to reorder, click to jump, or use × to delete. New section names
-              are also added to the Assigned station dropdown (same as job-card statuses).
+              Sections follow the ITP process. Drag to reorder, click to jump, or use × to delete. Use{' '}
+              <button type="button" className="itp-section-nav-hint-link" onClick={focusAddSection}>
+                Add section
+              </button>{' '}
+              or{' '}
+              <button type="button" className="itp-section-nav-hint-link" onClick={focusAddStation}>
+                Add station
+              </button>{' '}
+              below — no need to switch to Global master. New section names also appear in Assigned station.
             </p>
-            {canEditCatalog ? (
-            <>
             <div className="itp-section-nav-add">
               <input
+                ref={sectionAddInputRef}
+                id="itp-add-section-input"
                 type="text"
                 value={newSectionName}
-                placeholder="e.g. Machine 1…"
+                placeholder="New ITP section (e.g. Machine 1)…"
                 aria-label="New section name"
                 onChange={(e) => setNewSectionName(e.target.value)}
                 onKeyDown={(e) => {
@@ -2977,6 +3056,8 @@ export function ItpTemplateBuilderPanel({
             </div>
             <div className="itp-section-nav-add itp-station-nav-add">
               <input
+                ref={stationAddInputRef}
+                id="itp-add-station-input"
                 type="text"
                 value={newStationName}
                 placeholder="Station only (e.g. Machine 3)…"
@@ -2993,8 +3074,22 @@ export function ItpTemplateBuilderPanel({
                 Add station
               </button>
             </div>
-            </>
-            ) : null}
+            <div className="itp-section-nav-collapse-actions">
+              <button
+                type="button"
+                className="button-secondary"
+                onClick={() => setExpandedMasterSecs(new Set(catalogBySection.map((section) => section.id)))}
+              >
+                Expand all
+              </button>
+              <button
+                type="button"
+                className="button-secondary"
+                onClick={() => setExpandedMasterSecs(new Set())}
+              >
+                Collapse all
+              </button>
+            </div>
           </nav>
             {canAddOrEditRequirement ? (
             <div className="itp-master-global-add">
@@ -3036,6 +3131,7 @@ export function ItpTemplateBuilderPanel({
                     value={newItem.area}
                     areas={areas}
                     onChange={(area) => setNewItem((prev) => ({ ...prev, area }))}
+                    onAddClick={focusAddStation}
                   />
                 </div>
                 <label className="itp-master-global-field">
@@ -3263,10 +3359,25 @@ export function ItpTemplateBuilderPanel({
               catalogBySection.map(({ id, title, items }, sectionIndex) => {
                 const selCount = items.filter((item) => getSel(editingScope, item.id).included).length
                 const allSel = items.length > 0 && selCount === items.length
+                const sectionExpanded = expandedMasterSecs.has(id)
                 return (
-                  <div key={id} id={`itp-master-sec-${id}`} className="itp-library-lib-sec">
+                  <div
+                    key={id}
+                    id={`itp-master-sec-${id}`}
+                    className={`itp-library-lib-sec${sectionExpanded ? '' : ' is-collapsed'}`}
+                  >
                     <div className="itp-library-lib-sec-hdr">
                       <div className="itp-library-lib-sec-hdr-main">
+                        <button
+                          type="button"
+                          className="itp-section-collapse-toggle"
+                          aria-expanded={sectionExpanded}
+                          aria-controls={`itp-master-sec-body-${id}`}
+                          title={sectionExpanded ? `Collapse ${title}` : `Expand ${title}`}
+                          onClick={() => toggleMasterSection(id)}
+                        >
+                          {sectionExpanded ? '−' : '+'}
+                        </button>
                         <button
                           type="button"
                           className="itp-master-order-btn itp-section-order-btn"
@@ -3287,13 +3398,20 @@ export function ItpTemplateBuilderPanel({
                         >
                           ↓
                         </button>
-                        <h4>{title}</h4>
+                        <button
+                          type="button"
+                          className="itp-section-collapse-title"
+                          aria-expanded={sectionExpanded}
+                          onClick={() => toggleMasterSection(id)}
+                        >
+                          <h4>{title}</h4>
+                        </button>
                       </div>
                       <div className="itp-library-lshr">
                         <span>
                           {selCount}/{items.length}
                         </span>
-                        {showIncludeChecks ? (
+                        {showIncludeChecks && sectionExpanded ? (
                         <button
                           type="button"
                           className="itp-library-sel-all"
@@ -3302,7 +3420,6 @@ export function ItpTemplateBuilderPanel({
                           {allSel ? 'Deselect All' : 'Select All'}
                         </button>
                         ) : null}
-                        {canEditCatalog ? (
                         <button
                           type="button"
                           className="itp-library-sel-all itp-section-remove"
@@ -3311,10 +3428,11 @@ export function ItpTemplateBuilderPanel({
                         >
                           Remove
                         </button>
-                        ) : null}
                       </div>
                     </div>
 
+                    {sectionExpanded ? (
+                    <div id={`itp-master-sec-body-${id}`} className="itp-library-lib-sec-body">
                     {items.length === 0 ? (
                       <p className="itp-master-empty-area">No items in {title} yet.</p>
                     ) : null}
@@ -3785,6 +3903,8 @@ export function ItpTemplateBuilderPanel({
                         </div>
                       )
                     })}
+                    </div>
+                    ) : null}
                   </div>
                 )
               })
@@ -3905,17 +4025,60 @@ export function ItpTemplateBuilderPanel({
                       </button>
                     ))}
                   </div>
+                  <div className="itp-section-nav-collapse-actions">
+                    <button
+                      type="button"
+                      className="button-secondary"
+                      onClick={() =>
+                        setExpandedChecklistSecs(new Set(checklistSections.map(({ section }) => section.id)))
+                      }
+                    >
+                      Expand all
+                    </button>
+                    <button
+                      type="button"
+                      className="button-secondary"
+                      onClick={() => setExpandedChecklistSecs(new Set())}
+                    >
+                      Collapse all
+                    </button>
+                  </div>
                 </nav>
               ) : null}
               <div className="itp-library-panel-body" ref={checklistBodyRef}>
-                {checklistSections.map(({ section, items }) => (
-                  <div key={section.id} id={`itp-check-sec-${section.id}`} className="itp-library-itp-sec">
+                {checklistSections.map(({ section, items }) => {
+                  const sectionExpanded = expandedChecklistSecs.has(section.id)
+                  return (
+                  <div
+                    key={section.id}
+                    id={`itp-check-sec-${section.id}`}
+                    className={`itp-library-itp-sec${sectionExpanded ? '' : ' is-collapsed'}`}
+                  >
                     <div className="itp-library-itp-sec-hdr">
-                      <h4>{section.title}</h4>
+                      <button
+                        type="button"
+                        className="itp-section-collapse-toggle"
+                        aria-expanded={sectionExpanded}
+                        aria-controls={`itp-check-sec-body-${section.id}`}
+                        title={sectionExpanded ? `Collapse ${section.title}` : `Expand ${section.title}`}
+                        onClick={() => toggleChecklistSection(section.id)}
+                      >
+                        {sectionExpanded ? '−' : '+'}
+                      </button>
+                      <button
+                        type="button"
+                        className="itp-section-collapse-title"
+                        aria-expanded={sectionExpanded}
+                        onClick={() => toggleChecklistSection(section.id)}
+                      >
+                        <h4>{section.title}</h4>
+                      </button>
                       <span className="itp-library-isp">
                         0/{items.length}
                       </span>
                     </div>
+                    {sectionExpanded ? (
+                    <div id={`itp-check-sec-body-${section.id}`} className="itp-library-itp-sec-body">
                     {items.map((item, indexInSection) => {
                       const sel = getSel(editingScope, item.id)
                       const station = resolvedItemStation(sel.shopArea, item.area)
@@ -3960,6 +4123,7 @@ export function ItpTemplateBuilderPanel({
                                       value={station}
                                       areas={areas}
                                       onChange={(area) => changeRowStation(item.id, area)}
+                                      onAddClick={focusAddStation}
                                     />
                                   </div>
                                   <label className="itp-template-station-field">
@@ -4071,8 +4235,11 @@ export function ItpTemplateBuilderPanel({
                         </div>
                       )
                     })}
+                    </div>
+                    ) : null}
                   </div>
-                ))}
+                  )
+                })}
               </div>
             </>
           )}
