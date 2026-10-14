@@ -67,7 +67,10 @@ export function completionDateForValve(valve: Valve): Date | null {
  * Uses the earlier of test and close dates so a bulk admin close stamp does not
  * inflate "completed this month" when the valve was tested/finished earlier.
  */
-export function metricsCompletionDateForValve(valve: Valve, now = new Date()): Date | null {
+export function metricsCompletionDateForValve(
+  valve: Pick<Valve, 'date_tested' | 'date_closed'>,
+  now = new Date(),
+): Date | null {
   const tested = parseCalendarDate(valve.date_tested)
   const closed = parseCalendarDate(valve.date_closed)
 
