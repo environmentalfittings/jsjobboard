@@ -22679,6 +22679,45 @@ body.shop-tv-fullscreen-active .page-content {
   font-weight: 800;
   color: #1e293b;
   letter-spacing: 0.01em;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
+.itp-traveler-section-locked-tag {
+  appearance: none;
+  display: inline-flex;
+  align-items: center;
+  padding: 0.1rem 0.45rem;
+  border-radius: 999px;
+  border: 1px solid #fcd34d;
+  background: #fffbeb;
+  color: #92400e;
+  font: inherit;
+  font-size: 0.68rem;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  cursor: pointer;
+}
+
+.itp-traveler-section.is-section-locked .itp-traveler-work-row.is-section-locked {
+  opacity: 0.72;
+  background: #f1f5f9;
+}
+
+.itp-traveler-section-lock-modal {
+  max-width: 32rem;
+}
+
+.itp-traveler-section-lock-list {
+  margin: 0 0 1rem;
+  padding-left: 1.2rem;
+  color: #334155;
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
 }
 
 .itp-traveler-doc-meta-grid {
