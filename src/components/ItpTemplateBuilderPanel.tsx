@@ -683,6 +683,8 @@ export function ItpTemplateBuilderPanel({
   const [draggingSection, setDraggingSection] = useState<string | null>(null)
   const [dragOverSection, setDragOverSection] = useState<string | null>(null)
   const skipSectionChipClickRef = useRef(false)
+  const sectionAddInputRef = useRef<HTMLInputElement | null>(null)
+  const stationAddInputRef = useRef<HTMLInputElement | null>(null)
   const masterBodyRef = useRef<HTMLDivElement | null>(null)
   const checklistBodyRef = useRef<HTMLDivElement | null>(null)
   /** When set, the next jobType/valveType load uses this template name (null = preferred default). */
@@ -1992,10 +1994,25 @@ export function ItpTemplateBuilderPanel({
     scrollChildIntoView(checklistBodyRef.current, `#itp-check-sec-${CSS.escape(sectionId)}`)
   }
 
+  const focusAddSection = () => {
+    const input = sectionAddInputRef.current
+    if (!input) return
+    input.scrollIntoView({ behavior: 'smooth', block: 'center' })
+    window.setTimeout(() => input.focus(), 80)
+  }
+
+  const focusAddStation = () => {
+    const input = stationAddInputRef.current
+    if (!input) return
+    input.scrollIntoView({ behavior: 'smooth', block: 'center' })
+    window.setTimeout(() => input.focus(), 80)
+  }
+
   const addMasterSection = () => {
     const title = newSectionName.trim()
     if (!title) {
       showToast('Enter a section name')
+      focusAddSection()
       return
     }
     if (processSections.some((section) => section.title.toLowerCase() === title.toLowerCase())) {
@@ -2017,7 +2034,11 @@ export function ItpTemplateBuilderPanel({
     }))
     setNewSectionName('')
     setMasterDirty(true)
-    showToast(`Added “${title}” as section and station — click Save master list`)
+    showToast(
+      builderLayer === 'global'
+        ? `Added “${title}” as section and station — click Save global master`
+        : `Added “${title}” as section and station — click Save to keep it`,
+    )
     window.setTimeout(() => scrollMasterSection(id), 50)
   }
 
@@ -2025,6 +2046,7 @@ export function ItpTemplateBuilderPanel({
     const title = newStationName.trim()
     if (!title) {
       showToast('Enter a station name')
+      focusAddStation()
       return
     }
     const before = areas.length
@@ -2038,7 +2060,11 @@ export function ItpTemplateBuilderPanel({
     setNewItem((prev) => ({ ...prev, area: added.value }))
     setNewStationName('')
     setMasterDirty(true)
-    showToast(`Added station “${title}” — click Save master list`)
+    showToast(
+      builderLayer === 'global'
+        ? `Added station “${title}” — click Save global master`
+        : `Added station “${title}” — click Save to keep it`,
+    )
   }
 
   const moveMasterSection = (secId: string, direction: -1 | 1) => {
@@ -2952,16 +2978,23 @@ export function ItpTemplateBuilderPanel({
               ))}
             </div>
             <p className="itp-section-nav-hint">
-              Sections follow the ITP process. Drag to reorder, click to jump, or use × to delete. New section names
-              are also added to the Assigned station dropdown (same as job-card statuses).
+              Sections follow the ITP process. Drag to reorder, click to jump, or use × to delete. Use{' '}
+              <button type="button" className="itp-section-nav-hint-link" onClick={focusAddSection}>
+                Add section
+              </button>{' '}
+              or{' '}
+              <button type="button" className="itp-section-nav-hint-link" onClick={focusAddStation}>
+                Add station
+              </button>{' '}
+              below — no need to switch to Global master. New section names also appear in Assigned station.
             </p>
-            {canEditCatalog ? (
-            <>
             <div className="itp-section-nav-add">
               <input
+                ref={sectionAddInputRef}
+                id="itp-add-section-input"
                 type="text"
                 value={newSectionName}
-                placeholder="e.g. Machine 1…"
+                placeholder="New ITP section (e.g. Machine 1)…"
                 aria-label="New section name"
                 onChange={(e) => setNewSectionName(e.target.value)}
                 onKeyDown={(e) => {
@@ -2977,6 +3010,8 @@ export function ItpTemplateBuilderPanel({
             </div>
             <div className="itp-section-nav-add itp-station-nav-add">
               <input
+                ref={stationAddInputRef}
+                id="itp-add-station-input"
                 type="text"
                 value={newStationName}
                 placeholder="Station only (e.g. Machine 3)…"
@@ -2993,8 +3028,6 @@ export function ItpTemplateBuilderPanel({
                 Add station
               </button>
             </div>
-            </>
-            ) : null}
           </nav>
             {canAddOrEditRequirement ? (
             <div className="itp-master-global-add">
@@ -3036,6 +3069,7 @@ export function ItpTemplateBuilderPanel({
                     value={newItem.area}
                     areas={areas}
                     onChange={(area) => setNewItem((prev) => ({ ...prev, area }))}
+                    onAddClick={focusAddStation}
                   />
                 </div>
                 <label className="itp-master-global-field">
@@ -3960,6 +3994,7 @@ export function ItpTemplateBuilderPanel({
                                       value={station}
                                       areas={areas}
                                       onChange={(area) => changeRowStation(item.id, area)}
+                                      onAddClick={focusAddStation}
                                     />
                                   </div>
                                   <label className="itp-template-station-field">
