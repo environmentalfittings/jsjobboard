@@ -1,3 +1,4 @@
+import type { OrganizationRole } from '../types/organizations'
 import type { UserRole } from '../pages/LoginPage'
 
 /** Shop app roles — Admin, Manager, Technician, and shareable read-only Viewer. */
@@ -69,15 +70,33 @@ export function can(role: UserRole | null | undefined, permission: AppPermission
 }
 
 /**
- * Company Superadmin (organization_members.role) always gets full Admin app permissions,
- * even if Shop assignment / profiles still say Read-only or Technician.
+ * Company membership can elevate login permissions above Shop assignment / profiles:
+ * - Superadmin (any company) or Admin on the active company → Admin (full write)
+ * - Manager on the active company → at least Manager
+ * - Viewer on the active company stays Viewer (does not elevate)
  */
 export function effectiveAppRole(
   role: UserRole | null | undefined,
-  isOrgSuperAdmin: boolean,
+  options:
+    | boolean
+    | {
+        isOrgSuperAdmin?: boolean
+        activeOrgRole?: OrganizationRole | null
+      } = false,
 ): UserRole | null {
   if (!role) return null
-  if (isOrgSuperAdmin) return 'admin'
+  const opts =
+    typeof options === 'boolean'
+      ? { isOrgSuperAdmin: options, activeOrgRole: null as OrganizationRole | null }
+      : options
+  if (opts.isOrgSuperAdmin) return 'admin'
+  const orgRole = opts.activeOrgRole ?? null
+  if (orgRole === 'super_admin' || orgRole === 'admin') return 'admin'
+  if (orgRole === 'manager') {
+    const base = normalizeAppRole(role)
+    return base === 'admin' ? 'admin' : 'manager'
+  }
+  if (orgRole === 'viewer') return 'viewer'
   return normalizeAppRole(role)
 }
 
