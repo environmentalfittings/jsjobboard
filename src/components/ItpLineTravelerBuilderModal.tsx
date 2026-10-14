@@ -16,6 +16,7 @@ import type { ItpMasterCatalogItem } from '../lib/itpMasterCatalog'
 import { ItpMeasDropdownSourceFields } from './ItpMeasDropdownSourceFields'
 import { ItpMeasJobCardSourceSelect } from './ItpMeasJobCardSourceSelect'
 import { ItpMeasRequiredToggle } from './ItpMeasRequiredToggle'
+import { ItpMeasSimpleFollowUp } from './ItpMeasSimpleFollowUp'
 import { ItpPhotoMinMaxFields } from './ItpPhotoMinMaxFields'
 import { ItpMeasUnlockItemsFields } from './ItpMeasUnlockItemsFields'
 import {
@@ -57,9 +58,21 @@ function draftFromLine(
   }
 }
 
+function isSimpleOtherFollowUp(field: ItpMeasFieldDef): boolean {
+  const when = String(field.followUpWhen ?? '').trim().toLowerCase()
+  if (!when) return true
+  const label = String(field.followUpLabel ?? '').trim().toLowerCase()
+  return (
+    when === 'other' &&
+    (!label || label === 'describe other') &&
+    !field.followUpLookupCategory
+  )
+}
+
 function fieldNeedsAdvanced(field: ItpMeasFieldDef): boolean {
   if (resolveJobCardField(field)) return true
-  if (String(field.followUpWhen ?? '').trim() || String(field.followUpLabel ?? '').trim()) return true
+  // Simple “Other → describe” stays on the main card; only unusual follow-ups force More options open.
+  if (String(field.followUpWhen ?? '').trim() && !isSimpleOtherFollowUp(field)) return true
   if (field.followUpLookupCategory) return true
   const unlocks = field.unlockItemIdsByOption ?? {}
   return Object.values(unlocks).some((ids) => (ids?.length ?? 0) > 0)
@@ -163,8 +176,8 @@ export function ItpLineTravelerBuilderModal({
           </button>
         </div>
         <p className="placeholder-copy itp-line-traveler-lead">
-          Choose photos and questions for this step. Keep it simple — open <strong>More options</strong> only if you
-          need job-card prefill, follow-up questions, or extra checklist steps.
+          Choose photos and questions for this step. For dropdowns, you can turn on “If they pick Other…” with one
+          checkbox. Open <strong>More options</strong> only for job-card prefill or extra checklist steps.
         </p>
 
         <section className="itp-line-traveler-block">
@@ -286,6 +299,13 @@ export function ItpLineTravelerBuilderModal({
                       </div>
                     </div>
 
+                    {isDropdown ? (
+                      <ItpMeasSimpleFollowUp
+                        field={field}
+                        onChange={(patch) => patchField(idx, patch)}
+                      />
+                    ) : null}
+
                     <button
                       type="button"
                       className="itp-line-traveler-advanced-toggle"
@@ -293,7 +313,7 @@ export function ItpLineTravelerBuilderModal({
                       onClick={() => toggleAdvanced(field.id)}
                     >
                       {advancedOpen ? '▾ Hide options' : '▸ More options'}
-                      <span>Job card · follow-up · extra steps</span>
+                      <span>Job card prefill · extra checklist steps</span>
                     </button>
 
                     {advancedOpen ? (
@@ -307,20 +327,7 @@ export function ItpLineTravelerBuilderModal({
                         </label>
                         {isDropdown ? (
                           <div className="itp-line-traveler-advanced-row">
-                            <span>If they pick a special answer, ask another question</span>
-                            <div className="itp-line-traveler-followup">
-                              <ItpMeasDropdownSourceFields
-                                field={field}
-                                showSource={false}
-                                showFollowUp
-                                onChange={(patch) => patchField(idx, patch)}
-                              />
-                            </div>
-                          </div>
-                        ) : null}
-                        {isDropdown ? (
-                          <div className="itp-line-traveler-advanced-row">
-                            <span>Extra checklist steps for a choice</span>
+                            <span>Extra checklist steps when they pick a choice</span>
                             <ItpMeasUnlockItemsFields
                               field={field}
                               sourceItemId={sourceItemId}

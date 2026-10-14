@@ -21556,6 +21556,68 @@ body.shop-tv-fullscreen-active .page-content {
   justify-content: flex-end;
 }
 
+.itp-meas-simple-followup {
+  margin-top: 0.65rem;
+  padding: 0.55rem 0.65rem;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  background: #f8fafc;
+}
+
+.itp-meas-simple-followup-toggle {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.5rem;
+  font-size: 0.9rem;
+  font-weight: 600;
+  color: #0f172a;
+  cursor: pointer;
+}
+
+.itp-meas-simple-followup-toggle input {
+  margin-top: 0.2rem;
+}
+
+.itp-meas-simple-followup-toggle strong {
+  font-weight: 800;
+}
+
+.itp-meas-simple-followup-fields {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1.4fr);
+  gap: 0.55rem;
+  margin-top: 0.55rem;
+}
+
+.itp-meas-simple-followup-fields label {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  font-size: 0.72rem;
+  font-weight: 700;
+  color: #64748b;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+
+.itp-meas-simple-followup-fields input {
+  font: inherit;
+  font-size: 0.88rem;
+  font-weight: 500;
+  text-transform: none;
+  letter-spacing: normal;
+  color: #0f172a;
+  border: 1px solid #cbd5e1;
+  border-radius: 6px;
+  padding: 0.35rem 0.45rem;
+}
+
+@media (max-width: 640px) {
+  .itp-meas-simple-followup-fields {
+    grid-template-columns: 1fr;
+  }
+}
+
 .itp-line-traveler-advanced-toggle {
   appearance: none;
   margin-top: 0.65rem;
