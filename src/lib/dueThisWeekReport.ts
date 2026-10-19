@@ -9,6 +9,8 @@ export type DueJobReportRow = {
   status?: string | null
   order_type?: string | null
   organization_id?: string | null
+  /** ISO timestamp of the most recent status move from valve_change_log. */
+  lastStatusChangedAt?: string | null
 }
 
 function pad2(value: number) {
@@ -76,4 +78,27 @@ export function formatDueDateLabel(value: string | null | undefined): string {
     day: 'numeric',
     year: 'numeric',
   })
+}
+
+/** Format a status-change timestamp for the report table / PDF. */
+export function formatStatusChangedLabel(value: string | null | undefined): string {
+  if (!value) return '—'
+  const trimmed = String(value).trim()
+  const parsed = new Date(trimmed)
+  if (Number.isNaN(parsed.getTime())) {
+    const day = trimmed.slice(0, 10)
+    return parseYmd(day) ? formatDueDateLabel(day) : '—'
+  }
+  return parsed.toLocaleString(undefined, {
+    month: 'short',
+    day: 'numeric',
+    year: 'numeric',
+    hour: 'numeric',
+    minute: '2-digit',
+  })
+}
+
+export function statusLabel(value: string | null | undefined): string {
+  const status = String(value ?? '').trim()
+  return status || '—'
 }
