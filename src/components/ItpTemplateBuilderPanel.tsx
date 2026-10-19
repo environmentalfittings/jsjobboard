@@ -3661,8 +3661,14 @@ export function ItpTemplateBuilderPanel({
                                   />
                                 </label>
                                 <ItpPhotoMinMaxFields
-                                  minPhotos={item.minPhotos ?? 1}
-                                  maxPhotos={item.maxPhotos}
+                                  minPhotos={
+                                    item.minPhotos != null
+                                      ? item.minPhotos
+                                      : sel.minPhotos != null
+                                        ? sel.minPhotos
+                                        : 1
+                                  }
+                                  maxPhotos={item.maxPhotos ?? sel.maxPhotos}
                                   stopClick
                                   onChange={(next) => patchMasterItem(item.id, next, { prompt: false })}
                                 />

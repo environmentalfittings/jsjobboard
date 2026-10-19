@@ -212,6 +212,7 @@ export function markDoneBlockedReason(
     const min = clampLinePhotoMin(sel.minPhotos ?? 1)
     const label = sel.pictureLabel.trim() || 'required photos'
     const have = exec.photos?.length ?? 0
+    if (min <= 0) return null
     return `Attach at least ${min} photo${min === 1 ? '' : 's'} (${label}) — ${have}/${min}`
   }
   if (!measurementsComplete(sel, exec)) {
