@@ -358,11 +358,20 @@ export function printTableReport(options: {
   /** Default landscape for wide tables; use portrait for narrow ones. */
   orientation?: 'portrait' | 'landscape'
   frameId?: string
+  /** Column indexes that get extra height for handwritten notes on the PDF. */
+  noteColumnIndexes?: number[]
 }): { error: string | null } {
   const orientation = options.orientation ?? 'landscape'
+  const noteCols = new Set(options.noteColumnIndexes ?? [])
   const head = options.columns.map((c) => `<th>${escapeHtml(c)}</th>`).join('')
   const rowHtml = options.rows.map(
-    (row) => `<tr>${row.map((cell) => `<td>${escapeHtml(cell)}</td>`).join('')}</tr>`,
+    (row) =>
+      `<tr>${row
+        .map((cell, index) => {
+          const cls = noteCols.has(index) ? ' class="note-cell"' : ''
+          return `<td${cls}>${escapeHtml(cell)}</td>`
+        })
+        .join('')}</tr>`,
   )
   const summary = (options.summaryLines ?? [])
     .map((line) => `<p class="summary">${escapeHtml(line)}</p>`)
@@ -383,6 +392,7 @@ export function printTableReport(options: {
     table { width: 100%; border-collapse: collapse; font-size: 9pt; margin-top: 0.12in; }
     th, td { border: 1px solid #cbd5e1; padding: 0.06in 0.08in; text-align: left; vertical-align: top; }
     th { background: #f1f5f9; }
+    td.note-cell { min-width: 2.4in; height: 0.42in; }
     tfoot td { background: #f8fafc; font-weight: 700; }
     @page { size: letter ${orientation}; margin: 0.4in; }
     ${REPORT_PRINT_PAGINATION_CSS}
