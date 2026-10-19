@@ -5,6 +5,7 @@ import { ToolCalibrationHistoryModal } from './ToolCalibrationHistoryModal'
 import { ToolExternalCertModal } from './ToolExternalCertModal'
 import { ToolRecalibrateModal } from './ToolRecalibrateModal'
 import {
+  allocateNextToolJsId,
   createToolCalibration,
   daysUntilToolExpiration,
   deleteToolCalibration,
@@ -406,6 +407,11 @@ export function ToolCalibrationsPanel() {
     void reload()
   }, [reload])
 
+  const nextToolJsId = useMemo(
+    () => suggestNextToolJsId(rows.map((row) => row.js_id)),
+    [rows],
+  )
+
   const resetForm = () => {
     setEditingId(null)
     setForm(emptyToolCalibrationForm())
@@ -418,12 +424,31 @@ export function ToolCalibrationsPanel() {
       showToast(permissionDeniedReason('shopWrite'))
       return
     }
-    const nextJsId = suggestNextToolJsId(rows.map((row) => row.js_id))
+    const localNext = nextToolJsId
     setEditingId(null)
-    setSuggestedJsId(nextJsId)
-    setForm({ ...emptyToolCalibrationForm(), js_id: nextJsId })
+    setSuggestedJsId(localNext)
+    setForm({ ...emptyToolCalibrationForm(), js_id: localNext })
     setFormOpen(true)
+    // Confirm against the database in case the local list is stale or incomplete.
+    void allocateNextToolJsId().then(({ id, error }) => {
+      if (error || !id) return
+      setSuggestedJsId(id)
+      setForm((prev) => {
+        const current = prev.js_id.trim()
+        // Keep a manual override; refresh when still blank or still on the local suggestion.
+        if (current && current !== localNext) return prev
+        return current === id ? prev : { ...prev, js_id: id }
+      })
+    })
   }
+
+  // Belt-and-suspenders: Add tool must never sit open with a blank JS ID.
+  useEffect(() => {
+    if (!formOpen || editingId != null) return
+    if (form.js_id.trim()) return
+    setSuggestedJsId(nextToolJsId)
+    setForm((prev) => (prev.js_id.trim() ? prev : { ...prev, js_id: nextToolJsId }))
+  }, [formOpen, editingId, form.js_id, nextToolJsId])
 
   const startEdit = (row: ToolCalibration) => {
     if (editingId === row.id && formOpen) {
@@ -441,7 +466,7 @@ export function ToolCalibrationsPanel() {
       showToast(permissionDeniedReason('shopWrite'))
       return
     }
-    const jsId = form.js_id.trim()
+    const jsId = form.js_id.trim() || (editingId == null ? nextToolJsId : '')
     if (editingId == null && !jsId) {
       showToast('JS ID is required')
       return
@@ -450,10 +475,12 @@ export function ToolCalibrationsPanel() {
       showToast(`JS ID ${jsId} is already in use`)
       return
     }
+    const formToSave =
+      editingId == null && !form.js_id.trim() ? { ...form, js_id: jsId } : form
     setSaving(true)
     if (editingId != null) {
       const previous = rows.find((row) => row.id === editingId) ?? null
-      const { error } = await updateToolCalibration(editingId, form, previous)
+      const { error } = await updateToolCalibration(editingId, formToSave, previous)
       setSaving(false)
       if (error) {
         showToast(error)
@@ -461,7 +488,7 @@ export function ToolCalibrationsPanel() {
       }
       showToast('Tool updated')
     } else {
-      const { row, error } = await createToolCalibration(form)
+      const { row, error } = await createToolCalibration(formToSave)
       setSaving(false)
       if (error || !row) {
         showToast(error ?? 'Could not save tool')
@@ -696,7 +723,11 @@ export function ToolCalibrationsPanel() {
   )
 
   const jsIdIsSuggested =
-    editingId == null && suggestedJsId != null && form.js_id.trim() === suggestedJsId
+    editingId == null &&
+    Boolean(form.js_id.trim()) &&
+    (suggestedJsId != null
+      ? form.js_id.trim() === suggestedJsId
+      : form.js_id.trim() === nextToolJsId)
   const jsIdHint =
     editingId != null
       ? 'Must be unique across tools.'
@@ -708,10 +739,14 @@ export function ToolCalibrationsPanel() {
     <div className="test-gauge-admin-grid tool-cal-admin-grid">
       <label>
         JS ID
+        {editingId == null ? (
+          <span className="tool-cal-js-id-next">Next number: {nextToolJsId}</span>
+        ) : null}
         <input
           type="text"
           value={form.js_id}
-          placeholder="JS-309"
+          placeholder={nextToolJsId || 'JS-309'}
+          autoComplete="off"
           aria-describedby="tool-cal-js-id-hint"
           onChange={(e) => setForm((f) => ({ ...f, js_id: e.target.value }))}
         />

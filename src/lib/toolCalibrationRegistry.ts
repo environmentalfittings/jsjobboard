@@ -25,7 +25,9 @@ export const TOOL_CERT_BUCKET = 'valve-attachments'
 const MAX_CERT_BYTES = 20 * 1024 * 1024
 
 /** Canonical tool MTE labels look like JS-309 (seed also has JS292 / JS 55). */
-const TOOL_JS_ID_SEQUENCE_RE = /^JS[\s\-–—]*(\d+)$/i
+const TOOL_JS_ID_SEQUENCE_RE = /^JS[\s\-–—_.]*(\d+)$/i
+/** Fallback: any label that starts with JS and ends with digits (e.g. JS ID 312). */
+const TOOL_JS_ID_LOOSE_RE = /^JS\b.*?(\d+)\s*$/i
 
 function nullIfBlank(value: string): string | null {
   const trimmed = value.trim()
@@ -37,15 +39,20 @@ export function normalizeToolJsIdKey(raw: string | null | undefined): string {
   return String(raw ?? '')
     .trim()
     .toUpperCase()
-    .replace(/[\s\-–—]/g, '')
+    .replace(/[\s\-–—_.]/g, '')
 }
 
 export function parseToolJsIdSequence(raw: string | null | undefined): number | null {
   const value = String(raw ?? '').trim()
   if (!value) return null
-  const match = TOOL_JS_ID_SEQUENCE_RE.exec(value)
-  if (!match) return null
-  const n = Number(match[1])
+  const strict = TOOL_JS_ID_SEQUENCE_RE.exec(value)
+  if (strict) {
+    const n = Number(strict[1])
+    return Number.isFinite(n) ? n : null
+  }
+  const loose = TOOL_JS_ID_LOOSE_RE.exec(value)
+  if (!loose) return null
+  const n = Number(loose[1])
   return Number.isFinite(n) ? n : null
 }
 
