@@ -12,7 +12,9 @@ import {
   getToolCalibrationDueStatus,
   loadToolCalibrations,
   removeToolCalibrationCertificate,
+  suggestNextToolJsId,
   toolCalibrationCertificateUrl,
+  toolJsIdTaken,
   updateToolCalibration,
   updateToolCalibrationCategory,
   updateToolCalibrationFrequency,
@@ -368,6 +370,8 @@ export function ToolCalibrationsPanel() {
   const [editingId, setEditingId] = useState<number | null>(null)
   const [formOpen, setFormOpen] = useState(false)
   const [form, setForm] = useState<ToolCalibrationFormState>(emptyToolCalibrationForm())
+  /** Suggested next JS ID when opening Add tool — used for hint text only. */
+  const [suggestedJsId, setSuggestedJsId] = useState<string | null>(null)
   const [search, setSearch] = useState('')
   const [sortKey, setSortKey] = useState<SortKey>('js_id')
   const [sortDir, setSortDir] = useState<SortDir>('asc')
@@ -405,6 +409,7 @@ export function ToolCalibrationsPanel() {
   const resetForm = () => {
     setEditingId(null)
     setForm(emptyToolCalibrationForm())
+    setSuggestedJsId(null)
     setFormOpen(false)
   }
 
@@ -413,8 +418,10 @@ export function ToolCalibrationsPanel() {
       showToast(permissionDeniedReason('shopWrite'))
       return
     }
+    const nextJsId = suggestNextToolJsId(rows.map((row) => row.js_id))
     setEditingId(null)
-    setForm(emptyToolCalibrationForm())
+    setSuggestedJsId(nextJsId)
+    setForm({ ...emptyToolCalibrationForm(), js_id: nextJsId })
     setFormOpen(true)
   }
 
@@ -424,6 +431,7 @@ export function ToolCalibrationsPanel() {
       return
     }
     setEditingId(row.id)
+    setSuggestedJsId(null)
     setForm(toolCalibrationToForm(row))
     setFormOpen(true)
   }
@@ -431,6 +439,15 @@ export function ToolCalibrationsPanel() {
   const saveRow = async () => {
     if (!canWrite) {
       showToast(permissionDeniedReason('shopWrite'))
+      return
+    }
+    const jsId = form.js_id.trim()
+    if (editingId == null && !jsId) {
+      showToast('JS ID is required')
+      return
+    }
+    if (jsId && toolJsIdTaken(jsId, rows, editingId)) {
+      showToast(`JS ID ${jsId} is already in use`)
       return
     }
     setSaving(true)
@@ -451,7 +468,7 @@ export function ToolCalibrationsPanel() {
         return
       }
       rememberToolForCompany(companyKey, row.id)
-      showToast('Tool added')
+      showToast(`Tool added (${row.js_id ?? jsId})`)
     }
     resetForm()
     await reload()
@@ -678,6 +695,15 @@ export function ToolCalibrationsPanel() {
     />
   )
 
+  const jsIdIsSuggested =
+    editingId == null && suggestedJsId != null && form.js_id.trim() === suggestedJsId
+  const jsIdHint =
+    editingId != null
+      ? 'Must be unique across tools.'
+      : jsIdIsSuggested
+        ? 'Auto-assigned next number — edit to override.'
+        : 'Override in use — must be unique.'
+
   const toolFormFields = (
     <div className="test-gauge-admin-grid tool-cal-admin-grid">
       <label>
@@ -685,8 +711,13 @@ export function ToolCalibrationsPanel() {
         <input
           type="text"
           value={form.js_id}
+          placeholder="JS-309"
+          aria-describedby="tool-cal-js-id-hint"
           onChange={(e) => setForm((f) => ({ ...f, js_id: e.target.value }))}
         />
+        <span id="tool-cal-js-id-hint" className="inventory-field-hint">
+          {jsIdHint}
+        </span>
       </label>
       <label>
         Manufacturer
