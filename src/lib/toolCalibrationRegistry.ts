@@ -24,9 +24,96 @@ const EVENT_SELECT =
 export const TOOL_CERT_BUCKET = 'valve-attachments'
 const MAX_CERT_BYTES = 20 * 1024 * 1024
 
+/** Canonical tool MTE labels look like JS-309 (seed also has JS292 / JS 55). */
+const TOOL_JS_ID_SEQUENCE_RE = /^JS[\s\-–—]*(\d+)$/i
+
 function nullIfBlank(value: string): string | null {
   const trimmed = value.trim()
   return trimmed ? trimmed : null
+}
+
+/** Compare JS IDs case-insensitively, ignoring spaces/hyphens (JS-309 ≡ JS309 ≡ js 309). */
+export function normalizeToolJsIdKey(raw: string | null | undefined): string {
+  return String(raw ?? '')
+    .trim()
+    .toUpperCase()
+    .replace(/[\s\-–—]/g, '')
+}
+
+export function parseToolJsIdSequence(raw: string | null | undefined): number | null {
+  const value = String(raw ?? '').trim()
+  if (!value) return null
+  const match = TOOL_JS_ID_SEQUENCE_RE.exec(value)
+  if (!match) return null
+  const n = Number(match[1])
+  return Number.isFinite(n) ? n : null
+}
+
+export function formatToolJsId(sequence: number): string {
+  return `JS-${sequence}`
+}
+
+/** Next unused JS-### from existing labels (starts at JS-1 when none exist). */
+export function suggestNextToolJsId(existing: Array<string | null | undefined>): string {
+  let max = 0
+  for (const id of existing) {
+    const sequence = parseToolJsIdSequence(id)
+    if (sequence != null && sequence > max) max = sequence
+  }
+  return formatToolJsId(max + 1)
+}
+
+export function toolJsIdTaken(
+  candidate: string,
+  existing: Array<{ id: number; js_id: string | null }>,
+  excludeId?: number | null,
+): boolean {
+  const key = normalizeToolJsIdKey(candidate)
+  if (!key) return false
+  return existing.some((row) => {
+    if (excludeId != null && row.id === excludeId) return false
+    return normalizeToolJsIdKey(row.js_id) === key
+  })
+}
+
+export async function allocateNextToolJsId(): Promise<{ id: string; error: string | null }> {
+  const { data, error } = await supabase.from('tool_calibrations').select('js_id').limit(5000)
+  if (error) return { id: formatToolJsId(1), error: error.message }
+  return {
+    id: suggestNextToolJsId((data ?? []).map((row) => (row as { js_id?: string | null }).js_id)),
+    error: null,
+  }
+}
+
+async function findToolJsIdConflict(
+  jsId: string,
+  excludeId?: number | null,
+): Promise<{ taken: boolean; error: string | null }> {
+  const key = normalizeToolJsIdKey(jsId)
+  if (!key) return { taken: false, error: null }
+  const { data, error } = await supabase.from('tool_calibrations').select('id,js_id').limit(5000)
+  if (error) return { taken: false, error: error.message }
+  return {
+    taken: toolJsIdTaken(
+      jsId,
+      (data ?? []) as Array<{ id: number; js_id: string | null }>,
+      excludeId,
+    ),
+    error: null,
+  }
+}
+
+function friendlyToolJsIdError(message: string | undefined, jsId?: string | null): string | null {
+  if (!message) return null
+  if (
+    message.includes('tool_calibrations_js_id_unique') ||
+    (message.includes('23505') && message.toLowerCase().includes('js_id')) ||
+    (message.includes('duplicate') && message.toLowerCase().includes('js_id'))
+  ) {
+    const label = (jsId ?? '').trim()
+    return label ? `JS ID ${label} is already in use` : 'That JS ID is already in use'
+  }
+  return null
 }
 
 function extFromName(name: string) {
@@ -144,13 +231,47 @@ export async function loadToolCalibrations(includeInactive = true): Promise<Tool
 export async function createToolCalibration(
   form: ToolCalibrationFormState,
 ): Promise<{ row: ToolCalibration | null; error: string | null }> {
-  const { data, error } = await supabase
-    .from('tool_calibrations')
-    .insert(formPayload(form))
-    .select(TOOL_SELECT)
-    .single()
-  if (error) return { row: null, error: error.message }
-  return { row: data as ToolCalibration, error: null }
+  let jsId = nullIfBlank(form.js_id)
+  const autoAssign = !jsId
+  if (!jsId) {
+    const allocated = await allocateNextToolJsId()
+    if (allocated.error) return { row: null, error: allocated.error }
+    jsId = allocated.id
+  }
+
+  // Retry when another save grabbed the same auto sequence concurrently.
+  let lastError: string | null = null
+  for (let attempt = 0; attempt < 5; attempt += 1) {
+    const conflict = await findToolJsIdConflict(jsId)
+    if (conflict.error) return { row: null, error: conflict.error }
+    if (conflict.taken) {
+      if (!autoAssign && attempt === 0) {
+        return { row: null, error: `JS ID ${jsId} is already in use` }
+      }
+      const next = await allocateNextToolJsId()
+      if (next.error) return { row: null, error: next.error }
+      jsId = next.id
+      continue
+    }
+
+    const payload = { ...formPayload(form), js_id: jsId }
+    const { data, error } = await supabase
+      .from('tool_calibrations')
+      .insert(payload)
+      .select(TOOL_SELECT)
+      .single()
+    if (!error) return { row: data as ToolCalibration, error: null }
+
+    lastError = friendlyToolJsIdError(error.message, jsId) ?? error.message
+    const isDuplicate = Boolean(friendlyToolJsIdError(error.message, jsId))
+    if (!isDuplicate || !autoAssign) return { row: null, error: lastError }
+
+    const next = await allocateNextToolJsId()
+    if (next.error) return { row: null, error: next.error }
+    jsId = next.id
+  }
+
+  return { row: null, error: lastError || 'Could not assign a unique JS ID' }
 }
 
 export async function updateToolCalibration(
@@ -158,6 +279,13 @@ export async function updateToolCalibration(
   form: ToolCalibrationFormState,
   previous?: ToolCalibration | null,
 ): Promise<{ error: string | null }> {
+  const jsId = nullIfBlank(form.js_id)
+  if (jsId) {
+    const conflict = await findToolJsIdConflict(jsId, id)
+    if (conflict.error) return { error: conflict.error }
+    if (conflict.taken) return { error: `JS ID ${jsId} is already in use` }
+  }
+
   if (previous) {
     const nextCal = nullIfBlank(form.calibration_date)
     const nextExp = nullIfBlank(form.expiration_date)
@@ -175,7 +303,8 @@ export async function updateToolCalibration(
     }
   }
   const { error } = await supabase.from('tool_calibrations').update(formPayload(form)).eq('id', id)
-  return { error: error?.message ?? null }
+  if (!error) return { error: null }
+  return { error: friendlyToolJsIdError(error.message, form.js_id) ?? error.message }
 }
 
 export async function updateToolCalibrationCategory(
