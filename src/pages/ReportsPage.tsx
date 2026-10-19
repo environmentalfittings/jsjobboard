@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import { CollapsibleReportPanel } from '../components/CollapsibleReportPanel'
 import { CompanyCompareReportPanel } from '../components/CompanyCompareReportPanel'
+import { DueThisWeekReportPanel } from '../components/DueThisWeekReportPanel'
 import { CustomerYearCompareReportPanel } from '../components/CustomerYearCompareReportPanel'
 import { DailyPriorityWorksheet } from '../components/DailyPriorityWorksheet'
 import { FinishCellBadge } from '../components/FinishCellBadge'
@@ -1734,6 +1735,8 @@ export function ReportsPage() {
       </div>
 
       <CompanyCompareReportPanel />
+
+      <DueThisWeekReportPanel />
 
       <MonthlyUnitsDeliveredReportPanel />
 

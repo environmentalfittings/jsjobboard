@@ -9624,6 +9624,13 @@ a.test-log-reports-item-name:hover {
   overflow: auto;
 }
 
+.due-this-week-table .due-this-week-notes-cell {
+  min-width: 10rem;
+  min-height: 2.25rem;
+  background: #fafafa;
+  border: 1px dashed #cbd5e1;
+}
+
 table {
   width: 100%;
   border-collapse: collapse;
