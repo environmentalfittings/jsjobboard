@@ -106,3 +106,7 @@ select 'profiles exists' as check,
     select 1 from information_schema.tables
     where table_schema = 'public' and table_name = 'profiles'
   ) as ok;
+
+-- Data API table privileges (required for new public tables / db reset after 2025-10-30).
+-- RLS remains the access control; these GRANTs only expose tables to PostgREST roles.
+grant select, insert, update, delete on table public.profiles to anon, authenticated, service_role;

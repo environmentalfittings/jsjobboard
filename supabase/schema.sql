@@ -1475,4 +1475,49 @@ for delete
 to authenticated
 using (true);
 
-grant select, insert, update, delete on public.job_needed_parts to authenticated;
+-- Data API table privileges (required for new public tables / db reset after 2025-10-30).
+grant select, insert, update, delete on table public.job_needed_parts
+  to anon, authenticated, service_role;
+
+-- ---------------------------------------------------------------------------
+-- Data API privileges for all public tables / sequences (Supabase 2025-10-30+).
+-- Same as supabase/migration-public-schema-table-grants.sql — keep in sync.
+-- ---------------------------------------------------------------------------
+grant usage on schema public to anon, authenticated, service_role;
+
+do $$
+declare
+  r record;
+begin
+  for r in
+    select c.relname as name
+    from pg_class c
+    join pg_namespace n on n.oid = c.relnamespace
+    where n.nspname = 'public'
+      and c.relkind in ('r', 'p')
+      and c.relname not like 'pg_%'
+  loop
+    execute format(
+      'grant select, insert, update, delete on table public.%I to anon, authenticated, service_role',
+      r.name
+    );
+  end loop;
+end $$;
+
+do $$
+declare
+  r record;
+begin
+  for r in
+    select c.relname as name
+    from pg_class c
+    join pg_namespace n on n.oid = c.relnamespace
+    where n.nspname = 'public'
+      and c.relkind = 'S'
+  loop
+    execute format(
+      'grant usage, select on sequence public.%I to anon, authenticated, service_role',
+      r.name
+    );
+  end loop;
+end $$;

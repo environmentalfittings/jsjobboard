@@ -364,4 +364,10 @@ grant execute on function public.can_manage_organization_members(uuid, uuid) to 
 grant execute on function public.set_employee_organization_access(uuid, uuid, boolean, text) to authenticated;
 grant execute on function public.create_organization(text, text, text) to authenticated;
 
+
+-- Data API table privileges (required for new public tables / db reset after 2025-10-30).
+-- RLS remains the access control; these GRANTs only expose tables to PostgREST roles.
+grant select, insert, update, delete on table public.organizations to anon, authenticated, service_role;
+grant select, insert, update, delete on table public.organization_members to anon, authenticated, service_role;
+
 commit;

@@ -176,3 +176,8 @@ FROM employees e
 LEFT JOIN auth.users au ON au.id = e.auth_user_id
 LEFT JOIN profiles p ON p.id = e.auth_user_id
 ORDER BY e.last_name, e.first_name;
+
+-- Data API table privileges (required for new public tables / db reset after 2025-10-30).
+-- RLS remains the access control; these GRANTs only expose tables to PostgREST roles.
+grant select, insert, update, delete on table public.employees to anon, authenticated, service_role;
+grant select, insert, update, delete on table public.profiles to anon, authenticated, service_role;

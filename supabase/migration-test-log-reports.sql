@@ -30,4 +30,9 @@ to anon, authenticated
 using (true)
 with check (true);
 
+
+-- Data API table privileges (required for new public tables / db reset after 2025-10-30).
+-- RLS remains the access control; these GRANTs only expose tables to PostgREST roles.
+grant select, insert, update, delete on table public.test_log_reports to anon, authenticated, service_role;
+
 commit;

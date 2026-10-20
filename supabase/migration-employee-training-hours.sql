@@ -44,4 +44,9 @@ on public.employee_training_hour_entries for delete to anon, authenticated using
 comment on table public.employee_training_hour_entries is
   'Individual hour logs for an attendee on a training record (supports ongoing classes).';
 
+
+-- Data API table privileges (required for new public tables / db reset after 2025-10-30).
+-- RLS remains the access control; these GRANTs only expose tables to PostgREST roles.
+grant select, insert, update, delete on table public.employee_training_hour_entries to anon, authenticated, service_role;
+
 commit;

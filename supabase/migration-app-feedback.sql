@@ -65,3 +65,7 @@ with check (
     select 1 from public.profiles p where p.id = auth.uid() and p.role = 'admin'
   )
 );
+
+-- Data API table privileges (required for new public tables / db reset after 2025-10-30).
+-- RLS remains the access control; these GRANTs only expose tables to PostgREST roles.
+grant select, insert, update, delete on table public.app_feedback to anon, authenticated, service_role;

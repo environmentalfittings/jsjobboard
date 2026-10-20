@@ -96,4 +96,9 @@ using (true);
 -- Add Vendor options in Manage lists → Job field lists → Vendor.
 -- (No seed rows; start empty like Manufacturer.)
 
+
+-- Data API table privileges (required for new public tables / db reset after 2025-10-30).
+-- RLS remains the access control; these GRANTs only expose tables to PostgREST roles.
+grant select, insert, update, delete on table public.valve_outsourced_items to anon, authenticated, service_role;
+
 commit;

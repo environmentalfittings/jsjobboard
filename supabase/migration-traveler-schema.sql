@@ -739,4 +739,25 @@ insert into public.valve_type_material_templates (valve_type_id, template) value
   ('s', '{"body":"","disc":"","spring":"","nozzle":"","spindle":""}')
 on conflict (valve_type_id) do nothing;
 
+
+-- Data API table privileges (required for new public tables / db reset after 2025-10-30).
+-- RLS remains the access control; these GRANTs only expose tables to PostgREST roles.
+grant select, insert, update, delete on table public.valve_types to anon, authenticated, service_role;
+grant select, insert, update, delete on table public.manufacturers to anon, authenticated, service_role;
+grant select, insert, update, delete on table public.packing_sizes to anon, authenticated, service_role;
+grant select, insert, update, delete on table public.test_gauges to anon, authenticated, service_role;
+grant select, insert, update, delete on table public.travelers to anon, authenticated, service_role;
+grant select, insert, update, delete on table public.traveler_basic_info to anon, authenticated, service_role;
+grant select, insert, update, delete on table public.traveler_attachments to anon, authenticated, service_role;
+grant select, insert, update, delete on table public.traveler_valve_selection to anon, authenticated, service_role;
+grant select, insert, update, delete on table public.traveler_parts to anon, authenticated, service_role;
+grant select, insert, update, delete on table public.traveler_valve_specs to anon, authenticated, service_role;
+grant select, insert, update, delete on table public.traveler_welding to anon, authenticated, service_role;
+grant select, insert, update, delete on table public.traveler_other_parts to anon, authenticated, service_role;
+grant select, insert, update, delete on table public.traveler_parts_ordered to anon, authenticated, service_role;
+grant select, insert, update, delete on table public.traveler_testing_qc to anon, authenticated, service_role;
+grant select, insert, update, delete on table public.customer_portal_users to anon, authenticated, service_role;
+grant select, insert, update, delete on table public.inventory to anon, authenticated, service_role;
+grant select, insert, update, delete on table public.valve_type_material_templates to anon, authenticated, service_role;
+
 commit;

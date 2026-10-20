@@ -62,6 +62,8 @@ for delete
 to authenticated
 using (true);
 
-grant select, insert, update, delete on public.job_needed_parts to authenticated;
+-- Data API table privileges (required for new public tables / db reset after 2025-10-30).
+grant select, insert, update, delete on table public.job_needed_parts
+  to anon, authenticated, service_role;
 
 commit;
