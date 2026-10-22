@@ -127,6 +127,7 @@ interface StatusChangeModalProps {
   onOpenItp: () => void
   onOpenFullPage?: () => void
   onCopy?: () => void
+  onOpenPcms?: () => void
   forceMaximized?: boolean
   /** Open to a specific tab (e.g. outsourced from board badge). */
   initialTab?: JobCardTab
@@ -150,6 +151,7 @@ export function StatusChangeModal({
   onOpenItp,
   onOpenFullPage,
   onCopy,
+  onOpenPcms,
   forceMaximized = false,
   canEditJobDetails = true,
   initialTab = 'summary',
@@ -1660,6 +1662,17 @@ export function StatusChangeModal({
             >
               Reprint
             </button>
+            {onOpenPcms ? (
+              <button
+                type="button"
+                className="button-secondary"
+                onClick={onOpenPcms}
+                disabled={isSaving}
+                title="Fill and print PCMS / RV-1958 test & repair form"
+              >
+                PCMS
+              </button>
+            ) : null}
             <button
               type="button"
               className="button-secondary"
