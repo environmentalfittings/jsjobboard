@@ -10,6 +10,7 @@ import { TechnicianAvatars } from '../components/TechnicianAvatars'
 import { JobCardItpStatusBar } from '../components/JobCardItpStatusBar'
 import { PcmsFormModal } from '../components/PcmsFormModal'
 import { StatusChangeModal, type JobCardTab } from '../components/StatusChangeModal'
+import { valveSupportsPcms } from '../lib/pcmsForm'
 import { useToast } from '../components/ToastNotification'
 import { isValveRelatedJobType, normalizeJobType } from '../constants/jobTypes'
 import { LOOKUP_CATEGORY_DEFS, type LookupCategory } from '../constants/lookupCategories'
@@ -360,11 +361,11 @@ function KanbanJobCard({
               ⧉
             </button>
           ) : null}
-          {onOpenPcms ? (
+          {onOpenPcms && valveSupportsPcms(valve) ? (
             <button
               type="button"
               className="job-card-reorder-btn job-card-pcms-btn"
-              title="PCMS / RV-1958 test & repair form"
+              title="PCMS / RV-1958 test & repair form (PRV only)"
               aria-label={`Open PCMS for ${valve.valve_id}`}
               onClick={(e) => {
                 e.stopPropagation()
@@ -2685,7 +2686,7 @@ export function JobBoardPage({ role, username }: { role?: UserRole; username?: s
           onOpenItp={() => navigate(`/itp/${activeValve.id}`)}
           onOpenFullPage={() => navigate(`/jobs/${activeValve.id}`)}
           onCopy={canCopyJobs ? () => setCopySourceValve(activeValve) : undefined}
-          onOpenPcms={() => setPcmsValve(activeValve)}
+          onOpenPcms={valveSupportsPcms(activeValve) ? () => setPcmsValve(activeValve) : undefined}
           forceMaximized={isDedicatedDetailRoute}
           canEditJobDetails={canWrite}
           initialTab={modalInitialTab}
