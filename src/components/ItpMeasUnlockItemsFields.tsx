@@ -384,11 +384,10 @@ export function ItpMeasUnlockItemsFields({
 
   return (
     <div className="itp-meas-unlock" onClick={(event) => event.stopPropagation()}>
-      <div className="itp-meas-unlock-title">When this choice is selected, add these checklist items</div>
+      <div className="itp-meas-unlock-title">Add checklist steps for a choice</div>
       <p className="itp-meas-unlock-hint">
-        Leave Accepted / N/A with no extra steps unless you want them. Check existing lines, or add a step that is not
-        on this ITP. Extra steps stay off until the technician picks that choice. Other also asks them to type what it
-        is.
+        Pick a choice (like Repair Needed), then check which steps should appear. Leave Accepted / N/A empty unless you
+        want extra work for those answers too.
       </p>
       {options.map((option) => {
         const selected = new Set(idsForOption(field, option))
