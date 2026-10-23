@@ -184,12 +184,18 @@ export function PcmsFormModal({
       >
         <div className="modal-header-with-close pcms-modal-header">
           <div className="modal-header-text">
-            <h3 id="pcms-modal-title">PCMS — RV-1958</h3>
+            <h3 id="pcms-modal-title">
+              PCMS
+              {form.spNumber.trim() || form.rvNumber.trim()
+                ? ` — ${[form.spNumber.trim(), form.rvNumber.trim()].filter(Boolean).join(' > ')}`
+                : ' — SP / RV'}
+            </h3>
             <p className="pcms-modal-sub">
               {valve.valve_id}
               {valve.customer ? ` · ${valve.customer}` : ''}
               {' · '}
-              Prefills from the job card; edit anything before print.
+              Enter SP and RV under Identification (they print under the logo). Prefills from the job card;
+              edit anything before print.
             </p>
           </div>
           <button type="button" className="modal-close-btn" onClick={onClose} aria-label="Close">
@@ -217,6 +223,22 @@ export function PcmsFormModal({
             <div className="pcms-stack">
               <Section title="Identification">
                 <div className="pcms-grid">
+                  <Field label="SP number" hint="e.g. SP-0135 — prints under the logo">
+                    <input
+                      type="text"
+                      value={form.spNumber}
+                      onChange={(e) => patch({ spNumber: e.target.value })}
+                      placeholder="SP-____"
+                    />
+                  </Field>
+                  <Field label="RV number" hint="e.g. RV-1958 — prints under the logo">
+                    <input
+                      type="text"
+                      value={form.rvNumber}
+                      onChange={(e) => patch({ rvNumber: e.target.value })}
+                      placeholder="RV-____"
+                    />
+                  </Field>
                   <Field label="Report date">
                     <input
                       type="date"

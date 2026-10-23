@@ -155,10 +155,14 @@ function pageHeader(form: PcmsFormState) {
   const report = fmtDate(form.reportDate) || '&nbsp;'
   const test = fmtDate(form.testRepairDate)
   const testDisplay = test || '&nbsp;/&nbsp;&nbsp;&nbsp;/&nbsp;'
+  const sp = val(form.spNumber)
+  const rv = val(form.rvNumber)
+  const spDisplay = sp || '&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;'
+  const rvDisplay = rv || '&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;'
   return `<header class="sheet-header">
     <div class="hdr-left">
       <img class="logo-p66" src="${PHILLIPS66_PONCA_PNG}" alt="Phillips 66 Ponca City Refinery" />
-      <div class="doc-id">SP-0135 &gt; RV-1958</div>
+      <div class="doc-id"><span class="doc-id-part">${spDisplay}</span> &gt; <span class="doc-id-part">${rvDisplay}</span></div>
     </div>
     <div class="hdr-center">
       <div class="sheet-title">Partial Filled Test/Repair Data Form</div>
@@ -222,7 +226,14 @@ export function buildPcmsPrintHtml(form: PcmsFormState, options?: { valveId?: st
       margin-bottom: 6px;
     }
     .logo-p66 { width: 92px; height: auto; display: block; }
-    .doc-id { font-weight: 700; font-size: 11px; margin-top: 4px; }
+    .doc-id { font-weight: 700; font-size: 11px; margin-top: 4px; white-space: nowrap; }
+    .doc-id-part {
+      display: inline-block;
+      min-width: 4.2em;
+      border-bottom: 1px solid #000;
+      text-align: center;
+      padding: 0 2px;
+    }
     .sheet-title {
       text-align: center;
       font-size: 15px;
