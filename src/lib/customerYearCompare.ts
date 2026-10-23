@@ -2,15 +2,23 @@ export type ClosedJobCustomerRow = {
   id: number
   valve_id: string
   customer: string | null
+  size?: string | null
   date_closed: string | null
   organization_id?: string | null
   status?: string | null
   order_type?: string | null
 }
 
+/** How rows are rolled up in Customer jobs by year. */
+export type CustomerYearGroupBy = 'customer' | 'size' | 'customer_size'
+
 export type CustomerYearCompareRow = {
   key: string
+  /** Primary label for charts / single-column views. */
+  label: string
   customer: string
+  /** Normalized size label; empty string when grouping by customer only. */
+  size: string
   /** Other job-card spellings rolled into this row. */
   mergedFrom: string[]
   yearCounts: number[]
@@ -20,6 +28,16 @@ export type CustomerYearCompareRow = {
   delta: number
   deltaPct: number | null
   totalInWindow: number
+}
+
+/** Normalize job-card size text for grouping (strips inch marks, collapses blanks). */
+export function normalizeValveSizeLabel(raw: string | null | undefined): string {
+  const text = String(raw ?? '')
+    .trim()
+    .replace(/["'″′]/g, '')
+    .replace(/\s+/g, ' ')
+  if (!text || text === '-' || text === '—' || /^n\/?a$/i.test(text)) return 'Unspecified'
+  return text
 }
 
 export type CustomerYearCompareTotals = {
@@ -242,8 +260,10 @@ export function aggregateCustomerYearCompare(
     asOf: Date
     canonicalNames?: string[]
     openRows?: ClosedJobCustomerRow[]
+    groupBy?: CustomerYearGroupBy
   },
 ): CustomerYearCompareRow[] {
+  const groupBy = options.groupBy ?? 'customer'
   const lastYear = options.thisYear - 1
   const thisYearEnd = sameCalendarDayInYear(options.asOf, options.thisYear)
   const lastYearEnd = sameCalendarDayInYear(options.asOf, lastYear)
@@ -256,11 +276,13 @@ export function aggregateCustomerYearCompare(
     lastYearYtd: number
     inShop: number
     variants: Map<string, number>
+    sizeLabel: string
+    customerKey: string
   }
-  const byCustomer = new Map<string, Acc>()
+  const byGroup = new Map<string, Acc>()
 
-  const ensure = (key: string): Acc => {
-    const existing = byCustomer.get(key)
+  const ensure = (key: string, sizeLabel: string, customerKey: string): Acc => {
+    const existing = byGroup.get(key)
     if (existing) return existing
     const created: Acc = {
       yearCounts: options.years.map(() => 0),
@@ -268,12 +290,20 @@ export function aggregateCustomerYearCompare(
       lastYearYtd: 0,
       inShop: 0,
       variants: new Map(),
+      sizeLabel,
+      customerKey,
     }
-    byCustomer.set(key, created)
+    byGroup.set(key, created)
     return created
   }
 
-  const tagged: Array<{ day: string; year: number; label: string; key: string }> = []
+  const tagged: Array<{
+    day: string
+    year: number
+    label: string
+    customerKey: string
+    sizeLabel: string
+  }> = []
   for (const row of rows) {
     if (!isFinishedJobForYearCompare(row)) continue
     const day = closedDay(row.date_closed)
@@ -281,20 +311,42 @@ export function aggregateCustomerYearCompare(
     const year = Number(day.slice(0, 4))
     if (!Number.isFinite(year)) continue
     const label = String(row.customer ?? '').trim() || 'Unassigned'
-    tagged.push({ day, year, label, key: customerGroupKey(label) })
+    tagged.push({
+      day,
+      year,
+      label,
+      customerKey: customerGroupKey(label),
+      sizeLabel: normalizeValveSizeLabel(row.size),
+    })
   }
 
-  const taggedOpen: Array<{ label: string; key: string }> = []
+  const taggedOpen: Array<{ label: string; customerKey: string; sizeLabel: string }> = []
   for (const row of options.openRows ?? []) {
     if (!isOpenShopJobForYearCompare(row)) continue
     const label = String(row.customer ?? '').trim() || 'Unassigned'
-    taggedOpen.push({ label, key: customerGroupKey(label) })
+    taggedOpen.push({
+      label,
+      customerKey: customerGroupKey(label),
+      sizeLabel: normalizeValveSizeLabel(row.size),
+    })
   }
 
-  const clusters = clusterCustomerGroupKeys([...tagged.map((item) => item.key), ...taggedOpen.map((item) => item.key)])
+  const clusters = clusterCustomerGroupKeys([
+    ...tagged.map((item) => item.customerKey),
+    ...taggedOpen.map((item) => item.customerKey),
+  ])
+
+  const resolveGroupKey = (customerKey: string, sizeLabel: string) => {
+    const clustered = clusters.get(customerKey) ?? customerKey
+    if (groupBy === 'size') return `size:${sizeLabel.toLowerCase()}`
+    if (groupBy === 'customer_size') return `customer_size:${clustered}|${sizeLabel.toLowerCase()}`
+    return clustered
+  }
 
   for (const item of tagged) {
-    const acc = ensure(clusters.get(item.key) ?? item.key)
+    const customerKey = clusters.get(item.customerKey) ?? item.customerKey
+    const key = resolveGroupKey(item.customerKey, item.sizeLabel)
+    const acc = ensure(key, item.sizeLabel, customerKey)
     acc.variants.set(item.label, (acc.variants.get(item.label) ?? 0) + 1)
     const idx = yearIndex.get(item.year)
     if (idx != null) acc.yearCounts[idx] += 1
@@ -303,19 +355,32 @@ export function aggregateCustomerYearCompare(
   }
 
   for (const item of taggedOpen) {
-    const acc = ensure(clusters.get(item.key) ?? item.key)
+    const customerKey = clusters.get(item.customerKey) ?? item.customerKey
+    const key = resolveGroupKey(item.customerKey, item.sizeLabel)
+    const acc = ensure(key, item.sizeLabel, customerKey)
     acc.variants.set(item.label, (acc.variants.get(item.label) ?? 0) + 1)
     acc.inShop += 1
   }
 
-  return [...byCustomer.entries()]
+  return [...byGroup.entries()]
     .map(([key, acc]) => {
       const delta = acc.thisYearYtd - acc.lastYearYtd
       const totalInWindow = acc.yearCounts.reduce((sum, count) => sum + count, 0) + acc.thisYearYtd
       const mergedFrom = [...acc.variants.keys()].sort((a, b) => a.localeCompare(b))
+      const customer =
+        groupBy === 'size' ? 'All customers' : pickCustomerDisplayName(acc.variants, canonicalNames)
+      const size = groupBy === 'customer' ? '' : acc.sizeLabel
+      const label =
+        groupBy === 'size'
+          ? acc.sizeLabel
+          : groupBy === 'customer_size'
+            ? `${customer} · ${acc.sizeLabel}`
+            : customer
       return {
         key,
-        customer: pickCustomerDisplayName(acc.variants, canonicalNames),
+        label,
+        customer,
+        size,
         mergedFrom,
         yearCounts: acc.yearCounts,
         thisYearYtd: acc.thisYearYtd,
@@ -332,7 +397,7 @@ export function aggregateCustomerYearCompare(
         b.thisYearYtd - a.thisYearYtd ||
         b.inShop - a.inShop ||
         b.totalInWindow - a.totalInWindow ||
-        a.customer.localeCompare(b.customer),
+        a.label.localeCompare(b.label),
     )
 }
 
@@ -368,20 +433,20 @@ export function sortCustomerYearRows(
   sort: CustomerYearSort,
 ): CustomerYearCompareRow[] {
   const copy = [...rows]
-  if (sort === 'name') return copy.sort((a, b) => a.customer.localeCompare(b.customer, undefined, { sensitivity: 'base' }))
+  if (sort === 'name') return copy.sort((a, b) => a.label.localeCompare(b.label, undefined, { sensitivity: 'base' }))
   if (sort === 'name_desc') {
-    return copy.sort((a, b) => b.customer.localeCompare(a.customer, undefined, { sensitivity: 'base' }))
+    return copy.sort((a, b) => b.label.localeCompare(a.label, undefined, { sensitivity: 'base' }))
   }
   if (sort === 'in_shop') {
-    return copy.sort((a, b) => b.inShop - a.inShop || b.thisYearYtd - a.thisYearYtd || a.customer.localeCompare(b.customer))
+    return copy.sort((a, b) => b.inShop - a.inShop || b.thisYearYtd - a.thisYearYtd || a.label.localeCompare(b.label))
   }
-  if (sort === 'gain') return copy.sort((a, b) => b.delta - a.delta || b.thisYearYtd - a.thisYearYtd || a.customer.localeCompare(b.customer))
-  if (sort === 'drop') return copy.sort((a, b) => a.delta - b.delta || b.lastYearYtd - a.lastYearYtd || a.customer.localeCompare(b.customer))
+  if (sort === 'gain') return copy.sort((a, b) => b.delta - a.delta || b.thisYearYtd - a.thisYearYtd || a.label.localeCompare(b.label))
+  if (sort === 'drop') return copy.sort((a, b) => a.delta - b.delta || b.lastYearYtd - a.lastYearYtd || a.label.localeCompare(b.label))
   return copy.sort(
     (a, b) =>
       b.thisYearYtd - a.thisYearYtd ||
       b.inShop - a.inShop ||
       b.totalInWindow - a.totalInWindow ||
-      a.customer.localeCompare(b.customer),
+      a.label.localeCompare(b.label),
   )
 }
