@@ -3,10 +3,11 @@ import { Link } from 'react-router-dom'
 import { useToast } from '../components/ToastNotification'
 import { useAuth } from '../contexts/AuthContext'
 import { TERMINAL_STATUSES } from '../constants/statuses'
-import { can } from '../lib/roles'
+import { can, SHOP_APP_ROLE_OPTIONS } from '../lib/roles'
 import { supabase } from '../lib/supabase'
 import { ensureShopLogin } from '../lib/shopAuth'
 import type { Technician } from '../types'
+import type { UserRole } from './LoginPage'
 
 type Draft = {
   name: string
@@ -14,7 +15,7 @@ type Draft = {
   work_cell_specialties: string
   group_team: string
   active: boolean
-  role: 'admin' | 'manager' | 'technician'
+  role: UserRole
   supervisor_id: number | null
   manager_id: number | null
   create_login: boolean
@@ -77,6 +78,22 @@ export function TechniciansPage({ embedded = false }: TechniciansPageProps = {})
     }
   }
 
+  const shopRoleLabel = (value: string | null | undefined) => {
+    const normalized = String(value ?? 'technician').trim().toLowerCase()
+    if (normalized === 'admin') return 'Admin'
+    if (normalized === 'manager' || normalized === 'supervisor') return 'Manager'
+    if (
+      normalized === 'viewer' ||
+      normalized === 'readonly' ||
+      normalized === 'read-only' ||
+      normalized === 'guest' ||
+      normalized === 'sales'
+    ) {
+      return 'Read-only'
+    }
+    return 'Technician'
+  }
+
   const changeRoleInline = async (t: Technician, nextRole: ShopRole) => {
     if (!canManage) {
       showToast('Only Admin can change roles')
@@ -113,7 +130,7 @@ export function TechniciansPage({ embedded = false }: TechniciansPageProps = {})
       ),
     )
     setRoleSavingId(null)
-    showToast(`${t.name} is now ${nextRole === 'admin' ? 'Admin' : nextRole === 'manager' ? 'Manager' : 'Technician'}`)
+    showToast(`${t.name} is now ${shopRoleLabel(nextRole)}`)
   }
 
   const filteredRows = useMemo(() => {
@@ -356,7 +373,7 @@ export function TechniciansPage({ embedded = false }: TechniciansPageProps = {})
     if (error) {
       if (/technicians_role_check|role.*check constraint/i.test(error.message)) {
         showToast(
-          'Could not save: the database does not allow the Sales role yet. Run supabase/migration-technician-sales-role.sql in the Supabase SQL Editor, then try again.',
+          'Database role list is outdated. Run supabase/migration-technicians-viewer-role.sql in the Supabase SQL Editor, then try again.',
         )
         return
       }
@@ -476,7 +493,7 @@ export function TechniciansPage({ embedded = false }: TechniciansPageProps = {})
         <div className="admin-employees-shop-toolbar">
           <p className="placeholder-copy technicians-intro">
             {canManage
-              ? 'Shop assignment list used for job cards and login permissions. App role (Admin / Manager / Technician) controls what someone can do in the app — this is separate from Quality Team on the Roster tab.'
+              ? 'Shop assignment list used for job cards and login permissions. App role (Admin / Manager / Technician / Read-only) controls what someone can do in the app — this is separate from Quality Team on the Roster tab.'
               : 'View shop assignment here. Only Admin can add people, change app roles, reset passwords, or delete.'}
           </p>
           {canManage ? (
@@ -505,7 +522,7 @@ export function TechniciansPage({ embedded = false }: TechniciansPageProps = {})
           </div>
           <p className="placeholder-copy technicians-intro">
             {canManage
-              ? 'Maintain shop technicians here. Change App role in the table (Admin / Manager / Technician). Assign them to jobs from the job card (Status board → open a job).'
+              ? 'Maintain shop technicians here. Change App role in the table (Admin / Manager / Technician / Read-only for sales). Assign them to jobs from the job card (Status board → open a job).'
               : 'View shop technicians here. Only Admin can add people, change roles, reset passwords, or delete.'}
           </p>
         </>
@@ -555,24 +572,28 @@ export function TechniciansPage({ embedded = false }: TechniciansPageProps = {})
                     {canManage ? (
                       <select
                         className="modal-status-select technicians-role-select"
-                        value={(t.role as ShopRole | null | undefined) ?? 'technician'}
+                        value={
+                          shopRoleLabel(t.role) === 'Read-only'
+                            ? 'viewer'
+                            : shopRoleLabel(t.role) === 'Admin'
+                              ? 'admin'
+                              : shopRoleLabel(t.role) === 'Manager'
+                                ? 'manager'
+                                : 'technician'
+                        }
                         disabled={roleSavingId === t.id || saving}
                         onChange={(e) => void changeRoleInline(t, e.target.value as ShopRole)}
                         aria-label={`Change app role for ${t.name}`}
                         title="Change app role (login permissions)"
                       >
-                        <option value="technician">Technician</option>
-                        <option value="manager">Manager</option>
-                        <option value="admin">Admin</option>
+                        {SHOP_APP_ROLE_OPTIONS.map((opt) => (
+                          <option key={opt.value} value={opt.value} title={opt.hint}>
+                            {opt.label}
+                          </option>
+                        ))}
                       </select>
                     ) : (
-                      <span className="technicians-role-readonly">
-                        {(t.role as ShopRole | null | undefined) === 'admin'
-                          ? 'Admin'
-                          : (t.role as ShopRole | null | undefined) === 'manager'
-                            ? 'Manager'
-                            : 'Technician'}
-                      </span>
+                      <span className="technicians-role-readonly">{shopRoleLabel(t.role)}</span>
                     )}
                   </td>
                   <td>{rows.find((x) => x.id === t.supervisor_id)?.name ?? '—'}</td>
@@ -724,12 +745,16 @@ export function TechniciansPage({ embedded = false }: TechniciansPageProps = {})
                 onChange={(e) => setDraft((d) => ({ ...d, role: e.target.value as Draft['role'] }))}
                 disabled={saving}
               >
-                <option value="technician">Technician</option>
-                <option value="manager">Manager</option>
-                <option value="admin">Admin</option>
+                {SHOP_APP_ROLE_OPTIONS.map((opt) => (
+                  <option key={opt.value} value={opt.value}>
+                    {opt.label}
+                  </option>
+                ))}
               </select>
               <p className="status-breakdown-note">
-                App role controls login permissions. Quality Team level is set on the Employees Roster tab.
+                App role controls login permissions. <strong>Read-only</strong> is for sales/office — they can browse
+                the job board like Admin but cannot change data and cannot open Employees. Quality Team level is set on
+                the Employees Roster tab.
               </p>
               <label className="modal-label" htmlFor="tech-username">
                 Username

@@ -29,7 +29,7 @@ export function NeededPartsPage() {
   const { role } = useAuth()
   const { activeOrganization } = useOrganization()
   const workflow = useCompanyWorkflow()
-  const canPurchase = canWriteShop(role) || Boolean(role)
+  const canPurchase = canWriteShop(role)
   const [rows, setRows] = useState<JobNeededPart[]>([])
   const [valves, setValves] = useState<Valve[]>([])
   const [loading, setLoading] = useState(true)
