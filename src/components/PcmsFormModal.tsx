@@ -1,15 +1,17 @@
 import { useEffect, useState, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
 import { useToast } from './ToastNotification'
+import { useAuth } from '../contexts/AuthContext'
 import {
-  clearSavedPcmsForm,
+  clearPcmsFormFromDatabase,
   loadPcmsFormForValve,
+  loadPcmsFormForValveAsync,
   PCMS_CONDITION_OPTIONS,
   PCMS_PART_NAMES,
   PCMS_RECOMMENDATION_OPTIONS,
   PCMS_WORK_OPTIONS,
   pcmsFormFromValve,
-  savePcmsForm,
+  savePcmsFormToDatabase,
   type PcmsFormState,
   type PcmsPartName,
 } from '../lib/pcmsForm'
@@ -126,13 +128,33 @@ export function PcmsFormModal({
   onClose: () => void
 }) {
   const { showToast } = useToast()
+  const { user, username } = useAuth()
   const [tab, setTab] = useState<TabId>('relief')
   const [form, setForm] = useState<PcmsFormState>(() => loadPcmsFormForValve(valve))
+  const [loading, setLoading] = useState(true)
+  const [saving, setSaving] = useState(false)
 
   useEffect(() => {
-    setForm(loadPcmsFormForValve(valve))
+    let cancelled = false
+    setLoading(true)
     setTab('relief')
-  }, [valve.id])
+    setForm(loadPcmsFormForValve(valve))
+    void loadPcmsFormForValveAsync(valve).then((result) => {
+      if (cancelled) return
+      setForm(result.form)
+      setLoading(false)
+      if (result.missingTable) {
+        showToast(
+          'PCMS shared save is not set up yet. Run supabase/migration-pcms-forms.sql in the Supabase SQL Editor.',
+        )
+      } else if (result.error && result.source === 'card') {
+        showToast(`Could not load shared PCMS draft: ${result.error}`)
+      }
+    })
+    return () => {
+      cancelled = true
+    }
+  }, [showToast, valve])
 
   const patch = (partial: Partial<PcmsFormState>) => {
     setForm((prev) => ({ ...prev, ...partial }))
@@ -148,23 +170,50 @@ export function PcmsFormModal({
     }))
   }
 
-  const persist = () => {
-    savePcmsForm(valve.id, form)
-    showToast('PCMS draft saved on this device')
+  const persist = async () => {
+    setSaving(true)
+    const result = await savePcmsFormToDatabase(valve.id, form, {
+      userId: user?.id ?? null,
+      userName: username,
+    })
+    setSaving(false)
+    if (result.missingTable) {
+      showToast(
+        'Database table missing. Run supabase/migration-pcms-forms.sql in the Supabase SQL Editor, then try again.',
+      )
+      return false
+    }
+    if (result.error) {
+      showToast(`Could not save PCMS: ${result.error}`)
+      return false
+    }
+    showToast('PCMS draft saved to the job (shared for all logins)')
+    return true
   }
 
-  const print = () => {
-    savePcmsForm(valve.id, form)
+  const print = async () => {
+    const saved = await persist()
+    if (!saved) return
     const { error } = openPcmsFormPrint(form, { valveId: valve.valve_id })
     if (error) showToast(error)
   }
 
-  const resetFromCard = () => {
-    if (!window.confirm('Replace the form with job-card defaults? Unsaved edits in this draft will be lost.')) {
+  const resetFromCard = async () => {
+    if (!window.confirm('Replace the form with job-card defaults? The shared saved draft for this job will be cleared.')) {
       return
     }
-    clearSavedPcmsForm(valve.id)
+    setSaving(true)
+    const result = await clearPcmsFormFromDatabase(valve.id)
+    setSaving(false)
     setForm(pcmsFormFromValve(valve))
+    if (result.missingTable) {
+      showToast('Form reset on this screen. Run migration-pcms-forms.sql to clear shared drafts in the database.')
+      return
+    }
+    if (result.error) {
+      showToast(`Form reset on this screen, but could not clear shared draft: ${result.error}`)
+      return
+    }
     showToast('PCMS reset from job card')
   }
 
@@ -212,11 +261,27 @@ export function PcmsFormModal({
           ))}
         </div>
 
-        <div className="pcms-modal-body">
+        <div className="pcms-modal-body" aria-busy={loading}>
           {tab === 'relief' ? (
             <div className="pcms-stack">
               <Section title="Identification">
                 <div className="pcms-grid">
+                  <Field label="SP number" hint="e.g. SP-0135 — prints under the logo">
+                    <input
+                      type="text"
+                      value={form.spNumber}
+                      onChange={(e) => patch({ spNumber: e.target.value })}
+                      placeholder="SP-____"
+                    />
+                  </Field>
+                  <Field label="RV number" hint="e.g. RV-1958 — prints under the logo">
+                    <input
+                      type="text"
+                      value={form.rvNumber}
+                      onChange={(e) => patch({ rvNumber: e.target.value })}
+                      placeholder="RV-____"
+                    />
+                  </Field>
                   <Field label="Report date">
                     <input
                       type="date"
@@ -1033,16 +1098,31 @@ export function PcmsFormModal({
         </div>
 
         <div className="pcms-modal-actions">
-          <button type="button" className="button-secondary" onClick={onClose}>
+          <button type="button" className="button-secondary" onClick={onClose} disabled={saving}>
             Close
           </button>
-          <button type="button" className="button-secondary" onClick={resetFromCard}>
+          <button
+            type="button"
+            className="button-secondary"
+            onClick={() => void resetFromCard()}
+            disabled={loading || saving}
+          >
             Reset from job card
           </button>
-          <button type="button" className="button-secondary" onClick={persist}>
-            Save draft
+          <button
+            type="button"
+            className="button-secondary"
+            onClick={() => void persist()}
+            disabled={loading || saving}
+          >
+            {saving ? 'Saving…' : 'Save draft'}
           </button>
-          <button type="button" className="button-primary pcms-print-btn" onClick={print}>
+          <button
+            type="button"
+            className="button-primary pcms-print-btn"
+            onClick={() => void print()}
+            disabled={loading || saving}
+          >
             Print PCMS
           </button>
         </div>
