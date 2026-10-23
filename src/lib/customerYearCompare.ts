@@ -1,8 +1,11 @@
+import { metricsCompletionDateForValve } from './jobDisplayStatus'
+
 export type ClosedJobCustomerRow = {
   id: number
   valve_id: string
   customer: string | null
   date_closed: string | null
+  date_tested?: string | null
   organization_id?: string | null
   status?: string | null
   order_type?: string | null
@@ -32,12 +35,28 @@ export type CustomerYearCompareTotals = {
   customers: number
 }
 
-/** Finished work for year columns: Completed (or leftover shop status with order type Completed). Not Junked/Replaced, not still on the board. */
-export function isFinishedJobForYearCompare(row: Pick<ClosedJobCustomerRow, 'status' | 'order_type' | 'date_closed'>): boolean {
-  const status = String(row.status ?? '').trim()
-  if (status === 'Junked' || status === 'Replaced') return false
-  if (status === 'Completed' || row.order_type === 'Completed') return true
-  return row.status == null && row.order_type == null && Boolean(closedDay(row.date_closed))
+/**
+ * Finished work for year columns — same rule as dashboard “Completed this year”:
+ * both order type and shop status must be Completed.
+ */
+export function isFinishedJobForYearCompare(row: Pick<ClosedJobCustomerRow, 'status' | 'order_type'>): boolean {
+  return String(row.order_type ?? '').trim() === 'Completed' && String(row.status ?? '').trim() === 'Completed'
+}
+
+/** Finish day for year bucketing — earlier of test/close, matching dashboard KPIs. */
+export function finishDayForYearCompare(
+  row: Pick<ClosedJobCustomerRow, 'date_closed' | 'date_tested'>,
+  asOf: Date = new Date(),
+): string | null {
+  const finished = metricsCompletionDateForValve(
+    { date_closed: row.date_closed, date_tested: row.date_tested ?? null },
+    asOf,
+  )
+  if (!finished) return null
+  const y = finished.getFullYear()
+  const m = String(finished.getMonth() + 1).padStart(2, '0')
+  const d = String(finished.getDate()).padStart(2, '0')
+  return `${y}-${m}-${d}`
 }
 
 /** Open job-board work: in process, waiting, Warehouse RTS, etc. */
@@ -49,11 +68,6 @@ export function isOpenShopJobForYearCompare(row: Pick<ClosedJobCustomerRow, 'sta
   if (order === 'In-Process Order' || order === 'On-Hold' || order === 'Waiting on Arrival') return true
   if (!order && status && status !== 'Warehouse RTS') return true
   return false
-}
-
-function closedDay(dateClosed: string | null | undefined): string | null {
-  const day = String(dateClosed ?? '').trim().slice(0, 10)
-  return /^\d{4}-\d{2}-\d{2}$/.test(day) ? day : null
 }
 
 const LEGAL_SUFFIX = /\b(?:inc|incorporated|llc|ltd|limited|co|company|corp|corporation)\.?$/i
@@ -276,7 +290,7 @@ export function aggregateCustomerYearCompare(
   const tagged: Array<{ day: string; year: number; label: string; key: string }> = []
   for (const row of rows) {
     if (!isFinishedJobForYearCompare(row)) continue
-    const day = closedDay(row.date_closed)
+    const day = finishDayForYearCompare(row, options.asOf)
     if (!day) continue
     const year = Number(day.slice(0, 4))
     if (!Number.isFinite(year)) continue

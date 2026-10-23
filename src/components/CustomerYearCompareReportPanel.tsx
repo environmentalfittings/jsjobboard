@@ -6,6 +6,7 @@ import { useCompanyWorkflow } from '../hooks/useCompanyWorkflow'
 import { resolveActiveCompanyKey, valveRowBelongsToCompany } from '../lib/companyDataScope'
 import {
   aggregateCustomerYearCompare,
+  finishDayForYearCompare,
   formatCustomerJobDelta,
   isFinishedJobForYearCompare,
   isOpenShopJobForYearCompare,
@@ -22,8 +23,8 @@ import { supabase } from '../lib/supabase'
 
 const PAGE_SIZE = 1000
 
-const JOB_SELECT = 'id,valve_id,customer,date_closed,status,order_type,organization_id'
-const JOB_SELECT_NO_ORG = 'id,valve_id,customer,date_closed,status,order_type'
+const JOB_SELECT = 'id,valve_id,customer,date_closed,date_tested,status,order_type,organization_id'
+const JOB_SELECT_NO_ORG = 'id,valve_id,customer,date_closed,date_tested,status,order_type'
 
 async function fetchValvePages(
   run: (from: number, select: string) => Promise<{ data: unknown; error: { message: string } | null }>,
@@ -32,12 +33,20 @@ async function fetchValvePages(
   let from = 0
   let select = JOB_SELECT
   let skippedOrgColumn = false
+  let skippedTestedColumn = false
 
   while (true) {
     const { data, error } = await run(from, select)
     if (error && !skippedOrgColumn && /organization_id/i.test(error.message)) {
-      select = JOB_SELECT_NO_ORG
+      select = select.includes('organization_id')
+        ? select.replace(',organization_id', '').replace('organization_id,', '')
+        : select
       skippedOrgColumn = true
+      continue
+    }
+    if (error && !skippedTestedColumn && /date_tested/i.test(error.message)) {
+      select = select.replace(',date_tested', '').replace('date_tested,', '')
+      skippedTestedColumn = true
       continue
     }
     if (error) return { data: rows, error: error.message }
@@ -55,20 +64,31 @@ async function fetchClosedCustomerJobs(
   start: string,
   end: string,
 ): Promise<{ data: ClosedJobCustomerRow[]; error: string | null }> {
+  // Match dashboard Completed KPIs: both fields Completed. Pull any row whose
+  // close or test date touches the window, then bucket by earlier-of finish date.
   const result = await fetchValvePages(async (from, select) => {
     const { data, error } = await supabase
       .from('valves')
       .select(select)
-      .or('order_type.eq.Completed,status.eq.Completed')
-      .gte('date_closed', start)
-      .lte('date_closed', end)
-      .order('date_closed', { ascending: true })
+      .eq('order_type', 'Completed')
+      .eq('status', 'Completed')
+      .or(`date_closed.gte.${start},date_tested.gte.${start}`)
       .order('id', { ascending: true })
       .range(from, from + PAGE_SIZE - 1)
     return { data, error }
   })
   if (result.error) return result
-  return { data: result.data.filter(isFinishedJobForYearCompare), error: null }
+  const asOf = new Date(`${end}T12:00:00`)
+  const windowStart = start
+  const windowEnd = end
+  return {
+    data: result.data.filter((row) => {
+      if (!isFinishedJobForYearCompare(row)) return false
+      const day = finishDayForYearCompare(row, asOf)
+      return Boolean(day && day >= windowStart && day <= windowEnd)
+    }),
+    error: null,
+  }
 }
 
 async function fetchOpenCustomerJobs(): Promise<{ data: ClosedJobCustomerRow[]; error: string | null }> {
@@ -246,12 +266,12 @@ export function CustomerYearCompareReportPanel() {
     ]
     const { error } = printTableReport({
       title: 'Customer jobs by year',
-      subtitle: `${companyName} · Closed jobs ${rangeStart} to ${rangeEnd}. This year is year-to-date; prior year YTD uses ${lastYear}-01-01 to ${lastYearYtdEnd}. In shop is open work on the board now.`,
+      subtitle: `${companyName} · Completed jobs (order type + shop status Completed) by finish date (earlier of test or close), ${rangeStart} to ${rangeEnd}. This year is year-to-date; prior year YTD uses ${lastYear}-01-01 to ${lastYearYtdEnd}. In shop is open work on the board now.`,
       columns,
       rows: [...body, footer],
       summaryLines: [
-        `${totals.thisYearYtd} jobs closed this year through ${rangeEnd}`,
-        `${totals.lastYearYtd} jobs closed last year through ${lastYearYtdEnd}`,
+        `${totals.thisYearYtd} jobs completed this year through ${rangeEnd}`,
+        `${totals.lastYearYtd} jobs completed last year through ${lastYearYtdEnd}`,
         `${totals.inShop} valves in shop now`,
         `${totals.customers} customer${totals.customers === 1 ? '' : 's'} shown`,
       ],
@@ -271,11 +291,12 @@ export function CustomerYearCompareReportPanel() {
       )}
     >
       <p className="placeholder-copy">
-        Year columns count jobs that <strong>left the board</strong> (Completed, including cards whose shop status
-        was never flipped) by close date — prior full years versus <strong>this year to date</strong>. The change
-        column compares {thisYear} through {rangeEnd.slice(5)} with the same dates in {lastYear} (
-        {lastYearYtdEnd}). <strong>In shop</strong> is open work still on the job board (teardown, assembly,
-        waiting, Warehouse RTS, and so on), so a customer with valves in process is not listed as zero.
+        Year columns use the same rule as the dashboard <strong>Completed this year</strong> KPI: jobs with both
+        order type and shop status <strong>Completed</strong>, counted by finish date (earlier of test or close) —
+        prior full years versus <strong>this year to date</strong>. The change column compares {thisYear} through{' '}
+        {rangeEnd.slice(5)} with the same dates in {lastYear} ({lastYearYtdEnd}). <strong>In shop</strong> is open
+        work still on the job board (teardown, assembly, waiting, Warehouse RTS, and so on), so a customer with
+        valves in process is not listed as zero.
         {companyKey === 'vsi' ? ' VSI jobs only — historical JS Valve work is not included.' : ''} Similar job-card
         names are combined. Different sites stay separate.
       </p>
