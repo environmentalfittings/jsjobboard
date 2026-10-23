@@ -34,4 +34,9 @@ for insert
 to anon, authenticated
 with check (true);
 
+
+-- Data API table privileges (required for new public tables / db reset after 2025-10-30).
+-- RLS remains the access control; these GRANTs only expose tables to PostgREST roles.
+grant select, insert, update, delete on table public.due_date_changes to anon, authenticated, service_role;
+
 commit;

@@ -609,4 +609,17 @@ grant execute on function public.is_shop_admin() to authenticated;
 grant execute on function public.is_spec_quality_editor() to authenticated;
 grant execute on function public.can_write_spec_data() to authenticated;
 
+
+-- Data API table privileges (required for new public tables / db reset after 2025-10-30).
+-- Spec tables stay authenticated/service_role only; RLS still gates writes.
+grant select, insert, update, delete on table public.manufacturer_aliases to authenticated, service_role;
+grant select, insert, update, delete on table public.spec_documents to authenticated, service_role;
+grant select, insert, update, delete on table public.valve_series to authenticated, service_role;
+grant select, insert, update, delete on table public.orifices to authenticated, service_role;
+grant select, insert, update, delete on table public.orifice_capacities to authenticated, service_role;
+grant select, insert, update, delete on table public.model_nomenclature_rules to authenticated, service_role;
+grant select, insert, update, delete on table public.spring_specs to authenticated, service_role;
+grant select, insert, update, delete on table public.spring_temp_corrections to authenticated, service_role;
+grant select, insert on table public.spec_document_page_views to authenticated, service_role;
+
 commit;

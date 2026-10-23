@@ -55,4 +55,9 @@ comment on table public.employee_training_courses is
 comment on column public.employee_training_files.course_id is
   'When set with training_id null, file belongs to a library course package.';
 
+
+-- Data API table privileges (required for new public tables / db reset after 2025-10-30).
+-- RLS remains the access control; these GRANTs only expose tables to PostgREST roles.
+grant select, insert, update, delete on table public.employee_training_courses to anon, authenticated, service_role;
+
 commit;

@@ -231,4 +231,13 @@ drop policy if exists "public delete training skills" on public.employee_trainin
 create policy "public delete training skills"
 on public.employee_training_skills for delete to anon, authenticated using (true);
 
+
+-- Data API table privileges (required for new public tables / db reset after 2025-10-30).
+-- RLS remains the access control; these GRANTs only expose tables to PostgREST roles.
+grant select, insert, update, delete on table public.employee_training_number_seq to anon, authenticated, service_role;
+grant select, insert, update, delete on table public.employee_trainings to anon, authenticated, service_role;
+grant select, insert, update, delete on table public.employee_training_attendees to anon, authenticated, service_role;
+grant select, insert, update, delete on table public.employee_training_files to anon, authenticated, service_role;
+grant select, insert, update, delete on table public.employee_training_skills to anon, authenticated, service_role;
+
 commit;

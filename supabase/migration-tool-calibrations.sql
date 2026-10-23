@@ -65,4 +65,9 @@ drop policy if exists "anon delete tool calibrations" on public.tool_calibration
 create policy "anon delete tool calibrations"
 on public.tool_calibrations for delete to anon using (true);
 
+
+-- Data API table privileges (required for new public tables / db reset after 2025-10-30).
+-- RLS remains the access control; these GRANTs only expose tables to PostgREST roles.
+grant select, insert, update, delete on table public.tool_calibrations to anon, authenticated, service_role;
+
 commit;

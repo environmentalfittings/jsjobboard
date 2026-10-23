@@ -41,6 +41,8 @@ create policy "inventory_events_authenticated_insert"
   to authenticated
   with check (true);
 
-grant select, insert on public.inventory_events to authenticated;
+-- Data API table privileges (required for new public tables / db reset after 2025-10-30).
+grant select, insert, update, delete on table public.inventory_events
+  to anon, authenticated, service_role;
 
 comment on table public.inventory_events is 'Audit log of inventory adds, removals, and restores';
