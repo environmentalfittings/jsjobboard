@@ -1,4 +1,12 @@
+import { normalizeFinishCellKey } from '../constants/finishCellColors'
 import type { Valve } from '../types'
+
+/**
+ * PCMS (RV-1958) applies only to PRV finish-cell jobs — the brown PRV badge on the card.
+ */
+export function valveSupportsPcms(valve: Pick<Valve, 'cell'> | null | undefined): boolean {
+  return normalizeFinishCellKey(valve?.cell) === 'PRV'
+}
 
 /** PCMS / SP-0135 > RV-1958 test & repair data captured from the job board. */
 export type PcmsPartRow = {
