@@ -8,6 +8,7 @@ import { StatusBadge } from '../components/StatusBadge'
 import { FinishCellBadge } from '../components/FinishCellBadge'
 import { TechnicianAvatars } from '../components/TechnicianAvatars'
 import { JobCardItpStatusBar } from '../components/JobCardItpStatusBar'
+import { PcmsFormModal } from '../components/PcmsFormModal'
 import { StatusChangeModal, type JobCardTab } from '../components/StatusChangeModal'
 import { useToast } from '../components/ToastNotification'
 import { isValveRelatedJobType, normalizeJobType } from '../constants/jobTypes'
@@ -261,6 +262,7 @@ interface KanbanJobCardProps {
   onMoveDown: () => void
   canCopy?: boolean
   onCopy?: (v: Valve) => void
+  onOpenPcms?: (v: Valve) => void
   canWrite?: boolean
 }
 
@@ -286,6 +288,7 @@ function KanbanJobCard({
   onMoveDown,
   canCopy = false,
   onCopy,
+  onOpenPcms,
   canWrite = true,
 }: KanbanJobCardProps) {
   const assignedName = valve.assigned_technician_id ? techniciansById.get(valve.assigned_technician_id)?.name : null
@@ -355,6 +358,20 @@ function KanbanJobCard({
               }}
             >
               ⧉
+            </button>
+          ) : null}
+          {onOpenPcms ? (
+            <button
+              type="button"
+              className="job-card-reorder-btn job-card-pcms-btn"
+              title="PCMS / RV-1958 test & repair form"
+              aria-label={`Open PCMS for ${valve.valve_id}`}
+              onClick={(e) => {
+                e.stopPropagation()
+                onOpenPcms(valve)
+              }}
+            >
+              PCMS
             </button>
           ) : null}
         </div>
@@ -571,6 +588,7 @@ export function JobBoardPage({ role, username }: { role?: UserRole; username?: s
   const [jobTechnicianIdsByValve, setJobTechnicianIdsByValve] = useState<Record<number, number[]>>({})
   const [dueDateEditValve, setDueDateEditValve] = useState<Valve | null>(null)
   const [copySourceValve, setCopySourceValve] = useState<Valve | null>(null)
+  const [pcmsValve, setPcmsValve] = useState<Valve | null>(null)
   const [savingDueDate, setSavingDueDate] = useState(false)
   const [pendingRework, setPendingRework] = useState<{
     valve: Valve
@@ -2048,6 +2066,7 @@ export function JobBoardPage({ role, username }: { role?: UserRole; username?: s
                       onMoveDown={() => moveCardInPhase(phase.key, valve.id, 'down')}
                       canCopy={canCopyJobs}
                       onCopy={setCopySourceValve}
+                      onOpenPcms={setPcmsValve}
                       canWrite={canWrite}
                     />
                   ))}
@@ -2666,11 +2685,14 @@ export function JobBoardPage({ role, username }: { role?: UserRole; username?: s
           onOpenItp={() => navigate(`/itp/${activeValve.id}`)}
           onOpenFullPage={() => navigate(`/jobs/${activeValve.id}`)}
           onCopy={canCopyJobs ? () => setCopySourceValve(activeValve) : undefined}
+          onOpenPcms={() => setPcmsValve(activeValve)}
           forceMaximized={isDedicatedDetailRoute}
           canEditJobDetails={canWrite}
           initialTab={modalInitialTab}
         />
       ) : null}
+
+      {pcmsValve ? <PcmsFormModal valve={pcmsValve} onClose={() => setPcmsValve(null)} /> : null}
 
       {copySourceValve ? (
         <CopyJobModal
