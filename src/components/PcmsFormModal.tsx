@@ -1,4 +1,5 @@
 import { useEffect, useState, type ReactNode } from 'react'
+import { createPortal } from 'react-dom'
 import { useToast } from './ToastNotification'
 import {
   clearSavedPcmsForm,
@@ -114,17 +115,22 @@ export function PcmsFormModal({
     showToast('PCMS reset from job card')
   }
 
-  return (
-    <div className="modal-backdrop" role="presentation" onClick={onClose}>
+  return createPortal(
+    <div
+      className="modal-overlay pcms-modal-overlay"
+      role="presentation"
+      onMouseDown={(e) => {
+        if (e.target === e.currentTarget) onClose()
+      }}
+    >
       <div
-        className="modal-panel pcms-modal"
+        className="modal-card pcms-modal"
         role="dialog"
         aria-modal="true"
         aria-labelledby="pcms-modal-title"
-        onClick={(e) => e.stopPropagation()}
       >
-        <div className="modal-header">
-          <div>
+        <div className="modal-header-with-close pcms-modal-header">
+          <div className="modal-header-text">
             <h3 id="pcms-modal-title">PCMS — RV-1958</h3>
             <p className="pcms-modal-sub">
               {valve.valve_id}
@@ -902,7 +908,7 @@ export function PcmsFormModal({
           ) : null}
         </div>
 
-        <div className="modal-actions pcms-modal-actions">
+        <div className="pcms-modal-actions">
           <button type="button" className="button-secondary" onClick={onClose}>
             Close
           </button>
@@ -917,6 +923,7 @@ export function PcmsFormModal({
           </button>
         </div>
       </div>
-    </div>
+    </div>,
+    document.body,
   )
 }
