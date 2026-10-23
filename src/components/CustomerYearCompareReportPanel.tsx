@@ -15,6 +15,7 @@ import {
   sortCustomerYearRows,
   sumCustomerYearCompare,
   type ClosedJobCustomerRow,
+  type CustomerYearGroupBy,
   type CustomerYearSort,
 } from '../lib/customerYearCompare'
 import { loadCustomersWithSalesRep } from '../lib/customers'
@@ -23,8 +24,8 @@ import { supabase } from '../lib/supabase'
 
 const PAGE_SIZE = 1000
 
-const JOB_SELECT = 'id,valve_id,customer,date_closed,status,order_type,organization_id'
-const JOB_SELECT_NO_ORG = 'id,valve_id,customer,date_closed,status,order_type'
+const JOB_SELECT = 'id,valve_id,customer,size,date_closed,status,order_type,organization_id'
+const JOB_SELECT_NO_ORG = 'id,valve_id,customer,size,date_closed,status,order_type'
 
 async function fetchValvePages(
   run: (from: number, select: string) => Promise<{ data: unknown; error: { message: string } | null }>,
@@ -103,6 +104,7 @@ export function CustomerYearCompareReportPanel() {
   const lastYear = thisYear - 1
 
   const [priorCount, setPriorCount] = useState(3)
+  const [groupBy, setGroupBy] = useState<CustomerYearGroupBy>('customer')
   const [sort, setSort] = useState<CustomerYearSort>('this_year')
   const [query, setQuery] = useState('')
   const [customerFilter, setCustomerFilter] = useState('')
@@ -111,6 +113,8 @@ export function CustomerYearCompareReportPanel() {
   const [rows, setRows] = useState<ClosedJobCustomerRow[]>([])
   const [openRows, setOpenRows] = useState<ClosedJobCustomerRow[]>([])
   const [canonicalNames, setCanonicalNames] = useState<string[]>([])
+  const showSizeColumn = groupBy === 'customer_size'
+  const primaryColumnLabel = groupBy === 'size' ? 'Size' : 'Customer'
 
   const years = useMemo(() => priorFullYears(thisYear, priorCount), [priorCount, thisYear])
   const rangeStart = `${years[0] ?? lastYear}-01-01`
@@ -176,36 +180,63 @@ export function CustomerYearCompareReportPanel() {
   }, [])
 
   const aggregated = useMemo(
-    () => aggregateCustomerYearCompare(rows, { years, thisYear, asOf, canonicalNames, openRows }),
-    [asOf, canonicalNames, openRows, rows, thisYear, years],
+    () =>
+      aggregateCustomerYearCompare(rows, {
+        years,
+        thisYear,
+        asOf,
+        canonicalNames,
+        openRows,
+        groupBy,
+      }),
+    [asOf, canonicalNames, groupBy, openRows, rows, thisYear, years],
   )
 
-  const customerOptions = useMemo(
-    () =>
-      [...aggregated].sort((a, b) =>
-        a.customer.localeCompare(b.customer, undefined, { sensitivity: 'base' }),
-      ),
-    [aggregated],
-  )
+  const customerOptions = useMemo(() => {
+    if (groupBy === 'size') return [] as Array<{ key: string; customer: string }>
+    if (groupBy === 'customer') {
+      return [...aggregated]
+        .map((row) => ({ key: row.key, customer: row.customer }))
+        .sort((a, b) => a.customer.localeCompare(b.customer, undefined, { sensitivity: 'base' }))
+    }
+    const byName = new Map<string, string>()
+    for (const row of aggregated) {
+      if (!row.customer || row.customer === 'All customers') continue
+      byName.set(row.customer.toLowerCase(), row.customer)
+    }
+    return [...byName.entries()]
+      .map(([key, customer]) => ({ key, customer }))
+      .sort((a, b) => a.customer.localeCompare(b.customer, undefined, { sensitivity: 'base' }))
+  }, [aggregated, groupBy])
 
   const matched = useMemo(() => {
     const needle = query.trim().toLowerCase()
     return aggregated.filter((row) => {
-      if (customerFilter && row.key !== customerFilter) return false
+      if (customerFilter && groupBy !== 'size') {
+        if (groupBy === 'customer' && row.key !== customerFilter) return false
+        if (
+          groupBy === 'customer_size' &&
+          row.customer.toLowerCase() !== customerFilter.toLowerCase()
+        ) {
+          return false
+        }
+      }
       if (!needle) return true
       return (
+        row.label.toLowerCase().includes(needle) ||
         row.customer.toLowerCase().includes(needle) ||
+        row.size.toLowerCase().includes(needle) ||
         row.mergedFrom.some((name) => name.toLowerCase().includes(needle))
       )
     })
-  }, [aggregated, customerFilter, query])
+  }, [aggregated, customerFilter, groupBy, query])
 
   const filtered = useMemo(() => {
     const ranked = [...matched].sort(
       (a, b) =>
         b.thisYearYtd + b.inShop - (a.thisYearYtd + a.inShop) ||
         b.totalInWindow - a.totalInWindow ||
-        a.customer.localeCompare(b.customer),
+        a.label.localeCompare(b.label),
     )
     const limited =
       customerFilter || limit === 'all' ? ranked : ranked.slice(0, Number(limit))
@@ -219,48 +250,62 @@ export function CustomerYearCompareReportPanel() {
     [filtered],
   )
   const chartMax = Math.max(1, ...chartRows.map((row) => Math.max(row.thisYearYtd, row.lastYearYtd)))
+  const chartTitle =
+    groupBy === 'size'
+      ? `Top sizes · ${thisYear} vs ${lastYear} YTD`
+      : groupBy === 'customer_size'
+        ? `Top customer · size · ${thisYear} vs ${lastYear} YTD`
+        : `Top customers · ${thisYear} vs ${lastYear} YTD`
 
-  const tableColumns = useMemo(
-    () => [
-      'Customer',
+  const tableColumns = useMemo(() => {
+    const lead =
+      groupBy === 'size' ? ['Size'] : groupBy === 'customer_size' ? ['Customer', 'Size'] : ['Customer']
+    return [
+      ...lead,
       ...years.map(String),
       `${thisYear} YTD`,
       `${lastYear} YTD`,
       'In shop',
       'Change vs last year YTD',
-    ],
-    [lastYear, thisYear, years],
-  )
+    ]
+  }, [groupBy, lastYear, thisYear, years])
 
   const tableBody = useMemo(
     () =>
-      filtered.map((row) => [
-        row.customer,
-        ...row.yearCounts,
-        row.thisYearYtd,
-        row.lastYearYtd,
-        row.inShop,
-        formatCustomerJobDelta(row).text,
-      ]),
-    [filtered],
+      filtered.map((row) => {
+        const lead =
+          groupBy === 'size' ? [row.size] : groupBy === 'customer_size' ? [row.customer, row.size] : [row.customer]
+        return [
+          ...lead,
+          ...row.yearCounts,
+          row.thisYearYtd,
+          row.lastYearYtd,
+          row.inShop,
+          formatCustomerJobDelta(row).text,
+        ]
+      }),
+    [filtered, groupBy],
   )
 
-  const tableFooter = useMemo(
-    () => [
-      filtered.length === matched.length ? 'Total' : 'Total (shown)',
+  const tableFooter = useMemo(() => {
+    const leadLabel = filtered.length === matched.length ? 'Total' : 'Total (shown)'
+    const lead = groupBy === 'customer_size' ? [leadLabel, ''] : [leadLabel]
+    return [
+      ...lead,
       ...shownTotals.yearCounts,
       shownTotals.thisYearYtd,
       shownTotals.lastYearYtd,
       shownTotals.inShop,
       formatCustomerJobDelta(shownTotals).text,
-    ],
-    [filtered.length, matched.length, shownTotals],
-  )
+    ]
+  }, [filtered.length, groupBy, matched.length, shownTotals])
 
   const printTable = () => {
     const { error } = printTableReport({
       title: 'Customer jobs by year',
-      subtitle: `${companyName} · Closed jobs ${rangeStart} to ${rangeEnd}. This year is year-to-date; prior year YTD uses ${lastYear}-01-01 to ${lastYearYtdEnd}. In shop is open work on the board now.`,
+      subtitle: `${companyName} · Closed jobs ${rangeStart} to ${rangeEnd}. Grouped by ${
+        groupBy === 'size' ? 'size' : groupBy === 'customer_size' ? 'customer and size' : 'customer'
+      }. This year is year-to-date; prior year YTD uses ${lastYear}-01-01 to ${lastYearYtdEnd}. In shop is open work on the board now.`,
       columns: tableColumns,
       rows: [
         ...tableBody.map((row) => row.map((cell) => String(cell))),
@@ -270,7 +315,7 @@ export function CustomerYearCompareReportPanel() {
         `${totals.thisYearYtd} jobs closed this year through ${rangeEnd}`,
         `${totals.lastYearYtd} jobs closed last year through ${lastYearYtdEnd}`,
         `${totals.inShop} valves in shop now`,
-        `${totals.customers} customer${totals.customers === 1 ? '' : 's'} shown`,
+        `${totals.customers} row${totals.customers === 1 ? '' : 's'} shown`,
       ],
       orientation: 'landscape',
     })
@@ -285,7 +330,10 @@ export function CustomerYearCompareReportPanel() {
     try {
       const sheetRows: (string | number)[][] = [
         ['Customer jobs by year', companyName],
-        [`Closed jobs ${rangeStart} to ${rangeEnd}`],
+        [
+          `Closed jobs ${rangeStart} to ${rangeEnd}`,
+          `Grouped by ${groupBy === 'size' ? 'size' : groupBy === 'customer_size' ? 'customer and size' : 'customer'}`,
+        ],
         [
           `${thisYear} YTD through ${rangeEnd}`,
           totals.thisYearYtd,
@@ -293,7 +341,7 @@ export function CustomerYearCompareReportPanel() {
           totals.lastYearYtd,
           'In shop now',
           totals.inShop,
-          'Customers shown',
+          'Rows shown',
           totals.customers,
         ],
         [],
@@ -315,8 +363,9 @@ export function CustomerYearCompareReportPanel() {
       XLSX.utils.book_append_sheet(workbook, worksheet, 'Customer jobs')
       const stamp = new Date().toISOString().slice(0, 10)
       const companySlug = companyName.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'company'
-      XLSX.writeFile(workbook, `customer-jobs-by-year-${companySlug}-${stamp}.xlsx`)
-      showToast(`Exported ${filtered.length} customer${filtered.length === 1 ? '' : 's'} to Excel`)
+      const groupSlug = groupBy === 'customer_size' ? 'customer-size' : groupBy
+      XLSX.writeFile(workbook, `customer-jobs-by-year-${groupSlug}-${companySlug}-${stamp}.xlsx`)
+      showToast(`Exported ${filtered.length} row${filtered.length === 1 ? '' : 's'} to Excel`)
     } catch (error) {
       showToast(error instanceof Error ? error.message : 'Could not export Excel file')
     }
@@ -339,7 +388,8 @@ export function CustomerYearCompareReportPanel() {
         {lastYearYtdEnd}). <strong>In shop</strong> is open work still on the job board (teardown, assembly,
         waiting, Warehouse RTS, and so on), so a customer with valves in process is not listed as zero.
         {companyKey === 'vsi' ? ' VSI jobs only — historical JS Valve work is not included.' : ''} Similar job-card
-        names are combined. Different sites stay separate.
+        names are combined. Different sites stay separate. Use <strong>Group by</strong> to roll up by customer,
+        by size, or customer + size.
       </p>
 
       <div className="report-filters">
@@ -352,10 +402,27 @@ export function CustomerYearCompareReportPanel() {
           </select>
         </label>
         <label>
+          Group by
+          <select
+            value={groupBy}
+            aria-label="Group by customer or size"
+            onChange={(e) => {
+              const next = e.target.value as CustomerYearGroupBy
+              setGroupBy(next)
+              setCustomerFilter('')
+            }}
+          >
+            <option value="customer">Customer</option>
+            <option value="size">Size</option>
+            <option value="customer_size">Customer + size</option>
+          </select>
+        </label>
+        <label>
           Customer
           <select
             value={customerFilter}
             aria-label="Filter by customer"
+            disabled={groupBy === 'size'}
             onChange={(e) => setCustomerFilter(e.target.value)}
           >
             <option value="">All customers</option>
@@ -386,15 +453,15 @@ export function CustomerYearCompareReportPanel() {
           >
             <option value="25">Top 25</option>
             <option value="50">Top 50</option>
-            <option value="all">All customers</option>
+            <option value="all">All rows</option>
           </select>
         </label>
         <label>
-          Find customer
+          Find
           <input
             type="search"
             value={query}
-            placeholder="Name contains…"
+            placeholder={groupBy === 'size' ? 'Size contains…' : 'Customer or size…'}
             onChange={(e) => setQuery(e.target.value)}
           />
         </label>
@@ -452,7 +519,7 @@ export function CustomerYearCompareReportPanel() {
           <strong>{loading ? '…' : totals.inShop}</strong>
         </div>
         <div className="report-summary-item">
-          <span>Customers shown</span>
+          <span>Rows shown</span>
           <strong>{loading ? '…' : totals.customers}</strong>
         </div>
       </div>
@@ -464,9 +531,9 @@ export function CustomerYearCompareReportPanel() {
       ) : (
         <>
           {chartRows.length > 0 ? (
-            <div className="customer-yoy-chart" role="img" aria-label={`Top customers ${thisYear} versus ${lastYear} year to date`}>
+            <div className="customer-yoy-chart" role="img" aria-label={chartTitle}>
               <div className="top-jobs-chart-head">
-                <h4>Top customers · {thisYear} vs {lastYear} YTD</h4>
+                <h4>{chartTitle}</h4>
                 <div className="otd-chart-legend">
                   <span>
                     <i className="report-monthly-swatch report-monthly-swatch--prior" /> {lastYear} YTD
@@ -482,8 +549,8 @@ export function CustomerYearCompareReportPanel() {
                   const currentWidth = Math.max(row.thisYearYtd > 0 ? 4 : 0, (row.thisYearYtd / chartMax) * 100)
                   const delta = formatCustomerJobDelta(row)
                   return (
-                    <div key={row.key} className="customer-yoy-bar-group" title={`${row.customer}: ${row.thisYearYtd} this year, ${row.lastYearYtd} last year YTD, ${delta.text}`}>
-                      <div className="customer-yoy-bar-name">{row.customer}</div>
+                    <div key={row.key} className="customer-yoy-bar-group" title={`${row.label}: ${row.thisYearYtd} this year, ${row.lastYearYtd} last year YTD, ${delta.text}`}>
+                      <div className="customer-yoy-bar-name">{row.label}</div>
                       <div className="customer-yoy-bar-pair">
                         <div className="customer-yoy-bar-line">
                           <span className="customer-yoy-bar-year">{lastYear}</span>
@@ -515,12 +582,14 @@ export function CustomerYearCompareReportPanel() {
                     <button
                       type="button"
                       className="customer-yoy-sort"
-                      aria-label="Sort customers A to Z"
+                      aria-label={`Sort ${primaryColumnLabel} A to Z`}
                       onClick={() => setSort((prev) => (prev === 'name' ? 'name_desc' : 'name'))}
                     >
-                      Customer{sort === 'name' ? ' ↑' : sort === 'name_desc' ? ' ↓' : ''}
+                      {primaryColumnLabel}
+                      {sort === 'name' ? ' ↑' : sort === 'name_desc' ? ' ↓' : ''}
                     </button>
                   </th>
+                  {showSizeColumn ? <th>Size</th> : null}
                   {years.map((year) => (
                     <th key={year} className="customer-yoy-num">
                       {year}
@@ -538,13 +607,14 @@ export function CustomerYearCompareReportPanel() {
                   return (
                     <tr key={row.key}>
                       <td title={row.mergedFrom.length > 1 ? `Also recorded as: ${row.mergedFrom.join(', ')}` : undefined}>
-                        {row.customer}
-                        {row.mergedFrom.length > 1 ? (
+                        {groupBy === 'size' ? row.size : row.customer}
+                        {groupBy !== 'size' && row.mergedFrom.length > 1 ? (
                           <div className="status-breakdown-note">
                             Combined {row.mergedFrom.length} name spellings
                           </div>
                         ) : null}
                       </td>
+                      {showSizeColumn ? <td>{row.size}</td> : null}
                       {row.yearCounts.map((count, index) => (
                         <td key={years[index]} className="customer-yoy-num">
                           {count}
@@ -565,6 +635,7 @@ export function CustomerYearCompareReportPanel() {
               <tfoot>
                 <tr>
                   <td>{filtered.length === matched.length ? 'Total' : 'Total (shown)'}</td>
+                  {showSizeColumn ? <td /> : null}
                   {shownTotals.yearCounts.map((count, index) => (
                     <td key={years[index]} className="customer-yoy-num">
                       {count}
@@ -586,7 +657,7 @@ export function CustomerYearCompareReportPanel() {
           </div>
           {matched.length > filtered.length ? (
             <p className="status-breakdown-note">
-              Showing {filtered.length} of {matched.length} customers. Choose All customers to list everyone with
+              Showing {filtered.length} of {matched.length} rows. Choose All rows to list everyone with
               closed or in-shop work in this window.
             </p>
           ) : null}
