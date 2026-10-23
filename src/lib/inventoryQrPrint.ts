@@ -1,5 +1,6 @@
 import type { InventoryRecord } from './inventory'
 import { buildInventoryItemUrl } from './inventory'
+import { printHtmlViaIframe } from './printHtml'
 
 function escapeHtml(s: string) {
   return s
@@ -26,14 +27,7 @@ export type InventoryQrPrintItem = Pick<
   | 'qr_code_data_url'
 >
 
-/** Opens a print window with selected inventory QR codes laid out for letter paper. */
-export function printInventoryQrSheet(items: InventoryQrPrintItem[]): { error: string | null } {
-  const printable = items.filter((item) => Boolean(item.qr_code_data_url?.trim()))
-  if (!printable.length) return { error: 'Select at least one item with a QR code' }
-
-  const popup = window.open('', '_blank', 'noopener,noreferrer,width=900,height=1100')
-  if (!popup) return { error: 'Allow pop-ups to print QR codes' }
-
+function buildInventoryQrSheetHtml(printable: InventoryQrPrintItem[]): string {
   const cards = printable
     .map((item) => {
       const title = escapeHtml(display(item.js_inventory_id))
@@ -60,7 +54,7 @@ export function printInventoryQrSheet(items: InventoryQrPrintItem[]): { error: s
 
   const countLabel = printable.length === 1 ? '1 QR code' : `${printable.length} QR codes`
 
-  popup.document.write(`<!doctype html>
+  return `<!doctype html>
 <html lang="en">
 <head>
   <meta charset="utf-8" />
@@ -155,36 +149,8 @@ export function printInventoryQrSheet(items: InventoryQrPrintItem[]): { error: s
       word-break: break-all;
       font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
     }
-    .no-print {
-      position: sticky;
-      top: 0;
-      z-index: 2;
-      display: flex;
-      gap: 0.5rem;
-      justify-content: flex-end;
-      padding: 0.5rem 0.75rem;
-      margin: -0.4in -0.4in 0.35in;
-      background: #f8fafc;
-      border-bottom: 1px solid #e2e8f0;
-    }
-    .no-print button {
-      appearance: none;
-      border: 1px solid #cbd5e1;
-      background: #fff;
-      color: #0f172a;
-      border-radius: 6px;
-      padding: 0.45rem 0.85rem;
-      font: 600 13px/1.2 system-ui, sans-serif;
-      cursor: pointer;
-    }
-    .no-print button.primary {
-      background: #0f766e;
-      border-color: #0f766e;
-      color: #fff;
-    }
     @media print {
       body { padding: 0.35in; }
-      .no-print { display: none !important; }
       .sheet-head { margin-bottom: 0.25in; }
       .card { border-color: #64748b; }
     }
@@ -192,10 +158,6 @@ export function printInventoryQrSheet(items: InventoryQrPrintItem[]): { error: s
   </style>
 </head>
 <body>
-  <div class="no-print">
-    <button type="button" onclick="window.close()">Close</button>
-    <button type="button" class="primary" onclick="window.print()">Print</button>
-  </div>
   <header class="sheet-head">
     <h1>Customer Inventory QR codes</h1>
     <p>${escapeHtml(countLabel)}</p>
@@ -203,13 +165,17 @@ export function printInventoryQrSheet(items: InventoryQrPrintItem[]): { error: s
   <div class="grid">
     ${cards}
   </div>
-  <script>
-    window.onload = function () {
-      setTimeout(function () { window.focus(); window.print(); }, 150);
-    };
-  </script>
 </body>
-</html>`)
-  popup.document.close()
-  return { error: null }
+</html>`
+}
+
+/** Prints selected inventory QR codes on letter paper without leaving the inventory page. */
+export function printInventoryQrSheet(items: InventoryQrPrintItem[]): { error: string | null } {
+  const printable = items.filter((item) => Boolean(item.qr_code_data_url?.trim()))
+  if (!printable.length) return { error: 'Select at least one item with a QR code' }
+
+  return printHtmlViaIframe(buildInventoryQrSheetHtml(printable), {
+    frameId: 'inventory-qr-print-frame',
+    title: 'Customer Inventory QR codes',
+  })
 }
