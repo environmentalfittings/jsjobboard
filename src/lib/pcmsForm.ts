@@ -1,4 +1,5 @@
 import { normalizeFinishCellKey } from '../constants/finishCellColors'
+import { supabase } from './supabase'
 import type { Valve } from '../types'
 
 /**
@@ -369,34 +370,19 @@ export function pcmsFormFromValve(valve: Valve): PcmsFormState {
 
 const storageKey = (valveRowId: number) => `pcms-form:v1:${valveRowId}`
 
-export function loadSavedPcmsForm(valveRowId: number): PcmsFormState | null {
-  try {
-    const raw = localStorage.getItem(storageKey(valveRowId))
-    if (!raw) return null
-    const parsed = JSON.parse(raw) as Partial<PcmsFormState>
-    const base = emptyPcmsForm()
-    return {
-      ...base,
-      ...parsed,
-      parts: { ...base.parts, ...(parsed.parts ?? {}) },
-    }
-  } catch {
-    return null
+function normalizePcmsForm(partial: Partial<PcmsFormState> | null | undefined): PcmsFormState {
+  const base = emptyPcmsForm()
+  if (!partial) return base
+  return {
+    ...base,
+    ...partial,
+    parts: { ...base.parts, ...(partial.parts ?? {}) },
   }
 }
 
-export function savePcmsForm(valveRowId: number, form: PcmsFormState) {
-  localStorage.setItem(storageKey(valveRowId), JSON.stringify(form))
-}
-
-export function clearSavedPcmsForm(valveRowId: number) {
-  localStorage.removeItem(storageKey(valveRowId))
-}
-
-/** Merge saved draft over job-card defaults (saved wins for edited fields). */
-export function loadPcmsFormForValve(valve: Valve): PcmsFormState {
+/** Merge a saved draft over job-card defaults (saved wins for edited fields). */
+export function mergePcmsFormWithValve(valve: Valve, saved: PcmsFormState | null | undefined): PcmsFormState {
   const fromCard = pcmsFormFromValve(valve)
-  const saved = loadSavedPcmsForm(valve.id)
   if (!saved) return fromCard
   return {
     ...fromCard,
@@ -405,6 +391,152 @@ export function loadPcmsFormForValve(valve: Valve): PcmsFormState {
     shopNo: saved.shopNo?.trim() || fromCard.shopNo,
     controlNo: saved.controlNo?.trim() || fromCard.controlNo,
     parts: { ...fromCard.parts, ...saved.parts },
+  }
+}
+
+/** @deprecated Local-only cache helper — prefer database load/save. */
+export function loadSavedPcmsForm(valveRowId: number): PcmsFormState | null {
+  try {
+    const raw = localStorage.getItem(storageKey(valveRowId))
+    if (!raw) return null
+    return normalizePcmsForm(JSON.parse(raw) as Partial<PcmsFormState>)
+  } catch {
+    return null
+  }
+}
+
+/** Cache a copy on this device after a successful database save (offline reopen). */
+export function savePcmsFormLocal(valveRowId: number, form: PcmsFormState) {
+  try {
+    localStorage.setItem(storageKey(valveRowId), JSON.stringify(form))
+  } catch {
+    // Ignore quota / private-mode failures — database is source of truth.
+  }
+}
+
+export function clearSavedPcmsFormLocal(valveRowId: number) {
+  try {
+    localStorage.removeItem(storageKey(valveRowId))
+  } catch {
+    // ignore
+  }
+}
+
+/** @deprecated Use savePcmsFormToDatabase. Kept so older call sites still compile. */
+export function savePcmsForm(valveRowId: number, form: PcmsFormState) {
+  savePcmsFormLocal(valveRowId, form)
+}
+
+/** @deprecated Use clearPcmsFormFromDatabase. */
+export function clearSavedPcmsForm(valveRowId: number) {
+  clearSavedPcmsFormLocal(valveRowId)
+}
+
+/** Sync helper for initial paint before the shared database draft loads. */
+export function loadPcmsFormForValve(valve: Valve): PcmsFormState {
+  return mergePcmsFormWithValve(valve, loadSavedPcmsForm(valve.id))
+}
+
+function isMissingPcmsTableError(message: string): boolean {
+  return /pcms_forms|schema cache|could not find the table/i.test(message)
+}
+
+export type PcmsFormLoadSource = 'database' | 'local' | 'card'
+
+export async function fetchPcmsFormFromDatabase(
+  valveRowId: number,
+): Promise<{ form: PcmsFormState | null; error: string | null; missingTable?: boolean }> {
+  const { data, error } = await supabase
+    .from('pcms_forms')
+    .select('form_data')
+    .eq('valve_row_id', valveRowId)
+    .maybeSingle()
+  if (error) {
+    return {
+      form: null,
+      error: error.message,
+      missingTable: isMissingPcmsTableError(error.message),
+    }
+  }
+  if (!data?.form_data || typeof data.form_data !== 'object') {
+    return { form: null, error: null }
+  }
+  return { form: normalizePcmsForm(data.form_data as Partial<PcmsFormState>), error: null }
+}
+
+export async function savePcmsFormToDatabase(
+  valveRowId: number,
+  form: PcmsFormState,
+  options?: { userId?: string | null; userName?: string | null },
+): Promise<{ error: string | null; missingTable?: boolean }> {
+  const payload = {
+    valve_row_id: valveRowId,
+    form_data: form,
+    updated_by_user_id: options?.userId?.trim() || null,
+    updated_by_name: String(options?.userName ?? '').trim(),
+    updated_at: new Date().toISOString(),
+  }
+  const { error } = await supabase.from('pcms_forms').upsert(payload, { onConflict: 'valve_row_id' })
+  if (error) {
+    return {
+      error: error.message,
+      missingTable: isMissingPcmsTableError(error.message),
+    }
+  }
+  savePcmsFormLocal(valveRowId, form)
+  return { error: null }
+}
+
+export async function clearPcmsFormFromDatabase(
+  valveRowId: number,
+): Promise<{ error: string | null; missingTable?: boolean }> {
+  const { error } = await supabase.from('pcms_forms').delete().eq('valve_row_id', valveRowId)
+  clearSavedPcmsFormLocal(valveRowId)
+  if (error) {
+    return {
+      error: error.message,
+      missingTable: isMissingPcmsTableError(error.message),
+    }
+  }
+  return { error: null }
+}
+
+/**
+ * Load shared PCMS draft from the database (preferred), then local cache, then job-card defaults.
+ * If only a local draft exists, it is uploaded once so other techs can see it.
+ */
+export async function loadPcmsFormForValveAsync(
+  valve: Valve,
+): Promise<{ form: PcmsFormState; source: PcmsFormLoadSource; error: string | null; missingTable?: boolean }> {
+  const fromDb = await fetchPcmsFormFromDatabase(valve.id)
+  if (fromDb.form) {
+    savePcmsFormLocal(valve.id, fromDb.form)
+    return {
+      form: mergePcmsFormWithValve(valve, fromDb.form),
+      source: 'database',
+      error: null,
+    }
+  }
+
+  const local = loadSavedPcmsForm(valve.id)
+  if (local) {
+    if (!fromDb.missingTable) {
+      // Promote this device's draft into the shared table for other logins.
+      void savePcmsFormToDatabase(valve.id, local)
+    }
+    return {
+      form: mergePcmsFormWithValve(valve, local),
+      source: 'local',
+      error: fromDb.error,
+      missingTable: fromDb.missingTable,
+    }
+  }
+
+  return {
+    form: pcmsFormFromValve(valve),
+    source: 'card',
+    error: fromDb.error,
+    missingTable: fromDb.missingTable,
   }
 }
 
