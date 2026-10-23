@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
+import * as XLSX from 'xlsx'
 import { CollapsibleReportPanel } from './CollapsibleReportPanel'
 import { useToast } from './ToastNotification'
 import { useOrganization } from '../contexts/OrganizationContext'
@@ -219,36 +220,52 @@ export function CustomerYearCompareReportPanel() {
   )
   const chartMax = Math.max(1, ...chartRows.map((row) => Math.max(row.thisYearYtd, row.lastYearYtd)))
 
-  const printTable = () => {
-    const columns = [
+  const tableColumns = useMemo(
+    () => [
       'Customer',
       ...years.map(String),
       `${thisYear} YTD`,
       `${lastYear} YTD`,
       'In shop',
       'Change vs last year YTD',
-    ]
-    const body = filtered.map((row) => [
-      row.customer,
-      ...row.yearCounts.map((count) => String(count)),
-      String(row.thisYearYtd),
-      String(row.lastYearYtd),
-      String(row.inShop),
-      formatCustomerJobDelta(row).text,
-    ])
-      const footer = [
+    ],
+    [lastYear, thisYear, years],
+  )
+
+  const tableBody = useMemo(
+    () =>
+      filtered.map((row) => [
+        row.customer,
+        ...row.yearCounts,
+        row.thisYearYtd,
+        row.lastYearYtd,
+        row.inShop,
+        formatCustomerJobDelta(row).text,
+      ]),
+    [filtered],
+  )
+
+  const tableFooter = useMemo(
+    () => [
       filtered.length === matched.length ? 'Total' : 'Total (shown)',
-      ...shownTotals.yearCounts.map((count) => String(count)),
-      String(shownTotals.thisYearYtd),
-      String(shownTotals.lastYearYtd),
-      String(shownTotals.inShop),
+      ...shownTotals.yearCounts,
+      shownTotals.thisYearYtd,
+      shownTotals.lastYearYtd,
+      shownTotals.inShop,
       formatCustomerJobDelta(shownTotals).text,
-    ]
+    ],
+    [filtered.length, matched.length, shownTotals],
+  )
+
+  const printTable = () => {
     const { error } = printTableReport({
       title: 'Customer jobs by year',
       subtitle: `${companyName} · Closed jobs ${rangeStart} to ${rangeEnd}. This year is year-to-date; prior year YTD uses ${lastYear}-01-01 to ${lastYearYtdEnd}. In shop is open work on the board now.`,
-      columns,
-      rows: [...body, footer],
+      columns: tableColumns,
+      rows: [
+        ...tableBody.map((row) => row.map((cell) => String(cell))),
+        tableFooter.map((cell) => String(cell)),
+      ],
       summaryLines: [
         `${totals.thisYearYtd} jobs closed this year through ${rangeEnd}`,
         `${totals.lastYearYtd} jobs closed last year through ${lastYearYtdEnd}`,
@@ -258,6 +275,51 @@ export function CustomerYearCompareReportPanel() {
       orientation: 'landscape',
     })
     if (error) showToast(error)
+  }
+
+  const exportExcel = () => {
+    if (!filtered.length) {
+      showToast('Nothing to export for the current filters')
+      return
+    }
+    try {
+      const sheetRows: (string | number)[][] = [
+        ['Customer jobs by year', companyName],
+        [`Closed jobs ${rangeStart} to ${rangeEnd}`],
+        [
+          `${thisYear} YTD through ${rangeEnd}`,
+          totals.thisYearYtd,
+          `${lastYear} YTD through ${lastYearYtdEnd}`,
+          totals.lastYearYtd,
+          'In shop now',
+          totals.inShop,
+          'Customers shown',
+          totals.customers,
+        ],
+        [],
+        tableColumns,
+        ...tableBody,
+        tableFooter,
+      ]
+      const worksheet = XLSX.utils.aoa_to_sheet(sheetRows)
+      worksheet['!cols'] = tableColumns.map((header, index) => ({
+        wch: Math.min(
+          40,
+          Math.max(
+            String(header).length + 2,
+            ...sheetRows.slice(4).map((row) => String(row[index] ?? '').length + 2),
+          ),
+        ),
+      }))
+      const workbook = XLSX.utils.book_new()
+      XLSX.utils.book_append_sheet(workbook, worksheet, 'Customer jobs')
+      const stamp = new Date().toISOString().slice(0, 10)
+      const companySlug = companyName.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'company'
+      XLSX.writeFile(workbook, `customer-jobs-by-year-${companySlug}-${stamp}.xlsx`)
+      showToast(`Exported ${filtered.length} customer${filtered.length === 1 ? '' : 's'} to Excel`)
+    } catch (error) {
+      showToast(error instanceof Error ? error.message : 'Could not export Excel file')
+    }
   }
 
   return (
@@ -350,6 +412,15 @@ export function CustomerYearCompareReportPanel() {
           }}
         >
           {loading ? 'Loading…' : 'Refresh'}
+        </button>
+        <button
+          type="button"
+          className="button-secondary"
+          disabled={loading || filtered.length === 0}
+          onClick={exportExcel}
+          title="Download the current table as an Excel spreadsheet"
+        >
+          Export Excel
         </button>
         <button
           type="button"
