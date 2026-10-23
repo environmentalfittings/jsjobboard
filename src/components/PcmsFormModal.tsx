@@ -266,6 +266,22 @@ export function PcmsFormModal({
             <div className="pcms-stack">
               <Section title="Identification">
                 <div className="pcms-grid">
+                  <Field label="SP number" hint="e.g. SP-0135 — prints under the logo">
+                    <input
+                      type="text"
+                      value={form.spNumber}
+                      onChange={(e) => patch({ spNumber: e.target.value })}
+                      placeholder="SP-____"
+                    />
+                  </Field>
+                  <Field label="RV number" hint="e.g. RV-1958 — prints under the logo">
+                    <input
+                      type="text"
+                      value={form.rvNumber}
+                      onChange={(e) => patch({ rvNumber: e.target.value })}
+                      placeholder="RV-____"
+                    />
+                  </Field>
                   <Field label="Report date">
                     <input
                       type="date"

@@ -42,6 +42,9 @@ export type PcmsPartName = (typeof PCMS_PART_NAMES)[number]
 export type PcmsFormState = {
   reportDate: string
   testRepairDate: string
+  /** Document control line under the logo (e.g. SP-0135 and RV-1958) — tech-filled, not prefilled. */
+  spNumber: string
+  rvNumber: string
   /** Relief valve data */
   description: string
   assetNo: string
@@ -239,6 +242,8 @@ export function emptyPcmsForm(): PcmsFormState {
   return {
     reportDate: todayIso(),
     testRepairDate: '',
+    spNumber: '',
+    rvNumber: '',
     description: '',
     assetNo: '',
     serialNo: '',
