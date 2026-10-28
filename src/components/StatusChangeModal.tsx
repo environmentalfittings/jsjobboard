@@ -199,6 +199,7 @@ export function StatusChangeModal({
   const [jobTypeDraft, setJobTypeDraft] = useState(valve.job_type ?? 'Valve Repair')
   const [orderTypeDraft, setOrderTypeDraft] = useState(valve.order_type ?? '')
   const [dueDateDraft, setDueDateDraft] = useState(toDateInputValue(valve.due_date))
+  const [dateReceivedDraft, setDateReceivedDraft] = useState(toDateInputValue(valve.date_received))
   const [testTypesDraft, setTestTypesDraft] = useState<string[]>([])
   const [testTypeOtherDraft, setTestTypeOtherDraft] = useState('')
   const [materialSpecDraft, setMaterialSpecDraft] = useState(valve.material_spec ?? '')
@@ -385,6 +386,7 @@ export function StatusChangeModal({
     setJobTypeDraft(valve.job_type ?? 'Valve Repair')
     setOrderTypeDraft(valve.order_type ?? '')
     setDueDateDraft(toDateInputValue(valve.due_date))
+    setDateReceivedDraft(toDateInputValue(valve.date_received))
     const parsed = parseJobTestSelections(valve.test_type, valve.valve_type, testTypeOptions)
     setTestTypesDraft(parsed.selected)
     setTestTypeOtherDraft(parsed.otherText)
@@ -411,6 +413,7 @@ export function StatusChangeModal({
     valve.job_type,
     valve.order_type,
     valve.due_date,
+    valve.date_received,
     valve.test_type,
     valve.valve_type,
     valve.pre_test_required,
@@ -633,6 +636,7 @@ export function StatusChangeModal({
       jobType: normalizedJobType,
       orderType: orderTypeDraft.trim() || null,
       dueDate: dueDateDraft.trim() || null,
+      dateReceived: dateReceivedDraft.trim() || null,
       testType: valveRelated
         ? formatJobTestSelections({
             valveType: valveTypeDraft,
@@ -1399,6 +1403,19 @@ export function StatusChangeModal({
                       </option>
                     ))}
                   </select>
+
+                  <label className="modal-label" htmlFor="modal-date-received">
+                    Received date
+                  </label>
+                  <input
+                    id="modal-date-received"
+                    type="date"
+                    className="modal-status-select"
+                    value={dateReceivedDraft}
+                    onChange={(e) => setDateReceivedDraft(e.target.value)}
+                    disabled={isSaving}
+                    title="Demand / receipt date used in demand reports (falls back to due date when blank)"
+                  />
 
                   <label className="modal-label" htmlFor="modal-due-date">
                     Due date

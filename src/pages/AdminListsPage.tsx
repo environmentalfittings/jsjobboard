@@ -1706,7 +1706,9 @@ export function AdminListsPage() {
             Assign a salesman to each customer so monthly Customer Inventory reports can be sent in Messages.
             The badge under each name shows how many jobs, inventory, received-valve, and traveler records use
             that name. To clean duplicates (for example three AEP PSO Oologah variants), select them and use
-            Merge — pick the name to keep and all linked records move onto that name.
+            Merge — pick the name to keep and all linked records move onto that name.{' '}
+            <Link to="/admin/customer-aliases">Map unmatched job-card spellings</Link> for demand reports
+            without renaming every valve row.
             {salesRepColumnMissing
               ? ' Run migration-customers-sales-rep.sql in Supabase to enable salesman assignment.'
               : null}
