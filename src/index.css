@@ -7386,12 +7386,85 @@ a.test-log-reports-item-name:hover {
   align-items: center;
 }
 
-.demand-profile-page .demand-filter-toolbar {
+.demand-report-hub {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem 1.25rem;
+  margin: 0 0 1rem;
+  padding: 0.85rem 1rem;
+  border: 1px solid #e2e8f0;
+  border-radius: 10px;
+  background: #f8fafc;
+}
+
+.demand-report-hub-copy h3 {
+  margin: 0 0 0.15rem;
+  font-size: 0.95rem;
+  color: #0f172a;
+}
+
+.demand-report-hub-copy p {
+  margin: 0;
+  font-size: 0.85rem;
+  color: #64748b;
+}
+
+.demand-controls-panel {
+  padding-bottom: 0.85rem;
+}
+
+.demand-controls {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr)) auto;
-  gap: 0.75rem 0.85rem;
-  align-items: start;
-  margin: 0.75rem 0 0.35rem;
+  grid-template-columns: repeat(auto-fit, minmax(9.5rem, 1fr));
+  gap: 0.55rem 0.65rem;
+  align-items: end;
+}
+
+.demand-controls label {
+  display: grid;
+  gap: 0.25rem;
+  font-size: 0.78rem;
+  font-weight: 700;
+  color: #334155;
+  min-width: 0;
+}
+
+.demand-controls label select,
+.demand-controls label input,
+.demand-job-type-select {
+  min-height: 2.25rem;
+  width: 100%;
+  padding: 0.4rem 0.55rem;
+  border: 1px solid #cbd5e1;
+  border-radius: 8px;
+  background: #fff;
+  font: inherit;
+  font-size: 0.9rem;
+  font-weight: 500;
+  color: #0f172a;
+}
+
+.demand-controls-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  align-items: end;
+  justify-content: flex-end;
+}
+
+.demand-controls .demand-search-filter {
+  min-width: 0;
+}
+
+.demand-inline-clear {
+  margin-top: 0.35rem;
+}
+
+.demand-summary-bar {
+  margin-top: 0.75rem;
+  margin-bottom: 0;
 }
 
 .demand-chip-row {
@@ -7399,10 +7472,6 @@ a.test-log-reports-item-name:hover {
   flex-wrap: wrap;
   gap: 0.4rem;
   align-items: center;
-}
-
-.customer-breakdown-page .customer-breakdown-toolbar {
-  grid-template-columns: minmax(14rem, 1.2fr) minmax(0, 2fr);
 }
 
 .customer-breakdown-option {

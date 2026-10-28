@@ -378,10 +378,6 @@ export function CustomerBreakdownReportPage() {
             <Link to="/reports/demand-profile">Demand profile</Link>
           </p>
           <h1>Customer breakdown{companyLabel ? ` · ${companyLabel}` : ''}</h1>
-          <p className="placeholder-copy">
-            Deep dive one customer&apos;s demand mix and trend. Same demand date rules as Demand
-            profile.
-          </p>
         </div>
         <div className="report-head-actions">
           <button
@@ -398,15 +394,15 @@ export function CustomerBreakdownReportPage() {
             disabled={!customerReport || !selectedCustomer || loading}
             onClick={printReport}
           >
-            Print report
+            Print
           </button>
         </div>
       </header>
 
-      <section className="dashboard-panel">
-        <div className="report-filters">
+      <section className="dashboard-panel demand-controls-panel">
+        <div className="demand-controls">
           <label>
-            Range preset
+            Range
             <select
               value={rangePreset}
               onChange={(e) => applyPreset(e.target.value as '24' | '36' | 'all')}
@@ -463,12 +459,6 @@ export function CustomerBreakdownReportPage() {
               ))}
             </select>
           </label>
-          <button type="button" className="button-primary" disabled={loading} onClick={() => void load()}>
-            {loading ? 'Loading…' : 'Refresh'}
-          </button>
-        </div>
-
-        <div className="demand-filter-toolbar customer-breakdown-toolbar">
           <CustomerPicker
             options={customerOptions}
             value={customerKey}
@@ -476,43 +466,53 @@ export function CustomerBreakdownReportPage() {
           />
           <div className="demand-search-filter">
             <span className="demand-search-filter-label">Job types</span>
-            <div className="demand-chip-row">
-              {jobTypeOptions.map((jt) => {
-                const selected = jobTypeFilter.includes(jt)
-                return (
-                  <button
-                    key={jt}
-                    type="button"
-                    className={`pcms-chip${selected ? ' is-selected' : ''}`}
-                    onClick={() =>
-                      setJobTypeFilter((prev) =>
-                        prev.includes(jt) ? prev.filter((v) => v !== jt) : [...prev, jt],
-                      )
-                    }
-                  >
-                    {jt}
-                  </button>
+            <select
+              className="demand-job-type-select"
+              value=""
+              onChange={(e) => {
+                const jt = e.target.value
+                if (!jt) return
+                setJobTypeFilter((prev) =>
+                  prev.includes(jt) ? prev.filter((v) => v !== jt) : [...prev, jt],
                 )
-              })}
-              {jobTypeFilter.length > 0 ? (
-                <button type="button" className="button-secondary" onClick={() => setJobTypeFilter([])}>
-                  Clear
-                </button>
-              ) : (
-                <span className="job-muted">All</span>
-              )}
-            </div>
+              }}
+            >
+              <option value="">
+                {jobTypeFilter.length === 0
+                  ? 'All job types'
+                  : `${jobTypeFilter.length} selected`}
+              </option>
+              {jobTypeOptions.map((jt) => (
+                <option key={jt} value={jt}>
+                  {jobTypeFilter.includes(jt) ? `✓ ${jt}` : jt}
+                </option>
+              ))}
+            </select>
+            {jobTypeFilter.length > 0 ? (
+              <button
+                type="button"
+                className="button-secondary demand-inline-clear"
+                onClick={() => setJobTypeFilter([])}
+              >
+                Clear job types
+              </button>
+            ) : null}
+          </div>
+          <div className="demand-controls-actions">
+            <button type="button" className="button-primary" disabled={loading} onClick={() => void load()}>
+              {loading ? 'Loading…' : 'Refresh'}
+            </button>
           </div>
         </div>
 
         {selectedCustomer && companyReport ? (
-          <div className="report-summary-bar">
+          <div className="report-summary-bar demand-summary-bar">
             <div className="report-summary-item">
               <span>Jobs</span>
               <strong>{selectedCustomer.total}</strong>
             </div>
             <div className="report-summary-item">
-              <span>Share of company</span>
+              <span>Share</span>
               <strong>{sharePct.toFixed(1)}%</strong>
             </div>
             <div className="report-summary-item">
@@ -528,15 +528,9 @@ export function CustomerBreakdownReportPage() {
               <strong>{selectedCustomer.lastJobDate ?? '—'}</strong>
             </div>
           </div>
-        ) : null}
-        <p className="status-breakdown-note">
-          {companyReport?.meta.footnote}{' '}
-          {selectedCustomer
-            ? `${selectedCustomer.customer} accounts for ${sharePct.toFixed(1)}% of ${companyTotal} jobs in range.`
-            : loading
-              ? 'Loading…'
-              : 'Pick a customer to see their mix.'}
-        </p>
+        ) : (
+          <p className="status-breakdown-note">{loading ? 'Loading…' : 'Pick a customer.'}</p>
+        )}
       </section>
 
       <section className="dashboard-panel">
