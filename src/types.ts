@@ -22,6 +22,11 @@ export interface Valve {
   bowl_type?: string | null
   order_type: string | null
   due_date: string | null
+  /**
+   * When the valve/job was received (demand date). New app jobs default to creation day.
+   * Reports use COALESCE(date_received, due_date).
+   */
+  date_received?: string | null
   date_closed: string | null
   /** Final / shop test date (also stamped from non-pretest test logs). */
   date_tested: string | null

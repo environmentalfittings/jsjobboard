@@ -57,6 +57,7 @@ export function NewJobPage({ role }: NewJobPageProps) {
   const [status, setStatus] = useState(defaultStatus)
   const [orderType, setOrderType] = useState('')
   const [dueDate, setDueDate] = useState('')
+  const [dateReceived, setDateReceived] = useState(() => new Date().toISOString().slice(0, 10))
   const [description, setDescription] = useState('')
   const [notes, setNotes] = useState('')
   const [isTurnaround, setIsTurnaround] = useState(false)
@@ -167,6 +168,7 @@ export function NewJobPage({ role }: NewJobPageProps) {
     setTestTypeOther('')
     setOrderType('')
     setDueDate('')
+    setDateReceived(new Date().toISOString().slice(0, 10))
     setDescription('')
     setNotes('')
     setIsTurnaround(false)
@@ -232,6 +234,7 @@ export function NewJobPage({ role }: NewJobPageProps) {
       order_type: orderType.trim() || null,
       status,
       due_date: dueDate || null,
+      date_received: dateReceived || new Date().toISOString().slice(0, 10),
       description: description.trim() || null,
       notes: notes.trim() || null,
       material_spec: valveRelated ? null : materialSpec.trim() || null,
@@ -244,6 +247,15 @@ export function NewJobPage({ role }: NewJobPageProps) {
 
     setSaving(true)
     let { data: inserted, error } = await supabase.from('valves').insert(payload).select('*').single()
+    if (error && /date_received/i.test(error.message ?? '')) {
+      const { date_received: _drop, ...withoutReceived } = payload
+      const retry = await supabase.from('valves').insert(withoutReceived).select('*').single()
+      inserted = retry.data
+      error = retry.error
+      if (!error) {
+        showToast('Saved without received date — run migration-valves-date-received.sql in Supabase')
+      }
+    }
     if (error && isMissingPreTestRequiredColumn(error.message)) {
       const retry = await supabase
         .from('valves')
@@ -533,6 +545,15 @@ export function NewJobPage({ role }: NewJobPageProps) {
                   <option value="">— Select order type —</option>
                   {lookupSelectOptions(lookupOptions.order_type)}
                 </select>
+              </label>
+              <label>
+                Received date
+                <input
+                  type="date"
+                  value={dateReceived}
+                  onChange={(e) => setDateReceived(e.target.value)}
+                  title="Demand / receipt date used in demand reports"
+                />
               </label>
               <label>
                 Due date

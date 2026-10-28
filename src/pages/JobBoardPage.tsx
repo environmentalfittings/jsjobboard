@@ -1313,6 +1313,7 @@ export function JobBoardPage({ role, username }: { role?: UserRole; username?: s
       job_type: fields.jobType,
       order_type: fields.orderType,
       due_date: fields.dueDate,
+      date_received: fields.dateReceived,
       test_type: fields.testType,
       material_spec: fields.materialSpec,
       drawing_po_number: fields.drawingPoNumber,
@@ -1328,6 +1329,14 @@ export function JobBoardPage({ role, username }: { role?: UserRole; username?: s
 
     setIsSaving(true)
     let { error } = await supabase.from('valves').update(patch).eq('id', valve.id)
+    if (error && /date_received/i.test(error.message ?? '')) {
+      const { date_received: _drop, ...withoutReceived } = patch
+      const retry = await supabase.from('valves').update(withoutReceived).eq('id', valve.id)
+      error = retry.error
+      if (!error) {
+        showToast('Saved without received date — run migration-valves-date-received.sql in Supabase')
+      }
+    }
     if (error && isMissingPreTestRequiredColumn(error.message)) {
       const retry = await supabase
         .from('valves')

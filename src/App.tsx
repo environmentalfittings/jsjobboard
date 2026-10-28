@@ -9,6 +9,8 @@ import { JobBoardPage } from './pages/JobBoardPage'
 import { LoginPage, type UserRole } from './pages/LoginPage'
 import { useEffect } from 'react'
 import { ReportsPage } from './pages/ReportsPage'
+import { DemandProfileReportPage } from './pages/DemandProfileReportPage'
+import { CustomerAliasesAdminPage } from './pages/CustomerAliasesAdminPage'
 import { StatusPrioritiesPage } from './pages/StatusPrioritiesPage'
 import { ShopTvBoardPage } from './pages/ShopTvBoardPage'
 import { CompanyCalendarPage } from './pages/CompanyCalendarPage'
@@ -295,6 +297,30 @@ function AppRoutes() {
               element={
                 can(appRole, 'viewReports') ? (
                   <ReportsPage />
+                ) : role ? (
+                  <Navigate to={defaultHomePath(appRole)} replace />
+                ) : (
+                  <Navigate to="/login" replace />
+                )
+              }
+            />
+            <Route
+              path="/reports/demand-profile"
+              element={
+                can(appRole, 'viewReports') ? (
+                  <DemandProfileReportPage />
+                ) : role ? (
+                  <Navigate to={defaultHomePath(appRole)} replace />
+                ) : (
+                  <Navigate to="/login" replace />
+                )
+              }
+            />
+            <Route
+              path="/admin/customer-aliases"
+              element={
+                can(appRole, 'manageLists') ? (
+                  <CustomerAliasesAdminPage />
                 ) : role ? (
                   <Navigate to={defaultHomePath(appRole)} replace />
                 ) : (

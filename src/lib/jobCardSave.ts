@@ -15,6 +15,8 @@ export type JobCardSaveFields = {
   jobType: string | null
   orderType: string | null
   dueDate: string | null
+  /** Received / demand date (YYYY-MM-DD). */
+  dateReceived: string | null
   testType: string | null
   materialSpec: string | null
   drawingPoNumber: string | null

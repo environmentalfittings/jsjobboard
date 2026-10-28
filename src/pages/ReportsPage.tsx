@@ -1734,6 +1734,13 @@ export function ReportsPage() {
         <h2 className="dashboard-title">Reports</h2>
       </div>
 
+      <div className="report-hub-links">
+        <Link className="button-secondary" to="/reports/demand-profile">
+          Demand profile by type &amp; customer
+        </Link>
+        <span className="job-muted report-hub-soon">Customer breakdown · Seasonality (coming next)</span>
+      </div>
+
       <CompanyCompareReportPanel />
 
       <DueThisWeekReportPanel />
