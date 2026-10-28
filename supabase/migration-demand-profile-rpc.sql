@@ -556,6 +556,8 @@ grant execute on function public.demand_profile_jobs(
 ) to authenticated, anon;
 
 -- Unmatched / near-duplicate customer names for the admin mapping screen.
+-- Create a pg_trgm-free version first so install succeeds even when similarity()
+-- is unavailable. Optionally upgrade to fuzzy matching if the extension works.
 create or replace function public.customer_alias_candidates()
 returns jsonb
 language sql
@@ -590,7 +592,6 @@ as $$
      and (
        replace(a.norm, '-', ' ') = replace(b.norm, '-', ' ')
        or replace(a.norm, '  ', ' ') = replace(b.norm, '  ', ' ')
-       or similarity(a.norm, b.norm) >= 0.55
      )
   )
   select jsonb_build_object(
@@ -634,94 +635,99 @@ as $$
   );
 $$;
 
--- similarity() needs pg_trgm; fall back without it if extension missing.
+-- Optional fuzzy near-duplicates when pg_trgm is available.
 do $$
 begin
-  create extension if not exists pg_trgm;
-exception
-  when others then
-    null;
-end;
-$$;
+  begin
+    create extension if not exists pg_trgm;
+  exception
+    when others then
+      null;
+  end;
 
--- If pg_trgm is unavailable, redefine candidates without similarity().
-do $$
-begin
-  perform similarity('a', 'b');
-exception
-  when undefined_function then
-    execute $fn$
-      create or replace function public.customer_alias_candidates()
-      returns jsonb
-      language sql
-      stable
-      as $body$
-        with names as (
-          select
-            nullif(btrim(customer), '') as raw_name,
-            public.normalize_customer_alias_text(customer) as norm,
-            count(*)::int as job_count
-          from public.valves
-          where nullif(btrim(customer), '') is not null
-          group by 1, 2
+  begin
+    perform similarity('a', 'b');
+  exception
+    when undefined_function then
+      return;
+  end;
+
+  execute $fn$
+    create or replace function public.customer_alias_candidates()
+    returns jsonb
+    language sql
+    stable
+    as $body$
+      with names as (
+        select
+          nullif(btrim(customer), '') as raw_name,
+          public.normalize_customer_alias_text(customer) as norm,
+          count(*)::int as job_count
+        from public.valves
+        where nullif(btrim(customer), '') is not null
+        group by 1, 2
+      ),
+      unmatched as (
+        select n.raw_name, n.norm, n.job_count
+        from names n
+        left join public.customer_aliases ca on ca.alias_text = n.norm
+        where ca.id is null
+      ),
+      near as (
+        select
+          a.raw_name as name_a,
+          a.job_count as jobs_a,
+          b.raw_name as name_b,
+          b.job_count as jobs_b,
+          a.norm as norm_a,
+          b.norm as norm_b
+        from unmatched a
+        join unmatched b
+          on a.norm < b.norm
+         and (
+           replace(a.norm, '-', ' ') = replace(b.norm, '-', ' ')
+           or replace(a.norm, '  ', ' ') = replace(b.norm, '  ', ' ')
+           or similarity(a.norm, b.norm) >= 0.55
+         )
+      )
+      select jsonb_build_object(
+        'unmatched', coalesce(
+          (
+            select jsonb_agg(
+              jsonb_build_object('name', raw_name, 'normalized', norm, 'jobCount', job_count)
+              order by job_count desc, raw_name
+            )
+            from unmatched
+          ),
+          '[]'::jsonb
         ),
-        unmatched as (
-          select n.raw_name, n.norm, n.job_count
-          from names n
-          left join public.customer_aliases ca on ca.alias_text = n.norm
-          where ca.id is null
+        'nearDuplicates', coalesce(
+          (
+            select jsonb_agg(
+              jsonb_build_object(
+                'nameA', name_a,
+                'jobsA', jobs_a,
+                'nameB', name_b,
+                'jobsB', jobs_b,
+                'normalizedA', norm_a,
+                'normalizedB', norm_b
+              )
+              order by greatest(jobs_a, jobs_b) desc, name_a, name_b
+            )
+            from near
+          ),
+          '[]'::jsonb
         ),
-        near as (
-          select
-            a.raw_name as name_a,
-            a.job_count as jobs_a,
-            b.raw_name as name_b,
-            b.job_count as jobs_b,
-            a.norm as norm_a,
-            b.norm as norm_b
-          from unmatched a
-          join unmatched b
-            on a.norm < b.norm
-           and replace(a.norm, '-', ' ') = replace(b.norm, '-', ' ')
+        'canonicalCustomers', coalesce(
+          (
+            select jsonb_agg(jsonb_build_object('id', id, 'name', name) order by name)
+            from public.customers
+          ),
+          '[]'::jsonb
         )
-        select jsonb_build_object(
-          'unmatched', coalesce(
-            (
-              select jsonb_agg(
-                jsonb_build_object('name', raw_name, 'normalized', norm, 'jobCount', job_count)
-                order by job_count desc, raw_name
-              )
-              from unmatched
-            ),
-            '[]'::jsonb
-          ),
-          'nearDuplicates', coalesce(
-            (
-              select jsonb_agg(
-                jsonb_build_object(
-                  'nameA', name_a,
-                  'jobsA', jobs_a,
-                  'nameB', name_b,
-                  'jobsB', jobs_b,
-                  'normalizedA', norm_a,
-                  'normalizedB', norm_b
-                )
-                order by greatest(jobs_a, jobs_b) desc, name_a, name_b
-              )
-              from near
-            ),
-            '[]'::jsonb
-          ),
-          'canonicalCustomers', coalesce(
-            (
-              select jsonb_agg(jsonb_build_object('id', id, 'name', name) order by name)
-              from public.customers
-            ),
-            '[]'::jsonb
-          )
-        );
-      $body$;
-    $fn$;
+      );
+    $body$;
+  $fn$;
 end;
 $$;
 
