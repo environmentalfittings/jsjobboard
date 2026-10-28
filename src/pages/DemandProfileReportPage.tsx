@@ -24,6 +24,7 @@ import {
   type DemandProfileReport,
   type DemandTypeDimension,
 } from '../lib/demandProfile'
+import { printDemandProfileReport } from '../lib/demandProfilePrint'
 
 type FilterOption = { value: string; label: string }
 
@@ -398,6 +399,16 @@ export function DemandProfileReportPage() {
     setDrillJobs(result.data)
   }
 
+  const printSection = (section: 'all' | 'type' | 'customer' | 'matrix') => {
+    if (!report) return
+    const { error } = printDemandProfileReport({
+      report,
+      companyLabel,
+      sections: [section],
+    })
+    if (error) showToast(error)
+  }
+
   const exportTypeCsv = () => {
     if (!report) return
     downloadCsv(
@@ -484,6 +495,14 @@ export function DemandProfileReportPage() {
             <Link to="/admin/customer-aliases">Customer name mapping</Link>.
           </p>
         </div>
+        <button
+          type="button"
+          className="button-primary"
+          disabled={!report || loading}
+          onClick={() => printSection('all')}
+        >
+          Print report
+        </button>
       </header>
 
       <section className="dashboard-panel">
@@ -617,9 +636,14 @@ export function DemandProfileReportPage() {
       <section className="dashboard-panel">
         <div className="top-jobs-chart-head">
           <h3>A — Demand by type</h3>
-          <button type="button" className="button-secondary" disabled={!report} onClick={exportTypeCsv}>
-            Export CSV
-          </button>
+          <div className="report-head-actions">
+            <button type="button" className="button-secondary" disabled={!report} onClick={() => printSection('type')}>
+              Print
+            </button>
+            <button type="button" className="button-secondary" disabled={!report} onClick={exportTypeCsv}>
+              Export CSV
+            </button>
+          </div>
         </div>
         {!report || stacked.length === 0 ? (
           <p className="placeholder-copy">{loading ? 'Loading…' : 'No jobs in this range.'}</p>
@@ -698,9 +722,19 @@ export function DemandProfileReportPage() {
       <section className="dashboard-panel">
         <div className="top-jobs-chart-head">
           <h3>B — Demand by customer</h3>
-          <button type="button" className="button-secondary" disabled={!report} onClick={exportCustomerCsv}>
-            Export CSV
-          </button>
+          <div className="report-head-actions">
+            <button
+              type="button"
+              className="button-secondary"
+              disabled={!report}
+              onClick={() => printSection('customer')}
+            >
+              Print
+            </button>
+            <button type="button" className="button-secondary" disabled={!report} onClick={exportCustomerCsv}>
+              Export CSV
+            </button>
+          </div>
         </div>
         {!report ? (
           <p className="placeholder-copy">{loading ? 'Loading…' : 'No data.'}</p>
@@ -772,9 +806,19 @@ export function DemandProfileReportPage() {
       <section className="dashboard-panel">
         <div className="top-jobs-chart-head">
           <h3>C — Customer × type matrix</h3>
-          <button type="button" className="button-secondary" disabled={!report} onClick={exportMatrixCsv}>
-            Export CSV
-          </button>
+          <div className="report-head-actions">
+            <button
+              type="button"
+              className="button-secondary"
+              disabled={!report}
+              onClick={() => printSection('matrix')}
+            >
+              Print
+            </button>
+            <button type="button" className="button-secondary" disabled={!report} onClick={exportMatrixCsv}>
+              Export CSV
+            </button>
+          </div>
         </div>
         {!report || report.matrix.customers.length === 0 ? (
           <p className="placeholder-copy">{loading ? 'Loading…' : 'No matrix data.'}</p>
