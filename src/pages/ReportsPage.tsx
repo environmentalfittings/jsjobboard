@@ -1734,14 +1734,20 @@ export function ReportsPage() {
         <h2 className="dashboard-title">Reports</h2>
       </div>
 
-      <div className="report-hub-links">
-        <Link className="button-secondary" to="/reports/demand-profile">
-          Demand profile by type &amp; customer
-        </Link>
-        <Link className="button-secondary" to="/reports/customer-breakdown">
-          Customer breakdown
-        </Link>
-        <span className="job-muted report-hub-soon">Seasonality (coming next)</span>
+      <div className="demand-report-hub">
+        <div className="demand-report-hub-copy">
+          <h3>Demand reports</h3>
+          <p>Job-count demand by received/due date across type and customer.</p>
+        </div>
+        <div className="report-hub-links">
+          <Link className="button-secondary" to="/reports/demand-profile">
+            Demand profile
+          </Link>
+          <Link className="button-secondary" to="/reports/customer-breakdown">
+            Customer breakdown
+          </Link>
+          <span className="job-muted report-hub-soon">Seasonality soon</span>
+        </div>
       </div>
 
       <CompanyCompareReportPanel />

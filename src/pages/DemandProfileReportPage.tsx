@@ -50,12 +50,14 @@ function SearchableMultiFilter({
   selected,
   onChange,
   placeholder = 'Search…',
+  compact = false,
 }: {
   label: string
   options: FilterOption[]
   selected: string[]
   onChange: (next: string[]) => void
   placeholder?: string
+  compact?: boolean
 }) {
   const rootRef = useRef<HTMLDivElement>(null)
   const [open, setOpen] = useState(false)
@@ -166,7 +168,7 @@ function SearchableMultiFilter({
           </ul>
         </div>
       ) : null}
-      {selected.length > 0 ? (
+      {!compact && selected.length > 0 ? (
         <div className="demand-search-filter-tags">
           {selectedLabels.slice(0, 4).map((text, index) => (
             <button
@@ -174,7 +176,7 @@ function SearchableMultiFilter({
               type="button"
               className="demand-search-filter-tag"
               title={`Remove ${text}`}
-              onClick={() => toggle(selected[index])}
+              onClick={() => toggle(selected[index]!)}
             >
               {text}
               <span aria-hidden="true">×</span>
@@ -489,27 +491,27 @@ export function DemandProfileReportPage() {
           <p className="breadcrumb-row">
             <Link to="/reports">Reports</Link>
           </p>
-          <h1>Demand profile by type and customer{companyLabel ? ` · ${companyLabel}` : ''}</h1>
-          <p className="placeholder-copy">
-            Job counts by received/due date. Deep dive one account on{' '}
-            <Link to="/reports/customer-breakdown">Customer breakdown</Link>. Map spellings under{' '}
-            <Link to="/admin/customer-aliases">Customer name mapping</Link>.
-          </p>
+          <h1>Demand profile{companyLabel ? ` · ${companyLabel}` : ''}</h1>
         </div>
-        <button
-          type="button"
-          className="button-primary"
-          disabled={!report || loading}
-          onClick={() => printSection('all')}
-        >
-          Print report
-        </button>
+        <div className="report-head-actions">
+          <Link className="button-secondary" to="/reports/customer-breakdown">
+            Customer breakdown
+          </Link>
+          <button
+            type="button"
+            className="button-primary"
+            disabled={!report || loading}
+            onClick={() => printSection('all')}
+          >
+            Print
+          </button>
+        </div>
       </header>
 
-      <section className="dashboard-panel">
-        <div className="report-filters">
+      <section className="dashboard-panel demand-controls-panel">
+        <div className="demand-controls">
           <label>
-            Range preset
+            Range
             <select
               value={rangePreset}
               onChange={(e) => applyPreset(e.target.value as '24' | '36' | 'all')}
@@ -570,18 +572,13 @@ export function DemandProfileReportPage() {
               ))}
             </select>
           </label>
-          <button type="button" className="button-primary" disabled={loading} onClick={() => void load()}>
-            {loading ? 'Loading…' : 'Refresh'}
-          </button>
-        </div>
-
-        <div className="demand-filter-toolbar">
           <SearchableMultiFilter
             label="Job types"
             options={jobTypeOptions.map((jt) => ({ value: jt, label: jt }))}
             selected={jobTypeFilter}
             onChange={setJobTypeFilter}
             placeholder="Search job types…"
+            compact
           />
           <SearchableMultiFilter
             label="Types"
@@ -589,6 +586,7 @@ export function DemandProfileReportPage() {
             selected={typeFilter}
             onChange={setTypeFilter}
             placeholder="Search types…"
+            compact
           />
           <SearchableMultiFilter
             label="Customers"
@@ -596,41 +594,36 @@ export function DemandProfileReportPage() {
             selected={customerFilter}
             onChange={setCustomerFilter}
             placeholder="Search customers…"
+            compact
           />
-          {hasActiveFilters ? (
-            <button type="button" className="button-secondary demand-filter-clear-all" onClick={clearAllFilters}>
-              Clear filters
+          <div className="demand-controls-actions">
+            {hasActiveFilters ? (
+              <button type="button" className="button-secondary" onClick={clearAllFilters}>
+                Clear
+              </button>
+            ) : null}
+            <button type="button" className="button-primary" disabled={loading} onClick={() => void load()}>
+              {loading ? 'Loading…' : 'Refresh'}
             </button>
-          ) : null}
+          </div>
         </div>
 
         {report ? (
-          <div className="report-summary-bar">
+          <div className="report-summary-bar demand-summary-bar">
             <div className="report-summary-item">
-              <span>Jobs in range</span>
+              <span>Jobs</span>
               <strong>{report.meta.totalJobs}</strong>
             </div>
             <div className="report-summary-item">
-              <span>Unspecified type</span>
+              <span>Unspecified</span>
               <strong>{report.meta.unspecifiedTypePct.toFixed(1)}%</strong>
             </div>
             <div className="report-summary-item">
-              <span>Excluded null dates</span>
-              <strong>{report.meta.excludedNull}</strong>
-            </div>
-            <div className="report-summary-item">
-              <span>Excluded bad/sentinel dates</span>
-              <strong>{report.meta.excludedBad}</strong>
+              <span>Excluded dates</span>
+              <strong>{report.meta.excludedNull + report.meta.excludedBad}</strong>
             </div>
           </div>
         ) : null}
-        <p className="status-breakdown-note">
-          Excludes null demand dates and dates before 2022-01-01 or more than 1 year ahead
-          {report
-            ? ` (${report.meta.excludedNull + report.meta.excludedBad} excluded of ${report.meta.scopedTotal} scoped jobs).`
-            : '.'}{' '}
-          {report?.meta.footnote}
-        </p>
       </section>
 
       {/* Section A */}
@@ -877,7 +870,6 @@ export function DemandProfileReportPage() {
             </table>
           </div>
         )}
-        <p className="status-breakdown-note">Click a cell to list underlying jobs.</p>
       </section>
 
       {(drillTitle || drillLoading) && (
@@ -935,13 +927,11 @@ export function DemandProfileReportPage() {
         </section>
       )}
 
-      {report ? (
+      {report &&
+      (typeTotalCheck !== report.meta.totalJobs || customerTotalCheck !== report.meta.totalJobs) ? (
         <p className="status-breakdown-note">
-          Spot-check: type totals = <strong>{typeTotalCheck}</strong>, customer totals ={' '}
-          <strong>{customerTotalCheck}</strong>, overall = <strong>{report.meta.totalJobs}</strong>
-          {typeTotalCheck === report.meta.totalJobs && customerTotalCheck === report.meta.totalJobs
-            ? ' (match).'
-            : ' (mismatch — check filters / Other rollup).'}
+          Totals mismatch: types {typeTotalCheck}, customers {customerTotalCheck}, overall{' '}
+          {report.meta.totalJobs}.
         </p>
       ) : null}
     </div>
