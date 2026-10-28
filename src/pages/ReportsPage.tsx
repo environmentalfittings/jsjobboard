@@ -1738,7 +1738,10 @@ export function ReportsPage() {
         <Link className="button-secondary" to="/reports/demand-profile">
           Demand profile by type &amp; customer
         </Link>
-        <span className="job-muted report-hub-soon">Customer breakdown · Seasonality (coming next)</span>
+        <Link className="button-secondary" to="/reports/customer-breakdown">
+          Customer breakdown
+        </Link>
+        <span className="job-muted report-hub-soon">Seasonality (coming next)</span>
       </div>
 
       <CompanyCompareReportPanel />
