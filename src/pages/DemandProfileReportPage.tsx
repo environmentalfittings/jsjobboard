@@ -491,7 +491,8 @@ export function DemandProfileReportPage() {
           </p>
           <h1>Demand profile by type and customer{companyLabel ? ` · ${companyLabel}` : ''}</h1>
           <p className="placeholder-copy">
-            Job counts by received/due date. Map spelling variants under{' '}
+            Job counts by received/due date. Deep dive one account on{' '}
+            <Link to="/reports/customer-breakdown">Customer breakdown</Link>. Map spellings under{' '}
             <Link to="/admin/customer-aliases">Customer name mapping</Link>.
           </p>
         </div>

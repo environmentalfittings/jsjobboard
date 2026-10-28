@@ -10,6 +10,7 @@ import { LoginPage, type UserRole } from './pages/LoginPage'
 import { useEffect } from 'react'
 import { ReportsPage } from './pages/ReportsPage'
 import { DemandProfileReportPage } from './pages/DemandProfileReportPage'
+import { CustomerBreakdownReportPage } from './pages/CustomerBreakdownReportPage'
 import { CustomerAliasesAdminPage } from './pages/CustomerAliasesAdminPage'
 import { StatusPrioritiesPage } from './pages/StatusPrioritiesPage'
 import { ShopTvBoardPage } from './pages/ShopTvBoardPage'
@@ -309,6 +310,18 @@ function AppRoutes() {
               element={
                 can(appRole, 'viewReports') ? (
                   <DemandProfileReportPage />
+                ) : role ? (
+                  <Navigate to={defaultHomePath(appRole)} replace />
+                ) : (
+                  <Navigate to="/login" replace />
+                )
+              }
+            />
+            <Route
+              path="/reports/customer-breakdown"
+              element={
+                can(appRole, 'viewReports') ? (
+                  <CustomerBreakdownReportPage />
                 ) : role ? (
                   <Navigate to={defaultHomePath(appRole)} replace />
                 ) : (
