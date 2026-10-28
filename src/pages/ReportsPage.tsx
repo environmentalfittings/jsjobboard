@@ -1121,27 +1121,80 @@ export function ReportsPage() {
     setTopEndDate(range.end)
   }
 
+  const onTopStartDateChange = (value: string) => {
+    setTopPreset('custom')
+    setTopStartDate(value)
+  }
+
+  const onTopEndDateChange = (value: string) => {
+    setTopPreset('custom')
+    setTopEndDate(value)
+  }
+
+  const topLoadSeqRef = useRef(0)
+
   const loadTopJobsReport = useCallback(async () => {
     if (!topStartDate || !topEndDate) return
-    setTopLoading(true)
-    const { data, error } = await supabase
-      .from('valves')
-      .select(VALVE_LIST_SELECT)
-      .eq('status', 'Completed')
-      .gte('date_closed', topStartDate)
-      .lte('date_closed', topEndDate)
-      .order('date_closed', { ascending: false })
-      .order('valve_id', { ascending: true })
-      .limit(8000)
-    setTopLoading(false)
-    if (error) {
-      showToast(`Could not load top customers / valve types: ${error.message}`)
-      setTopRows([])
+    if (topStartDate > topEndDate) {
+      showToast('Start date must be on or before end date')
       return
     }
-    setTopRows(filterValvesForCompany((data as Valve[]) ?? [], companyScope))
-    setSelectedTopCustomer(null)
-    setSelectedTopValveType(null)
+    const seq = ++topLoadSeqRef.current
+    setTopLoading(true)
+    // Lean columns only — select('*') + limit(8000) was truncating large ranges so
+    // custom dates often looked identical to year-to-date (same newest 8k jobs).
+    const topSelect =
+      'id,valve_id,customer,valve_type,job_type,date_closed,organization_id,status,cell,description,size,pressure_class,order_type'
+    const topSelectNoOrg =
+      'id,valve_id,customer,valve_type,job_type,date_closed,status,cell,description,size,pressure_class,order_type'
+    const pageSize = 1000
+    const collected: Valve[] = []
+    let from = 0
+    let select = topSelect
+    let skippedOrgColumn = false
+    try {
+      while (true) {
+        if (seq !== topLoadSeqRef.current) return
+        const { data, error } = await supabase
+          .from('valves')
+          .select(select)
+          .eq('status', 'Completed')
+          .not('date_closed', 'is', null)
+          .gte('date_closed', topStartDate)
+          .lte('date_closed', topEndDate)
+          .order('date_closed', { ascending: false })
+          .order('valve_id', { ascending: true })
+          .range(from, from + pageSize - 1)
+        if (error && !skippedOrgColumn && /organization_id/i.test(error.message ?? '')) {
+          skippedOrgColumn = true
+          select = topSelectNoOrg
+          collected.length = 0
+          from = 0
+          continue
+        }
+        if (error) {
+          if (seq !== topLoadSeqRef.current) return
+          showToast(`Could not load top customers / valve types: ${error.message}`)
+          setTopRows([])
+          return
+        }
+        if (!data?.length) break
+        collected.push(...((data as unknown as Valve[]) ?? []))
+        if (data.length < pageSize) break
+        from += pageSize
+      }
+      if (seq !== topLoadSeqRef.current) return
+      // Client-side clamp in case date_closed is returned with a time suffix.
+      const inRange = collected.filter((row) => {
+        const closed = String(row.date_closed ?? '').trim().slice(0, 10)
+        return closed >= topStartDate && closed <= topEndDate
+      })
+      setTopRows(filterValvesForCompany(inRange, companyScope))
+      setSelectedTopCustomer(null)
+      setSelectedTopValveType(null)
+    } finally {
+      if (seq === topLoadSeqRef.current) setTopLoading(false)
+    }
   }, [companyScope, showToast, topEndDate, topStartDate])
 
   useEffect(() => {
@@ -2124,47 +2177,40 @@ export function ReportsPage() {
           </label>
           <label>
             Start date
-            <input
-              type="date"
-              value={topStartDate}
-              onChange={(e) => {
-                setTopPreset('custom')
-                setTopStartDate(e.target.value)
-              }}
-            />
+            <input type="date" value={topStartDate} onChange={(e) => onTopStartDateChange(e.target.value)} />
           </label>
           <label>
             End date
-            <input
-              type="date"
-              value={topEndDate}
-              onChange={(e) => {
-                setTopPreset('custom')
-                setTopEndDate(e.target.value)
-              }}
-            />
+            <input type="date" value={topEndDate} onChange={(e) => onTopEndDateChange(e.target.value)} />
           </label>
           <button type="button" className="button-primary" disabled={topLoading} onClick={() => void loadTopJobsReport()}>
             {topLoading ? 'Loading…' : 'Refresh'}
           </button>
         </div>
+        <p className="status-breakdown-note" style={{ marginTop: 0 }}>
+          Showing closed jobs from <strong>{topStartDate || '—'}</strong> to <strong>{topEndDate || '—'}</strong>
+          {topPreset === 'custom' ? ' (custom dates)' : ''}. Change the dates above, then Refresh — charts reload for
+          that range.
+        </p>
 
         <div className="report-summary-bar">
           <div className="report-summary-item">
             <span>Completed jobs in range</span>
-            <strong>{topRows.length}</strong>
+            <strong>{topLoading ? '…' : topRows.length}</strong>
           </div>
           <div className="report-summary-item">
             <span>Valve repairs in range</span>
-            <strong>{topRepairTotal}</strong>
+            <strong>{topLoading ? '…' : topRepairTotal}</strong>
           </div>
           <div className="report-summary-item">
             <span>Distinct customers</span>
-            <strong>{new Set(topRows.map(customerKey)).size}</strong>
+            <strong>{topLoading ? '…' : new Set(topRows.map(customerKey)).size}</strong>
           </div>
           <div className="report-summary-item">
             <span>Repair valve types</span>
-            <strong>{new Set(topRows.filter(isValveRepairJob).map(valveTypeKey)).size}</strong>
+            <strong>
+              {topLoading ? '…' : new Set(topRows.filter(isValveRepairJob).map(valveTypeKey)).size}
+            </strong>
           </div>
         </div>
 
