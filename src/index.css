@@ -7379,6 +7379,13 @@ a.test-log-reports-item-name:hover {
   font-size: 0.85rem;
 }
 
+.demand-profile-page .report-head-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.45rem;
+  align-items: center;
+}
+
 .demand-profile-page .demand-filter-toolbar {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr)) auto;
