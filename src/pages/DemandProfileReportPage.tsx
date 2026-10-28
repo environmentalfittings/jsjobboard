@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { useToast } from '../components/ToastNotification'
 import { useOrganization } from '../contexts/OrganizationContext'
@@ -24,6 +24,169 @@ import {
   type DemandProfileReport,
   type DemandTypeDimension,
 } from '../lib/demandProfile'
+
+type FilterOption = { value: string; label: string }
+
+function mergeFilterOptions(
+  prev: FilterOption[],
+  incoming: FilterOption[],
+  selected: string[],
+): FilterOption[] {
+  const byValue = new Map<string, FilterOption>()
+  for (const opt of prev) byValue.set(opt.value, opt)
+  for (const opt of incoming) byValue.set(opt.value, opt)
+  for (const value of selected) {
+    if (!byValue.has(value)) byValue.set(value, { value, label: value })
+  }
+  return [...byValue.values()].sort((a, b) =>
+    a.label.localeCompare(b.label, undefined, { sensitivity: 'base' }),
+  )
+}
+
+function SearchableMultiFilter({
+  label,
+  options,
+  selected,
+  onChange,
+  placeholder = 'Search…',
+}: {
+  label: string
+  options: FilterOption[]
+  selected: string[]
+  onChange: (next: string[]) => void
+  placeholder?: string
+}) {
+  const rootRef = useRef<HTMLDivElement>(null)
+  const [open, setOpen] = useState(false)
+  const [query, setQuery] = useState('')
+
+  useEffect(() => {
+    if (!open) return
+    const onPointerDown = (event: MouseEvent) => {
+      const target = event.target as Node
+      if (rootRef.current?.contains(target)) return
+      setOpen(false)
+    }
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setOpen(false)
+    }
+    document.addEventListener('mousedown', onPointerDown)
+    document.addEventListener('keydown', onKey)
+    return () => {
+      document.removeEventListener('mousedown', onPointerDown)
+      document.removeEventListener('keydown', onKey)
+    }
+  }, [open])
+
+  const filtered = useMemo(() => {
+    const q = query.trim().toLowerCase()
+    if (!q) return options
+    return options.filter(
+      (opt) =>
+        opt.label.toLowerCase().includes(q) || opt.value.toLowerCase().includes(q),
+    )
+  }, [options, query])
+
+  const toggle = (value: string) => {
+    onChange(
+      selected.includes(value)
+        ? selected.filter((v) => v !== value)
+        : [...selected, value],
+    )
+  }
+
+  const selectedLabels = selected.map(
+    (value) => options.find((opt) => opt.value === value)?.label ?? value,
+  )
+
+  return (
+    <div className="demand-search-filter" ref={rootRef}>
+      <span className="demand-search-filter-label">{label}</span>
+      <button
+        type="button"
+        className={`demand-search-filter-trigger${selected.length ? ' is-active' : ''}${open ? ' is-open' : ''}`}
+        aria-expanded={open}
+        aria-haspopup="listbox"
+        onClick={() => setOpen((prev) => !prev)}
+      >
+        <span>
+          {selected.length === 0
+            ? `All ${label.toLowerCase()}`
+            : selected.length === 1
+              ? selectedLabels[0]
+              : `${selected.length} selected`}
+        </span>
+        <span aria-hidden="true">▾</span>
+      </button>
+      {open ? (
+        <div className="demand-search-filter-panel" role="listbox" aria-label={label}>
+          <input
+            type="search"
+            className="demand-search-filter-input"
+            value={query}
+            placeholder={placeholder}
+            autoFocus
+            onChange={(e) => setQuery(e.target.value)}
+            onClick={(e) => e.stopPropagation()}
+          />
+          <div className="demand-search-filter-actions">
+            <button
+              type="button"
+              className="button-secondary"
+              disabled={selected.length === 0}
+              onClick={() => onChange([])}
+            >
+              Clear
+            </button>
+            <span className="job-muted">
+              {filtered.length} of {options.length}
+            </span>
+          </div>
+          <ul className="demand-search-filter-list">
+            {filtered.length === 0 ? (
+              <li className="demand-search-filter-empty">No matches</li>
+            ) : (
+              filtered.map((opt) => {
+                const checked = selected.includes(opt.value)
+                return (
+                  <li key={opt.value}>
+                    <label className={`demand-search-filter-option${checked ? ' is-selected' : ''}`}>
+                      <input
+                        type="checkbox"
+                        checked={checked}
+                        onChange={() => toggle(opt.value)}
+                      />
+                      <span>{opt.label}</span>
+                    </label>
+                  </li>
+                )
+              })
+            )}
+          </ul>
+        </div>
+      ) : null}
+      {selected.length > 0 ? (
+        <div className="demand-search-filter-tags">
+          {selectedLabels.slice(0, 4).map((text, index) => (
+            <button
+              key={`${selected[index]}-${text}`}
+              type="button"
+              className="demand-search-filter-tag"
+              title={`Remove ${text}`}
+              onClick={() => toggle(selected[index])}
+            >
+              {text}
+              <span aria-hidden="true">×</span>
+            </button>
+          ))}
+          {selected.length > 4 ? (
+            <span className="job-muted">+{selected.length - 4} more</span>
+          ) : null}
+        </div>
+      ) : null}
+    </div>
+  )
+}
 
 const PERIOD_PRESETS: { value: '24' | '36' | 'all'; label: string }[] = [
   { value: '24', label: '24 mo' },
@@ -86,6 +249,9 @@ export function DemandProfileReportPage() {
   const [customerFilter, setCustomerFilter] = useState<string[]>([])
   const [loading, setLoading] = useState(false)
   const [report, setReport] = useState<DemandProfileReport | null>(null)
+  const [typeOptions, setTypeOptions] = useState<FilterOption[]>([])
+  const [customerOptions, setCustomerOptions] = useState<FilterOption[]>([])
+  const [jobTypeOptions, setJobTypeOptions] = useState<string[]>([...JOB_TYPES])
   const [drillJobs, setDrillJobs] = useState<DemandProfileJobRow[]>([])
   const [drillTitle, setDrillTitle] = useState('')
   const [drillLoading, setDrillLoading] = useState(false)
@@ -121,16 +287,37 @@ export function DemandProfileReportPage() {
       activeOrganization,
     })
     setLoading(false)
-    if (result.error) {
+    if (result.error || !result.data) {
       showToast(
-        /demand_profile_report|schema cache|could not find/i.test(result.error)
+        /demand_profile_report|schema cache|could not find/i.test(result.error ?? '')
           ? 'Run supabase/migration-demand-profile-rpc.sql (after date_received + customer_aliases) in Supabase.'
-          : `Could not load demand profile: ${result.error}`,
+          : `Could not load demand profile: ${result.error ?? 'No data returned'}`,
       )
       setReport(null)
       return
     }
-    setReport(result.data)
+    const data = result.data
+    setReport(data)
+    setTypeOptions((prev) =>
+      mergeFilterOptions(
+        typeFilter.length === 0 && customerFilter.length === 0 ? [] : prev,
+        data.filterOptions.types.map((t) => ({ value: t, label: t })),
+        typeFilter,
+      ),
+    )
+    setCustomerOptions((prev) =>
+      mergeFilterOptions(
+        typeFilter.length === 0 && customerFilter.length === 0 ? [] : prev,
+        data.filterOptions.customers.map((c) => ({
+          value: c.key,
+          label: c.label,
+        })),
+        customerFilter,
+      ),
+    )
+    if (data.filterOptions.jobTypes.length) {
+      setJobTypeOptions(data.filterOptions.jobTypes)
+    }
     setDrillJobs([])
     setDrillTitle('')
   }, [
@@ -275,9 +462,13 @@ export function DemandProfileReportPage() {
 
   const typeTotalCheck = report?.typeSummary.reduce((s, r) => s + r.total, 0) ?? 0
   const customerTotalCheck = report?.customerSummary.reduce((s, r) => s + r.total, 0) ?? 0
+  const hasActiveFilters =
+    jobTypeFilter.length > 0 || typeFilter.length > 0 || customerFilter.length > 0
 
-  const toggleMulti = (list: string[], value: string, setter: (next: string[]) => void) => {
-    setter(list.includes(value) ? list.filter((v) => v !== value) : [...list, value])
+  const clearAllFilters = () => {
+    setJobTypeFilter([])
+    setTypeFilter([])
+    setCustomerFilter([])
   }
 
   return (
@@ -289,8 +480,7 @@ export function DemandProfileReportPage() {
           </p>
           <h1>Demand profile by type and customer{companyLabel ? ` · ${companyLabel}` : ''}</h1>
           <p className="placeholder-copy">
-            Job-count demand using COALESCE(received date, due date). Small types (&lt;3%) roll into Other.
-            Map customer name spellings under{' '}
+            Job counts by received/due date. Map spelling variants under{' '}
             <Link to="/admin/customer-aliases">Customer name mapping</Link>.
           </p>
         </div>
@@ -347,7 +537,11 @@ export function DemandProfileReportPage() {
             Type field
             <select
               value={typeDimension}
-              onChange={(e) => setTypeDimension(e.target.value as DemandTypeDimension)}
+              onChange={(e) => {
+                setTypeFilter([])
+                setTypeOptions([])
+                setTypeDimension(e.target.value as DemandTypeDimension)
+              }}
             >
               {TYPE_DIMENSIONS.map((d) => (
                 <option key={d.value} value={d.value}>
@@ -361,75 +555,33 @@ export function DemandProfileReportPage() {
           </button>
         </div>
 
-        <div className="demand-filter-blocks">
-          <fieldset className="demand-multi-filter">
-            <legend>Job type filter</legend>
-            <div className="demand-chip-row">
-              {(report?.filterOptions.jobTypes.length ? report.filterOptions.jobTypes : [...JOB_TYPES]).map(
-                (jt) => (
-                  <button
-                    key={jt}
-                    type="button"
-                    className={`pcms-chip${jobTypeFilter.includes(jt) ? ' is-selected' : ''}`}
-                    onClick={() => toggleMulti(jobTypeFilter, jt, setJobTypeFilter)}
-                  >
-                    {jt}
-                  </button>
-                ),
-              )}
-              {jobTypeFilter.length > 0 ? (
-                <button type="button" className="button-secondary" onClick={() => setJobTypeFilter([])}>
-                  Clear
-                </button>
-              ) : (
-                <span className="job-muted">All job types</span>
-              )}
-            </div>
-          </fieldset>
-          <fieldset className="demand-multi-filter">
-            <legend>Type filter</legend>
-            <div className="demand-chip-row">
-              {(report?.filterOptions.types ?? []).slice(0, 24).map((t) => (
-                <button
-                  key={t}
-                  type="button"
-                  className={`pcms-chip${typeFilter.includes(t) ? ' is-selected' : ''}`}
-                  onClick={() => toggleMulti(typeFilter, t, setTypeFilter)}
-                >
-                  {t}
-                </button>
-              ))}
-              {typeFilter.length > 0 ? (
-                <button type="button" className="button-secondary" onClick={() => setTypeFilter([])}>
-                  Clear
-                </button>
-              ) : (
-                <span className="job-muted">All types</span>
-              )}
-            </div>
-          </fieldset>
-          <fieldset className="demand-multi-filter">
-            <legend>Customer filter</legend>
-            <div className="demand-chip-row">
-              {(report?.filterOptions.customers ?? []).slice(0, 20).map((c) => (
-                <button
-                  key={c.key}
-                  type="button"
-                  className={`pcms-chip${customerFilter.includes(c.key) ? ' is-selected' : ''}`}
-                  onClick={() => toggleMulti(customerFilter, c.key, setCustomerFilter)}
-                >
-                  {c.label}
-                </button>
-              ))}
-              {customerFilter.length > 0 ? (
-                <button type="button" className="button-secondary" onClick={() => setCustomerFilter([])}>
-                  Clear
-                </button>
-              ) : (
-                <span className="job-muted">All customers</span>
-              )}
-            </div>
-          </fieldset>
+        <div className="demand-filter-toolbar">
+          <SearchableMultiFilter
+            label="Job types"
+            options={jobTypeOptions.map((jt) => ({ value: jt, label: jt }))}
+            selected={jobTypeFilter}
+            onChange={setJobTypeFilter}
+            placeholder="Search job types…"
+          />
+          <SearchableMultiFilter
+            label="Types"
+            options={typeOptions}
+            selected={typeFilter}
+            onChange={setTypeFilter}
+            placeholder="Search types…"
+          />
+          <SearchableMultiFilter
+            label="Customers"
+            options={customerOptions}
+            selected={customerFilter}
+            onChange={setCustomerFilter}
+            placeholder="Search customers…"
+          />
+          {hasActiveFilters ? (
+            <button type="button" className="button-secondary demand-filter-clear-all" onClick={clearAllFilters}>
+              Clear filters
+            </button>
+          ) : null}
         </div>
 
         {report ? (
