@@ -490,7 +490,7 @@ export function applyLibraryTemplate(plan: ItpLibraryPlanPayload): ItpLibraryPla
       subReqs,
     })
   }
-  return { ...plan, sel: ensureOrderReplacementPartsSel(sel) }
+  return { ...plan, sel: ensureOrderReplacementPartsSel(sel, { valveType: plan.valveType }) }
 }
 
 export function createEmptyItpLibraryPlan(valve: Valve): ItpLibraryPlanPayload {
@@ -849,7 +849,9 @@ export function normalizeItpLibraryPlan(raw: unknown, valve: Valve): ItpLibraryP
       // Prefer sel.notes; fall back to legacy exec.notes from earlier saves.
       sel[id] = migrateFastenerRecordSel(id, normalizeSel(value, exec[id]?.notes ?? ''))
     }
-    const withParts = ensureOrderReplacementPartsSel(sel)
+    const withParts = ensureOrderReplacementPartsSel(sel, {
+      valveType: String(source.valveType ?? ''),
+    })
     const custom = Array.isArray(source.custom)
       ? source.custom
           .filter((c) => c && typeof c === 'object')

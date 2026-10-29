@@ -295,6 +295,16 @@ export function normalizeTemplateScope(raw: unknown): ItpLibraryTemplateScope {
   }
 }
 
+/** Apply Twinseal Slips / Soft Goods / Bolting traveler labels onto an existing scope. */
+export function ensureTwinsealPartsTravelerOnScope(
+  scope: ItpLibraryTemplateScope,
+  valveType: string,
+): ItpLibraryTemplateScope {
+  const sel = ensureOrderReplacementPartsSel(scope.sel, { valveType })
+  if (sel === scope.sel) return scope
+  return { ...scope, sel }
+}
+
 /** Compact scope for storage — only included (or configured) items. */
 export function compactTemplateScope(scope: ItpLibraryTemplateScope): ItpLibraryTemplateScope {
   const unlockIds = new Set(collectUnlockItemIdsFromSels(scope.sel))
@@ -605,7 +615,7 @@ export function scopeFromCodeTemplate(
       subReqs: found?.item.defaultSubReqs ? [...found.item.defaultSubReqs] : [],
     })
   }
-  return { sel: ensureOrderReplacementPartsSel(sel), custom: [] }
+  return { sel: ensureOrderReplacementPartsSel(sel, { valveType }), custom: [] }
 }
 
 export function applyScopeToPlan(
@@ -698,7 +708,11 @@ export function applyScopeToPlan(
   if (!(ORDER_REPLACEMENT_PARTS_ITEM_ID in scope.sel)) {
     delete migrated[ORDER_REPLACEMENT_PARTS_ITEM_ID]
   }
-  return { ...plan, sel: ensureOrderReplacementPartsSel(migrated), custom }
+  return {
+    ...plan,
+    sel: ensureOrderReplacementPartsSel(migrated, { valveType: plan.valveType }),
+    custom,
+  }
 }
 
 export type ApplyLibraryTemplateResult = {

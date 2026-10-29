@@ -14,6 +14,25 @@ export const ORDER_PART_KIND_NAMES: Record<string, string> = {
   [ORDER_PART_KIND_IDS.softGoods]: 'Soft goods',
 }
 
+/** Twinseal Order replacement parts traveler checklist labels. */
+export const TWINSEAL_ORDER_PART_SUB_REQS = ['Slips', 'Soft Goods', 'Bolting'] as const
+
+/**
+ * Bolting fields aligned with the Field Service / shop traveler Studs block
+ * (ValveSpecsSection: Stud Type, Stud Size, Stud Quantity) plus location for purchasing.
+ */
+export const TWINSEAL_BOLTING_FIELD_LABELS = {
+  type: 'Stud Type',
+  size: 'Stud Size',
+  quantity: 'Stud Quantity',
+  location: 'Location',
+  extra: 'Extra',
+} as const
+
+export function isTwinsealValveType(valveType: string | null | undefined): boolean {
+  return /twinseal|durco/i.test(String(valveType ?? '').trim())
+}
+
 export function isOrderReplacementPartsItem(itemId: string | null | undefined): boolean {
   return itemId === ORDER_REPLACEMENT_PARTS_ITEM_ID
 }
@@ -53,23 +72,42 @@ function newOrderReplacementPartsSel(): ItpLibraryItemSel {
   }
 }
 
+function withTwinsealOrderPartSubReqs(prev: ItpLibraryItemSel): ItpLibraryItemSel {
+  const have = new Set(prev.subReqs.map((row) => row.trim().toLowerCase()))
+  const missing = TWINSEAL_ORDER_PART_SUB_REQS.filter((label) => !have.has(label.toLowerCase()))
+  if (missing.length === 0 && prev.addToTraveler) return prev
+  return {
+    ...prev,
+    addToTraveler: true,
+    subReqs: [...prev.subReqs, ...missing],
+  }
+}
+
 /** Include the Order replacement parts traveler step on plans/templates that do not have it yet. */
 export function ensureOrderReplacementPartsSel(
   sel: Record<string, ItpLibraryItemSel>,
+  options?: { valveType?: string | null },
 ): Record<string, ItpLibraryItemSel> {
+  const twinseal = isTwinsealValveType(options?.valveType)
   const prev = sel[ORDER_REPLACEMENT_PARTS_ITEM_ID]
   if (!prev) {
+    const created = newOrderReplacementPartsSel()
     return {
       ...sel,
-      [ORDER_REPLACEMENT_PARTS_ITEM_ID]: newOrderReplacementPartsSel(),
+      [ORDER_REPLACEMENT_PARTS_ITEM_ID]: twinseal
+        ? withTwinsealOrderPartSubReqs(created)
+        : created,
     }
   }
-  if (prev.included === false) {
-    return prev.addToTraveler ? sel : { ...sel, [ORDER_REPLACEMENT_PARTS_ITEM_ID]: { ...prev, addToTraveler: true } }
+  let next = prev
+  if (prev.included !== false && !prev.addToTraveler) {
+    next = { ...next, addToTraveler: true }
+  } else if (prev.included === false && !prev.addToTraveler) {
+    next = { ...next, addToTraveler: true }
   }
-  if (prev.addToTraveler) return sel
-  return {
-    ...sel,
-    [ORDER_REPLACEMENT_PARTS_ITEM_ID]: { ...prev, addToTraveler: true },
+  if (twinseal && next.included !== false) {
+    next = withTwinsealOrderPartSubReqs(next)
   }
+  if (next === prev) return sel
+  return { ...sel, [ORDER_REPLACEMENT_PARTS_ITEM_ID]: next }
 }

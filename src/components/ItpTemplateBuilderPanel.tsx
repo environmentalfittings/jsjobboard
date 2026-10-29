@@ -62,10 +62,17 @@ import {
   saveValveTypeMaster,
   scopeFromCodeTemplate,
   setDefaultItpLibraryTemplate,
+  ensureTwinsealPartsTravelerOnScope,
   unionIncludedScopes,
   type ItpLibraryTemplateRow,
   type ItpLibraryTemplateScope,
 } from '../lib/itpLibraryTemplates'
+import {
+  isOrderReplacementPartsItem,
+  isTwinsealValveType,
+  TWINSEAL_BOLTING_FIELD_LABELS,
+  TWINSEAL_ORDER_PART_SUB_REQS,
+} from '../lib/itpOrderParts'
 import {
   clampLinePhotoMax,
   clampLinePhotoMin,
@@ -975,18 +982,21 @@ export function ItpTemplateBuilderPanel({
         const requestedName = name == null ? null : String(name).trim()
         const stored = await loadItpLibraryTemplate(jt, vt, requestedName || null)
         if (stored && stored.name !== ITP_LIBRARY_VALVE_MASTER_NAME) {
-          setScope(stored.scope)
+          const nextScope = ensureTwinsealPartsTravelerOnScope(stored.scope, vt)
+          setScope(nextScope)
           setTemplateName(stored.name)
           setLoadedTemplateName(stored.name)
           setIsDefaultTemplate(stored.is_default)
+          if (nextScope !== stored.scope) setDirty(true)
+          else setDirty(false)
         } else {
           setScope(scopeFromCodeTemplate(jt, vt))
           const fallbackName = requestedName || ITP_LIBRARY_DEFAULT_TEMPLATE_NAME
           setTemplateName(fallbackName)
           setLoadedTemplateName(null)
           setIsDefaultTemplate(false)
+          setDirty(false)
         }
-        setDirty(false)
         setSubReqDrafts({})
       } catch (error) {
         showToast(migrationHint(error instanceof Error ? error.message : 'Could not load template'))
@@ -4550,7 +4560,60 @@ export function ItpTemplateBuilderPanel({
           </div>
         </div>
       ) : null}
-      {lineTravelerItemId ? (
+      {lineTravelerItemId &&
+      isOrderReplacementPartsItem(lineTravelerItemId) &&
+      isTwinsealValveType(valveType) ? (
+        <div className="modal-overlay itp-modal-overlay" role="presentation" onClick={() => setLineTravelerItemId(null)}>
+          <div
+            className="modal-card itp-line-traveler-modal"
+            role="dialog"
+            aria-labelledby="itp-twinseal-parts-traveler-title"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="modal-header-with-close">
+              <div className="modal-header-text">
+                <h3 id="itp-twinseal-parts-traveler-title">Traveler requirements</h3>
+                <p className="modal-subtitle">Order replacement parts · Twinseal</p>
+              </div>
+              <button
+                type="button"
+                className="modal-close-x"
+                onClick={() => setLineTravelerItemId(null)}
+                aria-label="Close"
+              >
+                ×
+              </button>
+            </div>
+            <p className="placeholder-copy" style={{ marginTop: 0 }}>
+              For Twinseal, this step collects <strong>Slips</strong>, <strong>Soft Goods</strong>, and{' '}
+              <strong>Bolting</strong> on the shop traveler. Bolting uses the Field Service studs example (
+              {TWINSEAL_BOLTING_FIELD_LABELS.type}, {TWINSEAL_BOLTING_FIELD_LABELS.size},{' '}
+              {TWINSEAL_BOLTING_FIELD_LABELS.quantity}).
+            </p>
+            <ul className="itp-twinseal-parts-traveler-list">
+              {TWINSEAL_ORDER_PART_SUB_REQS.map((label) => (
+                <li key={label}>
+                  <strong>{label}</strong>
+                  {label === 'Bolting' ? (
+                    <span>
+                      {' '}
+                      — {TWINSEAL_BOLTING_FIELD_LABELS.type}, {TWINSEAL_BOLTING_FIELD_LABELS.size},{' '}
+                      {TWINSEAL_BOLTING_FIELD_LABELS.quantity}, {TWINSEAL_BOLTING_FIELD_LABELS.location}
+                    </span>
+                  ) : (
+                    <span> — part #, material, qty, description</span>
+                  )}
+                </li>
+              ))}
+            </ul>
+            <div className="modal-actions">
+              <button type="button" className="button-primary" onClick={() => setLineTravelerItemId(null)}>
+                Done
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : lineTravelerItemId ? (
         <ItpLineTravelerBuilderModal
           itemName={catalogById.get(lineTravelerItemId)?.name ?? 'Requirement'}
           sourceItemId={lineTravelerItemId}
