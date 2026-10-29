@@ -42,6 +42,7 @@ import {
   isInventoryRemoved,
   loadInventoryEvents,
   loadInventoryEventsForCustomer,
+  INVENTORY_LOAD_LIMIT_ALL,
   loadInventoryFormOptions,
   loadInventoryRecords,
   loadRemovedInventoryRecords,
@@ -87,8 +88,18 @@ import { canWriteShop, permissionDeniedReason } from '../lib/roles'
 
 type ModalMode = 'create' | 'edit' | 'duplicate'
 type ListScope = 'active' | 'removed' | 'activity'
+type InventoryLoadLimit = 25 | 50 | 100 | 'all'
 
-const INVENTORY_PAGE_SIZE = 75
+const INVENTORY_LOAD_LIMIT_OPTIONS: { value: InventoryLoadLimit; label: string }[] = [
+  { value: 25, label: 'Last 25' },
+  { value: 50, label: 'Last 50' },
+  { value: 100, label: 'Last 100' },
+  { value: 'all', label: 'All records' },
+]
+
+function inventoryFetchLimit(limit: InventoryLoadLimit): number {
+  return limit === 'all' ? INVENTORY_LOAD_LIMIT_ALL : limit
+}
 
 function Field({
   label,
@@ -713,7 +724,7 @@ export function AdminInventoryPage() {
   const [columnFilters, setColumnFilters] = useState<InventoryColumnFilters>(EMPTY_INVENTORY_COLUMN_FILTERS)
   const [sortKey, setSortKey] = useState<InventorySortKey>('jsInventoryId')
   const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('asc')
-  const [visibleCount, setVisibleCount] = useState(INVENTORY_PAGE_SIZE)
+  const [loadLimit, setLoadLimit] = useState<InventoryLoadLimit>(25)
   const [removedLoaded, setRemovedLoaded] = useState(false)
   const [eventsLoaded, setEventsLoaded] = useState(false)
   const [secondaryLoading, setSecondaryLoading] = useState(false)
@@ -723,7 +734,7 @@ export function AdminInventoryPage() {
     setRemovedLoaded(false)
     setEventsLoaded(false)
     const [{ data, error }, options, customerResult] = await Promise.all([
-      loadInventoryRecords(),
+      loadInventoryRecords({ limit: inventoryFetchLimit(loadLimit) }),
       loadInventoryFormOptions(),
       loadCustomersWithSalesRep(),
     ])
@@ -755,7 +766,7 @@ export function AdminInventoryPage() {
       setCustomerRows(customerResult.data)
       setSalesRepColumnMissing(customerResult.salesRepColumnMissing)
     }
-  }, [companyScope, showToast])
+  }, [companyScope, loadLimit, showToast])
 
   const loadRemovedTab = useCallback(async () => {
     if (removedLoaded) return
@@ -895,12 +906,16 @@ export function AdminInventoryPage() {
 
   const inventoryCustomers = useMemo(() => {
     const names = new Set<string>()
+    for (const name of customers) {
+      const trimmed = name.trim()
+      if (trimmed) names.add(trimmed)
+    }
     for (const row of [...rows, ...removedRows]) {
       const name = row.customer?.trim()
       if (name) names.add(name)
     }
     return [...names].sort((a, b) => a.localeCompare(b, undefined, { sensitivity: 'base' }))
-  }, [rows, removedRows])
+  }, [customers, rows, removedRows])
 
   const customerIdOptions = useMemo(
     () => customerIdNosForCustomer([...rows, ...removedRows], form.customer),
@@ -1172,19 +1187,13 @@ export function AdminInventoryPage() {
     [printableFiltered, selectedIds],
   )
 
-  const visibleRows = useMemo(
-    () => sortedRows.slice(0, visibleCount),
-    [sortedRows, visibleCount],
-  )
-
   const allFilteredSelected =
     printableFiltered.length > 0 && printableFiltered.every((row) => selectedIds.has(row.id))
 
   const someFilteredSelected = printableFiltered.some((row) => selectedIds.has(row.id))
 
-  useEffect(() => {
-    setVisibleCount(INVENTORY_PAGE_SIZE)
-  }, [search, customerFilter, columnFilters, sortKey, sortDirection, listScope])
+  const loadLimitLabel =
+    loadLimit === 'all' ? 'all records' : `last ${loadLimit} saved`
 
   const toggleSelected = (id: string, checked: boolean) => {
     setSelectedIds((prev) => {
@@ -2208,6 +2217,25 @@ export function AdminInventoryPage() {
               ))}
             </select>
           </label>
+          {listScope === 'active' ? (
+            <label className="inventory-toolbar-field inventory-toolbar-limit">
+              <span>Show</span>
+              <select
+                value={String(loadLimit)}
+                onChange={(e) => {
+                  const raw = e.target.value
+                  setLoadLimit(raw === 'all' ? 'all' : (Number(raw) as 25 | 50 | 100))
+                }}
+                aria-label="How many recent inventory records to load"
+              >
+                {INVENTORY_LOAD_LIMIT_OPTIONS.map((option) => (
+                  <option key={option.value} value={String(option.value)}>
+                    {option.label}
+                  </option>
+                ))}
+              </select>
+            </label>
+          ) : null}
           <div className="inventory-toolbar-meta">
             {canWrite ? (
             <button
@@ -2223,7 +2251,15 @@ export function AdminInventoryPage() {
                 {listScope === 'activity'
                   ? `${filteredEvents.length} event${filteredEvents.length === 1 ? '' : 's'}`
                   : `${sortedRows.length} item${sortedRows.length === 1 ? '' : 's'}`}
+                {listScope === 'active' && loadLimit !== 'all'
+                  ? ` · ${loadLimitLabel}`
+                  : ''}
                 {customerFilter.trim() || search.trim() || activeColumnFilterCount > 0 ? ' matching' : ''}
+                {listScope === 'active' &&
+                loadLimit !== 'all' &&
+                (customerFilter.trim() || search.trim() || activeColumnFilterCount > 0)
+                  ? ' (within loaded set — choose All records to search everything)'
+                  : ''}
                 {listScope === 'active' && selectedPrintable.length > 0
                   ? ` · ${selectedPrintable.length} selected for print`
                   : ''}
@@ -2512,7 +2548,7 @@ export function AdminInventoryPage() {
                   </td>
                 </tr>
               ) : (
-                visibleRows.map((row) => {
+                sortedRows.map((row) => {
                   const isExpanded = expandedRowId === row.id
                   const display = (value: string | null | undefined) => {
                     const trimmed = value?.trim()
@@ -2856,17 +2892,6 @@ export function AdminInventoryPage() {
               )}
             </tbody>
           </table>
-          {sortedRows.length > visibleCount ? (
-            <div className="inventory-load-more">
-              <button
-                type="button"
-                className="button-secondary"
-                onClick={() => setVisibleCount((prev) => prev + INVENTORY_PAGE_SIZE)}
-              >
-                Show more ({visibleCount} of {sortedRows.length})
-              </button>
-            </div>
-          ) : null}
         </div>
         </>
         )}

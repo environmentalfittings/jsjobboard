@@ -650,13 +650,19 @@ export async function loadRemovedInventoryRecords(): Promise<{
   return { data: [], error: null }
 }
 
+export const INVENTORY_LOAD_LIMIT_ALL = 2000
+
 /** Active inventory for the admin table — lean payload (no QR base64 / packed image_url). */
-export async function loadInventoryRecords(): Promise<{ data: InventoryRecord[]; error: string | null }> {
+export async function loadInventoryRecords(options?: {
+  /** Most recently updated first. Use INVENTORY_LOAD_LIMIT_ALL for full list. */
+  limit?: number
+}): Promise<{ data: InventoryRecord[]; error: string | null }> {
+  const limit = Math.max(1, Math.min(options?.limit ?? INVENTORY_LOAD_LIMIT_ALL, INVENTORY_LOAD_LIMIT_ALL))
   const attempts = [INVENTORY_LIST_SELECT, ...INVENTORY_LIST_SELECT_FALLBACKS, INVENTORY_SELECT]
   let lastError: string | null = null
 
   for (const columns of attempts) {
-    let query = supabase.from('inventory').select(columns).order('updated_at', { ascending: false }).limit(2000)
+    let query = supabase.from('inventory').select(columns).order('updated_at', { ascending: false }).limit(limit)
     if (columns.includes('removed_at')) {
       query = query.is('removed_at', null)
     }
