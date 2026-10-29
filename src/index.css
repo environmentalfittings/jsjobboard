@@ -25615,6 +25615,33 @@ body.shop-tv-fullscreen-active .page-content {
   gap: 12px;
 }
 
+.order-parts-form--twinseal .order-parts-block--fs {
+  background: #fff;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  padding: 0.75rem 0.85rem;
+}
+
+.order-parts-form--twinseal .order-parts-block--fs h4 {
+  display: inline-block;
+  margin: 0 0 0.65rem;
+  padding: 0.2rem 0.55rem;
+  border-radius: 4px;
+  background: #64748b;
+  color: #fff;
+  font-size: 0.72rem;
+  letter-spacing: 0.03em;
+}
+
+.order-parts-grid--fs-studs {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  align-items: end;
+}
+
+.order-parts-grid--fs-pair {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
 .order-parts-other-add {
   display: grid;
   grid-template-columns: 70px minmax(0, 1fr) auto;
