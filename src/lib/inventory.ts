@@ -416,13 +416,19 @@ export function inventoryToForm(row: InventoryRecord): InventoryFormState {
   }
 }
 
-function mapInventoryRow(row: InventoryRow): InventoryRecord {
+function mapInventoryRow(
+  row: InventoryRow,
+  options?: { includeQr?: boolean },
+): InventoryRecord {
+  const includeQr = options?.includeQr !== false
   const joined = row.valve_types
   const label = Array.isArray(joined) ? joined[0]?.label : joined?.label
   const packed = unpackMedia(row.image_url)
   const valveImageUrl = row.valve_image_url?.trim() || packed.valveImageUrl || null
   const tagImageUrl = row.tag_image_url?.trim() || packed.tagImageUrl || null
-  const qrCodeDataUrl = row.qr_code_data_url?.trim() || packed.qrCodeDataUrl || null
+  const qrCodeDataUrl = includeQr
+    ? row.qr_code_data_url?.trim() || packed.qrCodeDataUrl || null
+    : null
   return {
     id: row.id,
     customer: row.customer,
@@ -486,6 +492,15 @@ export function inventoryValveTypeDisplay(
 }
 
 const INVENTORY_FULL_SELECT = `${INVENTORY_SELECT},valve_image_url,tag_image_url,qr_code_data_url,hf_acid,is_valve_part,part_type,${INVENTORY_CONDITION_SELECT},${INVENTORY_REMOVAL_SELECT},valve_types(label)`
+
+/** Lean list columns — skips qr_code_data_url (often large base64) and packed image_url JSON. */
+const INVENTORY_LIST_SELECT = `id,customer,manufacturer_id,manufacturer_name,valve_type_id,body_material,api_trim,size,pressure,operator,customer_id_no,notes,js_inventory_id,origin,valve_image_url,tag_image_url,hf_acid,is_valve_part,part_type,${INVENTORY_CONDITION_SELECT},${INVENTORY_REMOVAL_SELECT},created_at,updated_at,valve_types(label)`
+
+const INVENTORY_LIST_SELECT_FALLBACKS = [
+  `id,customer,manufacturer_id,manufacturer_name,valve_type_id,body_material,api_trim,size,pressure,operator,customer_id_no,notes,js_inventory_id,origin,valve_image_url,tag_image_url,hf_acid,is_valve_part,part_type,${INVENTORY_CONDITION_SELECT},created_at,updated_at,valve_types(label)`,
+  `id,customer,manufacturer_id,manufacturer_name,valve_type_id,body_material,api_trim,size,pressure,operator,customer_id_no,notes,js_inventory_id,origin,valve_image_url,tag_image_url,hf_acid,is_valve_part,part_type,created_at,updated_at,valve_types(label)`,
+  `id,customer,manufacturer_id,manufacturer_name,valve_type_id,body_material,api_trim,size,pressure,operator,customer_id_no,notes,js_inventory_id,origin,valve_image_url,tag_image_url,created_at,updated_at,valve_types(label)`,
+] as const
 
 async function logInventoryEvent(options: {
   inventoryId: string
@@ -608,85 +623,59 @@ export async function loadRemovedInventoryRecords(): Promise<{
   data: InventoryRecord[]
   error: string | null
 }> {
-  const { data, error } = await supabase
-    .from('inventory')
-    .select(INVENTORY_FULL_SELECT)
-    .not('removed_at', 'is', null)
-    .order('removed_at', { ascending: false })
-    .limit(2000)
+  const attempts = [INVENTORY_LIST_SELECT, ...INVENTORY_LIST_SELECT_FALLBACKS]
+  for (const columns of attempts) {
+    const { data, error } = await supabase
+      .from('inventory')
+      .select(columns)
+      .not('removed_at', 'is', null)
+      .order('removed_at', { ascending: false })
+      .limit(2000)
 
-  if (error) {
-    if (/removed_at|schema cache|column/i.test(error.message)) {
+    if (!error) {
+      return {
+        data: ((data ?? []) as unknown as InventoryRow[]).map((row) =>
+          mapInventoryRow(row, { includeQr: false }),
+        ),
+        error: null,
+      }
+    }
+    if (/removed_at|schema cache|column/i.test(error.message) && columns === INVENTORY_LIST_SELECT) {
       return { data: [], error: null }
     }
-    return { data: [], error: error.message }
+    if (!/column|schema cache|does not exist/i.test(error.message)) {
+      return { data: [], error: error.message }
+    }
   }
-  return { data: ((data ?? []) as InventoryRow[]).map(mapInventoryRow), error: null }
+  return { data: [], error: null }
 }
 
+/** Active inventory for the admin table — lean payload (no QR base64 / packed image_url). */
 export async function loadInventoryRecords(): Promise<{ data: InventoryRecord[]; error: string | null }> {
-  const withRemoval = await supabase
-    .from('inventory')
-    .select(
-      `${INVENTORY_SELECT},valve_image_url,tag_image_url,qr_code_data_url,hf_acid,is_valve_part,part_type,${INVENTORY_CONDITION_SELECT},${INVENTORY_REMOVAL_SELECT},valve_types(label)`,
-    )
-    .is('removed_at', null)
-    .order('updated_at', { ascending: false })
-    .limit(2000)
+  const attempts = [INVENTORY_LIST_SELECT, ...INVENTORY_LIST_SELECT_FALLBACKS, INVENTORY_SELECT]
+  let lastError: string | null = null
 
-  if (!withRemoval.error) {
-    return { data: ((withRemoval.data ?? []) as InventoryRow[]).map(mapInventoryRow), error: null }
+  for (const columns of attempts) {
+    let query = supabase.from('inventory').select(columns).order('updated_at', { ascending: false }).limit(2000)
+    if (columns.includes('removed_at')) {
+      query = query.is('removed_at', null)
+    }
+    const { data, error } = await query
+    if (!error) {
+      return {
+        data: ((data ?? []) as unknown as InventoryRow[]).map((row) =>
+          mapInventoryRow(row, { includeQr: false }),
+        ),
+        error: null,
+      }
+    }
+    lastError = error.message
+    if (!/column|schema cache|does not exist/i.test(error.message)) {
+      return { data: [], error: error.message }
+    }
   }
 
-  const withCondition = await supabase
-    .from('inventory')
-    .select(
-      `${INVENTORY_SELECT},valve_image_url,tag_image_url,qr_code_data_url,hf_acid,is_valve_part,part_type,${INVENTORY_CONDITION_SELECT},valve_types(label)`,
-    )
-    .order('updated_at', { ascending: false })
-    .limit(2000)
-
-  if (!withCondition.error) {
-    return { data: ((withCondition.data ?? []) as InventoryRow[]).map(mapInventoryRow), error: null }
-  }
-
-  const withExtras = await supabase
-    .from('inventory')
-    .select(`${INVENTORY_SELECT},valve_image_url,tag_image_url,qr_code_data_url,hf_acid,is_valve_part,part_type,valve_types(label)`)
-    .order('updated_at', { ascending: false })
-    .limit(2000)
-
-  if (!withExtras.error) {
-    return { data: ((withExtras.data ?? []) as InventoryRow[]).map(mapInventoryRow), error: null }
-  }
-
-  const withPhotos = await supabase
-    .from('inventory')
-    .select(`${INVENTORY_SELECT},valve_image_url,tag_image_url,qr_code_data_url,valve_types(label)`)
-    .order('updated_at', { ascending: false })
-    .limit(2000)
-
-  if (!withPhotos.error) {
-    return { data: ((withPhotos.data ?? []) as InventoryRow[]).map(mapInventoryRow), error: null }
-  }
-
-  const { data, error } = await supabase
-    .from('inventory')
-    .select(`${INVENTORY_SELECT},valve_types(label)`)
-    .order('updated_at', { ascending: false })
-    .limit(2000)
-
-  if (error) {
-    const fallback = await supabase
-      .from('inventory')
-      .select(INVENTORY_SELECT)
-      .order('updated_at', { ascending: false })
-      .limit(2000)
-    if (fallback.error) return { data: [], error: fallback.error.message }
-    return { data: ((fallback.data ?? []) as InventoryRow[]).map(mapInventoryRow), error: null }
-  }
-
-  return { data: ((data ?? []) as InventoryRow[]).map(mapInventoryRow), error: null }
+  return { data: [], error: lastError || 'Could not load inventory' }
 }
 
 export async function getInventoryRecordById(
@@ -1121,6 +1110,25 @@ export async function createInventoryQrDataUrl(inventoryId: string, size = 280):
     width: size,
     color: { dark: '#0f172a', light: '#ffffff' },
   })
+}
+
+/** Prefer stored QR; otherwise generate from item id (list loads omit stored QR for speed). */
+export async function ensureInventoryQrDataUrl(
+  row: Pick<InventoryRecord, 'id' | 'qr_code_data_url'>,
+  size = 280,
+): Promise<string> {
+  const existing = row.qr_code_data_url?.trim()
+  if (existing) return existing
+  return createInventoryQrDataUrl(row.id, size)
+}
+
+export async function withInventoryQrCodes(rows: InventoryRecord[]): Promise<InventoryRecord[]> {
+  return Promise.all(
+    rows.map(async (row) => ({
+      ...row,
+      qr_code_data_url: await ensureInventoryQrDataUrl(row),
+    })),
+  )
 }
 
 async function writeInventoryRow(

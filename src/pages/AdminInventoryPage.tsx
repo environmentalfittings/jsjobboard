@@ -26,6 +26,7 @@ import {
   emptyDocumentDraft,
   emptyInventoryForm,
   emptyPhotoDraft,
+  ensureInventoryQrDataUrl,
   getInventoryRecordById,
   INVENTORY_CONDITIONS,
   INVENTORY_OPERATORS,
@@ -51,6 +52,7 @@ import {
   validateInventoryDocument,
   validateInventoryPhoto,
   assertInventoryFileReadable,
+  withInventoryQrCodes,
   type InventoryCondition,
   type InventoryDocumentDraft,
   type InventoryEvent,
@@ -85,6 +87,8 @@ import { canWriteShop, permissionDeniedReason } from '../lib/roles'
 
 type ModalMode = 'create' | 'edit' | 'duplicate'
 type ListScope = 'active' | 'removed' | 'activity'
+
+const INVENTORY_PAGE_SIZE = 75
 
 function Field({
   label,
@@ -709,15 +713,19 @@ export function AdminInventoryPage() {
   const [columnFilters, setColumnFilters] = useState<InventoryColumnFilters>(EMPTY_INVENTORY_COLUMN_FILTERS)
   const [sortKey, setSortKey] = useState<InventorySortKey>('jsInventoryId')
   const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('asc')
+  const [visibleCount, setVisibleCount] = useState(INVENTORY_PAGE_SIZE)
+  const [removedLoaded, setRemovedLoaded] = useState(false)
+  const [eventsLoaded, setEventsLoaded] = useState(false)
+  const [secondaryLoading, setSecondaryLoading] = useState(false)
 
   const reload = useCallback(async () => {
     setLoading(true)
-    const [{ data, error }, options, customerResult, removedResult, eventsResult] = await Promise.all([
+    setRemovedLoaded(false)
+    setEventsLoaded(false)
+    const [{ data, error }, options, customerResult] = await Promise.all([
       loadInventoryRecords(),
       loadInventoryFormOptions(),
       loadCustomersWithSalesRep(),
-      loadRemovedInventoryRecords(),
-      loadInventoryEvents(),
     ])
     setLoading(false)
     if (error) {
@@ -730,17 +738,8 @@ export function AdminInventoryPage() {
     } else {
       setRows(filterInventoryForCompany(data, companyScope))
     }
-    if (removedResult.error) {
-      setRemovedRows([])
-    } else {
-      setRemovedRows(filterInventoryForCompany(removedResult.data, companyScope))
-    }
-    if (eventsResult.error) {
-      showToast(`Could not load inventory activity: ${eventsResult.error}`)
-      setEvents([])
-    } else {
-      setEvents(filterInventoryEventsForCompany(eventsResult.data, companyScope))
-    }
+    setRemovedRows([])
+    setEvents([])
     setCustomers(options.customers)
     setManufacturers(options.manufacturers)
     setValveTypes(options.valveTypes)
@@ -758,9 +757,42 @@ export function AdminInventoryPage() {
     }
   }, [companyScope, showToast])
 
+  const loadRemovedTab = useCallback(async () => {
+    if (removedLoaded) return
+    setSecondaryLoading(true)
+    const removedResult = await loadRemovedInventoryRecords()
+    setSecondaryLoading(false)
+    setRemovedLoaded(true)
+    if (removedResult.error) {
+      setRemovedRows([])
+      showToast(`Could not load removed inventory: ${removedResult.error}`)
+      return
+    }
+    setRemovedRows(filterInventoryForCompany(removedResult.data, companyScope))
+  }, [companyScope, removedLoaded, showToast])
+
+  const loadActivityTab = useCallback(async () => {
+    if (eventsLoaded) return
+    setSecondaryLoading(true)
+    const eventsResult = await loadInventoryEvents()
+    setSecondaryLoading(false)
+    setEventsLoaded(true)
+    if (eventsResult.error) {
+      setEvents([])
+      showToast(`Could not load inventory activity: ${eventsResult.error}`)
+      return
+    }
+    setEvents(filterInventoryEventsForCompany(eventsResult.data, companyScope))
+  }, [companyScope, eventsLoaded, showToast])
+
   useEffect(() => {
     void reload()
   }, [reload])
+
+  useEffect(() => {
+    if (listScope === 'removed') void loadRemovedTab()
+    if (listScope === 'activity') void loadActivityTab()
+  }, [listScope, loadActivityTab, loadRemovedTab])
 
   // Clear selection / modal when switching companies so JS items do not linger on VSI.
   useEffect(() => {
@@ -1132,20 +1164,27 @@ export function AdminInventoryPage() {
     showToast(salesRepEmployeeId ? 'Salesman saved' : 'Salesman cleared')
   }
 
-  const printableFiltered = useMemo(
-    () => filtered.filter((row) => Boolean(row.qr_code_data_url?.trim())),
-    [filtered],
-  )
+  // List loads omit stored QR base64; any active row can be printed (QR generated on demand).
+  const printableFiltered = useMemo(() => filtered, [filtered])
 
   const selectedPrintable = useMemo(
     () => printableFiltered.filter((row) => selectedIds.has(row.id)),
     [printableFiltered, selectedIds],
   )
 
+  const visibleRows = useMemo(
+    () => sortedRows.slice(0, visibleCount),
+    [sortedRows, visibleCount],
+  )
+
   const allFilteredSelected =
     printableFiltered.length > 0 && printableFiltered.every((row) => selectedIds.has(row.id))
 
   const someFilteredSelected = printableFiltered.some((row) => selectedIds.has(row.id))
+
+  useEffect(() => {
+    setVisibleCount(INVENTORY_PAGE_SIZE)
+  }, [search, customerFilter, columnFilters, sortKey, sortDirection, listScope])
 
   const toggleSelected = (id: string, checked: boolean) => {
     setSelectedIds((prev) => {
@@ -1456,6 +1495,11 @@ export function AdminInventoryPage() {
     setRemoveReason('')
     setRemovePoNumber('')
     setRestoreReason('')
+    if (!row.qr_code_data_url?.trim()) {
+      void ensureInventoryQrDataUrl(row).then((qr) => {
+        setQrItem((prev) => (prev && prev.id === row.id ? { ...prev, qr_code_data_url: qr } : prev))
+      })
+    }
   }
 
   const remove = (row: InventoryRecord) => {
@@ -1558,30 +1602,47 @@ export function AdminInventoryPage() {
     await reload()
   }
 
-  const downloadQr = () => {
-    if (!qrItem?.qr_code_data_url) return
+  const downloadQr = async () => {
+    if (!qrItem) return
+    const qr = await ensureInventoryQrDataUrl(qrItem)
+    if (qr !== qrItem.qr_code_data_url) {
+      setQrItem({ ...qrItem, qr_code_data_url: qr })
+    }
     const link = document.createElement('a')
     const name = (qrItem.js_inventory_id || qrItem.id).replace(/[^\w.-]+/g, '_')
-    link.href = qrItem.qr_code_data_url
+    link.href = qr
     link.download = `${name}-inventory-qr.png`
     link.click()
   }
 
-  const printSelectedLabels = () => {
-    const { error } = printInventoryLabelSheet(selectedPrintable)
-    if (error) showToast(error)
+  const printSelectedLabels = async () => {
+    setPrintingLabel(true)
+    try {
+      const items = await withInventoryQrCodes(selectedPrintable)
+      const { error } = printInventoryLabelSheet(items)
+      if (error) showToast(error)
+    } finally {
+      setPrintingLabel(false)
+    }
   }
 
   /** Letter-paper QR sheet (browser print window). */
-  const printSelectedQrCodes = () => {
-    const { error } = printInventoryQrSheet(selectedPrintable)
-    if (error) showToast(error)
+  const printSelectedQrCodes = async () => {
+    setPrintingLabel(true)
+    try {
+      const items = await withInventoryQrCodes(selectedPrintable)
+      const { error } = printInventoryQrSheet(items)
+      if (error) showToast(error)
+    } finally {
+      setPrintingLabel(false)
+    }
   }
 
   const printBarcodeLabels = async (items: InventoryRecord[]) => {
     setPrintingLabel(true)
     try {
-      const result = await printInventoryQrToBixolon(items)
+      const withQr = await withInventoryQrCodes(items)
+      const result = await printInventoryQrToBixolon(withQr)
       if (result.message) showToast(result.message)
     } catch (error) {
       showToast(error instanceof Error ? error.message : 'Could not print on barcode printer')
@@ -1596,8 +1657,11 @@ export function AdminInventoryPage() {
 
   const printQrLabel = () => {
     if (!qrItem) return
-    const { error } = printInventoryLabelSheet([qrItem])
-    if (error) showToast(error)
+    void (async () => {
+      const items = await withInventoryQrCodes([qrItem])
+      const { error } = printInventoryLabelSheet(items)
+      if (error) showToast(error)
+    })()
   }
 
   const printQrOnBarcodePrinter = () => {
@@ -1607,8 +1671,11 @@ export function AdminInventoryPage() {
 
   const printQrSheetFromModal = () => {
     if (!qrItem) return
-    const { error } = printInventoryQrSheet([qrItem])
-    if (error) showToast(error)
+    void (async () => {
+      const items = await withInventoryQrCodes([qrItem])
+      const { error } = printInventoryQrSheet(items)
+      if (error) showToast(error)
+    })()
   }
 
   const editFromQr = () => {
@@ -2100,7 +2167,7 @@ export function AdminInventoryPage() {
             className={`inventory-scope-tab${listScope === 'removed' ? ' is-active' : ''}`}
             onClick={() => setListScope('removed')}
           >
-            Removed ({removedRows.length})
+            Removed ({removedLoaded ? removedRows.length : '…'})
           </button>
           <button
             type="button"
@@ -2109,7 +2176,7 @@ export function AdminInventoryPage() {
             className={`inventory-scope-tab${listScope === 'activity' ? ' is-active' : ''}`}
             onClick={() => setListScope('activity')}
           >
-            Activity ({events.length})
+            Activity ({eventsLoaded ? events.length : '…'})
           </button>
         </div>
         <div className="inventory-toolbar">
@@ -2166,7 +2233,12 @@ export function AdminInventoryPage() {
                   <button type="button" className="button-secondary" onClick={clearSelection}>
                     Clear selection
                   </button>
-                  <button type="button" className="button-secondary" onClick={printSelectedQrCodes}>
+                  <button
+                    type="button"
+                    className="button-secondary"
+                    disabled={printingLabel}
+                    onClick={() => void printSelectedQrCodes()}
+                  >
                     Print QR sheet
                   </button>
                   <button
@@ -2177,7 +2249,12 @@ export function AdminInventoryPage() {
                   >
                     {printingLabel ? 'Printing…' : 'Print on barcode printer'}
                   </button>
-                  <button type="button" className="button-primary" onClick={printSelectedLabels}>
+                  <button
+                    type="button"
+                    className="button-primary"
+                    disabled={printingLabel}
+                    onClick={() => void printSelectedLabels()}
+                  >
                     Print labels
                   </button>
                 </div>
@@ -2207,7 +2284,7 @@ export function AdminInventoryPage() {
                 </tr>
               </thead>
               <tbody>
-                {loading ? (
+                {loading || (secondaryLoading && !eventsLoaded) ? (
                   <tr>
                     <td colSpan={9}>Loading…</td>
                   </tr>
@@ -2418,7 +2495,7 @@ export function AdminInventoryPage() {
               </tr>
             </thead>
             <tbody>
-              {loading ? (
+              {loading || (listScope === 'removed' && secondaryLoading && !removedLoaded) ? (
                 <tr>
                   <td colSpan={13} className="table-empty-cell">
                     Loading customer inventory…
@@ -2435,7 +2512,7 @@ export function AdminInventoryPage() {
                   </td>
                 </tr>
               ) : (
-                sortedRows.map((row) => {
+                visibleRows.map((row) => {
                   const isExpanded = expandedRowId === row.id
                   const display = (value: string | null | undefined) => {
                     const trimmed = value?.trim()
@@ -2471,19 +2548,18 @@ export function AdminInventoryPage() {
                             type="checkbox"
                             aria-label={`Select ${row.js_inventory_id || 'inventory item'} for QR print`}
                             checked={selectedIds.has(row.id)}
-                            disabled={!row.qr_code_data_url}
                             onChange={(e) => toggleSelected(row.id, e.target.checked)}
                           />
                         </td>
                         <td>
                           <div className="inventory-table-thumbs">
                             {row.valve_image_url ? (
-                              <img src={row.valve_image_url} alt="Valve" />
+                              <img src={row.valve_image_url} alt="Valve" loading="lazy" decoding="async" />
                             ) : (
                               <span className="inventory-thumb-empty">Valve</span>
                             )}
                             {row.tag_image_url ? (
-                              <img src={row.tag_image_url} alt="Tag" />
+                              <img src={row.tag_image_url} alt="Tag" loading="lazy" decoding="async" />
                             ) : (
                               <span className="inventory-thumb-empty">Tag</span>
                             )}
@@ -2591,7 +2667,6 @@ export function AdminInventoryPage() {
                                 type="button"
                                 className="job-list-quick-action"
                                 onClick={() => openQrItem(row)}
-                                disabled={!row.qr_code_data_url}
                               >
                                 QR
                               </button>{' '}
@@ -2767,7 +2842,6 @@ export function AdminInventoryPage() {
                                   type="button"
                                   className="button-primary"
                                   onClick={() => openQrItem(row)}
-                                  disabled={!row.qr_code_data_url}
                                 >
                                   Open QR
                                 </button>
@@ -2782,6 +2856,17 @@ export function AdminInventoryPage() {
               )}
             </tbody>
           </table>
+          {sortedRows.length > visibleCount ? (
+            <div className="inventory-load-more">
+              <button
+                type="button"
+                className="button-secondary"
+                onClick={() => setVisibleCount((prev) => prev + INVENTORY_PAGE_SIZE)}
+              >
+                Show more ({visibleCount} of {sortedRows.length})
+              </button>
+            </div>
+          ) : null}
         </div>
         </>
         )}
