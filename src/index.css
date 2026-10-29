@@ -20696,6 +20696,12 @@ textarea.modal-status-select {
   color: #334155;
 }
 
+.inventory-load-more {
+  display: flex;
+  justify-content: center;
+  padding: 0.85rem 0 0.25rem;
+}
+
 .inventory-scope-tabs {
   display: flex;
   flex-wrap: wrap;
