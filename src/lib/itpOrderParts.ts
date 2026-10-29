@@ -14,23 +14,56 @@ export const ORDER_PART_KIND_NAMES: Record<string, string> = {
   [ORDER_PART_KIND_IDS.softGoods]: 'Soft goods',
 }
 
-/** Twinseal Order replacement parts traveler checklist labels. */
-export const TWINSEAL_ORDER_PART_SUB_REQS = ['Slips', 'Soft Goods', 'Bolting'] as const
-
 /**
- * Bolting fields aligned with the Field Service / shop traveler Studs block
- * (ValveSpecsSection: Stud Type, Stud Size, Stud Quantity) plus location for purchasing.
+ * Twinseal Order replacement parts — matches Field Service traveler layout
+ * and seeds the Needs Parts list with these three lines.
  */
-export const TWINSEAL_BOLTING_FIELD_LABELS = {
-  type: 'Stud Type',
-  size: 'Stud Size',
-  quantity: 'Stud Quantity',
-  location: 'Location',
-  extra: 'Extra',
-} as const
+export const TWINSEAL_ORDER_PART_SUB_REQS = ['Studs', 'Slips', 'Soft Goods'] as const
+
+export const TWINSEAL_NEEDED_PART_SEEDS: ReadonlyArray<{
+  kindId: string
+  partName: string
+  itpItemName: string
+}> = [
+  {
+    kindId: ORDER_PART_KIND_IDS.studs,
+    partName: 'Studs',
+    itpItemName: 'Studs',
+  },
+  {
+    kindId: ORDER_PART_KIND_IDS.slips,
+    partName: 'Slips',
+    itpItemName: ORDER_PART_KIND_NAMES[ORDER_PART_KIND_IDS.slips],
+  },
+  {
+    kindId: ORDER_PART_KIND_IDS.softGoods,
+    partName: 'Soft Goods',
+    itpItemName: 'Soft Goods',
+  },
+]
 
 export function isTwinsealValveType(valveType: string | null | undefined): boolean {
   return /twinseal|durco/i.test(String(valveType ?? '').trim())
+}
+
+export function twinsealNeededPartDrafts(): Array<{
+  partName: string
+  partNumber: string
+  quantity: number
+  supplier: string
+  notes: string
+  itpItemId: string
+  itpItemName: string
+}> {
+  return TWINSEAL_NEEDED_PART_SEEDS.map((seed) => ({
+    partName: seed.partName,
+    partNumber: '',
+    quantity: 1,
+    supplier: '',
+    notes: '',
+    itpItemId: seed.kindId,
+    itpItemName: seed.itpItemName,
+  }))
 }
 
 export function isOrderReplacementPartsItem(itemId: string | null | undefined): boolean {

@@ -70,7 +70,6 @@ import {
 import {
   isOrderReplacementPartsItem,
   isTwinsealValveType,
-  TWINSEAL_BOLTING_FIELD_LABELS,
   TWINSEAL_ORDER_PART_SUB_REQS,
 } from '../lib/itpOrderParts'
 import {
@@ -4585,23 +4584,17 @@ export function ItpTemplateBuilderPanel({
               </button>
             </div>
             <p className="placeholder-copy" style={{ marginTop: 0 }}>
-              For Twinseal, this step collects <strong>Slips</strong>, <strong>Soft Goods</strong>, and{' '}
-              <strong>Bolting</strong> on the shop traveler. Bolting uses the Field Service studs example (
-              {TWINSEAL_BOLTING_FIELD_LABELS.type}, {TWINSEAL_BOLTING_FIELD_LABELS.size},{' '}
-              {TWINSEAL_BOLTING_FIELD_LABELS.quantity}).
+              For Twinseal, this step seeds the <strong>Needs Parts</strong> list with the Field Service layout:{' '}
+              <strong>Studs</strong>, <strong>Slips</strong>, and <strong>Soft Goods</strong>.
             </p>
             <ul className="itp-twinseal-parts-traveler-list">
               {TWINSEAL_ORDER_PART_SUB_REQS.map((label) => (
                 <li key={label}>
                   <strong>{label}</strong>
-                  {label === 'Bolting' ? (
-                    <span>
-                      {' '}
-                      — {TWINSEAL_BOLTING_FIELD_LABELS.type}, {TWINSEAL_BOLTING_FIELD_LABELS.size},{' '}
-                      {TWINSEAL_BOLTING_FIELD_LABELS.quantity}, {TWINSEAL_BOLTING_FIELD_LABELS.location}
-                    </span>
+                  {label === 'Studs' ? (
+                    <span> — Type, Size, Quantity</span>
                   ) : (
-                    <span> — part #, material, qty, description</span>
+                    <span> — Part #, Material</span>
                   )}
                 </li>
               ))}

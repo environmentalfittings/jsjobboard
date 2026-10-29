@@ -1,11 +1,11 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 import {
   ORDER_PART_KIND_IDS,
   ORDER_PART_KIND_NAMES,
-  TWINSEAL_BOLTING_FIELD_LABELS,
   isOrderStudsKind,
   isTwinsealValveType,
+  twinsealNeededPartDrafts,
 } from '../lib/itpOrderParts'
 import {
   formatNeededPartNotes,
@@ -44,7 +44,7 @@ type Props = {
   canEdit?: boolean
   saving?: boolean
   showBoardLink?: boolean
-  /** When Twinseal, traveler shows Slips / Soft Goods / Bolting (field-service studs fields). */
+  /** When Twinseal, seed Studs / Slips / Soft Goods on Needs Parts (Field Service layout). */
   valveType?: string | null
   onSaveKind: (draft: JobNeededPartDraft) => Promise<boolean>
   onAddOther: (draft: JobNeededPartDraft) => Promise<boolean>
@@ -54,6 +54,13 @@ type Props = {
 function materialFromNotes(notes: string): string {
   const match = String(notes ?? '').match(/^Material:\s*(.*)$/im)
   return match ? match[1].trim() : ''
+}
+
+function typeFromStudsRow(row: JobNeededPart | undefined): string {
+  if (!row) return ''
+  const name = row.partName.trim()
+  if (!name || /^studs$/i.test(name)) return ''
+  return name.replace(/\s+[—-]\s+.*$/, '').trim()
 }
 
 function extraFromNotes(notes: string): string {
@@ -89,9 +96,8 @@ export function OrderReplacementPartsForm({
   onRemove,
 }: Props) {
   const twinseal = isTwinsealValveType(valveType)
-  const boltingLabel = twinseal ? 'Bolting' : 'Studs'
-  const boltingKindName = twinseal ? 'Bolting' : ORDER_PART_KIND_NAMES[ORDER_PART_KIND_IDS.studs]
   const studsRows = rows.filter((row) => isOrderStudsKind(row.itpItemId))
+  const studsKindRow = rowForKind(rows, ORDER_PART_KIND_IDS.studs) ?? studsRows[0]
   const slipsRow = rowForKind(rows, ORDER_PART_KIND_IDS.slips)
   const softRow = rowForKind(rows, ORDER_PART_KIND_IDS.softGoods)
   const otherRows = rows.filter(
@@ -106,8 +112,18 @@ export function OrderReplacementPartsForm({
   const [softGoods, setSoftGoods] = useState<SpecDraft>(emptySpec)
   const [otherQty, setOtherQty] = useState(1)
   const [otherDesc, setOtherDesc] = useState('')
+  const seededRef = useRef(false)
 
   useEffect(() => {
+    if (studsKindRow) {
+      setStuds({
+        type: typeFromStudsRow(studsKindRow),
+        size: studsKindRow.partNumber,
+        location: '',
+        extra: '',
+        quantity: Math.max(1, studsKindRow.quantity || 1),
+      })
+    }
     if (slipsRow) {
       setSlips({
         partNumber: slipsRow.partNumber,
@@ -124,7 +140,28 @@ export function OrderReplacementPartsForm({
         quantity: softRow.quantity,
       })
     }
-  }, [slipsRow, softRow])
+  }, [studsKindRow, slipsRow, softRow])
+
+  useEffect(() => {
+    seededRef.current = false
+  }, [valveType])
+
+  /** Seed Studs / Slips / Soft Goods onto Needs Parts for Twinseal jobs. */
+  useEffect(() => {
+    if (!twinseal || !canEdit || seededRef.current) return
+    const drafts = twinsealNeededPartDrafts()
+    const missing = drafts.filter((draft) => !rows.some((row) => row.itpItemId === draft.itpItemId))
+    if (missing.length === 0) {
+      seededRef.current = true
+      return
+    }
+    seededRef.current = true
+    void (async () => {
+      for (const draft of missing) {
+        await onSaveKind(draft)
+      }
+    })()
+  }, [twinseal, canEdit, rows, onSaveKind])
 
   const hardwareReady = useMemo(() => {
     const hasSlips = Boolean(slips.partNumber.trim() || slips.material.trim())
@@ -136,7 +173,7 @@ export function OrderReplacementPartsForm({
 
   const addStuds = async () => {
     if (!studsReady) return
-    const type = studs.type.trim() || (twinseal ? 'Bolting' : 'Studs')
+    const type = studs.type.trim() || 'Studs'
     const location = studs.location.trim()
     const ok = await onAddOther({
       partName: location ? `${type} — ${location}` : type,
@@ -145,9 +182,44 @@ export function OrderReplacementPartsForm({
       supplier: '',
       notes: studNotes(location, studs.extra),
       itpItemId: `${ORDER_PART_KIND_IDS.studs}:${crypto.randomUUID()}`,
-      itpItemName: boltingKindName,
+      itpItemName: ORDER_PART_KIND_NAMES[ORDER_PART_KIND_IDS.studs],
     })
     if (ok) setStuds(emptyHardware())
+  }
+
+  const saveTwinsealParts = async () => {
+    const type = studs.type.trim()
+    const okStuds = await onSaveKind({
+      partName: type || 'Studs',
+      partNumber: studs.size.trim(),
+      quantity: Math.max(1, studs.quantity),
+      supplier: '',
+      notes: '',
+      itpItemId: ORDER_PART_KIND_IDS.studs,
+      itpItemName: 'Studs',
+    })
+    if (!okStuds) return
+
+    const okSlips = await onSaveKind({
+      partName: 'Slips',
+      partNumber: slips.partNumber.trim(),
+      quantity: Math.max(1, slips.quantity || 1),
+      supplier: '',
+      notes: slips.material.trim() ? `Material: ${slips.material.trim()}` : '',
+      itpItemId: ORDER_PART_KIND_IDS.slips,
+      itpItemName: 'Slips',
+    })
+    if (!okSlips) return
+
+    await onSaveKind({
+      partName: 'Soft Goods',
+      partNumber: softGoods.partNumber.trim(),
+      quantity: Math.max(1, softGoods.quantity || 1),
+      supplier: '',
+      notes: softGoods.material.trim() ? `Material: ${softGoods.material.trim()}` : '',
+      itpItemId: ORDER_PART_KIND_IDS.softGoods,
+      itpItemName: 'Soft Goods',
+    })
   }
 
   const saveHardware = async () => {
@@ -195,7 +267,155 @@ export function OrderReplacementPartsForm({
     }
   }
 
-  const listedRows = [...studsRows, slipsRow, softRow, ...otherRows].filter(Boolean) as JobNeededPart[]
+  const listedRows = twinseal
+    ? ([
+        studsKindRow,
+        slipsRow,
+        softRow,
+        ...otherRows,
+      ].filter(Boolean) as JobNeededPart[])
+    : ([...studsRows, slipsRow, softRow, ...otherRows].filter(Boolean) as JobNeededPart[])
+
+  if (twinseal) {
+    return (
+      <div className="order-parts-form order-parts-form--twinseal">
+        <div className="needed-parts-list-hdr">
+          <strong>Parts needed — Twinseal</strong>
+          <span>{formatNeededPartsSummary(rows)}</span>
+          {showBoardLink ? (
+            <Link to="/needed-parts" className="needed-parts-list-board">
+              Open needs parts
+            </Link>
+          ) : null}
+        </div>
+        <p className="placeholder-copy">
+          Studs, Slips, and Soft Goods are on the Needs Parts list. Fill Type / Size / Quantity and Part # /
+          Material — same layout as Field Service.
+        </p>
+
+        <section className="order-parts-block order-parts-block--fs">
+          <h4>Studs</h4>
+          <div className="order-parts-grid order-parts-grid--fs-studs">
+            <label>
+              Type
+              <input
+                value={studs.type}
+                disabled={!canEdit || saving}
+                onChange={(e) => setStuds((prev) => ({ ...prev, type: e.target.value }))}
+              />
+            </label>
+            <label>
+              Size
+              <input
+                value={studs.size}
+                disabled={!canEdit || saving}
+                onChange={(e) => setStuds((prev) => ({ ...prev, size: e.target.value }))}
+              />
+            </label>
+            <label>
+              Quantity
+              <input
+                type="number"
+                min={1}
+                value={studs.quantity}
+                disabled={!canEdit || saving}
+                onChange={(e) =>
+                  setStuds((prev) => ({ ...prev, quantity: Math.max(1, Number(e.target.value) || 1) }))
+                }
+              />
+            </label>
+          </div>
+        </section>
+
+        <div className="order-parts-two">
+          <section className="order-parts-block order-parts-block--fs">
+            <h4>Slips</h4>
+            <div className="order-parts-grid order-parts-grid--fs-pair">
+              <label>
+                Part #
+                <input
+                  value={slips.partNumber}
+                  disabled={!canEdit || saving}
+                  onChange={(e) => setSlips((prev) => ({ ...prev, partNumber: e.target.value }))}
+                />
+              </label>
+              <label>
+                Material
+                <input
+                  value={slips.material}
+                  disabled={!canEdit || saving}
+                  onChange={(e) => setSlips((prev) => ({ ...prev, material: e.target.value }))}
+                />
+              </label>
+            </div>
+          </section>
+
+          <section className="order-parts-block order-parts-block--fs">
+            <h4>Soft Goods</h4>
+            <div className="order-parts-grid order-parts-grid--fs-pair">
+              <label>
+                Part #
+                <input
+                  value={softGoods.partNumber}
+                  disabled={!canEdit || saving}
+                  onChange={(e) => setSoftGoods((prev) => ({ ...prev, partNumber: e.target.value }))}
+                />
+              </label>
+              <label>
+                Material
+                <input
+                  value={softGoods.material}
+                  disabled={!canEdit || saving}
+                  onChange={(e) => setSoftGoods((prev) => ({ ...prev, material: e.target.value }))}
+                />
+              </label>
+            </div>
+          </section>
+        </div>
+
+        {canEdit ? (
+          <button
+            type="button"
+            className="button-primary"
+            disabled={saving}
+            onClick={() => void saveTwinsealParts()}
+          >
+            {saving ? 'Saving…' : 'Save to needs parts'}
+          </button>
+        ) : null}
+
+        {listedRows.length === 0 ? (
+          <p className="placeholder-copy">Seeding Studs, Slips, and Soft Goods…</p>
+        ) : (
+          <ul className="needed-parts-list-items">
+            {listedRows.map((row) => (
+              <li key={row.id}>
+                <div>
+                  <strong>
+                    {row.quantity}× {row.partName}
+                  </strong>
+                  <span>
+                    {row.partNumber ? `#${row.partNumber}` : ''}
+                    {row.notes ? `${row.partNumber ? ' · ' : ''}${formatNeededPartNotes(row.notes)}` : ''}
+                    {row.poNumber ? ` · PO ${row.poNumber}` : ''}
+                    {row.expectedDate ? ` · due ${row.expectedDate}` : ''}
+                  </span>
+                </div>
+                <span className={`needed-parts-status needed-parts-status--${row.status}`}>
+                  {jobNeededPartStatusLabel(row.status)}
+                </span>
+                {canEdit && row.status === 'needed' && onRemove ? (
+                  <button type="button" className="link-button-danger" onClick={() => onRemove(row.id)}>
+                    Remove
+                  </button>
+                ) : null}
+              </li>
+            ))}
+          </ul>
+        )}
+      </div>
+    )
+  }
 
   return (
     <div className="order-parts-form">
@@ -209,118 +429,15 @@ export function OrderReplacementPartsForm({
         ) : null}
       </div>
       <p className="placeholder-copy">
-        {twinseal
-          ? 'Twinseal traveler parts: Slips, Soft Goods, and Bolting (same Stud Type / Size / Quantity fields as Field Service). Add a bolting line for each location. Purchasing sees every line on Needs parts.'
-          : 'Studs, slips, soft goods, and anything else that must be purchased. Add a stud line for each location. Purchasing sees every line on Needs parts with PO and due date.'}
+        Studs, slips, soft goods, and anything else that must be purchased. Add a stud line for each
+        location. Purchasing sees every line on Needs parts with PO and due date.
       </p>
 
-      {twinseal ? (
-        <div className="order-parts-two">
-          <section className="order-parts-block">
-            <h4>Slips</h4>
-            <div className="order-parts-grid">
-              <label>
-                Part #
-                <input
-                  value={slips.partNumber}
-                  disabled={!canEdit || saving}
-                  placeholder="5-467V"
-                  onChange={(e) => setSlips((prev) => ({ ...prev, partNumber: e.target.value }))}
-                />
-              </label>
-              <label>
-                Material
-                <input
-                  value={slips.material}
-                  disabled={!canEdit || saving}
-                  placeholder="VITON"
-                  onChange={(e) => setSlips((prev) => ({ ...prev, material: e.target.value }))}
-                />
-              </label>
-              <label>
-                Qty
-                <input
-                  type="number"
-                  min={1}
-                  value={slips.quantity}
-                  disabled={!canEdit || saving}
-                  onChange={(e) =>
-                    setSlips((prev) => ({ ...prev, quantity: Math.max(1, Number(e.target.value) || 1) }))
-                  }
-                />
-              </label>
-              <label>
-                Description
-                <input
-                  value={slips.extra}
-                  disabled={!canEdit || saving}
-                  placeholder="Slips need rebonded"
-                  onChange={(e) => setSlips((prev) => ({ ...prev, extra: e.target.value }))}
-                />
-              </label>
-            </div>
-          </section>
-
-          <section className="order-parts-block">
-            <h4>Soft Goods</h4>
-            <div className="order-parts-grid">
-              <label>
-                Part #
-                <input
-                  value={softGoods.partNumber}
-                  disabled={!canEdit || saving}
-                  placeholder="SG-28"
-                  onChange={(e) => setSoftGoods((prev) => ({ ...prev, partNumber: e.target.value }))}
-                />
-              </label>
-              <label>
-                Material
-                <input
-                  value={softGoods.material}
-                  disabled={!canEdit || saving}
-                  placeholder="VITON"
-                  onChange={(e) => setSoftGoods((prev) => ({ ...prev, material: e.target.value }))}
-                />
-              </label>
-              <label>
-                Qty
-                <input
-                  type="number"
-                  min={1}
-                  value={softGoods.quantity}
-                  disabled={!canEdit || saving}
-                  onChange={(e) =>
-                    setSoftGoods((prev) => ({
-                      ...prev,
-                      quantity: Math.max(1, Number(e.target.value) || 1),
-                    }))
-                  }
-                />
-              </label>
-              <label>
-                Description
-                <input
-                  value={softGoods.extra}
-                  disabled={!canEdit || saving}
-                  placeholder="Soft goods kit"
-                  onChange={(e) => setSoftGoods((prev) => ({ ...prev, extra: e.target.value }))}
-                />
-              </label>
-            </div>
-          </section>
-        </div>
-      ) : null}
-
       <section className="order-parts-block">
-        <h4>{boltingLabel}</h4>
-        {twinseal ? (
-          <p className="status-breakdown-note" style={{ marginTop: 0 }}>
-            Field Service bolting example — Stud Type, Stud Size, Stud Quantity.
-          </p>
-        ) : null}
+        <h4>Studs</h4>
         <div className="order-parts-grid order-parts-grid--studs">
           <label>
-            {twinseal ? TWINSEAL_BOLTING_FIELD_LABELS.type : 'Type'}
+            Type
             <input
               value={studs.type}
               disabled={!canEdit || saving}
@@ -329,7 +446,7 @@ export function OrderReplacementPartsForm({
             />
           </label>
           <label>
-            {twinseal ? TWINSEAL_BOLTING_FIELD_LABELS.size : 'Size'}
+            Size
             <input
               value={studs.size}
               disabled={!canEdit || saving}
@@ -338,7 +455,7 @@ export function OrderReplacementPartsForm({
             />
           </label>
           <label>
-            {twinseal ? TWINSEAL_BOLTING_FIELD_LABELS.quantity : 'Qty'}
+            Qty
             <input
               type="number"
               min={1}
@@ -350,7 +467,7 @@ export function OrderReplacementPartsForm({
             />
           </label>
           <label className="order-parts-span">
-            {TWINSEAL_BOLTING_FIELD_LABELS.location}
+            Location
             <input
               list="order-parts-stud-locations"
               value={studs.location}
@@ -360,7 +477,7 @@ export function OrderReplacementPartsForm({
             />
           </label>
           <label>
-            {TWINSEAL_BOLTING_FIELD_LABELS.extra}
+            Extra
             <input
               value={studs.extra}
               disabled={!canEdit || saving}
@@ -375,7 +492,7 @@ export function OrderReplacementPartsForm({
               disabled={saving || !studsReady}
               onClick={() => void addStuds()}
             >
-              {twinseal ? 'Add bolting' : 'Add studs'}
+              Add studs
             </button>
           ) : null}
         </div>
@@ -386,7 +503,6 @@ export function OrderReplacementPartsForm({
         </datalist>
       </section>
 
-      {!twinseal ? (
       <div className="order-parts-two">
         <section className="order-parts-block">
           <h4>Slips</h4>
@@ -478,7 +594,6 @@ export function OrderReplacementPartsForm({
           </div>
         </section>
       </div>
-      ) : null}
 
       {canEdit ? (
         <button

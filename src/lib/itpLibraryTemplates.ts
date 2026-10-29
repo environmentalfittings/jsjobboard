@@ -295,7 +295,7 @@ export function normalizeTemplateScope(raw: unknown): ItpLibraryTemplateScope {
   }
 }
 
-/** Apply Twinseal Slips / Soft Goods / Bolting traveler labels onto an existing scope. */
+/** Apply Twinseal Studs / Slips / Soft Goods traveler labels onto an existing scope. */
 export function ensureTwinsealPartsTravelerOnScope(
   scope: ItpLibraryTemplateScope,
   valveType: string,
