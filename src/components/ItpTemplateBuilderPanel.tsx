@@ -25,6 +25,10 @@ import {
   type ItpShopArea,
   type ItpShopAreaDef,
 } from '../constants/itpShopAreas'
+import {
+  finishCellForValveType,
+  finishCellToneForValveType,
+} from '../constants/finishCellColors'
 import { VALVE_TYPES } from '../constants/jobLookups'
 import { loadLookupOptionsMap } from '../lib/lookupValues'
 import {
@@ -92,6 +96,7 @@ import { ItpMeasJobCardSourceSelect } from './ItpMeasJobCardSourceSelect'
 import { ItpMeasRequiredToggle } from './ItpMeasRequiredToggle'
 import { ItpPhotoMinMaxFields } from './ItpPhotoMinMaxFields'
 import { ItpOemProcedureDocs } from './ItpOemProcedureDocs'
+import { FinishCellBadge } from './FinishCellBadge'
 import { ItpStationSelect } from './ItpStationSelect'
 import {
   catalogReqFromUnlockDraft,
@@ -1121,6 +1126,17 @@ export function ItpTemplateBuilderPanel({
     setDirty(true)
     setSubReqDrafts({})
   }
+
+  const changeValveType = (next: string) => {
+    if (next === valveType) return
+    if (builderLayer === 'valve_master') {
+      if (valveMasterDirty && !window.confirm('Discard unsaved valve type master changes?')) return
+    } else if (dirty && !window.confirm('Discard unsaved template changes?')) return
+    setValveType(next)
+  }
+
+  const valveFinishCell = useMemo(() => finishCellForValveType(valveType), [valveType])
+  const valveFinishTone = useMemo(() => finishCellToneForValveType(valveType), [valveType])
 
   const openSavedTemplate = (
     row: ItpLibraryTemplateRow,
@@ -2571,26 +2587,37 @@ export function ItpTemplateBuilderPanel({
         </label>
         ) : null}
         {builderLayer === 'valve_master' || builderLayer === 'templates' ? (
-        <label className="itp-template-builder-field">
+        <label className="itp-template-builder-field itp-template-builder-field--valve-type">
           <span>Valve type</span>
-          <select
-            value={valveType}
-            onChange={(e) => {
-              const next = e.target.value
-              if (builderLayer === 'valve_master') {
-                if (valveMasterDirty && !window.confirm('Discard unsaved valve type master changes?')) return
-              } else if (dirty && !window.confirm('Discard unsaved template changes?')) return
-              setValveType(next)
-            }}
-          >
-            <option value="">Select valve type…</option>
-            {valveTypeOptions.map((vt) => (
-              <option key={vt} value={vt}>
-                {vt}
-                {savedRows.some((r) => r.job_type === jobType && r.valve_type === vt) ? ' ✓' : ''}
-              </option>
-            ))}
-          </select>
+          <div className="itp-valve-type-select-wrap">
+            <select
+              className="itp-valve-type-select"
+              value={valveType}
+              onChange={(e) => changeValveType(e.target.value)}
+              style={
+                valveFinishTone
+                  ? {
+                      background: valveFinishTone.background,
+                      color: valveFinishTone.color,
+                      borderColor: 'transparent',
+                    }
+                  : undefined
+              }
+            >
+              <option value="">Select valve type…</option>
+              {valveTypeOptions.map((vt) => (
+                <option key={vt} value={vt}>
+                  {vt}
+                  {savedRows.some((r) => r.job_type === jobType && r.valve_type === vt) ? ' ✓' : ''}
+                </option>
+              ))}
+            </select>
+            {valveFinishCell ? (
+              <span className="itp-valve-type-finish-match" title="Finish cell color for this valve type">
+                Finish cell <FinishCellBadge cell={valveFinishCell} />
+              </span>
+            ) : null}
+          </div>
         </label>
         ) : null}
         {builderLayer === 'templates' ? (
@@ -3919,19 +3946,63 @@ export function ItpTemplateBuilderPanel({
         </div>
 
         <div className="itp-library-panel itp-library-panel-right">
-          <div className="itp-library-panel-hdr">
-            <h3>
-              {builderLayer === 'job_master'
-                ? `${jobTypeLabel(jobType)} · Job type master`
-                : builderLayer === 'valve_master'
-                  ? valveType
-                    ? `${valveType} · Valve type master`
-                    : 'Valve type master'
-                  : valveType
-                    ? `ITP Checklist · ${valveType}${templateName.trim() ? ` · ${templateName.trim()}` : ''}`
-                    : 'ITP Checklist'}
-            </h3>
-            <span className="itp-library-ph-count">
+          <div
+            className="itp-library-panel-hdr"
+            style={
+              (builderLayer === 'valve_master' || builderLayer === 'templates') && valveFinishTone
+                ? {
+                    background: valveFinishTone.background,
+                    color: valveFinishTone.color,
+                    borderBottomColor: 'rgba(15, 23, 42, 0.12)',
+                  }
+                : undefined
+            }
+          >
+            {builderLayer === 'job_master' ? (
+              <h3>{`${jobTypeLabel(jobType)} · Job type master`}</h3>
+            ) : builderLayer === 'valve_master' || builderLayer === 'templates' ? (
+              <div className="itp-library-panel-hdr-valve">
+                <label className="itp-library-panel-valve-field">
+                  <span>{builderLayer === 'valve_master' ? 'Valve type master' : 'ITP checklist · Valve type'}</span>
+                  <select
+                    className="itp-valve-type-select"
+                    value={valveType}
+                    onChange={(e) => changeValveType(e.target.value)}
+                    aria-label="Valve type"
+                    style={
+                      valveFinishTone
+                        ? {
+                            background: valveFinishTone.background,
+                            color: valveFinishTone.color,
+                            borderColor: 'rgba(15, 23, 42, 0.2)',
+                          }
+                        : undefined
+                    }
+                  >
+                    <option value="">Select valve type…</option>
+                    {valveTypeOptions.map((vt) => (
+                      <option key={vt} value={vt}>
+                        {vt}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                {builderLayer === 'templates' && templateName.trim() ? (
+                  <span className="itp-library-panel-template-name">{templateName.trim()}</span>
+                ) : null}
+                {valveFinishCell ? <FinishCellBadge cell={valveFinishCell} /> : null}
+              </div>
+            ) : (
+              <h3>ITP Checklist</h3>
+            )}
+            <span
+              className="itp-library-ph-count"
+              style={
+                (builderLayer === 'valve_master' || builderLayer === 'templates') && valveFinishTone
+                  ? { color: valveFinishTone.color }
+                  : undefined
+              }
+            >
               {builderLayer === 'job_master'
                 ? `${jobMasterCount} items · ${holdPointCount} hold pts`
                 : builderLayer === 'valve_master'
