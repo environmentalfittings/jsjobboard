@@ -11,6 +11,7 @@ import { useEffect } from 'react'
 import { ReportsPage } from './pages/ReportsPage'
 import { DemandProfileReportPage } from './pages/DemandProfileReportPage'
 import { CustomerBreakdownReportPage } from './pages/CustomerBreakdownReportPage'
+import { SeasonalityReportPage } from './pages/SeasonalityReportPage'
 import { CustomerAliasesAdminPage } from './pages/CustomerAliasesAdminPage'
 import { StatusPrioritiesPage } from './pages/StatusPrioritiesPage'
 import { ShopTvBoardPage } from './pages/ShopTvBoardPage'
@@ -322,6 +323,18 @@ function AppRoutes() {
               element={
                 can(appRole, 'viewReports') ? (
                   <CustomerBreakdownReportPage />
+                ) : role ? (
+                  <Navigate to={defaultHomePath(appRole)} replace />
+                ) : (
+                  <Navigate to="/login" replace />
+                )
+              }
+            />
+            <Route
+              path="/reports/seasonality"
+              element={
+                can(appRole, 'viewReports') ? (
+                  <SeasonalityReportPage />
                 ) : role ? (
                   <Navigate to={defaultHomePath(appRole)} replace />
                 ) : (

@@ -1746,7 +1746,9 @@ export function ReportsPage() {
           <Link className="button-secondary" to="/reports/customer-breakdown">
             Customer breakdown
           </Link>
-          <span className="job-muted report-hub-soon">Seasonality soon</span>
+          <Link className="button-secondary" to="/reports/seasonality">
+            Seasonality
+          </Link>
         </div>
       </div>
 
