@@ -921,6 +921,7 @@ export function ItpTravelerStepModal({
               canEdit
               saving={saving}
               showBoardLink={!previewMode}
+              valveType={jobCard.valve_type ?? ''}
               onSaveKind={onUpsertNeededPart}
               onAddOther={onSaveNeededPart}
               onRemove={onRemoveNeededPart}

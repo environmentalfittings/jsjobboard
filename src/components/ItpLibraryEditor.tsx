@@ -2460,6 +2460,7 @@ export function ItpLibraryEditor({ valve, onClose, readOnly = false }: ItpLibrar
                                       rows={parts.rows}
                                       canEdit={!readOnly}
                                       saving={parts.saving}
+                                      valveType={valve.valve_type ?? plan.valveType ?? ''}
                                       onSaveKind={parts.upsertPart}
                                       onAddOther={parts.addPart}
                                       onRemove={(partId) => void parts.removePart(partId)}
