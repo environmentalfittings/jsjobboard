@@ -24,6 +24,8 @@ export type SeasonalityMonthTotal = {
   jobCount: number
 }
 
+export type SeasonalityDemandLevel = 'busy' | 'typical' | 'quiet'
+
 export type SeasonalityMonthAverage = {
   month: number
   label: string
@@ -31,6 +33,28 @@ export type SeasonalityMonthAverage = {
   total: number
   yearsObserved: number
   index: number // 100 = average month
+}
+
+/** Busy ≥115 index, Quiet ≤85, else Typical. */
+export function seasonalityDemandLevel(index: number): SeasonalityDemandLevel {
+  if (index >= 115) return 'busy'
+  if (index <= 85) return 'quiet'
+  return 'typical'
+}
+
+export function seasonalityDemandLabel(level: SeasonalityDemandLevel): string {
+  if (level === 'busy') return 'Busy'
+  if (level === 'quiet') return 'Quiet'
+  return 'Typical'
+}
+
+/** e.g. "51% above typical", "47% below typical", "Typical". */
+export function seasonalityVsTypicalLabel(index: number): string {
+  if (!index) return '—'
+  const pct = index - 100
+  if (pct === 0) return 'Typical'
+  if (pct > 0) return `${pct}% above typical`
+  return `${Math.abs(pct)}% below typical`
 }
 
 export type SeasonalityReportModel = {
@@ -155,11 +179,15 @@ export function buildSeasonalityModel(report: DemandProfileReport | null): Seaso
 }
 
 export function seasonalityCsvRows(model: SeasonalityReportModel): string[][] {
-  return model.monthAverages.map((row) => [
-    row.label,
-    row.avg.toFixed(1),
-    String(row.index),
-    String(row.yearsObserved),
-    ...model.years.map((year) => String(model.matrix[year]?.[row.month] ?? '')),
-  ])
+  return model.monthAverages.map((row) => {
+    const level = row.yearsObserved ? seasonalityDemandLevel(row.index) : null
+    return [
+      row.label,
+      row.avg.toFixed(1),
+      level ? seasonalityDemandLabel(level) : '',
+      row.yearsObserved ? seasonalityVsTypicalLabel(row.index) : '',
+      String(row.yearsObserved),
+      ...model.years.map((year) => String(model.matrix[year]?.[row.month] ?? '')),
+    ]
+  })
 }

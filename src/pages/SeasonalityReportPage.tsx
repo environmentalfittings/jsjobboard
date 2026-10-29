@@ -13,7 +13,13 @@ import {
   type DemandProfileReport,
   type DemandTypeDimension,
 } from '../lib/demandProfile'
-import { buildSeasonalityModel, seasonalityCsvRows } from '../lib/seasonality'
+import {
+  buildSeasonalityModel,
+  seasonalityCsvRows,
+  seasonalityDemandLabel,
+  seasonalityDemandLevel,
+  seasonalityVsTypicalLabel,
+} from '../lib/seasonality'
 import { printSeasonalityReport } from '../lib/seasonalityPrint'
 
 const PERIOD_PRESETS: { value: '24' | '36' | 'all'; label: string }[] = [
@@ -126,7 +132,14 @@ export function SeasonalityReportPage() {
     if (!report) return
     downloadCsv(
       `seasonality-${startDate}-to-${endDate}.csv`,
-      ['Month', 'Avg jobs', 'Index (100=avg)', 'Years observed', ...model.years.map(String)],
+      [
+        'Month',
+        'Avg jobs',
+        'Demand',
+        'Vs typical',
+        'Years observed',
+        ...model.years.map(String),
+      ],
       seasonalityCsvRows(model),
     )
   }
@@ -275,7 +288,7 @@ export function SeasonalityReportPage() {
               </strong>
             </div>
             <div className="report-summary-item">
-              <span>Trough month</span>
+              <span>Quietest month</span>
               <strong>
                 {model.troughMonth
                   ? `${model.troughMonth.label} (${model.troughMonth.avg.toFixed(0)})`
@@ -283,8 +296,8 @@ export function SeasonalityReportPage() {
               </strong>
             </div>
             <div className="report-summary-item">
-              <span>Avg / month</span>
-              <strong>{model.overallMonthlyAvg.toFixed(0)}</strong>
+              <span>Typical month</span>
+              <strong>~{model.overallMonthlyAvg.toFixed(0)}</strong>
             </div>
           </div>
         ) : (
@@ -294,54 +307,117 @@ export function SeasonalityReportPage() {
 
       <section className="dashboard-panel">
         <div className="top-jobs-chart-head">
-          <h3>Average volume by calendar month</h3>
+          <h3>How busy is each month?</h3>
         </div>
         {!report || model.monthAverages.every((m) => m.yearsObserved === 0) ? (
           <p className="placeholder-copy">{loading ? 'Loading…' : 'No monthly demand in this range.'}</p>
         ) : (
           <>
-            <div className="demand-stack-chart" role="img" aria-label="Average jobs by calendar month">
-              {model.monthAverages.map((col) => (
-                <div key={col.month} className="demand-stack-col">
-                  <div
-                    className="demand-stack-bars"
-                    style={{
-                      height: `${Math.max(8, (col.avg / model.maxMonthAvg) * 100)}%`,
-                    }}
-                  >
-                    <div
-                      className="demand-stack-seg"
-                      style={{ height: '100%', background: '#0f766e' }}
-                      title={`${col.label}: avg ${col.avg.toFixed(1)} (index ${col.index})`}
-                    />
-                  </div>
-                  <div className="demand-stack-xlabel">{col.label}</div>
-                  <div className="demand-stack-count">{col.avg.toFixed(0)}</div>
-                </div>
-              ))}
-            </div>
-            <p className="status-breakdown-note">
-              Index 100 = average month. Peak index{' '}
-              <strong>{model.peakMonth?.index ?? '—'}</strong>
-              {model.troughMonth ? (
+            <p className="status-breakdown-note seasonality-read-hint">
+              Compared to a typical month (~{model.overallMonthlyAvg.toFixed(0)} jobs).{' '}
+              <span className="seasonality-badge seasonality-badge--busy">Busy</span> is well above
+              average; <span className="seasonality-badge seasonality-badge--quiet">Quiet</span> is
+              well below.
+              {model.peakMonth ? (
                 <>
-                  ; trough <strong>{model.troughMonth.index}</strong>
+                  {' '}
+                  Peak: <strong>{model.peakMonth.label}</strong> (
+                  {seasonalityVsTypicalLabel(model.peakMonth.index)}).
                 </>
               ) : null}
-              .
+              {model.troughMonth ? (
+                <>
+                  {' '}
+                  Quietest: <strong>{model.troughMonth.label}</strong> (
+                  {seasonalityVsTypicalLabel(model.troughMonth.index)}).
+                </>
+              ) : null}
             </p>
+            <div className="dashboard-table-wrap">
+              <table className="dashboard-table seasonality-guide-table">
+                <thead>
+                  <tr>
+                    <th>Month</th>
+                    <th>Demand</th>
+                    <th>Avg jobs</th>
+                    <th>Vs typical</th>
+                    <th className="seasonality-bar-col">Relative volume</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {model.monthAverages.map((row) => {
+                    if (!row.yearsObserved) {
+                      return (
+                        <tr key={row.month}>
+                          <td>{row.label}</td>
+                          <td className="job-muted">—</td>
+                          <td className="job-muted">—</td>
+                          <td className="job-muted">—</td>
+                          <td className="seasonality-bar-col">
+                            <div className="seasonality-rel-bar" aria-hidden="true" />
+                          </td>
+                        </tr>
+                      )
+                    }
+                    const level = seasonalityDemandLevel(row.index)
+                    const widthPct = Math.max(4, (row.avg / model.maxMonthAvg) * 100)
+                    const isPeak = model.peakMonth?.month === row.month
+                    const isTrough = model.troughMonth?.month === row.month
+                    return (
+                      <tr
+                        key={row.month}
+                        className={
+                          isPeak
+                            ? 'seasonality-row--peak'
+                            : isTrough
+                              ? 'seasonality-row--trough'
+                              : undefined
+                        }
+                      >
+                        <td>
+                          <strong>{row.label}</strong>
+                          {isPeak ? <span className="seasonality-inline-tag">Peak</span> : null}
+                          {isTrough && !isPeak ? (
+                            <span className="seasonality-inline-tag">Quietest</span>
+                          ) : null}
+                        </td>
+                        <td>
+                          <span className={`seasonality-badge seasonality-badge--${level}`}>
+                            {seasonalityDemandLabel(level)}
+                          </span>
+                        </td>
+                        <td>{row.avg.toFixed(0)}</td>
+                        <td>{seasonalityVsTypicalLabel(row.index)}</td>
+                        <td className="seasonality-bar-col">
+                          <div className="seasonality-rel-bar" aria-hidden="true">
+                            <span
+                              className={`seasonality-rel-fill seasonality-rel-fill--${level}`}
+                              style={{ width: `${widthPct}%` }}
+                            />
+                          </div>
+                        </td>
+                      </tr>
+                    )
+                  })}
+                </tbody>
+              </table>
+            </div>
           </>
         )}
       </section>
 
       <section className="dashboard-panel">
         <div className="top-jobs-chart-head">
-          <h3>Year overlay by month</h3>
+          <h3>Same month across years</h3>
         </div>
         {!report || model.monthTotals.length === 0 ? (
           <p className="placeholder-copy">{loading ? 'Loading…' : 'No monthly series.'}</p>
         ) : (
           <>
+            <p className="status-breakdown-note">
+              Each cluster is one calendar month; bars are the years in your range (taller = more
+              jobs).
+            </p>
             <div className="demand-stack-legend" aria-hidden="true">
               {model.years.map((year, i) => (
                 <span key={year} className="demand-stack-legend-item">
@@ -380,57 +456,73 @@ export function SeasonalityReportPage() {
 
       <section className="dashboard-panel">
         <div className="top-jobs-chart-head">
-          <h3>Month × year matrix</h3>
+          <h3>Job counts by month and year</h3>
         </div>
         {!report || model.years.length === 0 ? (
           <p className="placeholder-copy">{loading ? 'Loading…' : 'No matrix data.'}</p>
         ) : (
-          <div className="dashboard-table-wrap">
-            <table className="dashboard-table demand-matrix-table">
-              <thead>
-                <tr>
-                  <th>Month</th>
-                  <th>Avg</th>
-                  <th>Index</th>
-                  {model.years.map((year) => (
-                    <th key={year}>{year}</th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody>
-                {model.monthAverages.map((row) => (
-                  <tr key={row.month}>
-                    <td>{row.label}</td>
-                    <td>{row.avg.toFixed(1)}</td>
-                    <td>{row.yearsObserved ? row.index : '—'}</td>
-                    {model.years.map((year) => {
-                      const n = model.matrix[year]?.[row.month]
-                      if (n == null) {
-                        return (
-                          <td key={year} className="job-muted">
-                            —
-                          </td>
-                        )
-                      }
-                      const intensity = n / model.maxCell
-                      return (
-                        <td key={year} className="demand-matrix-cell">
-                          <span
-                            className="seasonality-heat-cell"
-                            style={{
-                              background: `rgba(15, 118, 110, ${0.12 + intensity * 0.55})`,
-                            }}
-                          >
-                            {n}
-                          </span>
-                        </td>
-                      )
-                    })}
+          <>
+            <p className="status-breakdown-note">
+              Numbers are jobs that month. — means no data in range. Darker green = higher count.
+            </p>
+            <div className="dashboard-table-wrap">
+              <table className="dashboard-table demand-matrix-table seasonality-year-table">
+                <thead>
+                  <tr>
+                    <th>Month</th>
+                    <th>Avg</th>
+                    <th>Demand</th>
+                    {model.years.map((year) => (
+                      <th key={year}>{year}</th>
+                    ))}
                   </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+                </thead>
+                <tbody>
+                  {model.monthAverages.map((row) => {
+                    const level = row.yearsObserved ? seasonalityDemandLevel(row.index) : null
+                    return (
+                      <tr key={row.month}>
+                        <td>{row.label}</td>
+                        <td>{row.yearsObserved ? row.avg.toFixed(0) : '—'}</td>
+                        <td>
+                          {level ? (
+                            <span className={`seasonality-badge seasonality-badge--${level}`}>
+                              {seasonalityDemandLabel(level)}
+                            </span>
+                          ) : (
+                            <span className="job-muted">—</span>
+                          )}
+                        </td>
+                        {model.years.map((year) => {
+                          const n = model.matrix[year]?.[row.month]
+                          if (n == null) {
+                            return (
+                              <td key={year} className="job-muted">
+                                —
+                              </td>
+                            )
+                          }
+                          const intensity = n / model.maxCell
+                          return (
+                            <td key={year} className="demand-matrix-cell">
+                              <span
+                                className="seasonality-heat-cell"
+                                style={{
+                                  background: `rgba(15, 118, 110, ${0.12 + intensity * 0.55})`,
+                                }}
+                              >
+                                {n}
+                              </span>
+                            </td>
+                          )
+                        })}
+                      </tr>
+                    )
+                  })}
+                </tbody>
+              </table>
+            </div>
+          </>
         )}
       </section>
     </div>
