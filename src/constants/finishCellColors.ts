@@ -66,3 +66,48 @@ export function finishCellTone(cell: string | null | undefined): FinishCellTone 
   if (!key) return null
   return FINISH_CELL_TONES[key] ?? null
 }
+
+/**
+ * Map ITP / job valve type → finish cell key used for spreadsheet legend colors.
+ * Valve type (e.g. Twinseal) and finish cell (e.g. Durco/Twinseal) are related but not identical labels.
+ */
+const VALVE_TYPE_TO_FINISH_CELL: Record<string, string> = {
+  twinseal: 'Durco/Twinseal',
+  durco: 'Durco/Twinseal',
+  'durco/twinseal': 'Durco/Twinseal',
+  'ball valve': 'Ball Valve',
+  ball: 'Ball Valve',
+  gate: 'G/G/C',
+  globe: 'G/G/C',
+  check: 'G/G/C',
+  'knife gate': 'G/G/C',
+  'angle globe': 'G/G/C',
+  'pressure seal gate': 'G/G/C',
+  'pressure seal globe': 'G/G/C',
+  'ball check': 'G/G/C',
+  'duo check': 'G/G/C',
+  'piston check': 'G/G/C',
+  'pipeline gate- slab': 'Pipeline',
+  'pipeline gate- expanding': 'Pipeline',
+  'relief valve': 'PRV',
+  'safety valve': 'PRV',
+  actuator: 'Actuation',
+  butterfly: 'G/G/C',
+  'lubricated plug': 'G/G/C',
+  'non lubricated plug': 'G/G/C',
+}
+
+export function finishCellForValveType(valveType: string | null | undefined): string | null {
+  const raw = String(valveType ?? '').trim()
+  if (!raw) return null
+  const mapped = VALVE_TYPE_TO_FINISH_CELL[raw.toLowerCase()]
+  if (mapped) return mapped
+  // Already a finish-cell label, or fuzzy match via normalizer.
+  const asCell = normalizeFinishCellKey(raw)
+  if (asCell && FINISH_CELL_TONES[asCell]) return asCell
+  return null
+}
+
+export function finishCellToneForValveType(valveType: string | null | undefined): FinishCellTone | null {
+  return finishCellTone(finishCellForValveType(valveType))
+}
