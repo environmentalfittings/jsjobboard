@@ -7761,6 +7761,58 @@ a.test-log-reports-item-name:hover {
   padding: 0.25rem;
 }
 
+.seasonality-year-chart {
+  display: flex;
+  align-items: flex-end;
+  gap: 0.45rem;
+  min-height: 220px;
+  padding: 0.5rem 0.25rem 0.25rem;
+  border: 1px solid #e2e8f0;
+  border-radius: 10px;
+  background: #f8fafc;
+  overflow-x: auto;
+  margin-bottom: 0.35rem;
+}
+
+.seasonality-year-col {
+  flex: 1 0 2.6rem;
+  min-width: 2.4rem;
+  max-width: 5rem;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 0.25rem;
+}
+
+.seasonality-year-bars {
+  width: 100%;
+  height: 180px;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  gap: 2px;
+}
+
+.seasonality-year-bar {
+  flex: 1 1 0;
+  min-width: 4px;
+  max-width: 12px;
+  border-radius: 3px 3px 0 0;
+  min-height: 0;
+}
+
+.seasonality-heat-cell {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 2.2rem;
+  padding: 0.3rem 0.35rem;
+  border-radius: 6px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
 .demand-matrix-btn {
   appearance: none;
   border: 0;

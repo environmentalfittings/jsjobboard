@@ -376,6 +376,8 @@ export function CustomerBreakdownReportPage() {
             <Link to="/reports">Reports</Link>
             {' · '}
             <Link to="/reports/demand-profile">Demand profile</Link>
+            {' · '}
+            <Link to="/reports/seasonality">Seasonality</Link>
           </p>
           <h1>Customer breakdown{companyLabel ? ` · ${companyLabel}` : ''}</h1>
         </div>

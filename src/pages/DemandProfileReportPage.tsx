@@ -497,6 +497,9 @@ export function DemandProfileReportPage() {
           <Link className="button-secondary" to="/reports/customer-breakdown">
             Customer breakdown
           </Link>
+          <Link className="button-secondary" to="/reports/seasonality">
+            Seasonality
+          </Link>
           <button
             type="button"
             className="button-primary"
