@@ -7813,6 +7813,93 @@ a.test-log-reports-item-name:hover {
   font-variant-numeric: tabular-nums;
 }
 
+.seasonality-read-hint {
+  margin: 0 0 0.85rem;
+  line-height: 1.45;
+}
+
+.seasonality-guide-table td,
+.seasonality-guide-table th {
+  vertical-align: middle;
+}
+
+.seasonality-guide-table .seasonality-bar-col {
+  min-width: 9rem;
+  width: 28%;
+}
+
+.seasonality-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.12rem 0.45rem;
+  border-radius: 6px;
+  font-size: 0.75rem;
+  font-weight: 700;
+  letter-spacing: 0.01em;
+  white-space: nowrap;
+}
+
+.seasonality-badge--busy {
+  background: #ccfbf1;
+  color: #0f766e;
+}
+
+.seasonality-badge--typical {
+  background: #f1f5f9;
+  color: #475569;
+}
+
+.seasonality-badge--quiet {
+  background: #fff7ed;
+  color: #9a3412;
+}
+
+.seasonality-inline-tag {
+  display: inline-block;
+  margin-left: 0.4rem;
+  font-size: 0.7rem;
+  font-weight: 700;
+  color: #64748b;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+
+.seasonality-row--peak td:first-child {
+  box-shadow: inset 3px 0 0 #0f766e;
+}
+
+.seasonality-row--trough td:first-child {
+  box-shadow: inset 3px 0 0 #c2410c;
+}
+
+.seasonality-rel-bar {
+  display: block;
+  width: 100%;
+  height: 0.55rem;
+  border-radius: 999px;
+  background: #e2e8f0;
+  overflow: hidden;
+}
+
+.seasonality-rel-fill {
+  display: block;
+  height: 100%;
+  border-radius: 999px;
+  min-width: 0.35rem;
+}
+
+.seasonality-rel-fill--busy {
+  background: #0f766e;
+}
+
+.seasonality-rel-fill--typical {
+  background: #64748b;
+}
+
+.seasonality-rel-fill--quiet {
+  background: #c2410c;
+}
+
 .demand-matrix-btn {
   appearance: none;
   border: 0;

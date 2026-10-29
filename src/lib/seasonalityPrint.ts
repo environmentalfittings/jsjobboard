@@ -1,5 +1,11 @@
 import { REPORT_PRINT_PAGINATION_CSS } from './reportChartsPrint'
-import { MONTH_LABELS, type SeasonalityReportModel } from './seasonality'
+import {
+  MONTH_LABELS,
+  seasonalityDemandLabel,
+  seasonalityDemandLevel,
+  seasonalityVsTypicalLabel,
+  type SeasonalityReportModel,
+} from './seasonality'
 
 function escapeHtml(value: string) {
   return value
@@ -90,9 +96,30 @@ export function printSeasonalityReport(options: {
     })
     .join('')
 
+  const guideRows = model.monthAverages
+    .map((row) => {
+      if (!row.yearsObserved) {
+        return `<tr>
+          <td>${escapeHtml(row.label)}</td>
+          <td class="muted">—</td>
+          <td class="muted">—</td>
+          <td class="muted">—</td>
+        </tr>`
+      }
+      const level = seasonalityDemandLevel(row.index)
+      return `<tr>
+        <td>${escapeHtml(row.label)}</td>
+        <td><span class="badge badge-${level}">${escapeHtml(seasonalityDemandLabel(level))}</span></td>
+        <td>${row.avg.toFixed(0)}</td>
+        <td>${escapeHtml(seasonalityVsTypicalLabel(row.index))}</td>
+      </tr>`
+    })
+    .join('')
+
   const yearHead = model.years.map((y) => `<th>${y}</th>`).join('')
   const matrixRows = model.monthAverages
     .map((row) => {
+      const level = row.yearsObserved ? seasonalityDemandLevel(row.index) : null
       const cells = model.years
         .map((year) => {
           const n = model.matrix[year]?.[row.month]
@@ -103,8 +130,12 @@ export function printSeasonalityReport(options: {
         .join('')
       return `<tr>
         <td>${escapeHtml(row.label)}</td>
-        <td>${row.avg.toFixed(1)}</td>
-        <td>${row.index}</td>
+        <td>${row.yearsObserved ? row.avg.toFixed(0) : '—'}</td>
+        <td>${
+          level
+            ? `<span class="badge badge-${level}">${escapeHtml(seasonalityDemandLabel(level))}</span>`
+            : '<span class="muted">—</span>'
+        }</td>
         ${cells}
       </tr>`
     })
@@ -146,6 +177,14 @@ export function printSeasonalityReport(options: {
       text-align: center; font-weight: 600;
       -webkit-print-color-adjust: exact; print-color-adjust: exact;
     }
+    .badge {
+      display: inline-block; padding: 0.02in 0.08in; border-radius: 4px;
+      font-size: 8pt; font-weight: 700;
+      -webkit-print-color-adjust: exact; print-color-adjust: exact;
+    }
+    .badge-busy { background: #ccfbf1; color: #0f766e; }
+    .badge-typical { background: #f1f5f9; color: #475569; }
+    .badge-quiet { background: #fff7ed; color: #9a3412; }
     .muted { color: #94a3b8; text-align: center; }
     .footer-note { margin-top: 0.18in; font-size: 8.5pt; color: #64748b; }
     @page { size: letter landscape; margin: 0.4in; }
@@ -160,20 +199,27 @@ export function printSeasonalityReport(options: {
   </div>
   <div class="kpis">
     <div class="kpi"><span>Peak month</span><strong>${escapeHtml(model.peakMonth?.label ?? '—')} (${model.peakMonth ? model.peakMonth.avg.toFixed(0) : '—'})</strong></div>
-    <div class="kpi"><span>Trough month</span><strong>${escapeHtml(model.troughMonth?.label ?? '—')} (${model.troughMonth ? model.troughMonth.avg.toFixed(0) : '—'})</strong></div>
-    <div class="kpi"><span>Avg / month</span><strong>${model.overallMonthlyAvg.toFixed(0)}</strong></div>
+    <div class="kpi"><span>Quietest month</span><strong>${escapeHtml(model.troughMonth?.label ?? '—')} (${model.troughMonth ? model.troughMonth.avg.toFixed(0) : '—'})</strong></div>
+    <div class="kpi"><span>Typical month</span><strong>~${model.overallMonthlyAvg.toFixed(0)} jobs</strong></div>
     <div class="kpi"><span>Years</span><strong>${model.years.length ? `${model.years[0]}–${model.years[model.years.length - 1]}` : '—'}</strong></div>
   </div>
-  <h2>Average volume by calendar month</h2>
+  <h2>How busy is each month?</h2>
+  <p class="meta">Busy = well above typical (~${model.overallMonthlyAvg.toFixed(0)} jobs); Quiet = well below.</p>
   <div class="chart">${avgCols || '<p>No data</p>'}</div>
-  <h2>Month × year matrix</h2>
   <table>
     <thead>
-      <tr><th>Month</th><th>Avg</th><th>Index</th>${yearHead}</tr>
+      <tr><th>Month</th><th>Demand</th><th>Avg jobs</th><th>Vs typical</th></tr>
+    </thead>
+    <tbody>${guideRows || '<tr><td colspan="4">No rows</td></tr>'}</tbody>
+  </table>
+  <h2>Job counts by month and year</h2>
+  <table>
+    <thead>
+      <tr><th>Month</th><th>Avg</th><th>Demand</th>${yearHead}</tr>
     </thead>
     <tbody>${matrixRows || `<tr><td colspan="${3 + model.years.length}">No rows</td></tr>`}</tbody>
   </table>
-  <p class="footer-note">Index 100 = average month. Months: ${MONTH_LABELS.join(', ')}. ${escapeHtml(footnote)}</p>
+  <p class="footer-note">Months: ${MONTH_LABELS.join(', ')}. ${escapeHtml(footnote)}</p>
 </body>
 </html>`
 
