@@ -675,18 +675,17 @@ export function formatInventoryCustomerReportMessage(options: {
     salesmanLine,
     `Items on hand: ${options.items.length}`,
     stats
-      ? `This period — Added: ${stats.added} · Removed: ${stats.removed} · Valve parts on hand: ${stats.partsOnHand}`
+      ? `Valves by customer ID: ${Math.max(0, stats.onHand - stats.partsOnHand)} · Parts on hand: ${stats.partsOnHand} · Removed this period: ${stats.removed} · Added this period: ${stats.added} · Added back this period: ${stats.restored}`
       : null,
-    `On hand is current stock. Valves added / removed count activity only within the period dates.`,
-    stats && stats.restored > 0 ? `Added back this period: ${stats.restored}` : null,
+    `Valves/parts are current stock. Removed / added / added back count activity only within the period dates.`,
     ``,
     ...lines,
     ...(activity
       ? [
           ``,
-          ...formatPeriodActivityLines('Added this period', activity.added, false),
-          ``,
           ...formatPeriodActivityLines('Removed this period', activity.removed, true),
+          ``,
+          ...formatPeriodActivityLines('Added this period', activity.added, false),
           ``,
           ...formatPeriodActivityLines('Added back this period', activity.restored, false),
         ]
@@ -797,16 +796,16 @@ export async function buildInventoryCustomerReportHtml(options: {
   const includeToolbar = options.includeToolbar !== false
 
   const activitySectionsHtml = `${activityTableHtml(
-    'Added this period',
-    'Valves newly placed into this customer’s inventory during the period, with date/time and who recorded it.',
-    activity.added,
-    false,
+    'Removed this period',
+    'Valves taken out of active inventory during the period, including who removed them and the PO or reason when recorded.',
+    activity.removed,
+    true,
   )}
     ${activityTableHtml(
-      'Removed this period',
-      'Valves taken out of active inventory during the period, including who removed them and the PO or reason when recorded.',
-      activity.removed,
-      true,
+      'Added this period',
+      'Valves newly placed into this customer’s inventory during the period, with date/time and who recorded it.',
+      activity.added,
+      false,
     )}
     ${activityTableHtml(
       'Added back this period',
@@ -968,7 +967,7 @@ export async function buildInventoryCustomerReportHtml(options: {
     .meta-block p { margin: 0.15rem 0; }
     .stats {
       display: grid;
-      grid-template-columns: repeat(4, 1fr);
+      grid-template-columns: repeat(5, 1fr);
       gap: 0.55rem;
       margin: 0 0 1rem;
     }
@@ -1069,6 +1068,8 @@ export async function buildInventoryCustomerReportHtml(options: {
       .masthead { flex-direction: column; align-items: flex-start; }
       .meta-block { text-align: left; }
       .stats { grid-template-columns: 1fr 1fr; }
+      .stat .label { font-size: 7.5pt; }
+      .stat .value { font-size: 18pt; }
       .toolbar button { min-height: 44px; padding: 0.65rem 1.1rem; }
     }
     @media print {
@@ -1127,28 +1128,32 @@ export async function buildInventoryCustomerReportHtml(options: {
       <p><strong>Report period:</strong> ${escapeHtml(periodRange.rangeText)} (${escapeHtml(
         periodRange.label,
       )}).</p>
-      <p><strong>On hand</strong> is current stock (not limited to this period). <strong>Valves added</strong> and
-      <strong>removed</strong> count only activity inside these dates — so on hand can be higher if some items were
-      added before the period started.</p>
-      <p class="muted"><strong>Valve parts on hand</strong> is how many of the current on-hand items are marked as parts.</p>
+      <p><strong>Valves by customer ID</strong> and <strong>Parts on hand</strong> are current stock (not limited to
+      this period). <strong>Removed</strong>, <strong>Added</strong>, and <strong>Added back</strong> count only
+      activity inside these dates.</p>
+      <p class="muted"><strong>Parts on hand</strong> is how many of the current on-hand items are marked as parts.</p>
     </div>
 
     <div class="stats">
       <div class="stat">
-        <span class="label">On hand</span>
-        <span class="value">${stats.onHand}</span>
+        <span class="label">Valves by customer ID</span>
+        <span class="value">${Math.max(0, stats.onHand - stats.partsOnHand)}</span>
       </div>
       <div class="stat muted">
-        <span class="label">Valve parts on hand</span>
+        <span class="label">Parts on hand</span>
         <span class="value">${stats.partsOnHand}</span>
       </div>
+      <div class="stat alert">
+        <span class="label">Removed this period</span>
+        <span class="value">${stats.removed}</span>
+      </div>
       <div class="stat">
-        <span class="label">Valves added</span>
+        <span class="label">Added this period</span>
         <span class="value">${stats.added}</span>
       </div>
-      <div class="stat alert">
-        <span class="label">Valves removed</span>
-        <span class="value">${stats.removed}</span>
+      <div class="stat">
+        <span class="label">Added back this period</span>
+        <span class="value">${stats.restored}</span>
       </div>
     </div>
 
@@ -1160,8 +1165,6 @@ export async function buildInventoryCustomerReportHtml(options: {
         stats.added + stats.removed + stats.restored === 1 ? '' : 's'
       }</span>
     </div>
-
-    ${activitySectionsHtml}
 
     <h2 class="section-title">Valves by customer ID</h2>
     <p class="section-note">
@@ -1216,13 +1219,15 @@ export async function buildInventoryCustomerReportHtml(options: {
       }</tbody>
     </table>
 
+    ${activitySectionsHtml}
+
     <div class="footer">
       <span>JS Valve Customer Inventory · ${escapeHtml(periodRange.label)} · ${escapeHtml(
         periodRange.rangeText,
       )}</span>
-      <span>${stats.onHand} on hand · ${stats.partsOnHand} parts · ${stats.added} added · ${
+      <span>${Math.max(0, stats.onHand - stats.partsOnHand)} valves · ${stats.partsOnHand} parts · ${
         stats.removed
-      } removed</span>
+      } removed · ${stats.added} added · ${stats.restored} added back</span>
     </div>
   </div>
 </body>
@@ -1382,7 +1387,7 @@ export function buildInventoryCustomerReportPdf(options: {
     doc.setTextColor(15, 23, 42)
     const statY = marginY + 18
     doc.text(
-      `On hand ${stats.onHand}  ·  Parts ${stats.partsOnHand}  ·  Added ${stats.added}  ·  Removed ${stats.removed}  ·  HF Acid ${stats.hfAcid}  ·  Valve groups ${valveGroups.length}  ·  Part groups ${partGroups.length}`,
+      `Valves ${Math.max(0, stats.onHand - stats.partsOnHand)}  ·  Parts ${stats.partsOnHand}  ·  Removed ${stats.removed}  ·  Added ${stats.added}  ·  Added back ${stats.restored}  ·  HF Acid ${stats.hfAcid}`,
       marginX,
       statY,
     )
@@ -1639,9 +1644,6 @@ export function buildInventoryCustomerReportPdf(options: {
   }
 
   let y = drawHeader()
-  drawActivitySection('Added this period', activity.added, false)
-  drawActivitySection('Removed this period', activity.removed, true)
-  drawActivitySection('Added back this period', activity.restored, false)
 
   drawInventoryTable(
     'Valves by customer ID (current on-hand, sorted by type)',
@@ -1681,6 +1683,10 @@ export function buildInventoryCustomerReportPdf(options: {
       jsIds: group.jsInventoryIds.length ? group.jsInventoryIds.join(', ') : '—',
     }),
   )
+
+  drawActivitySection('Removed this period', activity.removed, true)
+  drawActivitySection('Added this period', activity.added, false)
+  drawActivitySection('Added back this period', activity.restored, false)
 
   const pageCount = doc.getNumberOfPages()
   for (let page = 1; page <= pageCount; page += 1) {
@@ -1756,9 +1762,9 @@ export async function emailInventoryCustomerReport(options: {
           `Dates: ${inventoryReportPeriodDateRange(options.periodLabel).rangeText}`,
           filterNote ? `Filters: ${filterNote}` : null,
           options.salesmanName?.trim() ? `Salesman: ${options.salesmanName.trim()}` : null,
-          `Items on hand: ${options.items.length}`,
-          `This period — Added: ${stats.added} · Removed: ${stats.removed} · Valve parts on hand: ${stats.partsOnHand}`,
-          `On hand is current stock; added/removed are for the period dates only.`,
+          `Valves by customer ID: ${Math.max(0, stats.onHand - stats.partsOnHand)} · Parts on hand: ${stats.partsOnHand}`,
+          `Removed this period: ${stats.removed} · Added this period: ${stats.added} · Added back this period: ${stats.restored}`,
+          `Valves/parts are current stock; removed / added / added back are for the period dates only.`,
           ``,
           `(Full report is in the attached HTML file — open it in a browser to view or print.)`,
         ]

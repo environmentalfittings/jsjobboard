@@ -2118,21 +2118,9 @@ export function AdminInventoryPage() {
               On hand can be higher than valves added when some items were received before this period. Valve parts on
               hand: {reportPartsOnHand}.
             </p>
-            {reportPeriodActivity.added.length > 0 ? (
-              <div className="inventory-report-activity-group">
-                <h4>Added ({reportPeriodActivity.added.length})</h4>
-                <ul>
-                  {reportPeriodActivity.added.map((row) => (
-                    <li key={`add-${row.eventId}`}>
-                      {row.whenLabel} · {row.jsInventoryId} · {row.valveType} {row.size} · by {row.byName}
-                    </li>
-                  ))}
-                </ul>
-              </div>
-            ) : null}
             {reportPeriodActivity.removed.length > 0 ? (
               <div className="inventory-report-activity-group">
-                <h4>Removed ({reportPeriodActivity.removed.length})</h4>
+                <h4>Removed this period ({reportPeriodActivity.removed.length})</h4>
                 <ul>
                   {reportPeriodActivity.removed.map((row) => (
                     <li key={`rm-${row.eventId}`}>
@@ -2142,9 +2130,21 @@ export function AdminInventoryPage() {
                 </ul>
               </div>
             ) : null}
+            {reportPeriodActivity.added.length > 0 ? (
+              <div className="inventory-report-activity-group">
+                <h4>Added this period ({reportPeriodActivity.added.length})</h4>
+                <ul>
+                  {reportPeriodActivity.added.map((row) => (
+                    <li key={`add-${row.eventId}`}>
+                      {row.whenLabel} · {row.jsInventoryId} · {row.valveType} {row.size} · by {row.byName}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            ) : null}
             {reportPeriodActivity.restored.length > 0 ? (
               <div className="inventory-report-activity-group">
-                <h4>Added back ({reportPeriodActivity.restored.length})</h4>
+                <h4>Added back this period ({reportPeriodActivity.restored.length})</h4>
                 <ul>
                   {reportPeriodActivity.restored.map((row) => (
                     <li key={`back-${row.eventId}`}>
