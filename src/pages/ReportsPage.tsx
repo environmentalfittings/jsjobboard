@@ -535,6 +535,28 @@ export function ReportsPage() {
     setDueDateChangeTotalLogged(totalScoped.length)
   }
 
+  const dueDateChangeReasonLabel = (row: DueDateChangeRecord) =>
+    (row.reason_code ?? '').trim() || row.reason || '—'
+
+  const dueDateChangeOtherLabel = (row: DueDateChangeRecord) => {
+    const other = (row.other_text ?? '').trim()
+    if (other) return other
+    if ((row.reason_code ?? '') === 'Other') {
+      const match = /^Other:\s*(.+?)(?:\s*—|$)/i.exec(row.reason ?? '')
+      if (match?.[1]) return match[1].trim()
+    }
+    return '—'
+  }
+
+  const dueDateChangeCommentsLabel = (row: DueDateChangeRecord) => {
+    const comments = (row.comments ?? '').trim()
+    if (comments) return comments
+    // Legacy rows stored reason + comments in one reason string.
+    if (row.reason_code) return '—'
+    const parts = (row.reason ?? '').split(' — ')
+    return parts.length > 1 ? parts.slice(1).join(' — ') : '—'
+  }
+
   const exportDueDateChangesCsv = () => {
     const header = [
       'Changed at',
@@ -544,10 +566,13 @@ export function ReportsPage() {
       'Previous due date',
       'New due date',
       'Reason',
+      'Other detail',
+      'Comments',
       'Changed by',
       'Customer response',
       'Customer response comment',
       'Customer response at',
+      'Customer response by',
     ]
     const lines = dueDateChangeRows.map((row) =>
       [
@@ -557,11 +582,14 @@ export function ReportsPage() {
         row.customer ?? '',
         row.previous_due_date ?? '',
         row.new_due_date ?? '',
-        row.reason,
+        dueDateChangeReasonLabel(row),
+        dueDateChangeOtherLabel(row) === '—' ? '' : dueDateChangeOtherLabel(row),
+        dueDateChangeCommentsLabel(row) === '—' ? '' : dueDateChangeCommentsLabel(row),
         row.changed_by_name ?? '',
         row.customer_response ?? '',
         row.customer_response_comment ?? '',
         row.customer_response_at ?? '',
+        row.customer_response_by_name ?? '',
       ]
         .map((cell) => `"${String(cell).replace(/"/g, '""')}"`)
         .join(','),
@@ -589,8 +617,13 @@ export function ReportsPage() {
         'Previous',
         'New',
         'Reason',
+        'Other',
+        'Comments',
         'By',
         'Customer response',
+        'Response comment',
+        'Response at',
+        'Response by',
       ],
       rows: dueDateChangeRows.map((row) => [
         new Date(row.changed_at).toLocaleString(),
@@ -601,11 +634,14 @@ export function ReportsPage() {
         row.customer?.trim() || '—',
         row.previous_due_date ?? '—',
         row.new_due_date ?? '—',
-        row.reason,
+        dueDateChangeReasonLabel(row),
+        dueDateChangeOtherLabel(row),
+        dueDateChangeCommentsLabel(row),
         row.changed_by_name ?? '—',
-        row.customer_response
-          ? `${row.customer_response}${row.customer_response_comment ? ` — ${row.customer_response_comment}` : ''}`
-          : 'Pending',
+        row.customer_response ?? 'Pending',
+        row.customer_response_comment?.trim() || '—',
+        row.customer_response_at ? new Date(row.customer_response_at).toLocaleString() : '—',
+        row.customer_response_by_name?.trim() || '—',
       ]),
       summaryLines: [
         `${dueDateChangeRows.length} change${dueDateChangeRows.length === 1 ? '' : 's'} in range`,
@@ -2937,9 +2973,9 @@ export function ReportsPage() {
       title={`Due date changes${companyReportName ? ` · ${companyReportName}` : ''}`}
     >
       <p className="placeholder-copy">
-          Logs due date moves from the job board (click the due date on a card, or change it on the job card and save).
-          Technicians must pick a reason, confirm customer notification, and pending changes stay on the dashboard until
-          Approved, Cancelled, or Other. Only changes made <strong>after</strong> the due-date log table was set up in
+          Full history of due date moves: when it changed, when the customer was notified, reason, comments, who changed
+          it, and the customer response (Approved / Cancelled / Other) with comment and timestamps. Export CSV / Print
+          include the same columns. Only changes made <strong>after</strong> the due-date log table was set up in
           Supabase are recorded — older moves are not available.
         </p>
         <div className="report-filters">
@@ -2988,8 +3024,8 @@ export function ReportsPage() {
           </div>
         </div>
 
-        <div className="dashboard-table-wrap">
-          <table className="dashboard-table">
+        <div className="dashboard-table-wrap due-date-changes-report-wrap">
+          <table className="dashboard-table due-date-changes-report-table">
             <thead>
               <tr>
                 <th>Changed</th>
@@ -2999,14 +3035,19 @@ export function ReportsPage() {
                 <th>Previous</th>
                 <th>New</th>
                 <th>Reason</th>
+                <th>Other</th>
+                <th>Comments</th>
                 <th>By</th>
                 <th>Customer response</th>
+                <th>Response comment</th>
+                <th>Response at</th>
+                <th>Response by</th>
               </tr>
             </thead>
             <tbody>
               {dueDateChangeRows.length === 0 ? (
                 <tr>
-                  <td colSpan={9} className="job-muted">
+                  <td colSpan={14} className="job-muted">
                     {dueDateChangeLoading
                       ? 'Loading…'
                       : dueDateChangeTotalLogged === 0
@@ -3027,19 +3068,20 @@ export function ReportsPage() {
                     <td>{row.customer?.trim() || '—'}</td>
                     <td>{row.previous_due_date ?? '—'}</td>
                     <td>{row.new_due_date ?? '—'}</td>
-                    <td className="table-cell-clamp">{row.reason}</td>
+                    <td className="table-cell-clamp">{dueDateChangeReasonLabel(row)}</td>
+                    <td className="table-cell-clamp">{dueDateChangeOtherLabel(row)}</td>
+                    <td className="table-cell-clamp">{dueDateChangeCommentsLabel(row)}</td>
                     <td>{row.changed_by_name ?? '—'}</td>
+                    <td>{row.customer_response ?? 'Pending'}</td>
                     <td className="table-cell-clamp">
-                      {row.customer_response
-                        ? `${row.customer_response}${
-                            row.customer_response_comment ? ` — ${row.customer_response_comment}` : ''
-                          }${
-                            row.customer_response_at
-                              ? ` (${new Date(row.customer_response_at).toLocaleString()})`
-                              : ''
-                          }`
-                        : 'Pending'}
+                      {row.customer_response_comment?.trim() || '—'}
                     </td>
+                    <td>
+                      {row.customer_response_at
+                        ? new Date(row.customer_response_at).toLocaleString()
+                        : '—'}
+                    </td>
+                    <td>{row.customer_response_by_name?.trim() || '—'}</td>
                   </tr>
                 ))
               )}
