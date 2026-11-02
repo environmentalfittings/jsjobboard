@@ -98,10 +98,13 @@ export async function fetchPendingCustomerDueDateChanges(): Promise<{
   data: DueDateChangeRecord[]
   error: Error | null
 }> {
+  // Only structured (post-feature) changes belong on the dashboard queue.
+  // Legacy "Updated from job card" rows have null reason_code.
   const { data, error } = await supabase
     .from('due_date_changes')
     .select(DUE_DATE_CHANGE_SELECT)
     .is('customer_response', null)
+    .not('reason_code', 'is', null)
     .order('changed_at', { ascending: false })
     .limit(200)
 
