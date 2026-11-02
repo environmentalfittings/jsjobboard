@@ -1,7 +1,6 @@
 import { useEffect, useState } from 'react'
 import type { Valve } from '../types'
 import {
-  commentsRequiredForReason,
   DUE_DATE_CHANGE_REASON_CODES,
   otherTextRequiredForReason,
   validateDueDateChangeDetails,
@@ -60,7 +59,6 @@ export function DueDateChangeModal({
   const previousLabel = toInputDate(valve.due_date) || 'None'
   const nextLabel = dueDate.trim() || 'None'
   const dateChanged = previousLabel !== nextLabel
-  const needComments = commentsRequiredForReason(reasonCode)
   const needOther = otherTextRequiredForReason(reasonCode)
 
   const trySave = () => {
@@ -154,12 +152,7 @@ export function DueDateChangeModal({
             </label>
           ) : null}
           <label>
-            Comments
-            {needComments ? (
-              <span className="due-date-change-required"> (required)</span>
-            ) : (
-              <span className="job-muted"> (optional)</span>
-            )}
+            Comments <span className="due-date-change-required">(required)</span>
             <textarea
               className="due-date-change-reason"
               rows={3}
@@ -167,6 +160,7 @@ export function DueDateChangeModal({
               onChange={(e) => setComments(e.target.value)}
               placeholder={commentsPlaceholder}
               disabled={isSaving}
+              required
             />
           </label>
           <label className="due-date-change-notify">

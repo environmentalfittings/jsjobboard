@@ -18,7 +18,7 @@ comment on column public.due_date_changes.reason_code is
 comment on column public.due_date_changes.other_text is
   'Required when reason_code = Other — what Other means';
 comment on column public.due_date_changes.comments is
-  'Technician comments (required for Waiting on parts and Other)';
+  'Technician comments (required for every due date change reason)';
 comment on column public.due_date_changes.customer_notification_at is
   'When the customer was notified of the due date change';
 comment on column public.due_date_changes.customer_response is
