@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { useAuth } from '../contexts/AuthContext'
 import { useOrganization } from '../contexts/OrganizationContext'
@@ -31,6 +31,9 @@ type RowDraft = {
   comment: string
 }
 
+type SortKey = 'changed_at' | 'customer_notification_at' | 'valve_id' | 'customer' | 'previous_due_date' | 'new_due_date'
+type SortDir = 'asc' | 'desc'
+
 function draftFromRow(row: DueDateChangeRecord): RowDraft {
   return {
     reasonCode: parseReasonCodeFromRecord(row.reason_code),
@@ -38,6 +41,23 @@ function draftFromRow(row: DueDateChangeRecord): RowDraft {
     comments: row.comments ?? '',
     response: '',
     comment: '',
+  }
+}
+
+function sortValue(row: DueDateChangeRecord, key: SortKey): string {
+  switch (key) {
+    case 'changed_at':
+      return row.changed_at ?? ''
+    case 'customer_notification_at':
+      return row.customer_notification_at ?? ''
+    case 'valve_id':
+      return (row.valve_id ?? '').toLowerCase()
+    case 'customer':
+      return (row.customer ?? '').trim().toLowerCase()
+    case 'previous_due_date':
+      return row.previous_due_date ?? ''
+    case 'new_due_date':
+      return row.new_due_date ?? ''
   }
 }
 
@@ -50,6 +70,9 @@ export function DueDateCustomerPendingPanel() {
   const [loading, setLoading] = useState(true)
   const [actionId, setActionId] = useState<number | null>(null)
   const [drafts, setDrafts] = useState<Record<number, RowDraft>>({})
+  /** Default customer A→Z so sales can work one customer at a time. */
+  const [sortKey, setSortKey] = useState<SortKey>('customer')
+  const [sortDir, setSortDir] = useState<SortDir>('asc')
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -78,6 +101,52 @@ export function DueDateCustomerPendingPanel() {
   useEffect(() => {
     void load()
   }, [load])
+
+  const sortedRows = useMemo(() => {
+    const copy = [...rows]
+    copy.sort((a, b) => {
+      const av = sortValue(a, sortKey)
+      const bv = sortValue(b, sortKey)
+      const emptyA = !av
+      const emptyB = !bv
+      if (emptyA !== emptyB) return emptyA ? 1 : -1
+      if (av < bv) return sortDir === 'asc' ? -1 : 1
+      if (av > bv) return sortDir === 'asc' ? 1 : -1
+      // Stable secondary: customer then changed time.
+      const cust = (a.customer ?? '').localeCompare(b.customer ?? '', undefined, { sensitivity: 'base' })
+      if (cust !== 0) return cust
+      return (b.changed_at ?? '').localeCompare(a.changed_at ?? '')
+    })
+    return copy
+  }, [rows, sortKey, sortDir])
+
+  const toggleSort = (key: SortKey) => {
+    if (sortKey === key) {
+      setSortDir((d) => (d === 'asc' ? 'desc' : 'asc'))
+      return
+    }
+    setSortKey(key)
+    setSortDir(key === 'changed_at' || key === 'customer_notification_at' ? 'desc' : 'asc')
+  }
+
+  const sortHeader = (key: SortKey, label: string) => {
+    const active = sortKey === key
+    return (
+      <th>
+        <button
+          type="button"
+          className={`list-col-sort-btn${active ? ` sorted-${sortDir}` : ''}`}
+          onClick={() => toggleSort(key)}
+          aria-label={`Sort by ${label}`}
+        >
+          <span>{label}</span>
+          <span className="list-col-sort-indicator" aria-hidden>
+            {active ? (sortDir === 'asc' ? '↑' : '↓') : '↕'}
+          </span>
+        </button>
+      </th>
+    )
+  }
 
   const patchDraft = (id: number, patch: Partial<RowDraft>) => {
     setDrafts((prev) => ({
@@ -180,9 +249,8 @@ export function DueDateCustomerPendingPanel() {
           <p className="status-breakdown-note">
             Through <strong>{DUE_DATE_CUSTOMER_QUEUE_CUTOFF_DATE}</strong>: still-in-shop jobs (not Completed) that had a
             due date change. After that date: every due date change stays here until{' '}
-            <strong>Approved</strong>, <strong>Cancelled</strong>, or <strong>Other</strong> (with a comment). You can
-            change the reason here; <strong>Record</strong> does nothing until you pick a customer response and enter a
-            comment.
+            <strong>Approved</strong>, <strong>Cancelled</strong>, or <strong>Other</strong> (with a comment). Sorted by{' '}
+            <strong>Customer</strong> by default so you can clear one customer at a time. Click column headers to re-sort.
           </p>
         </div>
         <div className="rework-dashboard-panel-actions">
@@ -204,18 +272,18 @@ export function DueDateCustomerPendingPanel() {
           <table className="dashboard-table">
             <thead>
               <tr>
-                <th>Changed</th>
-                <th>Customer notified</th>
-                <th>Valve ID</th>
-                <th>Customer</th>
-                <th>Previous</th>
-                <th>New</th>
+                {sortHeader('changed_at', 'Changed')}
+                {sortHeader('customer_notification_at', 'Customer notified')}
+                {sortHeader('valve_id', 'Valve ID')}
+                {sortHeader('customer', 'Customer')}
+                {sortHeader('previous_due_date', 'Previous')}
+                {sortHeader('new_due_date', 'New')}
                 <th>Reason</th>
                 <th>Customer response</th>
               </tr>
             </thead>
             <tbody>
-              {rows.map((row) => {
+              {sortedRows.map((row) => {
                 const draft = drafts[row.id] ?? draftFromRow(row)
                 const needOther = otherTextRequiredForReason(draft.reasonCode)
                 const busy = actionId === row.id
