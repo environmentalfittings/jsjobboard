@@ -10441,7 +10441,8 @@ a.test-log-reports-item-name:hover {
   color: #64748b;
 }
 
-.due-date-pending-panel .due-date-pending-actions {
+.due-date-pending-panel .due-date-pending-actions,
+.due-date-pending-panel .due-date-pending-reason {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
@@ -10449,15 +10450,24 @@ a.test-log-reports-item-name:hover {
   min-width: 280px;
 }
 
+.due-date-pending-panel .due-date-pending-reason {
+  min-width: 260px;
+  max-width: 360px;
+}
+
 .due-date-pending-panel .due-date-pending-actions select,
-.due-date-pending-panel .due-date-pending-actions input[type='text'] {
+.due-date-pending-panel .due-date-pending-actions input[type='text'],
+.due-date-pending-panel .due-date-pending-reason select,
+.due-date-pending-panel .due-date-pending-reason input[type='text'] {
   font-weight: 400;
   border: 1px solid #cbd5e1;
   border-radius: 6px;
   padding: 6px 8px;
 }
 
-.due-date-pending-panel .due-date-pending-actions input[type='text'] {
+.due-date-pending-panel .due-date-pending-actions input[type='text'],
+.due-date-pending-panel .due-date-pending-reason input[type='text'],
+.due-date-pending-panel .due-date-pending-reason select {
   flex: 1 1 140px;
   min-width: 120px;
 }
