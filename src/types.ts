@@ -138,8 +138,16 @@ export interface DueDateChangeRecord {
   previous_due_date: string | null
   new_due_date: string | null
   reason: string
+  reason_code?: string | null
+  other_text?: string | null
+  comments?: string | null
   changed_by_name: string | null
   changed_at: string
+  customer_notification_at?: string | null
+  customer_response?: string | null
+  customer_response_comment?: string | null
+  customer_response_at?: string | null
+  customer_response_by_name?: string | null
 }
 
 export interface StatusReworkRecord {

@@ -536,15 +536,30 @@ export function ReportsPage() {
   }
 
   const exportDueDateChangesCsv = () => {
-    const header = ['Changed at', 'Valve ID', 'Previous due date', 'New due date', 'Reason', 'Changed by']
+    const header = [
+      'Changed at',
+      'Customer notified at',
+      'Valve ID',
+      'Previous due date',
+      'New due date',
+      'Reason',
+      'Changed by',
+      'Customer response',
+      'Customer response comment',
+      'Customer response at',
+    ]
     const lines = dueDateChangeRows.map((row) =>
       [
         row.changed_at,
+        row.customer_notification_at ?? '',
         row.valve_id,
         row.previous_due_date ?? '',
         row.new_due_date ?? '',
         row.reason,
         row.changed_by_name ?? '',
+        row.customer_response ?? '',
+        row.customer_response_comment ?? '',
+        row.customer_response_at ?? '',
       ]
         .map((cell) => `"${String(cell).replace(/"/g, '""')}"`)
         .join(','),
@@ -564,14 +579,29 @@ export function ReportsPage() {
     const { error } = printTableReport({
       title: 'Due date changes',
       subtitle: `${companyLabel} · ${dueDateStart} → ${dueDateEnd}`,
-      columns: ['Changed', 'Valve ID', 'Previous', 'New', 'Reason', 'By'],
+      columns: [
+        'Changed',
+        'Customer notified',
+        'Valve ID',
+        'Previous',
+        'New',
+        'Reason',
+        'By',
+        'Customer response',
+      ],
       rows: dueDateChangeRows.map((row) => [
         new Date(row.changed_at).toLocaleString(),
+        row.customer_notification_at
+          ? new Date(row.customer_notification_at).toLocaleString()
+          : '—',
         row.valve_id,
         row.previous_due_date ?? '—',
         row.new_due_date ?? '—',
         row.reason,
         row.changed_by_name ?? '—',
+        row.customer_response
+          ? `${row.customer_response}${row.customer_response_comment ? ` — ${row.customer_response_comment}` : ''}`
+          : 'Pending',
       ]),
       summaryLines: [
         `${dueDateChangeRows.length} change${dueDateChangeRows.length === 1 ? '' : 's'} in range`,
@@ -2904,8 +2934,9 @@ export function ReportsPage() {
     >
       <p className="placeholder-copy">
           Logs due date moves from the job board (click the due date on a card, or change it on the job card and save).
-          Only changes made <strong>after</strong> the due-date log table was set up in Supabase are recorded — older
-          moves are not available.
+          Technicians must pick a reason, confirm customer notification, and pending changes stay on the dashboard until
+          Approved, Cancelled, or Other. Only changes made <strong>after</strong> the due-date log table was set up in
+          Supabase are recorded — older moves are not available.
         </p>
         <div className="report-filters">
           <label>
@@ -2958,17 +2989,19 @@ export function ReportsPage() {
             <thead>
               <tr>
                 <th>Changed</th>
+                <th>Customer notified</th>
                 <th>Valve ID</th>
                 <th>Previous</th>
                 <th>New</th>
                 <th>Reason</th>
                 <th>By</th>
+                <th>Customer response</th>
               </tr>
             </thead>
             <tbody>
               {dueDateChangeRows.length === 0 ? (
                 <tr>
-                  <td colSpan={6} className="job-muted">
+                  <td colSpan={8} className="job-muted">
                     {dueDateChangeLoading
                       ? 'Loading…'
                       : dueDateChangeTotalLogged === 0
@@ -2980,11 +3013,27 @@ export function ReportsPage() {
                 dueDateChangeRows.map((row) => (
                   <tr key={row.id}>
                     <td>{new Date(row.changed_at).toLocaleString()}</td>
+                    <td>
+                      {row.customer_notification_at
+                        ? new Date(row.customer_notification_at).toLocaleString()
+                        : '—'}
+                    </td>
                     <td>{row.valve_id}</td>
                     <td>{row.previous_due_date ?? '—'}</td>
                     <td>{row.new_due_date ?? '—'}</td>
                     <td className="table-cell-clamp">{row.reason}</td>
                     <td>{row.changed_by_name ?? '—'}</td>
+                    <td className="table-cell-clamp">
+                      {row.customer_response
+                        ? `${row.customer_response}${
+                            row.customer_response_comment ? ` — ${row.customer_response_comment}` : ''
+                          }${
+                            row.customer_response_at
+                              ? ` (${new Date(row.customer_response_at).toLocaleString()})`
+                              : ''
+                          }`
+                        : 'Pending'}
+                    </td>
                   </tr>
                 ))
               )}

@@ -7,6 +7,7 @@ import { RoleBadge } from '../components/RoleBadge'
 import { TeamJobsTable } from '../components/TeamJobsTable'
 import { TechJobCard } from '../components/TechJobCard'
 import { useToast } from '../components/ToastNotification'
+import type { DueDateChangeDetails, DueDateChangeSavePayload } from '../lib/dueDateChangeReasons'
 import { recordDueDateChange, resolveChangedByName } from '../lib/dueDateChanges'
 import { loadItpCardSummaries, type ItpCardSummary } from '../lib/itpCardSummaries'
 import {
@@ -47,7 +48,7 @@ export function SupervisorDashboardPage({ user, appRole, onLogout }: SupervisorD
     valve: Valve
     nextStatus: string
     nextDueDate?: string | null
-    dueDateReason?: string
+    dueDateDetails?: DueDateChangeDetails
   } | null>(null)
   const [savingRework, setSavingRework] = useState(false)
   const [pendingResumeDueDate, setPendingResumeDueDate] = useState<{ valve: Valve; nextStatus: string } | null>(
@@ -132,7 +133,7 @@ export function SupervisorDashboardPage({ user, appRole, onLogout }: SupervisorD
     options?: {
       reworkReason?: string
       nextDueDate?: string | null
-      dueDateReason?: string
+      dueDateDetails?: DueDateChangeDetails
     },
   ) => {
     const previousDueDate = job.due_date?.trim() || null
@@ -161,13 +162,13 @@ export function SupervisorDashboardPage({ user, appRole, onLogout }: SupervisorD
         showToast(`Status updated, but rework log failed: ${reworkError.message}`)
       }
     }
-    if (dueDateChanged) {
+    if (dueDateChanged && options?.dueDateDetails) {
       const { error: logError } = await recordDueDateChange({
         valveRowId: job.id,
         valveId: job.valve_id,
         previousDueDate,
         newDueDate: nextDueDate,
-        reason: options?.dueDateReason?.trim() || `Resumed from ${job.status}`,
+        details: options.dueDateDetails,
         changedByName,
       })
       if (logError) {
@@ -197,8 +198,10 @@ export function SupervisorDashboardPage({ user, appRole, onLogout }: SupervisorD
     try {
       const ok = await applySupervisorJobStatus(pendingRework.valve, pendingRework.nextStatus, {
         reworkReason: reason,
-        dueDateReason: pendingRework.dueDateReason,
-        ...(pendingRework.nextDueDate !== undefined ? { nextDueDate: pendingRework.nextDueDate } : {}),
+        dueDateDetails: pendingRework.dueDateDetails,
+        ...(pendingRework.dueDateDetails
+          ? { nextDueDate: pendingRework.nextDueDate ?? null }
+          : {}),
       })
       if (ok) setPendingRework(null)
     } finally {
@@ -206,8 +209,14 @@ export function SupervisorDashboardPage({ user, appRole, onLogout }: SupervisorD
     }
   }
 
-  const confirmResumeDueDate = async (nextDueDate: string | null, reason: string) => {
+  const confirmResumeDueDate = async (payload: DueDateChangeSavePayload) => {
     if (!pendingResumeDueDate) return
+    const details: DueDateChangeDetails = {
+      reasonCode: payload.reasonCode,
+      otherText: payload.otherText,
+      comments: payload.comments,
+      customerNotified: payload.customerNotified,
+    }
     setSavingResumeDueDate(true)
     try {
       if (
@@ -221,14 +230,14 @@ export function SupervisorDashboardPage({ user, appRole, onLogout }: SupervisorD
         setPendingRework({
           valve: pendingResumeDueDate.valve,
           nextStatus: pendingResumeDueDate.nextStatus,
-          nextDueDate,
-          dueDateReason: reason,
+          nextDueDate: payload.nextDueDate,
+          dueDateDetails: details,
         })
         return
       }
       const ok = await applySupervisorJobStatus(pendingResumeDueDate.valve, pendingResumeDueDate.nextStatus, {
-        nextDueDate,
-        dueDateReason: reason,
+        nextDueDate: payload.nextDueDate,
+        dueDateDetails: details,
       })
       if (ok) setPendingResumeDueDate(null)
     } finally {
@@ -313,8 +322,7 @@ export function SupervisorDashboardPage({ user, appRole, onLogout }: SupervisorD
           isSaving={savingResumeDueDate}
           title="Update delivery date to resume"
           newDateLabel="New delivery / due date"
-          defaultReason={`Resumed from ${pendingResumeDueDate.valve.status}`}
-          reasonPlaceholder="Why is this job returning to the shop, and why this new date?"
+          commentsPlaceholder="Why is this job returning to the shop, and why this new date?"
           introExtra={`Moving from ${pendingResumeDueDate.valve.status} to ${pendingResumeDueDate.nextStatus}. ${OTD_PAUSE_STATUS_LABEL} do not count against on-time delivery until you set a new due date.`}
           onCancel={() => {
             if (!savingResumeDueDate) setPendingResumeDueDate(null)
