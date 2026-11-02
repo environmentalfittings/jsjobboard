@@ -540,6 +540,7 @@ export function ReportsPage() {
       'Changed at',
       'Customer notified at',
       'Valve ID',
+      'Customer',
       'Previous due date',
       'New due date',
       'Reason',
@@ -553,6 +554,7 @@ export function ReportsPage() {
         row.changed_at,
         row.customer_notification_at ?? '',
         row.valve_id,
+        row.customer ?? '',
         row.previous_due_date ?? '',
         row.new_due_date ?? '',
         row.reason,
@@ -583,6 +585,7 @@ export function ReportsPage() {
         'Changed',
         'Customer notified',
         'Valve ID',
+        'Customer',
         'Previous',
         'New',
         'Reason',
@@ -595,6 +598,7 @@ export function ReportsPage() {
           ? new Date(row.customer_notification_at).toLocaleString()
           : '—',
         row.valve_id,
+        row.customer?.trim() || '—',
         row.previous_due_date ?? '—',
         row.new_due_date ?? '—',
         row.reason,
@@ -2991,6 +2995,7 @@ export function ReportsPage() {
                 <th>Changed</th>
                 <th>Customer notified</th>
                 <th>Valve ID</th>
+                <th>Customer</th>
                 <th>Previous</th>
                 <th>New</th>
                 <th>Reason</th>
@@ -3001,7 +3006,7 @@ export function ReportsPage() {
             <tbody>
               {dueDateChangeRows.length === 0 ? (
                 <tr>
-                  <td colSpan={8} className="job-muted">
+                  <td colSpan={9} className="job-muted">
                     {dueDateChangeLoading
                       ? 'Loading…'
                       : dueDateChangeTotalLogged === 0
@@ -3019,6 +3024,7 @@ export function ReportsPage() {
                         : '—'}
                     </td>
                     <td>{row.valve_id}</td>
+                    <td>{row.customer?.trim() || '—'}</td>
                     <td>{row.previous_due_date ?? '—'}</td>
                     <td>{row.new_due_date ?? '—'}</td>
                     <td className="table-cell-clamp">{row.reason}</td>

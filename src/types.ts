@@ -135,6 +135,8 @@ export interface DueDateChangeRecord {
   id: number
   valve_row_id: number
   valve_id: string
+  /** Job customer from valves (enriched on fetch; not stored on due_date_changes). */
+  customer?: string | null
   previous_due_date: string | null
   new_due_date: string | null
   reason: string
