@@ -10405,6 +10405,7 @@ a.test-log-reports-item-name:hover {
 }
 
 .due-date-change-form input,
+.due-date-change-form select,
 .due-date-change-reason {
   font-weight: 400;
   border: 1px solid #cbd5e1;
@@ -10417,6 +10418,18 @@ a.test-log-reports-item-name:hover {
   min-height: 88px;
 }
 
+.due-date-change-notify {
+  flex-direction: row !important;
+  align-items: flex-start;
+  gap: 8px !important;
+  font-weight: 500 !important;
+}
+
+.due-date-change-notify input {
+  margin-top: 2px;
+  width: auto;
+}
+
 .due-date-change-required {
   color: #b91c1c;
   font-weight: 600;
@@ -10426,6 +10439,27 @@ a.test-log-reports-item-name:hover {
   margin: 0 0 8px;
   font-size: 13px;
   color: #64748b;
+}
+
+.due-date-pending-panel .due-date-pending-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  min-width: 280px;
+}
+
+.due-date-pending-panel .due-date-pending-actions select,
+.due-date-pending-panel .due-date-pending-actions input[type='text'] {
+  font-weight: 400;
+  border: 1px solid #cbd5e1;
+  border-radius: 6px;
+  padding: 6px 8px;
+}
+
+.due-date-pending-panel .due-date-pending-actions input[type='text'] {
+  flex: 1 1 140px;
+  min-width: 120px;
 }
 
 .due-date-overdue {

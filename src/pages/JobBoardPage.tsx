@@ -53,6 +53,7 @@ import {
   type ListSortState,
   type ColumnFilterState,
 } from '../lib/jobBoardListColumns'
+import type { DueDateChangeDetails, DueDateChangeSavePayload } from '../lib/dueDateChangeReasons'
 import { recordDueDateChange, resolveChangedByName } from '../lib/dueDateChanges'
 import { recordStatusRework } from '../lib/statusReworkLog'
 import { isBackwardStatusMove } from '../lib/statusWorkflow'
@@ -596,7 +597,8 @@ export function JobBoardPage({ role, username }: { role?: UserRole; username?: s
     nextStatus: string
     mode: 'status-only' | 'modal-save'
     modalFields?: JobCardSaveFields
-    dueDateReason?: string
+    dueDateDetails?: DueDateChangeDetails
+    nextDueDate?: string | null
   } | null>(null)
   const [savingRework, setSavingRework] = useState(false)
   const [pendingResumeDueDate, setPendingResumeDueDate] = useState<{
@@ -606,6 +608,12 @@ export function JobBoardPage({ role, username }: { role?: UserRole; username?: s
     modalFields?: JobCardSaveFields
   } | null>(null)
   const [savingResumeDueDate, setSavingResumeDueDate] = useState(false)
+  /** Job card save with a due-date move — collect structured reason before applying. */
+  const [pendingJobCardDueDate, setPendingJobCardDueDate] = useState<{
+    valve: Valve
+    fields: JobCardSaveFields
+    nextStatus: string
+  } | null>(null)
   const [lookupOptions, setLookupOptions] = useState<Record<LookupCategory, string[]>>(() =>
     Object.fromEntries(LOOKUP_CATEGORY_DEFS.map((d) => [d.key, [...d.fallback]])) as Record<
       LookupCategory,
@@ -1210,12 +1218,13 @@ export function JobBoardPage({ role, username }: { role?: UserRole; username?: s
     setDueDateEditValve(valve)
   }
 
-  const saveDueDateChange = async (nextDueDate: string | null, reason: string) => {
+  const saveDueDateChange = async (payload: DueDateChangeSavePayload) => {
     if (!canWrite) {
       showToast(permissionDeniedReason('shopWrite'))
       return
     }
     if (!dueDateEditValve) return
+    const nextDueDate = payload.nextDueDate
     const previousDueDate = dueDateLabel(dueDateEditValve.due_date)
     if ((previousDueDate ?? null) === nextDueDate) return
 
@@ -1237,7 +1246,12 @@ export function JobBoardPage({ role, username }: { role?: UserRole; username?: s
       valveId: dueDateEditValve.valve_id,
       previousDueDate,
       newDueDate: nextDueDate,
-      reason,
+      details: {
+        reasonCode: payload.reasonCode,
+        otherText: payload.otherText,
+        comments: payload.comments,
+        customerNotified: payload.customerNotified,
+      },
       changedByName,
     })
 
@@ -1290,7 +1304,7 @@ export function JobBoardPage({ role, username }: { role?: UserRole; username?: s
     fields: JobCardSaveFields,
     nextStatus: string,
     reworkReason?: string,
-    dueDateReason?: string,
+    dueDateDetails?: DueDateChangeDetails,
   ) => {
     const patch: Partial<Valve> = {
       description: fields.description.trim() || null,
@@ -1367,20 +1381,20 @@ export function JobBoardPage({ role, username }: { role?: UserRole; username?: s
     }
 
     if (dueDateChanged) {
-      const { error: logError } = await recordDueDateChange({
-        valveRowId: valve.id,
-        valveId: valve.valve_id,
-        previousDueDate,
-        newDueDate: nextDueDate,
-        reason:
-          dueDateReason?.trim() ||
-          (requiresDueDateUpdateWhenLeavingOtdPause(valve.status, nextStatus)
-            ? `Resumed from ${valve.status}`
-            : 'Updated from job card'),
-        changedByName,
-      })
-      if (logError) {
-        showToast(`Saved, but due date change log failed: ${logError.message}`)
+      if (dueDateDetails) {
+        const { error: logError } = await recordDueDateChange({
+          valveRowId: valve.id,
+          valveId: valve.valve_id,
+          previousDueDate,
+          newDueDate: nextDueDate,
+          details: dueDateDetails,
+          changedByName,
+        })
+        if (logError) {
+          showToast(`Saved, but due date change log failed: ${logError.message}`)
+        }
+      } else {
+        showToast('Due date changed — open Change due date to pick a reason (not logged as Updated from job card).')
       }
     }
 
@@ -1406,6 +1420,17 @@ export function JobBoardPage({ role, username }: { role?: UserRole; username?: s
         return
       }
     }
+    const previousDueDate = dueDateLabel(activeValve.due_date)
+    const nextDueDate = fields.dueDate?.trim() || null
+    const dueDateChanged = (previousDueDate ?? null) !== nextDueDate
+    if (dueDateChanged) {
+      setPendingJobCardDueDate({
+        valve: activeValve,
+        fields,
+        nextStatus: selectedStatus,
+      })
+      return
+    }
     if (isBackwardStatusMove(activeValve.status, selectedStatus, workflow.key)) {
       setPendingRework({
         valve: activeValve,
@@ -1424,7 +1449,7 @@ export function JobBoardPage({ role, username }: { role?: UserRole; username?: s
     options?: {
       reworkReason?: string
       nextDueDate?: string | null
-      dueDateReason?: string
+      dueDateDetails?: DueDateChangeDetails
     },
   ) => {
     if (!nextStatus || valve.status === nextStatus) return false
@@ -1478,13 +1503,13 @@ export function JobBoardPage({ role, username }: { role?: UserRole; username?: s
       }
     }
 
-    if (dueDateChanged) {
+    if (dueDateChanged && options?.dueDateDetails) {
       const { error: logError } = await recordDueDateChange({
         valveRowId: valve.id,
         valveId: valve.valve_id,
         previousDueDate,
         newDueDate: nextDueDate,
-        reason: options?.dueDateReason?.trim() || `Resumed from ${previous.status}`,
+        details: options.dueDateDetails,
         changedByName,
       })
       if (logError) {
@@ -1533,13 +1558,16 @@ export function JobBoardPage({ role, username }: { role?: UserRole; username?: s
           pendingRework.modalFields,
           pendingRework.nextStatus,
           reason,
-          pendingRework.dueDateReason,
+          pendingRework.dueDateDetails,
         )
         if (ok) setPendingRework(null)
       } else {
         const ok = await applyStatusMove(pendingRework.valve, pendingRework.nextStatus, {
           reworkReason: reason,
-          dueDateReason: pendingRework.dueDateReason,
+          dueDateDetails: pendingRework.dueDateDetails,
+          ...(pendingRework.dueDateDetails
+            ? { nextDueDate: pendingRework.nextDueDate ?? null }
+            : {}),
         })
         if (ok) setPendingRework(null)
       }
@@ -1548,14 +1576,20 @@ export function JobBoardPage({ role, username }: { role?: UserRole; username?: s
     }
   }
 
-  const confirmResumeDueDate = async (nextDueDate: string | null, reason: string) => {
+  const confirmResumeDueDate = async (payload: DueDateChangeSavePayload) => {
     if (!pendingResumeDueDate) return
+    const details: DueDateChangeDetails = {
+      reasonCode: payload.reasonCode,
+      otherText: payload.otherText,
+      comments: payload.comments,
+      customerNotified: payload.customerNotified,
+    }
     setSavingResumeDueDate(true)
     try {
       if (pendingResumeDueDate.mode === 'modal-save' && pendingResumeDueDate.modalFields) {
         const fields: JobCardSaveFields = {
           ...pendingResumeDueDate.modalFields,
-          dueDate: nextDueDate,
+          dueDate: payload.nextDueDate,
         }
         if (
           isBackwardStatusMove(
@@ -1570,7 +1604,7 @@ export function JobBoardPage({ role, username }: { role?: UserRole; username?: s
             nextStatus: pendingResumeDueDate.nextStatus,
             mode: 'modal-save',
             modalFields: fields,
-            dueDateReason: reason,
+            dueDateDetails: details,
           })
           return
         }
@@ -1579,7 +1613,7 @@ export function JobBoardPage({ role, username }: { role?: UserRole; username?: s
           fields,
           pendingResumeDueDate.nextStatus,
           undefined,
-          reason,
+          details,
         )
         if (ok) setPendingResumeDueDate(null)
       } else {
@@ -1595,18 +1629,63 @@ export function JobBoardPage({ role, username }: { role?: UserRole; username?: s
             valve: pendingResumeDueDate.valve,
             nextStatus: pendingResumeDueDate.nextStatus,
             mode: 'status-only',
-            dueDateReason: reason,
+            dueDateDetails: details,
+            nextDueDate: payload.nextDueDate,
           })
           return
         }
         const ok = await applyStatusMove(pendingResumeDueDate.valve, pendingResumeDueDate.nextStatus, {
-          nextDueDate,
-          dueDateReason: reason,
+          nextDueDate: payload.nextDueDate,
+          dueDateDetails: details,
         })
         if (ok) setPendingResumeDueDate(null)
       }
     } finally {
       setSavingResumeDueDate(false)
+    }
+  }
+
+  const confirmJobCardDueDate = async (payload: DueDateChangeSavePayload) => {
+    if (!pendingJobCardDueDate) return
+    const details: DueDateChangeDetails = {
+      reasonCode: payload.reasonCode,
+      otherText: payload.otherText,
+      comments: payload.comments,
+      customerNotified: payload.customerNotified,
+    }
+    const fields: JobCardSaveFields = {
+      ...pendingJobCardDueDate.fields,
+      dueDate: payload.nextDueDate,
+    }
+    setSavingDueDate(true)
+    try {
+      if (
+        isBackwardStatusMove(
+          pendingJobCardDueDate.valve.status,
+          pendingJobCardDueDate.nextStatus,
+          workflow.key,
+        )
+      ) {
+        setPendingJobCardDueDate(null)
+        setPendingRework({
+          valve: pendingJobCardDueDate.valve,
+          nextStatus: pendingJobCardDueDate.nextStatus,
+          mode: 'modal-save',
+          modalFields: fields,
+          dueDateDetails: details,
+        })
+        return
+      }
+      const ok = await applyModalSave(
+        pendingJobCardDueDate.valve,
+        fields,
+        pendingJobCardDueDate.nextStatus,
+        undefined,
+        details,
+      )
+      if (ok) setPendingJobCardDueDate(null)
+    } finally {
+      setSavingDueDate(false)
     }
   }
 
@@ -2642,8 +2721,7 @@ export function JobBoardPage({ role, username }: { role?: UserRole; username?: s
           isSaving={savingResumeDueDate}
           title="Update delivery date to resume"
           newDateLabel="New delivery / due date"
-          defaultReason={`Resumed from ${pendingResumeDueDate.valve.status}`}
-          reasonPlaceholder="Why is this job returning to the shop, and why this new date?"
+          commentsPlaceholder="Why is this job returning to the shop, and why this new date?"
           introExtra={`Moving from ${pendingResumeDueDate.valve.status} to ${pendingResumeDueDate.nextStatus}. ${OTD_PAUSE_STATUS_LABEL} do not count against on-time delivery until you set a new due date and move the job back into active work.`}
           onCancel={() => {
             if (!savingResumeDueDate) setPendingResumeDueDate(null)
@@ -2652,7 +2730,21 @@ export function JobBoardPage({ role, username }: { role?: UserRole; username?: s
         />
       ) : null}
 
-      {dueDateEditValve && !pendingResumeDueDate ? (
+      {pendingJobCardDueDate && !pendingResumeDueDate ? (
+        <DueDateChangeModal
+          valve={pendingJobCardDueDate.valve}
+          initialNewDueDate={pendingJobCardDueDate.fields.dueDate}
+          isSaving={savingDueDate}
+          title="Reason for due date change"
+          introExtra="Select a reason and confirm the customer was notified before saving the job card."
+          onCancel={() => {
+            if (!savingDueDate) setPendingJobCardDueDate(null)
+          }}
+          onSave={confirmJobCardDueDate}
+        />
+      ) : null}
+
+      {dueDateEditValve && !pendingResumeDueDate && !pendingJobCardDueDate ? (
         <DueDateChangeModal
           valve={dueDateEditValve}
           isSaving={savingDueDate}

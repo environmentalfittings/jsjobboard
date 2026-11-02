@@ -3,6 +3,7 @@ import { Link, useNavigate } from 'react-router-dom'
 import { DashboardNotesPanel } from '../components/DashboardNotesPanel'
 import { ReceivedValvesDashboardPanel } from '../components/ReceivedValvesDashboardPanel'
 import { ReworkDashboardPanel } from '../components/ReworkDashboardPanel'
+import { DueDateCustomerPendingPanel } from '../components/DueDateCustomerPendingPanel'
 import { WarehouseRtsDashboardPanel } from '../components/WarehouseRtsDashboardPanel'
 import { NeededPartsDashboardPanel } from '../components/NeededPartsDashboardPanel'
 import { useToast } from '../components/ToastNotification'
@@ -569,6 +570,8 @@ export function DashboardPage() {
           </section>
 
           <ReworkDashboardPanel />
+
+          <DueDateCustomerPendingPanel />
 
           <NeededPartsDashboardPanel />
 
