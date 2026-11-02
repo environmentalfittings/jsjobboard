@@ -9,6 +9,23 @@ import { supabase } from './supabase'
 const DUE_DATE_CHANGE_SELECT =
   'id,valve_row_id,valve_id,previous_due_date,new_due_date,reason,reason_code,other_text,comments,changed_by_name,changed_at,customer_notification_at,customer_response,customer_response_comment,customer_response_at,customer_response_by_name'
 
+async function attachCustomerNames(
+  rows: DueDateChangeRecord[],
+): Promise<DueDateChangeRecord[]> {
+  if (rows.length === 0) return rows
+  const ids = [...new Set(rows.map((r) => r.valve_row_id).filter((id) => Number.isFinite(id)))]
+  if (ids.length === 0) return rows
+  const { data, error } = await supabase.from('valves').select('id,customer').in('id', ids)
+  if (error || !data) return rows
+  const byId = new Map(
+    data.map((v) => [v.id as number, ((v.customer as string | null) ?? '').trim() || null]),
+  )
+  return rows.map((row) => ({
+    ...row,
+    customer: byId.get(row.valve_row_id) ?? row.customer ?? null,
+  }))
+}
+
 export async function recordDueDateChange(input: {
   valveRowId: number
   valveId: string
@@ -86,11 +103,17 @@ export async function fetchDueDateChanges(
         .lte('changed_at', `${endDate}T23:59:59.999`)
         .order('changed_at', { ascending: false })
       if (legacy.error) return { data: [], error: new Error(legacy.error.message) }
-      return { data: (legacy.data ?? []) as DueDateChangeRecord[], error: null }
+      return {
+        data: await attachCustomerNames((legacy.data ?? []) as DueDateChangeRecord[]),
+        error: null,
+      }
     }
     return { data: [], error: new Error(error.message) }
   }
-  return { data: (data ?? []) as DueDateChangeRecord[], error: null }
+  return {
+    data: await attachCustomerNames((data ?? []) as DueDateChangeRecord[]),
+    error: null,
+  }
 }
 
 /** Due date moves still waiting on customer Approved / Cancelled / Other. */
@@ -119,7 +142,10 @@ export async function fetchPendingCustomerDueDateChanges(): Promise<{
     }
     return { data: [], error: new Error(error.message) }
   }
-  return { data: (data ?? []) as DueDateChangeRecord[], error: null }
+  return {
+    data: await attachCustomerNames((data ?? []) as DueDateChangeRecord[]),
+    error: null,
+  }
 }
 
 export async function recordDueDateCustomerResponse(input: {

@@ -127,6 +127,7 @@ export function DueDateCustomerPendingPanel() {
                 <th>Changed</th>
                 <th>Customer notified</th>
                 <th>Valve ID</th>
+                <th>Customer</th>
                 <th>Previous</th>
                 <th>New</th>
                 <th>Reason</th>
@@ -147,6 +148,7 @@ export function DueDateCustomerPendingPanel() {
                     <td>
                       <Link to={`/job-board?open=${row.valve_row_id}`}>{row.valve_id}</Link>
                     </td>
+                    <td>{row.customer?.trim() || '—'}</td>
                     <td>{row.previous_due_date ?? '—'}</td>
                     <td>{row.new_due_date ?? '—'}</td>
                     <td className="table-cell-clamp">{row.reason}</td>
