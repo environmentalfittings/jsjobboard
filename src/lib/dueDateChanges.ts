@@ -2,7 +2,9 @@ import type { DueDateChangeRecord } from '../types'
 import {
   DUE_DATE_CUSTOMER_QUEUE_CUTOFF_END_ISO,
   formatDueDateChangeReason,
+  validateDueDateChangeReasonFields,
   type DueDateChangeDetails,
+  type DueDateChangeReasonCode,
   type DueDateCustomerResponse,
 } from './dueDateChangeReasons'
 import { supabase } from './supabase'
@@ -193,23 +195,68 @@ export async function fetchPendingCustomerDueDateChanges(): Promise<{
   }
 }
 
+export async function updateDueDateChangeReason(input: {
+  id: number
+  reasonCode: DueDateChangeReasonCode
+  otherText: string
+  comments: string
+}): Promise<{ error: string | null; reason?: string }> {
+  const validation = validateDueDateChangeReasonFields(input)
+  if (validation) return { error: validation }
+
+  const reason = formatDueDateChangeReason(input.reasonCode, input.otherText, input.comments)
+  const { error } = await supabase
+    .from('due_date_changes')
+    .update({
+      reason,
+      reason_code: input.reasonCode,
+      other_text: input.otherText.trim() || null,
+      comments: input.comments.trim() || null,
+    })
+    .eq('id', input.id)
+    .is('customer_response', null)
+
+  if (error) return { error: error.message }
+  return { error: null, reason }
+}
+
 export async function recordDueDateCustomerResponse(input: {
   id: number
   response: DueDateCustomerResponse
   comment: string
   respondedByName?: string | null
+  reason?: {
+    reasonCode: DueDateChangeReasonCode
+    otherText: string
+    comments: string
+  }
 }): Promise<{ error: string | null }> {
   const comment = input.comment.trim()
   if (!comment) return { error: 'Enter a comment for the customer response' }
 
+  const patch: Record<string, unknown> = {
+    customer_response: input.response,
+    customer_response_comment: comment,
+    customer_response_at: new Date().toISOString(),
+    customer_response_by_name: input.respondedByName?.trim() || null,
+  }
+
+  if (input.reason) {
+    const validation = validateDueDateChangeReasonFields(input.reason)
+    if (validation) return { error: validation }
+    patch.reason = formatDueDateChangeReason(
+      input.reason.reasonCode,
+      input.reason.otherText,
+      input.reason.comments,
+    )
+    patch.reason_code = input.reason.reasonCode
+    patch.other_text = input.reason.otherText.trim() || null
+    patch.comments = input.reason.comments.trim() || null
+  }
+
   const { error } = await supabase
     .from('due_date_changes')
-    .update({
-      customer_response: input.response,
-      customer_response_comment: comment,
-      customer_response_at: new Date().toISOString(),
-      customer_response_by_name: input.respondedByName?.trim() || null,
-    })
+    .update(patch)
     .eq('id', input.id)
     .is('customer_response', null)
 

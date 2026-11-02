@@ -62,9 +62,12 @@ export function formatDueDateChangeReason(
   return parts.join(' — ')
 }
 
-export function validateDueDateChangeDetails(
-  details: Partial<DueDateChangeDetails>,
-): string | null {
+/** Reason dropdown / Other / comments only (dashboard edit, no notify checkbox). */
+export function validateDueDateChangeReasonFields(details: {
+  reasonCode?: DueDateChangeReasonCode | ''
+  otherText?: string
+  comments?: string
+}): string | null {
   const code = details.reasonCode
   if (!code || !DUE_DATE_CHANGE_REASON_CODES.includes(code)) {
     return 'Select a reason for the due date change'
@@ -75,8 +78,25 @@ export function validateDueDateChangeDetails(
   if (commentsRequiredForReason(code) && !details.comments?.trim()) {
     return 'Comments are required for this reason'
   }
+  return null
+}
+
+export function validateDueDateChangeDetails(
+  details: Partial<DueDateChangeDetails>,
+): string | null {
+  const reasonError = validateDueDateChangeReasonFields(details)
+  if (reasonError) return reasonError
   if (!details.customerNotified) {
     return 'Confirm the customer has been notified of this due date change'
   }
   return null
+}
+
+export function parseReasonCodeFromRecord(
+  reasonCode: string | null | undefined,
+): DueDateChangeReasonCode | '' {
+  if (reasonCode && DUE_DATE_CHANGE_REASON_CODES.includes(reasonCode as DueDateChangeReasonCode)) {
+    return reasonCode as DueDateChangeReasonCode
+  }
+  return ''
 }
