@@ -5,6 +5,7 @@ import { useOrganization } from '../contexts/OrganizationContext'
 import { useCompanyWorkflow } from '../hooks/useCompanyWorkflow'
 import { filterRowsByCompanyValveIdAsync } from '../lib/companyDataScope'
 import {
+  DUE_DATE_CUSTOMER_QUEUE_CUTOFF_DATE,
   DUE_DATE_CUSTOMER_RESPONSES,
   type DueDateCustomerResponse,
 } from '../lib/dueDateChangeReasons'
@@ -101,8 +102,9 @@ export function DueDateCustomerPendingPanel() {
         <div>
           <h3>Due date changes — awaiting customer response</h3>
           <p className="status-breakdown-note">
-            Stays here until the customer answer is <strong>Approved</strong>, <strong>Cancelled</strong>, or{' '}
-            <strong>Other</strong> (with a comment). Shows when the date changed and when the customer was notified.
+            Through <strong>{DUE_DATE_CUSTOMER_QUEUE_CUTOFF_DATE}</strong>: still-in-shop jobs (not Completed) that had a
+            due date change. After that date: every due date change stays here until{' '}
+            <strong>Approved</strong>, <strong>Cancelled</strong>, or <strong>Other</strong> (with a comment).
           </p>
         </div>
         <div className="rework-dashboard-panel-actions">
