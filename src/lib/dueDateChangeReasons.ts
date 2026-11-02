@@ -26,7 +26,7 @@ export type DueDateChangeDetails = {
   reasonCode: DueDateChangeReasonCode
   /** Required when reasonCode is Other — what “Other” means. */
   otherText: string
-  /** Late / change explanation; required for Waiting on parts and Other. */
+  /** Late / change explanation — required for every reason. */
   comments: string
   /** Customer was notified at save time. */
   customerNotified: boolean
@@ -36,8 +36,9 @@ export type DueDateChangeSavePayload = {
   nextDueDate: string | null
 } & DueDateChangeDetails
 
+/** Comments are required for every due date change reason. */
 export function commentsRequiredForReason(code: DueDateChangeReasonCode | ''): boolean {
-  return code === 'Waiting on parts' || code === 'Other'
+  return Boolean(code)
 }
 
 export function otherTextRequiredForReason(code: DueDateChangeReasonCode | ''): boolean {
@@ -76,7 +77,7 @@ export function validateDueDateChangeReasonFields(details: {
     return 'Describe what Other means'
   }
   if (commentsRequiredForReason(code) && !details.comments?.trim()) {
-    return 'Comments are required for this reason'
+    return 'Comments are required'
   }
   return null
 }

@@ -5,7 +5,6 @@ import { useOrganization } from '../contexts/OrganizationContext'
 import { useCompanyWorkflow } from '../hooks/useCompanyWorkflow'
 import { filterRowsByCompanyValveIdAsync } from '../lib/companyDataScope'
 import {
-  commentsRequiredForReason,
   DUE_DATE_CHANGE_REASON_CODES,
   DUE_DATE_CUSTOMER_QUEUE_CUTOFF_DATE,
   DUE_DATE_CUSTOMER_RESPONSES,
@@ -219,7 +218,6 @@ export function DueDateCustomerPendingPanel() {
               {rows.map((row) => {
                 const draft = drafts[row.id] ?? draftFromRow(row)
                 const needOther = otherTextRequiredForReason(draft.reasonCode)
-                const needComments = commentsRequiredForReason(draft.reasonCode)
                 const busy = actionId === row.id
                 return (
                   <tr key={row.id}>
@@ -265,7 +263,7 @@ export function DueDateCustomerPendingPanel() {
                         type="text"
                         value={draft.comments}
                         disabled={busy}
-                        placeholder={needComments ? 'Comments (required)' : 'Comments (optional)'}
+                        placeholder="Comments (required)"
                         onChange={(e) => patchDraft(row.id, { comments: e.target.value })}
                       />
                       <button
