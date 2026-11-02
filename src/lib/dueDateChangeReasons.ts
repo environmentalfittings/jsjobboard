@@ -1,3 +1,13 @@
+/**
+ * Cutoff for the dashboard customer-response queue (America/Chicago calendar day).
+ * - On/before this date: only still-in-shop (not Completed) due date changes appear.
+ * - After this date: every due date change stays on the list until Approved / Cancelled / Other.
+ */
+export const DUE_DATE_CUSTOMER_QUEUE_CUTOFF_DATE = '2026-11-02'
+
+/** Inclusive end of the cutoff day in Chicago (CST = UTC-6 on this date). */
+export const DUE_DATE_CUSTOMER_QUEUE_CUTOFF_END_ISO = '2026-11-03T05:59:59.999Z'
+
 /** Technician reason codes when moving a due date. */
 export const DUE_DATE_CHANGE_REASON_CODES = [
   'Due date unrealistic',

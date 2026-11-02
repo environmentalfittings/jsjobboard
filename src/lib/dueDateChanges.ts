@@ -1,5 +1,6 @@
 import type { DueDateChangeRecord } from '../types'
 import {
+  DUE_DATE_CUSTOMER_QUEUE_CUTOFF_END_ISO,
   formatDueDateChangeReason,
   type DueDateChangeDetails,
   type DueDateCustomerResponse,
@@ -9,20 +10,47 @@ import { supabase } from './supabase'
 const DUE_DATE_CHANGE_SELECT =
   'id,valve_row_id,valve_id,previous_due_date,new_due_date,reason,reason_code,other_text,comments,changed_by_name,changed_at,customer_notification_at,customer_response,customer_response_comment,customer_response_at,customer_response_by_name'
 
+type ValveQueueMeta = {
+  customer: string | null
+  status: string | null
+  order_type: string | null
+}
+
+function isCompletedValve(meta: ValveQueueMeta | undefined): boolean {
+  if (!meta) return false
+  return meta.status === 'Completed' || meta.order_type === 'Completed'
+}
+
+async function loadValveQueueMeta(
+  valveRowIds: number[],
+): Promise<Map<number, ValveQueueMeta>> {
+  const ids = [...new Set(valveRowIds.filter((id) => Number.isFinite(id)))]
+  if (ids.length === 0) return new Map()
+  const { data, error } = await supabase
+    .from('valves')
+    .select('id,customer,status,order_type')
+    .in('id', ids)
+  if (error || !data) return new Map()
+  return new Map(
+    data.map((v) => [
+      v.id as number,
+      {
+        customer: ((v.customer as string | null) ?? '').trim() || null,
+        status: (v.status as string | null) ?? null,
+        order_type: (v.order_type as string | null) ?? null,
+      },
+    ]),
+  )
+}
+
 async function attachCustomerNames(
   rows: DueDateChangeRecord[],
 ): Promise<DueDateChangeRecord[]> {
   if (rows.length === 0) return rows
-  const ids = [...new Set(rows.map((r) => r.valve_row_id).filter((id) => Number.isFinite(id)))]
-  if (ids.length === 0) return rows
-  const { data, error } = await supabase.from('valves').select('id,customer').in('id', ids)
-  if (error || !data) return rows
-  const byId = new Map(
-    data.map((v) => [v.id as number, ((v.customer as string | null) ?? '').trim() || null]),
-  )
+  const byId = await loadValveQueueMeta(rows.map((r) => r.valve_row_id))
   return rows.map((row) => ({
     ...row,
-    customer: byId.get(row.valve_row_id) ?? row.customer ?? null,
+    customer: byId.get(row.valve_row_id)?.customer ?? row.customer ?? null,
   }))
 }
 
@@ -116,20 +144,21 @@ export async function fetchDueDateChanges(
   }
 }
 
-/** Due date moves still waiting on customer Approved / Cancelled / Other. */
+/**
+ * Dashboard queue:
+ * - On/before cutoff: still-in-shop (not Completed) changes with no customer response
+ * - After cutoff: every change with no customer response (until Approved / Cancelled / Other)
+ */
 export async function fetchPendingCustomerDueDateChanges(): Promise<{
   data: DueDateChangeRecord[]
   error: Error | null
 }> {
-  // Only structured (post-feature) changes belong on the dashboard queue.
-  // Legacy "Updated from job card" rows have null reason_code.
   const { data, error } = await supabase
     .from('due_date_changes')
     .select(DUE_DATE_CHANGE_SELECT)
     .is('customer_response', null)
-    .not('reason_code', 'is', null)
     .order('changed_at', { ascending: false })
-    .limit(200)
+    .limit(500)
 
   if (error) {
     if (/customer_response|reason_code|column|schema cache/i.test(error.message)) {
@@ -142,8 +171,24 @@ export async function fetchPendingCustomerDueDateChanges(): Promise<{
     }
     return { data: [], error: new Error(error.message) }
   }
+
+  const rows = (data ?? []) as DueDateChangeRecord[]
+  if (rows.length === 0) return { data: [], error: null }
+
+  const valveMeta = await loadValveQueueMeta(rows.map((r) => r.valve_row_id))
+  const cutoffMs = Date.parse(DUE_DATE_CUSTOMER_QUEUE_CUTOFF_END_ISO)
+  const filtered = rows.filter((row) => {
+    const changedMs = Date.parse(row.changed_at)
+    const afterCutoff = Number.isFinite(changedMs) && changedMs > cutoffMs
+    if (afterCutoff) return true
+    return !isCompletedValve(valveMeta.get(row.valve_row_id))
+  })
+
   return {
-    data: await attachCustomerNames((data ?? []) as DueDateChangeRecord[]),
+    data: filtered.slice(0, 200).map((row) => ({
+      ...row,
+      customer: valveMeta.get(row.valve_row_id)?.customer ?? row.customer ?? null,
+    })),
     error: null,
   }
 }
