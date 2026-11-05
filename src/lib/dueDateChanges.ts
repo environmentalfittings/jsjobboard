@@ -1,12 +1,12 @@
 import type { DueDateChangeRecord } from '../types'
 import {
-  DUE_DATE_CUSTOMER_QUEUE_CUTOFF_END_ISO,
   formatDueDateChangeReason,
   validateDueDateChangeReasonFields,
   type DueDateChangeDetails,
   type DueDateChangeReasonCode,
   type DueDateCustomerResponse,
 } from './dueDateChangeReasons'
+import { isOtdPauseStatus } from './onTimeDelivery'
 import { supabase } from './supabase'
 
 const DUE_DATE_CHANGE_SELECT =
@@ -18,9 +18,13 @@ type ValveQueueMeta = {
   order_type: string | null
 }
 
-function isCompletedValve(meta: ValveQueueMeta | undefined): boolean {
+/** Completed or paused (Waiting on Customer, On Hold, etc.) — not an active in-shop job. */
+function isExcludedFromDueDatePendingQueue(meta: ValveQueueMeta | undefined): boolean {
   if (!meta) return false
-  return meta.status === 'Completed' || meta.order_type === 'Completed'
+  if (meta.status === 'Completed' || meta.order_type === 'Completed') return true
+  if (isOtdPauseStatus(meta.status)) return true
+  if (meta.order_type === 'Waiting on Arrival' || meta.order_type === 'On-Hold') return true
+  return false
 }
 
 async function loadValveQueueMeta(
@@ -148,8 +152,9 @@ export async function fetchDueDateChanges(
 
 /**
  * Dashboard queue:
- * - On/before cutoff: still-in-shop (not Completed) changes with no customer response
- * - After cutoff: every change with no customer response (until Approved / Cancelled / Other)
+ * - On/before cutoff: active in-shop jobs only (not Completed / Waiting on Customer / other pauses)
+ * - After cutoff: every change with no customer response, still excluding Completed / pause statuses
+ *   like Waiting on Customer (those jobs are already parked waiting on the customer)
  */
 export async function fetchPendingCustomerDueDateChanges(): Promise<{
   data: DueDateChangeRecord[]
@@ -178,13 +183,7 @@ export async function fetchPendingCustomerDueDateChanges(): Promise<{
   if (rows.length === 0) return { data: [], error: null }
 
   const valveMeta = await loadValveQueueMeta(rows.map((r) => r.valve_row_id))
-  const cutoffMs = Date.parse(DUE_DATE_CUSTOMER_QUEUE_CUTOFF_END_ISO)
-  const filtered = rows.filter((row) => {
-    const changedMs = Date.parse(row.changed_at)
-    const afterCutoff = Number.isFinite(changedMs) && changedMs > cutoffMs
-    if (afterCutoff) return true
-    return !isCompletedValve(valveMeta.get(row.valve_row_id))
-  })
+  const filtered = rows.filter((row) => !isExcludedFromDueDatePendingQueue(valveMeta.get(row.valve_row_id)))
 
   return {
     data: filtered.slice(0, 200).map((row) => ({

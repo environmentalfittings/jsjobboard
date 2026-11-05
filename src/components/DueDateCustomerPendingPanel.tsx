@@ -6,7 +6,6 @@ import { useCompanyWorkflow } from '../hooks/useCompanyWorkflow'
 import { filterRowsByCompanyValveIdAsync } from '../lib/companyDataScope'
 import {
   DUE_DATE_CHANGE_REASON_CODES,
-  DUE_DATE_CUSTOMER_QUEUE_CUTOFF_DATE,
   DUE_DATE_CUSTOMER_RESPONSES,
   otherTextRequiredForReason,
   parseReasonCodeFromRecord,
@@ -247,9 +246,9 @@ export function DueDateCustomerPendingPanel() {
         <div>
           <h3>Due date changes — awaiting customer response</h3>
           <p className="status-breakdown-note">
-            Through <strong>{DUE_DATE_CUSTOMER_QUEUE_CUTOFF_DATE}</strong>: still-in-shop jobs (not Completed) that had a
-            due date change. After that date: every due date change stays here until{' '}
-            <strong>Approved</strong>, <strong>Cancelled</strong>, or <strong>Other</strong> (with a comment). Sorted by{' '}
+            Active in-shop jobs with a due date change awaiting{' '}
+            <strong>Approved</strong>, <strong>Cancelled</strong>, or <strong>Other</strong> (with a comment). Jobs in{' '}
+            <strong>Waiting on Customer</strong>, On Hold, and other pause statuses are left off this list. Sorted by{' '}
             <strong>Customer</strong> by default so you can clear one customer at a time. Click column headers to re-sort.
           </p>
         </div>
