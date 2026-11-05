@@ -106,7 +106,7 @@ export interface Technician {
   user_id?: string | null
   login_username?: string | null
   login_email?: string | null
-  role?: 'admin' | 'manager' | 'technician' | null
+  role?: 'admin' | 'manager' | 'technician' | 'viewer' | null
   supervisor_id?: number | null
   manager_id?: number | null
   created_at: string

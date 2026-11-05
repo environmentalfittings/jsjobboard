@@ -171,7 +171,7 @@ create table if not exists public.technicians (
   active boolean not null default true,
   user_id uuid references auth.users(id),
   login_email text,
-  role text not null default 'technician' check (role in ('admin', 'manager', 'supervisor', 'technician', 'sales')),
+  role text not null default 'technician' check (role in ('admin', 'manager', 'supervisor', 'technician', 'viewer', 'sales')),
   supervisor_id bigint references public.technicians(id),
   manager_id bigint references public.technicians(id),
   created_at timestamptz not null default now(),

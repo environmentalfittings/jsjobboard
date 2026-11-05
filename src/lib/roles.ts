@@ -56,10 +56,17 @@ export function normalizeAppRole(role: string | null | undefined): UserRole {
     .toLowerCase()
   if (value === 'admin') return 'admin'
   if (value === 'manager' || value === 'supervisor') return 'manager'
-  if (value === 'viewer' || value === 'readonly' || value === 'read-only' || value === 'guest') {
+  // Sales logins are view-only (same as Read-only / viewer).
+  if (
+    value === 'viewer' ||
+    value === 'readonly' ||
+    value === 'read-only' ||
+    value === 'guest' ||
+    value === 'sales'
+  ) {
     return 'viewer'
   }
-  if (value === 'technician' || value === 'tech' || value === 'sales') return 'technician'
+  if (value === 'technician' || value === 'tech') return 'technician'
   return 'technician'
 }
 
@@ -105,9 +112,13 @@ export function canManageAccounts(role: UserRole | null | undefined, profileRole
   return can(role, 'manageEmployeeAccounts') || isProfileAdmin(profileRole)
 }
 
-/** Employee roster page (view for all shop staff; admin actions gated separately). */
+/**
+ * Employees / Shop assignment (technicians) roster.
+ * Read-only / sales viewers can see the rest of the app but not people directories.
+ */
 export function canAccessEmployeesPage(role: UserRole | null | undefined): boolean {
-  return isShopRole(role)
+  const normalized = normalizeAppRole(role)
+  return isShopRole(normalized) && normalized !== 'viewer'
 }
 
 /** Test log entry — available to all shop roles. */
@@ -126,6 +137,30 @@ export function formatRolePillLabel(role: UserRole): string {
   if (role === 'viewer') return 'Read-only'
   return 'Technician'
 }
+
+/** Labels for assigning App role on Shop assignment. */
+export const SHOP_APP_ROLE_OPTIONS: { value: UserRole; label: string; hint: string }[] = [
+  {
+    value: 'technician',
+    label: 'Technician',
+    hint: 'Shop login — view only (cannot change job data)',
+  },
+  {
+    value: 'viewer',
+    label: 'Read-only',
+    hint: 'Sales / office — browse job board like Admin, cannot change anything; no Employees page',
+  },
+  {
+    value: 'manager',
+    label: 'Manager',
+    hint: 'Can update jobs and open reports',
+  },
+  {
+    value: 'admin',
+    label: 'Admin',
+    hint: 'Full access including Employees and lists',
+  },
+]
 
 export function permissionDeniedReason(permission: AppPermission): string {
   switch (permission) {
