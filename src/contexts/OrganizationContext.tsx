@@ -18,7 +18,7 @@ import {
   switchableOrganizations,
   writeStoredActiveOrganizationId,
 } from '../lib/organizations'
-import type { Organization, OrganizationMembership } from '../types/organizations'
+import type { Organization, OrganizationMembership, OrganizationRole } from '../types/organizations'
 
 type OrganizationContextValue = {
   /** False when migration has not been run and local DEV fallback is off. */
@@ -31,6 +31,8 @@ type OrganizationContextValue = {
   /** Companies available in the header switcher (all orgs for Superadmin). */
   switchableOrganizations: Organization[]
   activeOrganization: Organization | null
+  /** Role on the active company membership (when orgs are enabled). */
+  activeOrganizationRole: OrganizationRole | null
   isOrgSuperAdmin: boolean
   setActiveOrganizationId: (organizationId: string) => void
   refreshOrganizations: () => Promise<void>
@@ -114,6 +116,13 @@ export function OrganizationProvider({ children }: { children: ReactNode }) {
     () => switchableOrganizations(memberships, organizations, isOrgSuperAdmin),
     [memberships, organizations, isOrgSuperAdmin],
   )
+  const activeOrganizationRole = useMemo<OrganizationRole | null>(() => {
+    if (!activeOrganization?.id) return null
+    const membership = memberships.find(
+      (row) => row.organization_id === activeOrganization.id && row.can_access,
+    )
+    return membership?.role ?? null
+  }, [activeOrganization?.id, memberships])
 
   const setActiveOrganizationId = useCallback(
     (organizationId: string) => {
@@ -137,6 +146,7 @@ export function OrganizationProvider({ children }: { children: ReactNode }) {
       memberships,
       switchableOrganizations: switchable,
       activeOrganization,
+      activeOrganizationRole,
       isOrgSuperAdmin,
       setActiveOrganizationId,
       refreshOrganizations,
@@ -149,6 +159,7 @@ export function OrganizationProvider({ children }: { children: ReactNode }) {
       memberships,
       switchable,
       activeOrganization,
+      activeOrganizationRole,
       isOrgSuperAdmin,
       setActiveOrganizationId,
       refreshOrganizations,
