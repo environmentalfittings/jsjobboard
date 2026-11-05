@@ -33,7 +33,12 @@ import {
 } from '../lib/dueDateChanges'
 import { clearReworkQaDisposition, markReworkDispositionNa } from '../lib/statusReworkLog'
 import { fetchStatusReworkLog, fetchStatusReworkLogValveRefs } from '../lib/statusReworkLog'
-import { isExcludedFromOnTimeDelivery, OTD_EXCLUDED_CUSTOMER_LABEL, OTD_PAUSE_STATUS_LABEL } from '../lib/onTimeDelivery'
+import {
+  isExcludedFromOnTimeDelivery,
+  OTD_EXCLUDED_CUSTOMER_LABEL,
+  OTD_PAUSE_STATUS_LABEL,
+  OTD_RESUME_REQUIRES_DUE_DATE_LABEL,
+} from '../lib/onTimeDelivery'
 import { printOnTimeDeliveryReport } from '../lib/onTimeDeliveryPrint'
 import {
   aggregateTopCounts,
@@ -1850,7 +1855,7 @@ export function ReportsPage() {
       <p className="placeholder-copy" style={{ marginTop: '0.35rem' }}>
               {companyKey === 'vsi'
                 ? `Completed VSI jobs closed on or before their due date. Historical JS Valve jobs are not included. Jobs with no due date are excluded from percentage calculations. ${OTD_PAUSE_STATUS_LABEL} do not count against on-time delivery.`
-                : `Percentage of completed jobs closed on or before their due date. Jobs with no due date are excluded from percentage calculations. ${OTD_PAUSE_STATUS_LABEL} do not count against on-time delivery. Moving a job out of those statuses requires a new due date before it counts again. ${OTD_EXCLUDED_CUSTOMER_LABEL} jobs are also excluded (internal / house work).`}
+                : `Percentage of completed jobs closed on or before their due date. Jobs with no due date are excluded from percentage calculations. ${OTD_PAUSE_STATUS_LABEL} do not count against on-time delivery. Moving a job out of ${OTD_RESUME_REQUIRES_DUE_DATE_LABEL} requires a new due date before it counts again (Not Arrived → arrived keeps the original date). ${OTD_EXCLUDED_CUSTOMER_LABEL} jobs are also excluded (internal / house work).`}
             </p>
 <div className="report-filters">
           <label>

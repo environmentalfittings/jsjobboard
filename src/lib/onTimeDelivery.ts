@@ -7,7 +7,8 @@ type OtdEligibility = {
 /**
  * Shop statuses that pause OTD / late-job pressure.
  * While in these statuses, jobs do not count against on-time delivery.
- * Leaving for an active status requires updating the due (delivery) date.
+ * Leaving most of these for an active status requires updating the due (delivery) date —
+ * except Not Arrived (marking arrived keeps the original promised date).
  */
 export const OTD_PAUSE_STATUSES = [
   'Not Arrived',
@@ -32,11 +33,19 @@ export function isOtdExcludedCustomer(customer: string | null | undefined): bool
   return OTD_EXCLUDED_CUSTOMER_PREFIXES.some((prefix) => name.startsWith(prefix.toLowerCase()))
 }
 
+/** Not Arrived / Not Received — valve has not reached the shop yet. */
+export function isNotArrivedStatus(status: string | null | undefined): boolean {
+  const trimmed = String(status ?? '').trim()
+  if (!trimmed) return false
+  if (trimmed === 'Not Arrived') return true
+  return /^not\s+(arrived|received)$/i.test(trimmed)
+}
+
 export function isOtdPauseStatus(status: string | null | undefined): boolean {
   const trimmed = String(status ?? '').trim()
   if (!trimmed) return false
   if (OTD_PAUSE_STATUS_SET.has(trimmed)) return true
-  if (/^not\s+(arrived|received)$/i.test(trimmed)) return true
+  if (isNotArrivedStatus(trimmed)) return true
   if (/^on[-\s]?hold$/i.test(trimmed) || /^hold$/i.test(trimmed)) return true
   return false
 }
@@ -79,6 +88,8 @@ export function countsAgainstOnTimeDelivery(valve: OtdEligibility | null | undef
 /**
  * Leaving an OTD-pause status for an active (counting) status requires a new due date
  * before the job can count toward on-time delivery again.
+ *
+ * Exception: leaving Not Arrived (marking the valve arrived) keeps the original delivery date.
  */
 export function requiresDueDateUpdateWhenLeavingOtdPause(
   fromStatus: string | null | undefined,
@@ -87,6 +98,7 @@ export function requiresDueDateUpdateWhenLeavingOtdPause(
   const from = String(fromStatus ?? '').trim()
   const to = String(toStatus ?? '').trim()
   if (!from || !to || from === to) return false
+  if (isNotArrivedStatus(from)) return false
   if (!isOtdPauseStatus(from)) return false
   if (isOtdPauseStatus(to)) return false
   return true
@@ -94,5 +106,9 @@ export function requiresDueDateUpdateWhenLeavingOtdPause(
 
 export const OTD_PAUSE_STATUS_LABEL =
   'On Hold, Waiting on Customer, Waiting on Salesman, Replaced, Junked, and Not Arrived / Waiting on Arrival'
+
+/** Pause statuses that force a new due date when returning to active work (excludes Not Arrived). */
+export const OTD_RESUME_REQUIRES_DUE_DATE_LABEL =
+  'On Hold, Waiting on Customer, Waiting on Salesman, Replaced, and Junked'
 
 export const OTD_EXCLUDED_CUSTOMER_LABEL = 'JS Machine & Valve'
