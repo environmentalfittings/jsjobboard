@@ -1,3 +1,4 @@
+import { useState } from 'react'
 import { Link } from 'react-router-dom'
 import type {
   ItpTravelerReportItem,
@@ -7,6 +8,8 @@ import type {
 import {
   collectTravelerPhotos,
   formatItpTravelerCaptureSummary,
+  travelerBlockingPriorSection,
+  travelerSectionIncompleteMessages,
 } from '../lib/itpTravelerReport'
 import { buildItpTravelerUrl, buildShopLoginUrl } from '../lib/itpQrCode'
 import { ItpLoginQr } from './ItpLoginQr'
@@ -82,50 +85,67 @@ function travelerReqHint(item: ItpTravelerReportItem): string {
 
 function WorkStepRow({
   item,
-  blockedByPrior,
+  blockedByPriorItem,
+  blockedByPriorSection,
   saving,
   parts,
   onOpen,
   onToggleDone,
   onPatchNotes,
   onNeedPart,
+  onBlockedAttempt,
 }: {
   item: ItpTravelerReportItem
-  blockedByPrior: boolean
+  blockedByPriorItem: boolean
+  blockedByPriorSection: boolean
   saving: boolean
   parts: JobNeededPart[]
   onOpen: () => void
   onToggleDone: () => void
   onPatchNotes: (notes: string) => void
   onNeedPart?: () => void
+  onBlockedAttempt: () => void
 }) {
   const needsTraveler = item.hasTravelerRequirement
-  const checkboxLocked = blockedByPrior || (needsTraveler && !item.requirementsMet && !item.done)
+  const sectionLocked = blockedByPriorSection
+  const itemLocked = blockedByPriorItem
+  const checkboxLocked =
+    sectionLocked || itemLocked || (needsTraveler && !item.requirementsMet && !item.done)
   const checked = item.done || item.status === 'hold'
-  const hint = blockedByPrior
-    ? 'Complete the previous item first'
-    : needsTraveler && !item.requirementsMet && !item.done
-      ? `Fill ${travelerReqHint(item)} before this checkbox is available`
-      : item.status === 'hold'
-        ? 'Pending supervisor sign-off'
-        : item.done
-          ? 'Mark incomplete'
-          : 'Mark complete'
+  const hint = sectionLocked
+    ? 'Finish the previous section first'
+    : itemLocked
+      ? 'Complete the previous item first'
+      : needsTraveler && !item.requirementsMet && !item.done
+        ? `Fill ${travelerReqHint(item)} before this checkbox is available`
+        : item.status === 'hold'
+          ? 'Pending supervisor sign-off'
+          : item.done
+            ? 'Mark incomplete'
+            : 'Mark complete'
+
+  const guard = (action: () => void) => {
+    if (sectionLocked) {
+      onBlockedAttempt()
+      return
+    }
+    action()
+  }
 
   return (
     <li
       className={`itp-traveler-work-row itp-traveler-work-row--${item.status}${
-        checkboxLocked ? ' is-locked' : ''
-      }${checked ? ' is-checked' : ''}`}
+        checkboxLocked || sectionLocked ? ' is-locked' : ''
+      }${sectionLocked ? ' is-section-locked' : ''}${checked ? ' is-checked' : ''}`}
     >
       <div className="itp-traveler-work-row-body">
         <button
           type="button"
           className="itp-library-exec-cb"
-          disabled={saving || checkboxLocked}
+          disabled={saving || (!sectionLocked && checkboxLocked)}
           title={hint}
           aria-label={hint}
-          onClick={onToggleDone}
+          onClick={() => guard(onToggleDone)}
         >
           <span
             className={`itp-library-cb${checked ? ' sel' : ''}${
@@ -144,7 +164,11 @@ function WorkStepRow({
               {item.holdPoint ? ' · Hold point' : ''}
             </span>
           </div>
-          {needsTraveler ? (
+          {sectionLocked ? (
+            <div className="itp-traveler-work-row-badges">
+              <span className="itp-traveler-req-locked">Locked — finish section above first</span>
+            </div>
+          ) : needsTraveler ? (
             <div className="itp-traveler-work-row-badges">
               {item.requirePicture ? <span className="itp-library-attr-badge photo">Photo</span> : null}
               {item.requireMeasurement ? (
@@ -191,7 +215,11 @@ function WorkStepRow({
             onClick={(e) => e.stopPropagation()}
             onKeyDown={(e) => e.stopPropagation()}
           >
-            <ItpOptionalNotes notes={item.notes} disabled={saving} onChange={onPatchNotes} />
+            <ItpOptionalNotes
+              notes={item.notes}
+              disabled={saving || sectionLocked}
+              onChange={onPatchNotes}
+            />
           </div>
           {isOrderReplacementPartsItem(item.id) ? (
             <p className="itp-traveler-work-row-tech">{formatNeededPartsSummary(parts)}</p>
@@ -207,8 +235,8 @@ function WorkStepRow({
           <button
             type="button"
             className="button-secondary itp-traveler-open-step-btn"
-            disabled={saving || blockedByPrior}
-            onClick={onOpen}
+            disabled={saving || (!sectionLocked && itemLocked)}
+            onClick={() => guard(onOpen)}
           >
             {isOrderReplacementPartsItem(item.id)
               ? 'Parts'
@@ -222,7 +250,7 @@ function WorkStepRow({
             type="button"
             className="button-secondary itp-traveler-open-step-btn"
             disabled={saving}
-            onClick={onNeedPart}
+            onClick={() => guard(onNeedPart)}
           >
             Need part
           </button>
@@ -363,6 +391,10 @@ export function ItpTravelerReportPanel({
   neededParts = [],
   onNeedPart,
 }: ItpTravelerReportPanelProps) {
+  const [sectionBlockPopup, setSectionBlockPopup] = useState<{
+    sectionTitle: string
+    missing: string[]
+  } | null>(null)
   const allPhotos = collectTravelerPhotos(sections)
   const subhead = [meta.valveType, meta.valveId, meta.customer].filter(Boolean).join(' - ')
   const qrUrl =
@@ -381,8 +413,8 @@ export function ItpTravelerReportPanel({
           <p className="itp-traveler-report-summary">{formatItpTravelerCaptureSummary(stats)}</p>
           <p className="placeholder-copy">
             {previewMode
-              ? `Preview traveler ${meta.valveId}. Check each ITP line as you complete it. Add parts the same way as a job — they stay on this preview and are not sent to shop purchasing.`
-              : 'Check each ITP line as you complete it. Lines with traveler requirements stay locked until photos and fields are filled. Add parts from any step — purchasing tracks them on Needs parts.'}
+              ? `Preview traveler ${meta.valveId}. Finish each section top-to-bottom before the next unlocks. Lines with photos/fields stay locked until filled.`
+              : 'Finish each section top-to-bottom before the next unlocks. Lines with traveler requirements stay locked until photos and fields are filled. Add parts from any open step — purchasing tracks them on Needs parts.'}
           </p>
           <p className="itp-traveler-report-summary">
             Parts: {formatNeededPartsSummary(neededParts)}
@@ -494,19 +526,42 @@ export function ItpTravelerReportPanel({
             </p>
           </section>
         ) : (
-          sections.map((section) => (
-            <section key={section.secId} className="itp-traveler-section">
-              <h3 className="itp-traveler-section-title">{section.secTitle}</h3>
+          sections.map((section, sectionIndex) => {
+            const blockingSection = travelerBlockingPriorSection(sections, sectionIndex)
+            const sectionLocked = Boolean(blockingSection)
+            return (
+            <section
+              key={section.secId}
+              className={`itp-traveler-section${sectionLocked ? ' is-section-locked' : ''}`}
+            >
+              <h3 className="itp-traveler-section-title">
+                {section.secTitle}
+                {sectionLocked && blockingSection ? (
+                  <button
+                    type="button"
+                    className="itp-traveler-section-locked-tag"
+                    onClick={() =>
+                      setSectionBlockPopup({
+                        sectionTitle: blockingSection.secTitle,
+                        missing: travelerSectionIncompleteMessages(blockingSection),
+                      })
+                    }
+                  >
+                    Locked
+                  </button>
+                ) : null}
+              </h3>
 
               <ul className="itp-traveler-work-list screen-only">
                 {section.items.map((item, index) => {
                   const prev = index > 0 ? section.items[index - 1] : null
-                  const blockedByPrior = Boolean(prev?.blockNext && prev.status !== 'complete')
+                  const blockedByPriorItem = Boolean(prev?.blockNext && prev.status !== 'complete')
                   return (
                     <WorkStepRow
                       key={item.id}
                       item={item}
-                      blockedByPrior={blockedByPrior}
+                      blockedByPriorItem={blockedByPriorItem}
+                      blockedByPriorSection={sectionLocked}
                       saving={saving}
                       parts={
                         isOrderReplacementPartsItem(item.id)
@@ -517,6 +572,13 @@ export function ItpTravelerReportPanel({
                       onToggleDone={() => onToggleDone(item.id)}
                       onPatchNotes={(notes) => onPatchNotes(item.id, notes)}
                       onNeedPart={onNeedPart ? () => onNeedPart(item.id) : undefined}
+                      onBlockedAttempt={() => {
+                        if (!blockingSection) return
+                        setSectionBlockPopup({
+                          sectionTitle: blockingSection.secTitle,
+                          missing: travelerSectionIncompleteMessages(blockingSection),
+                        })
+                      }}
                     />
                   )
                 })}
@@ -536,8 +598,41 @@ export function ItpTravelerReportPanel({
                 ))}
               </div>
             </section>
-          ))
+            )
+          })
         )}
+
+      {sectionBlockPopup ? (
+        <div
+          className="modal-overlay screen-only"
+          role="presentation"
+          onClick={() => setSectionBlockPopup(null)}
+        >
+          <div
+            className="modal-card itp-traveler-section-lock-modal"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="itp-traveler-section-lock-title"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <h3 id="itp-traveler-section-lock-title">Finish the section above first</h3>
+            <p className="placeholder-copy">
+              Complete these items in <strong>{sectionBlockPopup.sectionTitle}</strong> before starting the
+              next section:
+            </p>
+            <ul className="itp-traveler-section-lock-list">
+              {sectionBlockPopup.missing.map((line) => (
+                <li key={line}>{line}</li>
+              ))}
+            </ul>
+            <div className="modal-details-actions">
+              <button type="button" className="button-primary" onClick={() => setSectionBlockPopup(null)}>
+                OK
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
 
         {neededParts.length > 0 ? (
           <section className="itp-traveler-section itp-traveler-parts-appendix print-only">

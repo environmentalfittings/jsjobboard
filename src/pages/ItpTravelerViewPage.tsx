@@ -9,7 +9,11 @@ import { useJobNeededParts } from '../hooks/useJobNeededParts'
 import { hasAdminAccess } from '../lib/roles'
 import { loadItpLibraryPlan, saveItpLibraryPlan } from '../lib/itpLibraryStorage'
 import { applyTravelerStepUnlocks } from '../lib/itpMeasUnlocks'
-import { buildItpTravelerReport, findTravelerReportItem } from '../lib/itpTravelerReport'
+import {
+  buildItpTravelerReport,
+  findTravelerReportItem,
+  travelerBlockingPriorSection,
+} from '../lib/itpTravelerReport'
 import { toggleItemExecDone } from '../lib/itpItemRequirements'
 import {
   isQualityTeamFlagOwner,
@@ -134,8 +138,22 @@ export function ItpTravelerViewPage() {
     }
   }
 
+  const sectionLockedForItem = (itemId: string) => {
+    if (!report) return null
+    const sectionIndex = report.sections.findIndex((section) =>
+      section.items.some((item) => item.id === itemId),
+    )
+    if (sectionIndex < 0) return null
+    return travelerBlockingPriorSection(report.sections, sectionIndex)
+  }
+
   const toggleDone = async (itemId: string) => {
     if (!valve || !plan || !report || saving) return
+    const blocking = sectionLockedForItem(itemId)
+    if (blocking) {
+      showToast(`Finish “${blocking.secTitle}” before starting this section`)
+      return
+    }
     const row = findTravelerReportItem(report.sections, itemId)
     const sel = getSel(plan, itemId) ?? emptyItemSel()
     const exec = getExec(plan, itemId) ?? emptyItemExec()
@@ -246,7 +264,14 @@ export function ItpTravelerViewPage() {
           const row = findTravelerReportItem(report.sections, itemId)
           parts.setNeedPartItem({ id: itemId, name: row?.name ?? itemId })
         }}
-        onOpenStep={(itemId) => setOpenItemId(itemId)}
+        onOpenStep={(itemId) => {
+          const blocking = sectionLockedForItem(itemId)
+          if (blocking) {
+            showToast(`Finish “${blocking.secTitle}” before starting this section`)
+            return
+          }
+          setOpenItemId(itemId)
+        }}
         onToggleDone={(itemId) => void toggleDone(itemId)}
         onPatchNotes={patchNotes}
       />

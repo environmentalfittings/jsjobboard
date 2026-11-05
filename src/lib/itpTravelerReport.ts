@@ -18,6 +18,7 @@ import {
   itemRequiresMeasurements,
   itemRequiresPicture,
   itemRequirementsMet,
+  linePhotoRequirementLabel,
   resolvedMeasFields,
 } from './itpItemRequirements'
 import { itpShopAreaLabel } from '../constants/itpShopAreas'
@@ -206,6 +207,43 @@ export function formatItpTravelerCaptureSummary(stats: ItpTravelerReportStats): 
   if (stats.hold > 0) parts.push(`${stats.hold} hold`)
   if (stats.flagged > 0) parts.push(`${stats.flagged} flagged`)
   return parts.join(' · ')
+}
+
+export function travelerSectionIsComplete(section: ItpTravelerReportSection): boolean {
+  return section.items.every((item) => item.status === 'complete')
+}
+
+function incompleteItemMessage(item: ItpTravelerReportItem): string {
+  if (item.status === 'flagged') return `${item.name} — flagged (resolve before continuing)`
+  if (item.status === 'hold') return `${item.name} — waiting on supervisor hold sign-off`
+  if (item.hasTravelerRequirement && !item.requirementsMet) {
+    const parts: string[] = []
+    if (item.requirePicture) parts.push(linePhotoRequirementLabel(item.minPhotos, item.maxPhotos))
+    if (item.requireMeasurement) parts.push(item.requireNameplate ? 'nameplate fields' : 'traveler fields')
+    const need = parts.length > 0 ? parts.join(' and ') : 'traveler requirement'
+    return `${item.name} — fill ${need}, then check off`
+  }
+  return `${item.name} — check off when complete`
+}
+
+/** Items still open in a section (for the “finish previous section” popup). */
+export function travelerSectionIncompleteMessages(section: ItpTravelerReportSection): string[] {
+  return section.items.filter((item) => item.status !== 'complete').map(incompleteItemMessage)
+}
+
+/**
+ * First prior section that still has open work. Later sections stay locked until
+ * every earlier section is fully complete (requirements + checkmarks).
+ */
+export function travelerBlockingPriorSection(
+  sections: ItpTravelerReportSection[],
+  sectionIndex: number,
+): ItpTravelerReportSection | null {
+  for (let i = 0; i < sectionIndex; i += 1) {
+    const prior = sections[i]
+    if (prior && !travelerSectionIsComplete(prior)) return prior
+  }
+  return null
 }
 
 export function findTravelerReportItem(
