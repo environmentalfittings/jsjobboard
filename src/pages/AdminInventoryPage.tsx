@@ -2936,20 +2936,48 @@ export function AdminInventoryPage() {
                 </div>
                 <div className="inventory-form-grid">
                   <Field label="JS inventory ID" required>
-                    <input
-                      type="text"
-                      value={form.jsInventoryId}
-                      readOnly
-                      aria-readonly
-                      className="inventory-id-readonly"
-                      title="Assigned automatically — duplicates are blocked"
-                    />
+                    <div className="inventory-id-field-row">
+                      <input
+                        type="text"
+                        value={form.jsInventoryId}
+                        readOnly={modalMode === 'edit'}
+                        aria-readonly={modalMode === 'edit' ? true : undefined}
+                        className={modalMode === 'edit' ? 'inventory-id-readonly' : undefined}
+                        title={
+                          modalMode === 'edit'
+                            ? 'Locked after create — unique in customer inventory'
+                            : 'Suggested next ID — you can edit if needed'
+                        }
+                        onChange={
+                          modalMode === 'edit'
+                            ? undefined
+                            : (e) => patchForm({ jsInventoryId: e.target.value })
+                        }
+                      />
+                      {modalMode !== 'edit' ? (
+                        <button
+                          type="button"
+                          className="button-secondary"
+                          onClick={() => {
+                            void (async () => {
+                              const allocated = await allocateNextJsInventoryId()
+                              if (allocated.error) {
+                                showToast(`Could not get next ID: ${allocated.error}`)
+                              }
+                              patchForm({ jsInventoryId: allocated.id })
+                            })()
+                          }}
+                        >
+                          Next ID
+                        </button>
+                      ) : null}
+                    </div>
                     <span className="inventory-field-hint">
                       {modalMode === 'edit'
                         ? 'Locked after create — unique in customer inventory.'
                         : modalMode === 'duplicate'
-                          ? 'New unique ID for the duplicate (photos are not copied).'
-                          : 'Assigned automatically (unique). Confirmed again when you save.'}
+                          ? 'New unique ID for the duplicate (photos are not copied). Edit or click Next ID if needed.'
+                          : 'Auto-filled with the next free JS-INV-####. Edit or click Next ID if the suggestion is wrong.'}
                     </span>
                   </Field>
                   <Field label="Customer" required>

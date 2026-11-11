@@ -176,23 +176,78 @@ export function formatJsInventoryId(sequence: number): string {
 
 export function parseJsInventorySequence(raw: string | null | undefined): number | null {
   const value = String(raw ?? '').trim().toUpperCase()
-  const match = new RegExp(`^${JS_INVENTORY_ID_PREFIX}(\\d+)$`, 'i').exec(value)
+  if (!value) return null
+  // JS-INV-2001 (canonical), plus common variants people type/say aloud.
+  const match =
+    new RegExp(`^${JS_INVENTORY_ID_PREFIX}(\\d+)$`, 'i').exec(value) ||
+    /^JS[\s_-]*INV(?:ENTORY)?[\s_-]*(\d+)$/i.exec(value) ||
+    /^(\d{3,})$/.exec(value)
   if (!match) return null
   const n = Number(match[1])
   return Number.isFinite(n) ? n : null
 }
 
-/** Next unused JS-INV-#### based on existing rows (starts at 1001). */
-export async function allocateNextJsInventoryId(): Promise<{ id: string; error: string | null }> {
-  const { data, error } = await supabase.from('inventory').select('js_inventory_id').limit(5000)
-  if (error) return { id: formatJsInventoryId(JS_INVENTORY_ID_START), error: error.message }
+async function jsInventoryIdExists(id: string): Promise<boolean> {
+  const { data, error } = await supabase
+    .from('inventory')
+    .select('id')
+    .eq('js_inventory_id', id)
+    .limit(1)
+  if (error) return false
+  return (data?.length ?? 0) > 0
+}
 
+/**
+ * Next unused JS-INV-#### based on existing rows (starts at 1001).
+ * Pages through every row — PostgREST/Supabase often caps a single response at ~1000,
+ * so a plain .limit(5000) without paging can miss the true max and reuse an ID.
+ */
+export async function allocateNextJsInventoryId(): Promise<{ id: string; error: string | null }> {
+  const pageSize = 1000
+  let from = 0
   let max = JS_INVENTORY_ID_START - 1
-  for (const row of data ?? []) {
-    const sequence = parseJsInventorySequence((row as { js_inventory_id?: string | null }).js_inventory_id)
-    if (sequence != null && sequence > max) max = sequence
+  let lastError: string | null = null
+
+  for (;;) {
+    const { data, error } = await supabase
+      .from('inventory')
+      .select('js_inventory_id')
+      .not('js_inventory_id', 'is', null)
+      .range(from, from + pageSize - 1)
+
+    if (error) {
+      lastError = error.message
+      break
+    }
+
+    const rows = data ?? []
+    for (const row of rows) {
+      const sequence = parseJsInventorySequence(
+        (row as { js_inventory_id?: string | null }).js_inventory_id,
+      )
+      if (sequence != null && sequence > max) max = sequence
+    }
+
+    if (rows.length < pageSize) break
+    from += pageSize
+    // Safety cap so a runaway table cannot hang the modal forever.
+    if (from >= 50_000) break
   }
-  return { id: formatJsInventoryId(max + 1), error: null }
+
+  if (lastError && max < JS_INVENTORY_ID_START) {
+    return { id: formatJsInventoryId(JS_INVENTORY_ID_START), error: lastError }
+  }
+
+  let candidate = max + 1
+  while (candidate < max + 100) {
+    const id = formatJsInventoryId(candidate)
+    // Confirm the candidate is free (handles races and non-canonical legacy IDs).
+    const taken = await jsInventoryIdExists(id)
+    if (!taken) return { id, error: null }
+    candidate += 1
+  }
+
+  return { id: formatJsInventoryId(candidate), error: lastError }
 }
 
 /** Split a stored origin into dropdown value + optional custom text for "other". */
@@ -1330,12 +1385,16 @@ export async function createInventoryRecord(
     if (documentUpload.path) await supabase.storage.from(VALVE_ATTACHMENTS_BUCKET).remove([documentUpload.path])
   }
 
-  // Prefer freshly allocated ID; fall back to form value only if allocation failed oddly.
-  let jsInventoryId = allocated.id || form.jsInventoryId.trim()
+  // Prefer the ID shown/edited in the form; fall back to a fresh allocation.
+  const formId = form.jsInventoryId.trim()
+  let jsInventoryId = formId || allocated.id
   if (!jsInventoryId) {
     await cleanupUploads()
     return { data: null, error: 'Could not assign a JS inventory ID' }
   }
+  // Normalize casual variants (e.g. "JS Inventory 2001") to JS-INV-####.
+  const formSequence = parseJsInventorySequence(jsInventoryId)
+  if (formSequence != null) jsInventoryId = formatJsInventoryId(formSequence)
 
   const base = formToPayload({ ...form, jsInventoryId }, manufacturerId, valveTypeId)
   const mediaPayload = {
