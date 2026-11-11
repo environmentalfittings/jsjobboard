@@ -100,12 +100,15 @@ function WorkStepRow({
   onNeedPart?: () => void
 }) {
   const needsTraveler = item.hasTravelerRequirement
-  const checkboxLocked = blockedByPrior || (needsTraveler && !item.requirementsMet && !item.done)
+  const needsFill = needsTraveler && !item.requirementsMet && !item.done
+  // Only prior-step blocking disables the control. Unmet traveler requirements stay
+  // clickable so toggleDone can toast and open Fill requirement (disabled = no feedback).
+  const checkboxDisabled = saving || blockedByPrior
   const checked = item.done || item.status === 'hold'
   const hint = blockedByPrior
     ? 'Complete the previous item first'
-    : needsTraveler && !item.requirementsMet && !item.done
-      ? `Fill ${travelerReqHint(item)} before this checkbox is available`
+    : needsFill
+      ? `Fill ${travelerReqHint(item)} first — opens Fill requirement`
       : item.status === 'hold'
         ? 'Pending supervisor sign-off'
         : item.done
@@ -115,14 +118,14 @@ function WorkStepRow({
   return (
     <li
       className={`itp-traveler-work-row itp-traveler-work-row--${item.status}${
-        checkboxLocked ? ' is-locked' : ''
+        blockedByPrior || needsFill ? ' is-locked' : ''
       }${checked ? ' is-checked' : ''}`}
     >
       <div className="itp-traveler-work-row-body">
         <button
           type="button"
           className="itp-library-exec-cb"
-          disabled={saving || checkboxLocked}
+          disabled={checkboxDisabled}
           title={hint}
           aria-label={hint}
           onClick={onToggleDone}
