@@ -20558,6 +20558,22 @@ textarea.modal-status-select {
   line-height: 1.35;
 }
 
+.inventory-id-field-row {
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
+}
+
+.inventory-id-field-row input {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.inventory-id-field-row .button-secondary {
+  flex: 0 0 auto;
+  white-space: nowrap;
+}
+
 .inventory-id-readonly {
   background: #f1f5f9 !important;
   color: #0f172a;
