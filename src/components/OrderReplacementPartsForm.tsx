@@ -24,6 +24,8 @@ const STUD_LOCATION_OPTIONS = [
   'Actuator to yoke',
 ]
 
+const TWINSEAL_STUD_LOCATION_OPTIONS = ['Top lid', 'Bottom lid', 'Packing area', 'Gearbox']
+
 type HardwareDraft = {
   type: string
   size: string
@@ -188,18 +190,6 @@ export function OrderReplacementPartsForm({
   }
 
   const saveTwinsealParts = async () => {
-    const type = studs.type.trim()
-    const okStuds = await onSaveKind({
-      partName: type || 'Studs',
-      partNumber: studs.size.trim(),
-      quantity: Math.max(1, studs.quantity),
-      supplier: '',
-      notes: '',
-      itpItemId: ORDER_PART_KIND_IDS.studs,
-      itpItemName: 'Studs',
-    })
-    if (!okStuds) return
-
     const okSlips = await onSaveKind({
       partName: 'Slips',
       partNumber: slips.partNumber.trim(),
@@ -267,14 +257,7 @@ export function OrderReplacementPartsForm({
     }
   }
 
-  const listedRows = twinseal
-    ? ([
-        studsKindRow,
-        slipsRow,
-        softRow,
-        ...otherRows,
-      ].filter(Boolean) as JobNeededPart[])
-    : ([...studsRows, slipsRow, softRow, ...otherRows].filter(Boolean) as JobNeededPart[])
+  const listedRows = [...studsRows, slipsRow, softRow, ...otherRows].filter(Boolean) as JobNeededPart[]
 
   if (twinseal) {
     return (
@@ -324,7 +307,44 @@ export function OrderReplacementPartsForm({
                 }
               />
             </label>
+            <label className="order-parts-span">
+              Location
+              <input
+                list="order-parts-stud-locations-twinseal"
+                value={studs.location}
+                disabled={!canEdit || saving}
+                placeholder="Top lid, bottom lid, packing area, gearbox..."
+                onChange={(e) => setStuds((prev) => ({ ...prev, location: e.target.value }))}
+              />
+            </label>
+            <label>
+              Notes
+              <input
+                value={studs.extra}
+                disabled={!canEdit || saving}
+                placeholder="1 nut each"
+                onChange={(e) => setStuds((prev) => ({ ...prev, extra: e.target.value }))}
+              />
+            </label>
+            {canEdit ? (
+              <button
+                type="button"
+                className="button-secondary"
+                disabled={saving || !studsReady}
+                onClick={() => void addStuds()}
+              >
+                Add studs
+              </button>
+            ) : null}
           </div>
+          <datalist id="order-parts-stud-locations-twinseal">
+            {TWINSEAL_STUD_LOCATION_OPTIONS.map((option) => (
+              <option key={option} value={option} />
+            ))}
+          </datalist>
+          <p className="placeholder-copy">
+            Add a line for each location that needs studs - top lid, bottom lid, packing area, gearbox, etc.
+          </p>
         </section>
 
         <div className="order-parts-two">
@@ -377,15 +397,56 @@ export function OrderReplacementPartsForm({
           <button
             type="button"
             className="button-primary"
-            disabled={saving}
+            disabled={saving || !hardwareReady}
             onClick={() => void saveTwinsealParts()}
           >
-            {saving ? 'Saving…' : 'Save to needs parts'}
+            {saving ? 'Saving…' : 'Save slips & soft goods'}
           </button>
         ) : null}
 
+        <section className="order-parts-block">
+          <h4>Other parts required</h4>
+          {canEdit ? (
+            <div className="order-parts-other-add">
+              <label>
+                Qty
+                <input
+                  type="number"
+                  min={1}
+                  value={otherQty}
+                  disabled={saving}
+                  onChange={(e) => setOtherQty(Math.max(1, Number(e.target.value) || 1))}
+                />
+              </label>
+              <label>
+                Description
+                <input
+                  value={otherDesc}
+                  disabled={saving}
+                  placeholder="Gaskets, DTR fittings, anything else needed"
+                  onChange={(e) => setOtherDesc(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') {
+                      e.preventDefault()
+                      void addOther()
+                    }
+                  }}
+                />
+              </label>
+              <button
+                type="button"
+                className="button-secondary"
+                disabled={saving || !otherDesc.trim()}
+                onClick={() => void addOther()}
+              >
+                Add other part
+              </button>
+            </div>
+          ) : null}
+        </section>
+
         {listedRows.length === 0 ? (
-          <p className="placeholder-copy">Seeding Studs, Slips, and Soft Goods…</p>
+          <p className="placeholder-copy">Seeding Slips and Soft Goods…</p>
         ) : (
           <ul className="needed-parts-list-items">
             {listedRows.map((row) => (

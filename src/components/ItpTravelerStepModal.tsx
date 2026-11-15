@@ -226,7 +226,17 @@ export function ItpTravelerStepModal({
     return isNameplate ? mergeNameplateMeasFields(resolved) : resolved
   }, [sel, isNameplate])
 
-  const measSections = useMemo(() => groupTechFields(measFields), [measFields])
+  /** Picture technician fields sit in the Photos block (with step-level photos). */
+  const pictureFields = useMemo(
+    () => measFields.filter((field) => field.type === 'picture'),
+    [measFields],
+  )
+  const nonPictureFields = useMemo(
+    () => measFields.filter((field) => field.type !== 'picture'),
+    [measFields],
+  )
+
+  const measSections = useMemo(() => groupTechFields(nonPictureFields), [nonPictureFields])
 
   const jobCardSig = [
     jobCard.customer,
@@ -530,7 +540,9 @@ export function ItpTravelerStepModal({
             <>
               <p className="placeholder-copy">
                 {required
-                  ? `Take at least 1 photo (up to ${max}). Use the camera or upload from this device.`
+                  ? max === 1
+                    ? 'Take 1 photo with the camera or upload a file.'
+                    : `Take at least 1 photo (up to ${max}). Use the camera or upload from this device.`
                   : `Optional — techs can take up to ${max} photo${max === 1 ? '' : 's'}.`}
               </p>
               {photos.length === 0 ? (
@@ -937,73 +949,78 @@ export function ItpTravelerStepModal({
             />
           ) : null}
 
-          {requirePicture ? (
-            <div
-              className={`itp-traveler-req-photo${photosMet ? ' is-met' : ''}`}
-            >
-              <div className="itp-traveler-req-photo-hdr">
-                <h3>
-                  {sel.pictureLabel.trim() || (photoMin === 0 ? 'Photos' : 'Required photo')}
-                  {photoMin > 0 ? <span>*</span> : null}
-                </h3>
-                <span>
-                  {photoCount}/{photoMax}
-                  {photoMin === 0
-                    ? ' optional'
-                    : photoMin === photoMax
-                      ? ' required'
-                      : ` · ${photoMin} required`}
-                </span>
-              </div>
-              <p className="placeholder-copy">
-                Take a photo with the camera or upload a file.{' '}
-                {photoMin === 0
-                  ? `${linePhotoRequirementLabel(photoMin, photoMax)}.`
-                  : `This step needs ${
-                      photoMin === photoMax
-                        ? `${photoMin} photo${photoMin === 1 ? '' : 's'}`
-                        : `at least ${photoMin} photo${photoMin === 1 ? '' : 's'} (up to ${photoMax})`
-                    } before it can be marked complete.`}
-              </p>
-              {photoCount === 0 ? (
-                <p className="itp-traveler-req-photo-empty">No photo yet.</p>
-              ) : (
-                <div className="itp-traveler-step-photos-grid">
-                  {(exec.photos ?? []).map((photo) => (
-                    <div key={photo.id} className="itp-traveler-step-photo">
-                      <a href={photo.url} target="_blank" rel="noreferrer" title={photo.fileName}>
-                        <img src={photo.url} alt={photo.fileName} />
-                      </a>
-                      <button
-                        type="button"
-                        className="button-secondary"
-                        disabled={saving || uploading}
-                        onClick={() => void removePhoto(photo)}
-                      >
-                        Remove
-                      </button>
+          {requirePicture || pictureFields.length > 0 ? (
+            <div className="itp-traveler-step-photos-block">
+              {pictureFields.map((field) => renderTechField(field))}
+              {requirePicture ? (
+                <div
+                  className={`itp-traveler-req-photo${photosMet ? ' is-met' : ''}`}
+                >
+                  <div className="itp-traveler-req-photo-hdr">
+                    <h3>
+                      {sel.pictureLabel.trim() || (photoMin === 0 ? 'Photos' : 'Required photo')}
+                      {photoMin > 0 ? <span>*</span> : null}
+                    </h3>
+                    <span>
+                      {photoCount}/{photoMax}
+                      {photoMin === 0
+                        ? ' optional'
+                        : photoMin === photoMax
+                          ? ' required'
+                          : ` · ${photoMin} required`}
+                    </span>
+                  </div>
+                  <p className="placeholder-copy">
+                    Take a photo with the camera or upload a file.{' '}
+                    {photoMin === 0
+                      ? `${linePhotoRequirementLabel(photoMin, photoMax)}.`
+                      : `This step needs ${
+                          photoMin === photoMax
+                            ? `${photoMin} photo${photoMin === 1 ? '' : 's'}`
+                            : `at least ${photoMin} photo${photoMin === 1 ? '' : 's'} (up to ${photoMax})`
+                        } before it can be marked complete.`}
+                  </p>
+                  {photoCount === 0 ? (
+                    <p className="itp-traveler-req-photo-empty">No photo yet.</p>
+                  ) : (
+                    <div className="itp-traveler-step-photos-grid">
+                      {(exec.photos ?? []).map((photo) => (
+                        <div key={photo.id} className="itp-traveler-step-photo">
+                          <a href={photo.url} target="_blank" rel="noreferrer" title={photo.fileName}>
+                            <img src={photo.url} alt={photo.fileName} />
+                          </a>
+                          <button
+                            type="button"
+                            className="button-secondary"
+                            disabled={saving || uploading}
+                            onClick={() => void removePhoto(photo)}
+                          >
+                            Remove
+                          </button>
+                        </div>
+                      ))}
                     </div>
-                  ))}
+                  )}
+                  <div className="itp-traveler-req-photo-actions">
+                    <button
+                      type="button"
+                      className="button-primary"
+                      disabled={saving || uploading || photosAtMax}
+                      onClick={() => cameraRef.current?.click()}
+                    >
+                      {uploading ? 'Uploading…' : photosAtMax ? 'Photo limit reached' : 'Take photo'}
+                    </button>
+                    <button
+                      type="button"
+                      className="button-secondary"
+                      disabled={saving || uploading || photosAtMax}
+                      onClick={() => fileRef.current?.click()}
+                    >
+                      Upload
+                    </button>
+                  </div>
                 </div>
-              )}
-              <div className="itp-traveler-req-photo-actions">
-                <button
-                  type="button"
-                  className="button-primary"
-                  disabled={saving || uploading || photosAtMax}
-                  onClick={() => cameraRef.current?.click()}
-                >
-                  {uploading ? 'Uploading…' : photosAtMax ? 'Photo limit reached' : 'Take photo'}
-                </button>
-                <button
-                  type="button"
-                  className="button-secondary"
-                  disabled={saving || uploading || photosAtMax}
-                  onClick={() => fileRef.current?.click()}
-                >
-                  Upload
-                </button>
-              </div>
+              ) : null}
             </div>
           ) : null}
 
@@ -1032,7 +1049,7 @@ export function ItpTravelerStepModal({
                 </section>
               ))}
             </div>
-          ) : requireMeasurement && measFields.length > 0 ? (
+          ) : requireMeasurement && nonPictureFields.length > 0 ? (
             <div className="itp-traveler-step-meas">
               <div className="itp-traveler-step-meas-intro">
                 <h3>Technician inputs</h3>

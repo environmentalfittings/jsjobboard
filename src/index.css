@@ -24746,6 +24746,18 @@ body.shop-tv-fullscreen-active .page-content {
   margin-bottom: 8px;
 }
 
+.itp-traveler-step-photos-block {
+  display: flex;
+  flex-direction: column;
+  gap: 0.85rem;
+  margin: 0 0 1rem;
+}
+
+.itp-traveler-step-photos-block > .itp-traveler-step-field--picture,
+.itp-traveler-step-photos-block > .itp-traveler-req-photo {
+  margin: 0;
+}
+
 .itp-traveler-req-photo {
   border: 2px dashed #2563eb;
   background: #eff6ff;

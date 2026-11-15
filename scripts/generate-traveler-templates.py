@@ -74,14 +74,20 @@ def mat_id(parts):
                 ["PMI report @ !"] + [p + " !" for p in parts])
 GEN_MAT = ["Body material", "Bonnet / cover material", "Stem material", "Closure member material", "Seat / trim material"]
 
-def front(mat=GEN_MAT):
+def front(mat=GEN_MAT, receive_fields=None, photo=("As-found condition photos", 4, 8)):
+    fields = list(receive_fields) if receive_fields is not None else list(BASIC)
     return [
-        step("receipt", "Teardown", "Receive valve and record basic information", "Basic Info", BASIC,
-             photo=("Before photos", 1, 8)),
+        step("receipt", "Teardown", "Receive valve and record basic information", "Basic Info", fields,
+             photo=photo),
         mat_id(mat),
         step("disassembly", "Teardown", "Disassemble and clean", "Teardown"),
         "PARTS",
     ]
+
+# Twinseal incoming: 1 required work-order photo + at least 4 as-received before photos.
+TS_RECEIVE = [
+    {"label": "Work order", "type": "picture", "options": [], "required": True, "maxPhotos": 1, "id": "wo"},
+] + BASIC
 
 WELD_FIELDS = ["Weld location / description ~", "WPS used", "Filler metal MTR #", "PMI - base metal",
                "PMI - overlay / weld", "PT report @", "Weld documents @"]
@@ -220,7 +226,7 @@ def part_route(part, key, dims):
     ]
 TS_MAT = ["Body", "Body Lining", "Stem", "Lids", "Lid Groove", "Stem Overlay", "Packing Gland", "Packing Area"]
 T["i"] = ("Twinseal", "repair", "Twinseal",
-    front(TS_MAT) + [
+    front(TS_MAT, receive_fields=TS_RECEIVE, photo=("Before photos", 4, 8)) + [
     step(I, "Teardown", "Parts and bolting record", "Parts Record",
          STUDS + ["Slips part #", "Slips material", "Soft goods part #", "Soft goods material"]),
     step(I, "Incoming Inspection", "Body inspection (after blast)", "Body Insp.",
@@ -391,7 +397,7 @@ def oem(names):
     return out
 T["r"] = ("Relief Valve - VR", "repair", "Relief Valve", [
     step("receipt", "PRV Teardown", "Receive valve and record original nameplate", "Nameplate", PRV_BASIC,
-         photo=("Before photos", 1, 8)),
+         photo=("As-found condition photos", 4, 8)),
     step("receipt", "PRV Teardown", "Preliminary (pre) test", "Pre-Test",
          RECEIPT_INSP + ["Valve disassembled ?", "Broken spring ?",
           "Reason for test | Customer Request | Valve Leaking | Valve Stuck | Valve Chattering | Valve has Broken Spring | Other",
@@ -424,7 +430,7 @@ T["r"] = ("Relief Valve - VR", "repair", "Relief Valve", [
 
 T["s"] = ("Relief Valve - TO", "testonly", "Relief Valve", [
     step("receipt", "PRV Teardown", "Receive valve and record nameplate", "Nameplate", PRV_BASIC,
-         photo=("Before photos", 1, 8)),
+         photo=("As-found condition photos", 4, 8)),
     step("receipt", "PRV Teardown", "Receipt inspection", "Receipt Insp.", RECEIPT_INSP + ["Notes receipt inspection ~"]),
     step("testing", "Testing", "Test", "Test",
          ["Test gauge number", "Calibration due date", "Test fluid | Steam | Air/Gas | Liquid", "Units | PSI | kPa | Bar",
@@ -468,9 +474,15 @@ def build(letter, steps):
         rows.append((sid, n, s))
     for sid, n, s in rows:
         fields = []
-        for i, f in enumerate(s["fields"], 1):
+        seq = 0
+        for f in s["fields"]:
             f = dict(f); un = f.pop("_unlock", None)
-            f["id"] = f"{sid}_f{i:02d}"
+            preset = str(f.get("id") or "").strip()
+            if preset:
+                f["id"] = preset if preset.startswith(sid) else f"{sid}_{preset}"
+            else:
+                seq += 1
+                f["id"] = f"{sid}_f{seq:02d}"
             if un:
                 f["unlockItemIdsByOption"] = {opt: [keymap[k] for k in keys] for opt, keys in un.items()}
             elif un is not None:

@@ -25,11 +25,9 @@ export const TWINSEAL_NEEDED_PART_SEEDS: ReadonlyArray<{
   partName: string
   itpItemName: string
 }> = [
-  {
-    kindId: ORDER_PART_KIND_IDS.studs,
-    partName: 'Studs',
-    itpItemName: 'Studs',
-  },
+  // Studs are not seeded as a single fixed line: a Twinseal job can need studs in several
+  // locations (top lid, bottom lid, packing area, gearbox, etc.), so each is added as its own
+  // line via the Studs "Add studs" control instead.
   {
     kindId: ORDER_PART_KIND_IDS.slips,
     partName: 'Slips',
