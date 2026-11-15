@@ -385,7 +385,7 @@ export function ItpTravelerReportPanel({
           <p className="placeholder-copy">
             {previewMode
               ? `Preview traveler ${meta.valveId}. Check each ITP line as you complete it. Add parts the same way as a job — they stay on this preview and are not sent to shop purchasing.`
-              : 'Check each ITP line as you complete it. Lines with traveler requirements stay locked until photos and fields are filled. Add parts from Component Inspection steps or the Order replacement parts step — purchasing tracks them on Needs parts.'}
+              : 'Check each ITP line as you complete it. Lines with traveler requirements stay locked until photos and fields are filled. Add parts from Component Inspection (including the Parts and bolting record step) — purchasing tracks them on Needs parts.'}
           </p>
           <p className="itp-traveler-report-summary">
             Parts: {formatNeededPartsSummary(neededParts)}

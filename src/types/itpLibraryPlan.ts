@@ -403,14 +403,38 @@ export function allScopeItems(plan: ItpLibraryPlanPayload): ItpLibraryScopeItem[
   }
 
   for (const custom of plan.custom) {
-    if (!isItemIncluded(plan, custom.id) || seen.has(custom.id)) continue
+    if (!isItemIncluded(plan, custom.id)) continue
     const sel = getSel(plan, custom.id)
+    const detail =
+      custom.detail && typeof custom.detail === 'object'
+        ? (custom.detail as { ref?: unknown; name?: unknown })
+        : null
+    const customName = custom.name.trim() || String(detail?.name ?? '').trim()
+    const customRef = String(detail?.ref ?? '').trim()
+    if (seen.has(custom.id)) {
+      // Template custom can override a built-in line’s label/section (e.g. Twinseal parts_order).
+      const idx = out.findIndex((row) => row.id === custom.id)
+      if (idx >= 0) {
+        const prev = out[idx]
+        const defaultSec = resolveLibrarySectionId(String(custom.secId ?? '').trim() || prev.secId)
+        const secId = effectiveScopeSectionId(defaultSec, sel)
+        out[idx] = {
+          ...prev,
+          name: customName || prev.name,
+          ref: customRef || prev.ref,
+          secId,
+          secTitle: sectionTitleForId(secId),
+          sel,
+        }
+      }
+      continue
+    }
     const defaultSec = resolveLibrarySectionId(String(custom.secId ?? '').trim() || 'receipt')
     const secId = effectiveScopeSectionId(defaultSec, sel)
     out.push({
       id: custom.id,
-      name: custom.name,
-      ref: 'Custom',
+      name: customName || custom.name,
+      ref: customRef || 'Custom',
       secId,
       secTitle: sectionTitleForId(secId),
       custom: true,

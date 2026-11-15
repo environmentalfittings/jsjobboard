@@ -1,6 +1,11 @@
 import type { ItpLibraryItemSel } from '../types/itpLibraryPlan'
+import { clampLinePhotoMax, clampLinePhotoMin, emptyMeasField } from '../types/itpMeasFields'
 
 export const ORDER_REPLACEMENT_PARTS_ITEM_ID = 'parts_order'
+
+/** Twinseal traveler receive / as-found step (generated traveler templates). */
+export const TWINSEAL_RECEIVE_ITEM_ID = 'trv_i_01'
+export const TWINSEAL_WORK_ORDER_PHOTO_FIELD_ID = 'trv_i_01_wo'
 
 export const ORDER_PART_KIND_IDS = {
   studs: 'parts_order:studs',
@@ -114,6 +119,89 @@ function withTwinsealOrderPartSubReqs(prev: ItpLibraryItemSel): ItpLibraryItemSe
   }
 }
 
+/**
+ * Twinseal incoming receive step: 1 required work-order photo + at least 4 as-found before photos.
+ * Safe to re-run; upgrades older templates that only required 1 before photo.
+ */
+export function ensureTwinsealReceivePhotoReqs(
+  sel: Record<string, ItpLibraryItemSel>,
+  options?: { valveType?: string | null },
+): Record<string, ItpLibraryItemSel> {
+  if (!isTwinsealValveType(options?.valveType) && !(TWINSEAL_RECEIVE_ITEM_ID in sel)) {
+    return sel
+  }
+  if (options?.valveType != null && !isTwinsealValveType(options.valveType)) {
+    return sel
+  }
+  const prev = sel[TWINSEAL_RECEIVE_ITEM_ID]
+  if (!prev || prev.included === false) return sel
+
+  const fields = prev.measFields.map((row) => emptyMeasField(row))
+  const hasWorkOrder = fields.some(
+    (field) =>
+      field.id === TWINSEAL_WORK_ORDER_PHOTO_FIELD_ID ||
+      /^work\s*order$/i.test(field.label.trim()),
+  )
+  if (!hasWorkOrder) {
+    fields.unshift(
+      emptyMeasField({
+        id: TWINSEAL_WORK_ORDER_PHOTO_FIELD_ID,
+        label: 'Work order',
+        type: 'picture',
+        required: true,
+        maxPhotos: 1,
+      }),
+    )
+  } else {
+    for (let i = 0; i < fields.length; i += 1) {
+      const field = fields[i]
+      if (
+        field.id === TWINSEAL_WORK_ORDER_PHOTO_FIELD_ID ||
+        /^work\s*order$/i.test(field.label.trim())
+      ) {
+        fields[i] = emptyMeasField({
+          ...field,
+          type: 'picture',
+          required: true,
+          maxPhotos: 1,
+        })
+      }
+    }
+  }
+
+  const label = prev.pictureLabel.trim()
+  const pictureLabel =
+    !label || /^as[- ]?found/i.test(label) || /^before\s*photos?/i.test(label)
+      ? label || 'Before photos'
+      : label
+  const minPhotos = Math.max(4, clampLinePhotoMin(prev.minPhotos))
+  const maxPhotos = clampLinePhotoMax(Math.max(8, prev.maxPhotos || 8), minPhotos)
+
+  const unchanged =
+    prev.requirePicture &&
+    prev.pictureLabel === pictureLabel &&
+    prev.minPhotos === minPhotos &&
+    prev.maxPhotos === maxPhotos &&
+    hasWorkOrder &&
+    fields.length === prev.measFields.length
+  if (unchanged) return sel
+
+  return {
+    ...sel,
+    [TWINSEAL_RECEIVE_ITEM_ID]: {
+      ...prev,
+      requirePicture: true,
+      pictureLabel,
+      minPhotos,
+      maxPhotos,
+      beforeMeas: prev.beforeMeas || fields.length > 0,
+      afterMeas: prev.afterMeas || fields.length > 0,
+      measVerify: prev.measVerify || fields.length > 0,
+      measFields: fields,
+    },
+  }
+}
+
 /** Include the Order replacement parts traveler step on plans/templates that do not have it yet. */
 export function ensureOrderReplacementPartsSel(
   sel: Record<string, ItpLibraryItemSel>,
@@ -121,24 +209,28 @@ export function ensureOrderReplacementPartsSel(
 ): Record<string, ItpLibraryItemSel> {
   const twinseal = isTwinsealValveType(options?.valveType)
   const prev = sel[ORDER_REPLACEMENT_PARTS_ITEM_ID]
+  let nextSel = sel
   if (!prev) {
     const created = newOrderReplacementPartsSel()
-    return {
+    nextSel = {
       ...sel,
       [ORDER_REPLACEMENT_PARTS_ITEM_ID]: twinseal
         ? withTwinsealOrderPartSubReqs(created)
         : created,
     }
+  } else {
+    let next = prev
+    if (prev.included !== false && !prev.addToTraveler) {
+      next = { ...next, addToTraveler: true }
+    } else if (prev.included === false && !prev.addToTraveler) {
+      next = { ...next, addToTraveler: true }
+    }
+    if (twinseal && next.included !== false) {
+      next = withTwinsealOrderPartSubReqs(next)
+    }
+    if (next !== prev) {
+      nextSel = { ...sel, [ORDER_REPLACEMENT_PARTS_ITEM_ID]: next }
+    }
   }
-  let next = prev
-  if (prev.included !== false && !prev.addToTraveler) {
-    next = { ...next, addToTraveler: true }
-  } else if (prev.included === false && !prev.addToTraveler) {
-    next = { ...next, addToTraveler: true }
-  }
-  if (twinseal && next.included !== false) {
-    next = withTwinsealOrderPartSubReqs(next)
-  }
-  if (next === prev) return sel
-  return { ...sel, [ORDER_REPLACEMENT_PARTS_ITEM_ID]: next }
+  return ensureTwinsealReceivePhotoReqs(nextSel, options)
 }

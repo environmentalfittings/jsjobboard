@@ -74,20 +74,50 @@ def mat_id(parts):
                 ["PMI report @ !"] + [p + " !" for p in parts])
 GEN_MAT = ["Body material", "Bonnet / cover material", "Stem material", "Closure member material", "Seat / trim material"]
 
-def front(mat=GEN_MAT, receive_fields=None, photo=("As-found condition photos", 4, 8)):
+def parts_order_step(sec, area, name, ref, fields=(), sub_reqs=()):
+    """Special traveler step id parts_order (Needs parts UI) with optional record fields."""
+    return dict(
+        _parts=True,
+        sec=sec,
+        area=area,
+        name=name,
+        ref=ref,
+        key=None,
+        locked=False,
+        hold=False,
+        photo=None,
+        fields=[x if isinstance(x, dict) else fld(x) for x in fields],
+        subReqs=list(sub_reqs),
+    )
+
+def front(mat=GEN_MAT, receive_fields=None, photo=("As-found condition photos", 4, 8), parts=True):
     fields = list(receive_fields) if receive_fields is not None else list(BASIC)
-    return [
+    out = [
         step("receipt", "Teardown", "Receive valve and record basic information", "Basic Info", fields,
              photo=photo),
         mat_id(mat),
         step("disassembly", "Teardown", "Disassemble and clean", "Teardown"),
-        "PARTS",
     ]
+    if parts is True:
+        out.append("PARTS")
+    elif parts:
+        out.append(parts)
+    return out
 
 # Twinseal incoming: 1 required work-order photo + at least 4 as-received before photos.
 TS_RECEIVE = [
     {"label": "Work order", "type": "picture", "options": [], "required": True, "maxPhotos": 1, "id": "wo"},
 ] + BASIC
+
+# Twinseal: one step for ordering Studs/Slips/Soft Goods and recording bolting details.
+TS_PARTS = parts_order_step(
+    "inspection",
+    "Teardown",
+    "Parts and bolting record",
+    "Parts Record",
+    STUDS + ["Slips part #", "Slips material", "Soft goods part #", "Soft goods material"],
+    sub_reqs=["Studs", "Slips", "Soft Goods"],
+)
 
 WELD_FIELDS = ["Weld location / description ~", "WPS used", "Filler metal MTR #", "PMI - base metal",
                "PMI - overlay / weld", "PT report @", "Weld documents @"]
@@ -226,9 +256,7 @@ def part_route(part, key, dims):
     ]
 TS_MAT = ["Body", "Body Lining", "Stem", "Lids", "Lid Groove", "Stem Overlay", "Packing Gland", "Packing Area"]
 T["i"] = ("Twinseal", "repair", "Twinseal",
-    front(TS_MAT, receive_fields=TS_RECEIVE, photo=("Before photos", 4, 8)) + [
-    step(I, "Teardown", "Parts and bolting record", "Parts Record",
-         STUDS + ["Slips part #", "Slips material", "Soft goods part #", "Soft goods material"]),
+    front(TS_MAT, receive_fields=TS_RECEIVE, photo=("Before photos", 4, 8), parts=TS_PARTS) + [
     step(I, "Incoming Inspection", "Body inspection (after blast)", "Body Insp.",
          ["Is valve body free of defects ?", "What defects are found ~",
           "Thickness of Flange A", "Thickness of Flange B", "Dimension C",
@@ -461,35 +489,53 @@ def empty_sel():
                 requireNameplate=False, blockNext=False, sectionId="", shopArea="", sortIndex=None,
                 addToTraveler=False, travelerEntry=None, resourceDocs=[])
 
+def _assign_fields(sid, raw_fields, keymap):
+    fields = []
+    seq = 0
+    for f in raw_fields:
+        f = dict(f)
+        un = f.pop("_unlock", None)
+        preset = str(f.get("id") or "").strip()
+        if preset:
+            f["id"] = preset if preset.startswith(sid) else f"{sid}_{preset}"
+        else:
+            seq += 1
+            f["id"] = f"{sid}_f{seq:02d}"
+        if un:
+            f["unlockItemIdsByOption"] = {
+                opt: [keymap[k] for k in keys] for opt, keys in un.items()
+            }
+        fields.append(f)
+    return fields
+
 def build(letter, steps):
     sel, custom, keymap, rows = {}, [], {}, []
     n = 0
     for s in steps:
         n += 1
         if s == "PARTS":
-            sel["parts_order"] = {**empty_sel(), "included": True, "sortIndex": n}
+            sel["parts_order"] = {**empty_sel(), "included": True, "sortIndex": n, "addToTraveler": True}
+            continue
+        if isinstance(s, dict) and s.get("_parts"):
+            rows.append(("parts_order", n, s))
             continue
         sid = f"trv_{letter}_{n:02d}"
         if s["key"]: keymap[s["key"]] = sid
         rows.append((sid, n, s))
     for sid, n, s in rows:
-        fields = []
-        seq = 0
-        for f in s["fields"]:
-            f = dict(f); un = f.pop("_unlock", None)
-            preset = str(f.get("id") or "").strip()
-            if preset:
-                f["id"] = preset if preset.startswith(sid) else f"{sid}_{preset}"
-            else:
-                seq += 1
-                f["id"] = f"{sid}_f{seq:02d}"
-            if un:
-                f["unlockItemIdsByOption"] = {opt: [keymap[k] for k in keys] for opt, keys in un.items()}
-            elif un is not None:
-                pass
-            fields.append(f)
-        st = {**empty_sel(), "included": not s["locked"], "holdPoint": s["hold"], "measFields": fields,
-              "sectionId": s["sec"], "shopArea": s["area"], "sortIndex": n}
+        fields = _assign_fields(sid, s["fields"], keymap)
+        is_parts = bool(s.get("_parts"))
+        st = {
+            **empty_sel(),
+            "included": True if is_parts else (not s["locked"]),
+            "holdPoint": s["hold"],
+            "measFields": fields,
+            "sectionId": s["sec"],
+            "shopArea": s["area"],
+            "sortIndex": n,
+            "addToTraveler": True if is_parts else False,
+            "subReqs": list(s.get("subReqs") or []) if is_parts else [],
+        }
         if s["photo"]:
             st.update(requirePicture=True, pictureLabel=s["photo"][0], minPhotos=s["photo"][1], maxPhotos=s["photo"][2])
         sel[sid] = st

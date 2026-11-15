@@ -938,7 +938,7 @@ export function ItpTravelerStepModal({
               onAddOther={onSaveNeededPart}
               onRemove={onRemoveNeededPart}
             />
-          ) : onNeedPart ? (
+          ) : !isOrderReplacementPartsItem(item.id) && onNeedPart ? (
             <JobNeededPartsList
               rows={neededParts.filter((row) => row.itpItemId === item.id)}
               canEdit
@@ -1052,9 +1052,13 @@ export function ItpTravelerStepModal({
           ) : requireMeasurement && nonPictureFields.length > 0 ? (
             <div className="itp-traveler-step-meas">
               <div className="itp-traveler-step-meas-intro">
-                <h3>Technician inputs</h3>
+                <h3>
+                  {isOrderReplacementPartsItem(item.id) ? 'Parts record' : 'Technician inputs'}
+                </h3>
                 <p className="placeholder-copy">
-                  Job-card fields fill in automatically. Edit a value or mark N/A if it does not apply.
+                  {isOrderReplacementPartsItem(item.id)
+                    ? 'Record studs, slips, and soft goods details for this job. Mark N/A if a field does not apply.'
+                    : 'Job-card fields fill in automatically. Edit a value or mark N/A if it does not apply.'}
                 </p>
               </div>
               {measSections.map((section) => (

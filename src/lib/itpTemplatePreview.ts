@@ -1,6 +1,7 @@
 import { ITP_LIBRARY, type ItpLibraryJobType } from '../constants/itpLibrary'
 import type { ItpMasterCatalogItem } from './itpMasterCatalog'
 import { applyScopeToPlan, type ItpLibraryTemplateScope } from './itpLibraryTemplates'
+import { ensureTwinsealReceivePhotoReqs } from './itpOrderParts'
 import { collectUnlockItemIdsFromSels } from './itpMeasUnlocks'
 import type { JobCardNameplateSource } from './itpTravelerNameplate'
 import type { JobNeededPart, JobNeededPartDraft } from './jobNeededParts'
@@ -140,7 +141,10 @@ export function buildTemplatePreviewPlan(options: {
     }
   }
   return {
-    plan: { ...plan, sel },
+    plan: {
+      ...plan,
+      sel: ensureTwinsealReceivePhotoReqs(sel, { valveType }),
+    },
     jobCard,
     openedAt: new Date().toISOString(),
     neededParts: [],
@@ -226,8 +230,12 @@ export function readTemplatePreviewPayload(): ItpTemplatePreviewPayload | null {
     if (!plan.valveSnapshot.valveId || plan.valveSnapshot.valveId === 'PREVIEW') {
       plan.valveSnapshot = { ...plan.valveSnapshot, valveId: ITP_PREVIEW_TRAVELER_ID }
     }
+    const valveType = plan.valveType || plan.valveSnapshot.valveType || jobCard.valve_type
     return {
-      plan,
+      plan: {
+        ...plan,
+        sel: ensureTwinsealReceivePhotoReqs(plan.sel, { valveType }),
+      },
       jobCard,
       openedAt: String(parsed.openedAt ?? ''),
       neededParts: coercePreviewNeededParts(parsed.neededParts),
