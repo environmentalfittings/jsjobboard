@@ -2552,15 +2552,17 @@ export function ItpLibraryEditor({ valve, onClose, readOnly = false }: ItpLibrar
                                   ) : null}
                                 </div>
                                 <div className="itp-library-exec-acts">
-                                  <button
-                                    type="button"
-                                    className="itp-library-edit-btn"
-                                    disabled={readOnly}
-                                    title="Add a required part for purchasing"
-                                    onClick={() => parts.setNeedPartItem({ id: it.id, name: it.name })}
-                                  >
-                                    Need part
-                                  </button>
+                                  {section.id === 'inspection' ? (
+                                    <button
+                                      type="button"
+                                      className="itp-library-edit-btn"
+                                      disabled={readOnly}
+                                      title="Add a required part for purchasing"
+                                      onClick={() => parts.setNeedPartItem({ id: it.id, name: it.name })}
+                                    >
+                                      Need part
+                                    </button>
+                                  ) : null}
                                   <button
                                     type="button"
                                     className={`itp-library-flag-btn${isOpenItpFlag(ex) ? ' on' : ''}${isResolvedItpFlag(ex) ? ' resolved' : ''}`}

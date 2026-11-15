@@ -13,6 +13,9 @@ import { ItpLoginQr } from './ItpLoginQr'
 import { ItpOptionalNotes } from './ItpOptionalNotes'
 import { iomProcedureKindLabel, resourceDocumentPublicUrl } from '../lib/resourceDocuments'
 import { isOrderReplacementPartsItem } from '../lib/itpOrderParts'
+
+/** "Need part" is only offered on Component Inspection steps (parts are found at inspection). */
+const NEED_PART_SECTION_ID = 'inspection'
 import {
   formatNeededPartsSummary,
   jobNeededPartStatusLabel,
@@ -382,7 +385,7 @@ export function ItpTravelerReportPanel({
           <p className="placeholder-copy">
             {previewMode
               ? `Preview traveler ${meta.valveId}. Check each ITP line as you complete it. Add parts the same way as a job — they stay on this preview and are not sent to shop purchasing.`
-              : 'Check each ITP line as you complete it. Lines with traveler requirements stay locked until photos and fields are filled. Add parts from any step — purchasing tracks them on Needs parts.'}
+              : 'Check each ITP line as you complete it. Lines with traveler requirements stay locked until photos and fields are filled. Add parts from Component Inspection steps or the Order replacement parts step — purchasing tracks them on Needs parts.'}
           </p>
           <p className="itp-traveler-report-summary">
             Parts: {formatNeededPartsSummary(neededParts)}
@@ -516,7 +519,11 @@ export function ItpTravelerReportPanel({
                       onOpen={() => onOpenStep(item.id)}
                       onToggleDone={() => onToggleDone(item.id)}
                       onPatchNotes={(notes) => onPatchNotes(item.id, notes)}
-                      onNeedPart={onNeedPart ? () => onNeedPart(item.id) : undefined}
+                      onNeedPart={
+                        onNeedPart && section.secId === NEED_PART_SECTION_ID
+                          ? () => onNeedPart(item.id)
+                          : undefined
+                      }
                     />
                   )
                 })}
