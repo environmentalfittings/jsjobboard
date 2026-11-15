@@ -113,6 +113,14 @@ export type ItpMeasFieldDef = {
    * other checklist item ids on the job ITP (Machine 1 / Welding / Machine 2, …).
    */
   unlockItemIdsByOption?: Record<string, string[]>
+  /**
+   * Conditionally required: when another field on this step equals `requiredWhenValue`
+   * (matched by label, or by `requiredWhenFieldId` when set), this field becomes required.
+   * Example: PMI report required when “Is PMI required?” = Yes.
+   */
+  requiredWhenLabel?: string
+  requiredWhenValue?: string
+  requiredWhenFieldId?: string
 }
 
 /** Classic Body/bonnet triple — used as the default when enabling measurements. */
@@ -258,6 +266,9 @@ function dropdownPersistPatch(partial?: Partial<ItpMeasFieldDef>): Partial<ItpMe
 export function emptyMeasField(partial?: Partial<ItpMeasFieldDef>): ItpMeasFieldDef {
   const jobCardField = normalizeStoredJobCardField(partial?.jobCardField)
   const type = normalizeMeasFieldType(partial?.type)
+  const requiredWhenLabel = String(partial?.requiredWhenLabel ?? '').trim()
+  const requiredWhenValue = String(partial?.requiredWhenValue ?? '').trim()
+  const requiredWhenFieldId = String(partial?.requiredWhenFieldId ?? '').trim()
   return {
     id: partial?.id?.trim() || newMeasFieldId(),
     label: String(partial?.label ?? ''),
@@ -268,8 +279,35 @@ export function emptyMeasField(partial?: Partial<ItpMeasFieldDef>): ItpMeasField
     required: partial?.required !== false,
     ...(jobCardField ? { jobCardField } : {}),
     ...(type === 'picture' ? { maxPhotos: clampPictureFieldMax(partial?.maxPhotos) } : {}),
+    ...(requiredWhenLabel && requiredWhenValue
+      ? {
+          requiredWhenLabel,
+          requiredWhenValue,
+          ...(requiredWhenFieldId ? { requiredWhenFieldId } : {}),
+        }
+      : {}),
     ...dropdownPersistPatch(partial),
   }
+}
+
+/** Whether a field is currently required, including requiredWhen gates. */
+export function measFieldCurrentlyRequired(
+  field: ItpMeasFieldDef,
+  fields: ItpMeasFieldDef[],
+  getValue: (fieldId: string) => string,
+): boolean {
+  const whenLabel = String(field.requiredWhenLabel ?? '').trim()
+  const whenValue = String(field.requiredWhenValue ?? '').trim()
+  const whenFieldId = String(field.requiredWhenFieldId ?? '').trim()
+  if (whenLabel && whenValue) {
+    const gate =
+      (whenFieldId ? fields.find((row) => row.id === whenFieldId) : undefined) ??
+      fields.find((row) => row.label.trim().toLowerCase() === whenLabel.toLowerCase())
+    if (!gate) return field.required !== false
+    const gateValue = String(getValue(gate.id) ?? '').trim()
+    return gateValue.toLowerCase() === whenValue.toLowerCase()
+  }
+  return field.required !== false
 }
 
 export function normalizeMeasFields(raw: unknown): ItpMeasFieldDef[] {

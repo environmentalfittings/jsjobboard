@@ -1,7 +1,10 @@
 import { ITP_LIBRARY, type ItpLibraryJobType } from '../constants/itpLibrary'
 import type { ItpMasterCatalogItem } from './itpMasterCatalog'
 import { applyScopeToPlan, type ItpLibraryTemplateScope } from './itpLibraryTemplates'
-import { ensureTwinsealReceivePhotoReqs } from './itpOrderParts'
+import {
+  ensureMaterialIdentificationPmiReqs,
+  ensureTwinsealReceivePhotoReqs,
+} from './itpOrderParts'
 import { collectUnlockItemIdsFromSels } from './itpMeasUnlocks'
 import type { JobCardNameplateSource } from './itpTravelerNameplate'
 import type { JobNeededPart, JobNeededPartDraft } from './jobNeededParts'
@@ -143,7 +146,10 @@ export function buildTemplatePreviewPlan(options: {
   return {
     plan: {
       ...plan,
-      sel: ensureTwinsealReceivePhotoReqs(sel, { valveType }),
+      sel: ensureMaterialIdentificationPmiReqs(
+        ensureTwinsealReceivePhotoReqs(sel, { valveType }),
+        { valveType },
+      ),
     },
     jobCard,
     openedAt: new Date().toISOString(),
@@ -234,7 +240,10 @@ export function readTemplatePreviewPayload(): ItpTemplatePreviewPayload | null {
     return {
       plan: {
         ...plan,
-        sel: ensureTwinsealReceivePhotoReqs(plan.sel, { valveType }),
+        sel: ensureMaterialIdentificationPmiReqs(
+          ensureTwinsealReceivePhotoReqs(plan.sel, { valveType }),
+          { valveType },
+        ),
       },
       jobCard,
       openedAt: String(parsed.openedAt ?? ''),

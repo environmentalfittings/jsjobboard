@@ -6,6 +6,20 @@ export const ORDER_REPLACEMENT_PARTS_ITEM_ID = 'parts_order'
 /** Twinseal traveler receive / as-found step (generated traveler templates). */
 export const TWINSEAL_RECEIVE_ITEM_ID = 'trv_i_01'
 export const TWINSEAL_WORK_ORDER_PHOTO_FIELD_ID = 'trv_i_01_wo'
+/** Twinseal Material identification step (generated traveler templates). */
+export const TWINSEAL_MAT_ID_ITEM_ID = 'trv_i_02'
+export const TWINSEAL_MAT_ID_PART_LABELS = [
+  'Body',
+  'Body Lining',
+  'Stem',
+  'Lids',
+  'Lid Groove',
+  'Stem Overlay',
+  'Packing Gland',
+  'Packing Area',
+] as const
+export const PMI_REQUIRED_FIELD_LABEL = 'Is PMI required'
+export const PMI_REPORT_FIELD_LABEL = 'PMI report'
 
 export const ORDER_PART_KIND_IDS = {
   studs: 'parts_order:studs',
@@ -117,6 +131,168 @@ function withTwinsealOrderPartSubReqs(prev: ItpLibraryItemSel): ItpLibraryItemSe
     addToTraveler: true,
     subReqs: [...prev.subReqs, ...missing],
   }
+}
+
+function looksLikeMaterialIdStep(itemId: string, prev: ItpLibraryItemSel): boolean {
+  if (itemId === TWINSEAL_MAT_ID_ITEM_ID) return true
+  return prev.measFields.some((field) => {
+    const label = field.label.trim().toLowerCase()
+    return (
+      label === PMI_REPORT_FIELD_LABEL.toLowerCase() ||
+      label === PMI_REQUIRED_FIELD_LABEL.toLowerCase() ||
+      /^is pmi required\??$/i.test(field.label.trim())
+    )
+  })
+}
+
+/**
+ * Material identification: always collect material IDs + “Is PMI required?”.
+ * PMI report upload is required only when the answer is Yes.
+ * Safe to re-run on existing templates / open travelers.
+ */
+export function ensureMaterialIdentificationPmiReqs(
+  sel: Record<string, ItpLibraryItemSel>,
+  options?: { valveType?: string | null },
+): Record<string, ItpLibraryItemSel> {
+  let nextSel = sel
+  let changed = false
+  for (const [itemId, prev] of Object.entries(sel)) {
+    if (!prev || prev.included === false) continue
+    if (!looksLikeMaterialIdStep(itemId, prev)) continue
+
+    const fields = prev.measFields.map((row) => emptyMeasField(row))
+    const byLabel = (label: string) =>
+      fields.findIndex((field) => field.label.trim().toLowerCase() === label.trim().toLowerCase())
+
+    if (itemId === TWINSEAL_MAT_ID_ITEM_ID || isTwinsealValveType(options?.valveType)) {
+      for (const label of TWINSEAL_MAT_ID_PART_LABELS) {
+        const idx = byLabel(label)
+        if (idx < 0) {
+          fields.push(
+            emptyMeasField({
+              id: `${itemId}_${label.toLowerCase().replace(/\s+/g, '_')}`,
+              label,
+              type: 'text',
+              required: true,
+            }),
+          )
+        } else {
+          fields[idx] = emptyMeasField({ ...fields[idx], type: 'text', required: true })
+        }
+      }
+    } else {
+      for (let i = 0; i < fields.length; i += 1) {
+        const field = fields[i]
+        if (field.type === 'picture') continue
+        if (/^is pmi required/i.test(field.label.trim())) continue
+        if (/^pmi report$/i.test(field.label.trim())) continue
+        fields[i] = emptyMeasField({ ...field, required: true })
+      }
+    }
+
+    let pmiRequiredIdx = byLabel(PMI_REQUIRED_FIELD_LABEL)
+    if (pmiRequiredIdx < 0) {
+      pmiRequiredIdx = fields.findIndex((field) => /^is pmi required/i.test(field.label.trim()))
+    }
+    if (pmiRequiredIdx < 0) {
+      fields.push(
+        emptyMeasField({
+          id: `${itemId}_pmi_required`,
+          label: PMI_REQUIRED_FIELD_LABEL,
+          type: 'yes_no',
+          required: true,
+        }),
+      )
+      pmiRequiredIdx = fields.length - 1
+    } else {
+      fields[pmiRequiredIdx] = emptyMeasField({
+        ...fields[pmiRequiredIdx],
+        label: PMI_REQUIRED_FIELD_LABEL,
+        type: 'yes_no',
+        required: true,
+      })
+    }
+
+    let pmiReportIdx = byLabel(PMI_REPORT_FIELD_LABEL)
+    if (pmiReportIdx < 0) {
+      pmiReportIdx = fields.findIndex((field) => /^pmi report$/i.test(field.label.trim()))
+    }
+    const pmiReportPatch = {
+      label: PMI_REPORT_FIELD_LABEL,
+      type: 'picture' as const,
+      required: false,
+      maxPhotos: 3,
+      requiredWhenLabel: PMI_REQUIRED_FIELD_LABEL,
+      requiredWhenValue: 'Yes',
+      requiredWhenFieldId: fields[pmiRequiredIdx]?.id,
+    }
+    if (pmiReportIdx < 0) {
+      fields.push(
+        emptyMeasField({
+          id: `${itemId}_pmi_report`,
+          ...pmiReportPatch,
+        }),
+      )
+    } else {
+      fields[pmiReportIdx] = emptyMeasField({
+        ...fields[pmiReportIdx],
+        ...pmiReportPatch,
+      })
+    }
+
+    // Keep material parts first, then PMI required, then PMI report, then any extras.
+    const partSet = new Set(
+      TWINSEAL_MAT_ID_PART_LABELS.map((label) => label.toLowerCase()),
+    )
+    const parts: typeof fields = []
+    const middle: typeof fields = []
+    let pmiRequired: (typeof fields)[number] | null = null
+    let pmiReport: (typeof fields)[number] | null = null
+    for (const field of fields) {
+      const label = field.label.trim().toLowerCase()
+      if (label === PMI_REQUIRED_FIELD_LABEL.toLowerCase()) pmiRequired = field
+      else if (label === PMI_REPORT_FIELD_LABEL.toLowerCase()) pmiReport = field
+      else if (partSet.has(label)) parts.push(field)
+      else middle.push(field)
+    }
+    const ordered = [
+      ...parts,
+      ...middle,
+      ...(pmiRequired ? [pmiRequired] : []),
+      ...(pmiReport ? [pmiReport] : []),
+    ]
+
+    const sameLength = ordered.length === prev.measFields.length
+    const sameShape =
+      sameLength &&
+      ordered.every((field, index) => {
+        const prevField = prev.measFields[index]
+        return (
+          prevField &&
+          prevField.id === field.id &&
+          prevField.label === field.label &&
+          prevField.type === field.type &&
+          prevField.required === field.required &&
+          String(prevField.requiredWhenLabel ?? '') === String(field.requiredWhenLabel ?? '') &&
+          String(prevField.requiredWhenValue ?? '') === String(field.requiredWhenValue ?? '') &&
+          String(prevField.requiredWhenFieldId ?? '') === String(field.requiredWhenFieldId ?? '')
+        )
+      })
+    if (sameShape) continue
+
+    changed = true
+    nextSel = {
+      ...nextSel,
+      [itemId]: {
+        ...prev,
+        beforeMeas: true,
+        afterMeas: true,
+        measVerify: true,
+        measFields: ordered,
+      },
+    }
+  }
+  return changed ? nextSel : sel
 }
 
 /**
@@ -232,5 +408,8 @@ export function ensureOrderReplacementPartsSel(
       nextSel = { ...sel, [ORDER_REPLACEMENT_PARTS_ITEM_ID]: next }
     }
   }
-  return ensureTwinsealReceivePhotoReqs(nextSel, options)
+  return ensureMaterialIdentificationPmiReqs(
+    ensureTwinsealReceivePhotoReqs(nextSel, options),
+    options,
+  )
 }

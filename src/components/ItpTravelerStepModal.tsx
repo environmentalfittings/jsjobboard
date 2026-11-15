@@ -3,7 +3,10 @@ import { createPortal } from 'react-dom'
 import { useToast } from './ToastNotification'
 import {
   deleteItpLibraryAttachment,
+  isItpLibraryAttachmentImage,
+  isItpLibraryAttachmentPdf,
   uploadItpFlagPhoto,
+  uploadItpLibraryAttachment,
 } from '../lib/itpLibraryAttachments'
 import {
   clampLinePhotoMax,
@@ -19,6 +22,7 @@ import {
   itemRequiresMeasurements,
   itemRequiresPicture,
   markDoneBlockedReason,
+  measFieldCurrentlyRequired,
   NA_MEAS_VALUE,
   patchMeasValue,
   pictureFieldMax,
@@ -226,13 +230,28 @@ export function ItpTravelerStepModal({
     return isNameplate ? mergeNameplateMeasFields(resolved) : resolved
   }, [sel, isNameplate])
 
-  /** Picture technician fields sit in the Photos block (with step-level photos). */
+  /** Ungated picture fields sit in the Photos block (with step-level photos). */
   const pictureFields = useMemo(
-    () => measFields.filter((field) => field.type === 'picture'),
+    () =>
+      measFields.filter(
+        (field) =>
+          field.type === 'picture' &&
+          !(
+            String(field.requiredWhenLabel ?? '').trim() &&
+            String(field.requiredWhenValue ?? '').trim()
+          ),
+      ),
     [measFields],
   )
+  /** Text / yes-no / gated uploads (e.g. PMI report when required) stay in field order. */
   const nonPictureFields = useMemo(
-    () => measFields.filter((field) => field.type !== 'picture'),
+    () =>
+      measFields.filter(
+        (field) =>
+          field.type !== 'picture' ||
+          (Boolean(String(field.requiredWhenLabel ?? '').trim()) &&
+            Boolean(String(field.requiredWhenValue ?? '').trim())),
+      ),
     [measFields],
   )
 
@@ -394,7 +413,7 @@ export function ItpTravelerStepModal({
     try {
       const uploaded: ItpLibraryAttachment[] = []
       for (const file of files) {
-        const { attachment, error } = await uploadItpFlagPhoto(valveRowId, `${item.id}-${fieldId}`, file)
+        const { attachment, error } = await uploadItpLibraryAttachment(valveRowId, file)
         if (error || !attachment) {
           showToast(error || 'Upload failed')
           continue
@@ -409,7 +428,7 @@ export function ItpTravelerStepModal({
           [fieldId]: [...getFieldPhotos(prev, fieldId), ...uploaded],
         },
       }))
-      showToast(uploaded.length === 1 ? 'Photo added' : `${uploaded.length} photos added`)
+      showToast(uploaded.length === 1 ? 'File added' : `${uploaded.length} files added`)
     } finally {
       setUploading(false)
       setPhotoFieldId(null)
@@ -518,9 +537,20 @@ export function ItpTravelerStepModal({
   )
 
   const renderTechField = (field: ItpMeasFieldDef) => {
-    const required = field.required !== false
+    const required = measFieldCurrentlyRequired(field, measFields, (fieldId) =>
+      getMeasValue(exec, fieldId),
+    )
     const value = getMeasValue(exec, field.id)
     const naOn = isNaAnswer(value)
+    const gatedBy =
+      field.requiredWhenFieldId || field.requiredWhenLabel
+        ? measFields.find(
+            (candidate) =>
+              candidate.id === field.requiredWhenFieldId ||
+              candidate.label.trim().toLowerCase() ===
+                (field.requiredWhenLabel || '').trim().toLowerCase(),
+          )
+        : null
     if (field.type === 'picture') {
       const photos = getFieldPhotos(exec, field.id)
       const max = pictureFieldMax(field)
@@ -533,28 +563,49 @@ export function ItpTravelerStepModal({
             required && !naOn ? ` itp-traveler-req-photo${met ? ' is-met' : ''}` : ''
           }${naOn ? ' is-na' : ''}`}
         >
-          {renderFieldHeader(field, required, naOn, { naInHeader: true })}
+          {renderFieldHeader(field, required, naOn, {
+            // Conditional uploads (PMI report) must be attached when the gate is Yes.
+            // Keep the toggle visible if N/A was already set so the tech can clear it.
+            naInHeader: !(gatedBy && required) || naOn,
+          })}
+          {gatedBy && !required ? (
+            <p className="placeholder-copy">
+              Required when {gatedBy.label} is {field.requiredWhenValue || 'Yes'}.
+            </p>
+          ) : null}
           {naOn ? (
-            <p className="placeholder-copy">Marked N/A — no picture required on this job.</p>
+            <p className="placeholder-copy">
+              {gatedBy && required
+                ? `N/A is not allowed when ${gatedBy.label} is ${field.requiredWhenValue || 'Yes'} — clear N/A and upload the report.`
+                : 'Marked N/A — no file required on this job.'}
+            </p>
           ) : (
             <>
               <p className="placeholder-copy">
                 {required
                   ? max === 1
-                    ? 'Take 1 photo with the camera or upload a file.'
-                    : `Take at least 1 photo (up to ${max}). Use the camera or upload from this device.`
-                  : `Optional — techs can take up to ${max} photo${max === 1 ? '' : 's'}.`}
+                    ? 'Upload 1 file (image or PDF), or take a photo.'
+                    : `Upload at least 1 file (up to ${max}). Images or PDF.`
+                  : gatedBy
+                    ? `Optional unless ${gatedBy.label} is ${field.requiredWhenValue || 'Yes'} (up to ${max}).`
+                    : `Optional — up to ${max} file${max === 1 ? '' : 's'} (image or PDF).`}
               </p>
               {photos.length === 0 ? (
                 <p className="itp-traveler-req-photo-empty">
-                  {required ? 'No photo yet — this picture is required.' : `No pictures yet (0/${max}).`}
+                  {required ? 'No file yet — this upload is required.' : `No files yet (0/${max}).`}
                 </p>
               ) : (
                 <div className="itp-traveler-step-photos-grid">
                   {photos.map((photo) => (
                     <div key={photo.id} className="itp-traveler-step-photo">
                       <a href={photo.url} target="_blank" rel="noreferrer" title={photo.fileName}>
-                        <img src={photo.url} alt={photo.fileName} />
+                        {isItpLibraryAttachmentImage(photo) ? (
+                          <img src={photo.url} alt={photo.fileName} />
+                        ) : (
+                          <span className="itp-traveler-file-chip">
+                            {isItpLibraryAttachmentPdf(photo) ? 'PDF' : 'File'}: {photo.fileName}
+                          </span>
+                        )}
                       </a>
                       <button
                         type="button"

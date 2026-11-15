@@ -24869,6 +24869,20 @@ body.shop-tv-fullscreen-active .page-content {
   border: 1px solid #cbd5e1;
 }
 
+.itp-traveler-file-chip {
+  display: flex;
+  align-items: center;
+  min-height: 110px;
+  padding: 10px 12px;
+  border-radius: 8px;
+  border: 1px solid #cbd5e1;
+  background: #f8fafc;
+  color: #0f172a;
+  font-size: 0.78rem;
+  font-weight: 600;
+  word-break: break-word;
+}
+
 .itp-traveler-step-hold-note {
   margin: 0;
   font-size: 0.8rem;

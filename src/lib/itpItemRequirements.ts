@@ -6,6 +6,7 @@ import {
   followUpApplies,
   followUpFieldId,
   followUpLabelOf,
+  measFieldCurrentlyRequired,
   type ItpJobCardFieldKey,
   type ItpMeasFieldDef,
   type ItpMeasFieldType,
@@ -27,6 +28,7 @@ export {
   inferJobCardField,
   lookupListLabel,
   looksLikeManufacturerLabel,
+  measFieldCurrentlyRequired,
   measFieldTypeLabel,
   newMeasFieldId,
   normalizeMeasFields,
@@ -179,17 +181,34 @@ export function patchMeasValue(
 export function measurementsComplete(sel: ItpLibraryItemSel, exec: ItpLibraryItemExec): boolean {
   const fields = resolvedMeasFields(sel)
   if (fields.length === 0) return true
-  return fields.every((field) => measFieldComplete(field, exec))
+  return fields.every((field) => measFieldComplete(field, fields, exec))
 }
 
-function measFieldComplete(field: ItpMeasFieldDef, exec: ItpLibraryItemExec): boolean {
+function measFieldComplete(
+  field: ItpMeasFieldDef,
+  fields: ItpMeasFieldDef[],
+  exec: ItpLibraryItemExec,
+): boolean {
   const value = getMeasValue(exec, field.id)
-  if (isNaAnswer(value)) return true
+  const currentlyRequired = measFieldCurrentlyRequired(field, fields, (fieldId) =>
+    getMeasValue(exec, fieldId),
+  )
+  if (isNaAnswer(value)) {
+    // Conditional uploads (e.g. PMI report) cannot be skipped with N/A once gated on.
+    if (
+      currentlyRequired &&
+      field.type === 'picture' &&
+      (field.requiredWhenLabel || field.requiredWhenFieldId)
+    ) {
+      return false
+    }
+    return true
+  }
   if (followUpApplies(field, value)) {
     const followUp = getMeasValue(exec, followUpFieldId(field.id))
     if (!isNaAnswer(followUp) && !followUp.trim()) return false
   }
-  if (field.required === false) return true
+  if (!currentlyRequired) return true
   if (field.type === 'picture') return getFieldPhotos(exec, field.id).length > 0
   return value.trim().length > 0
 }
@@ -225,6 +244,22 @@ export function markDoneBlockedReason(
     if (missingFollowUp) {
       const when = String(missingFollowUp.followUpWhen ?? '').trim() || 'Other'
       return `Enter ${followUpLabelOf(missingFollowUp)} for ${missingFollowUp.label} (${when})`
+    }
+    const missingConditional = resolvedMeasFields(sel).find((field) => {
+      if (
+        !measFieldCurrentlyRequired(field, resolvedMeasFields(sel), (fieldId) =>
+          getMeasValue(exec, fieldId),
+        )
+      ) {
+        return false
+      }
+      return !measFieldComplete(field, resolvedMeasFields(sel), exec)
+    })
+    if (missingConditional?.type === 'picture') {
+      return `Upload ${missingConditional.label} before marking done`
+    }
+    if (missingConditional) {
+      return `Fill in ${missingConditional.label} before marking done`
     }
     return 'Fill in all required fields or mark them N/A before marking done'
   }

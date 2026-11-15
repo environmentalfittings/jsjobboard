@@ -69,9 +69,27 @@ def comps(names):
         out += [f"{n} | Reused | Repaired | Replaced", f"{n} repair description"]
     return out
 def mat_id(parts):
-    # PMI report upload is required; each listed part must be identified from it.
-    return step("receipt", "Teardown", "Material identification (PMI)", "PMI",
-                ["PMI report @ !"] + [p + " !" for p in parts])
+    # Material IDs always required. PMI report upload only when "Is PMI required?" = Yes.
+    # Either way, answers (and the report when required) print on the traveler.
+    return step(
+        "receipt",
+        "Teardown",
+        "Material identification",
+        "Material ID",
+        [p + " !" for p in parts]
+        + [
+            "Is PMI required ? !",
+            {
+                "label": "PMI report",
+                "type": "picture",
+                "options": [],
+                "required": False,
+                "maxPhotos": 3,
+                "requiredWhenLabel": "Is PMI required",
+                "requiredWhenValue": "Yes",
+            },
+        ],
+    )
 GEN_MAT = ["Body material", "Bonnet / cover material", "Stem material", "Closure member material", "Seat / trim material"]
 
 def parts_order_step(sec, area, name, ref, fields=(), sub_reqs=()):
