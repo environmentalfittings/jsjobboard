@@ -15,6 +15,7 @@ import { ItpOptionalNotes } from './ItpOptionalNotes'
 import { iomProcedureKindLabel, resourceDocumentPublicUrl } from '../lib/resourceDocuments'
 import { isOrderReplacementPartsItem } from '../lib/itpOrderParts'
 import { openReliefValveServiceTravelerPrint } from '../lib/reliefValveServiceTravelerPrint'
+import { exportValveKeepCsv } from '../lib/valveKeepCsvExport'
 import { reportHasValveKeepFields } from '../lib/valveKeepFields'
 import { useToast } from './ToastNotification'
 
@@ -391,6 +392,19 @@ export function ItpTravelerReportPanel({
     }
   }
 
+  const handleExportValveKeepCsv = () => {
+    const result = exportValveKeepCsv(sections, { valveId: meta.valveId })
+    if (result.cancelled) return
+    if (!result.ok) {
+      showToast(result.error || 'Could not export ValveKeep CSV')
+      return
+    }
+    showToast(`Downloaded ${result.filename}`)
+    if (result.drift?.length) {
+      console.warn('[ValveKeep CSV drift]', result.drift.join('\n'))
+    }
+  }
+
   return (
     <section className="dashboard-page itp-traveler-report-page">
       <div className="itp-traveler-report-bar screen-only">
@@ -425,14 +439,19 @@ export function ItpTravelerReportPanel({
             Print traveler
           </button>
           {showValveKeepPrint ? (
-            <button
-              type="button"
-              className="button-secondary"
-              disabled={printingValveKeep}
-              onClick={() => void handlePrintValveKeepForm()}
-            >
-              {printingValveKeep ? 'Preparing…' : 'Print ValveKeep form'}
-            </button>
+            <>
+              <button
+                type="button"
+                className="button-secondary"
+                disabled={printingValveKeep}
+                onClick={() => void handlePrintValveKeepForm()}
+              >
+                {printingValveKeep ? 'Preparing…' : 'Print ValveKeep form'}
+              </button>
+              <button type="button" className="button-secondary" onClick={handleExportValveKeepCsv}>
+                Export to ValveKeep
+              </button>
+            </>
           ) : null}
           {previewMode ? (
             <button type="button" className="button-secondary" onClick={() => window.close()}>
