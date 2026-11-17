@@ -1,3 +1,4 @@
+import { useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import type {
   ItpTravelerReportItem,
@@ -13,6 +14,9 @@ import { ItpLoginQr } from './ItpLoginQr'
 import { ItpOptionalNotes } from './ItpOptionalNotes'
 import { iomProcedureKindLabel, resourceDocumentPublicUrl } from '../lib/resourceDocuments'
 import { isOrderReplacementPartsItem } from '../lib/itpOrderParts'
+import { openReliefValveServiceTravelerPrint } from '../lib/reliefValveServiceTravelerPrint'
+import { reportHasValveKeepFields } from '../lib/valveKeepFields'
+import { useToast } from './ToastNotification'
 
 /** "Need part" is only offered on Component Inspection steps (parts are found at inspection). */
 const NEED_PART_SECTION_ID = 'inspection'
@@ -366,10 +370,26 @@ export function ItpTravelerReportPanel({
   neededParts = [],
   onNeedPart,
 }: ItpTravelerReportPanelProps) {
+  const { showToast } = useToast()
+  const [printingValveKeep, setPrintingValveKeep] = useState(false)
   const allPhotos = collectTravelerPhotos(sections)
+  const showValveKeepPrint = useMemo(() => reportHasValveKeepFields(sections), [sections])
   const subhead = [meta.valveType, meta.valveId, meta.customer].filter(Boolean).join(' - ')
   const qrUrl =
     valveRowId != null && Number.isFinite(valveRowId) ? buildItpTravelerUrl(valveRowId) : buildShopLoginUrl()
+
+  const handlePrintValveKeepForm = async () => {
+    if (printingValveKeep) return
+    setPrintingValveKeep(true)
+    try {
+      const { error } = await openReliefValveServiceTravelerPrint(sections, {
+        valveId: meta.valveId,
+      })
+      if (error) showToast(error)
+    } finally {
+      setPrintingValveKeep(false)
+    }
+  }
 
   return (
     <section className="dashboard-page itp-traveler-report-page">
@@ -404,6 +424,16 @@ export function ItpTravelerReportPanel({
           <button type="button" className="button-primary" onClick={() => window.print()}>
             Print traveler
           </button>
+          {showValveKeepPrint ? (
+            <button
+              type="button"
+              className="button-secondary"
+              disabled={printingValveKeep}
+              onClick={() => void handlePrintValveKeepForm()}
+            >
+              {printingValveKeep ? 'Preparing…' : 'Print ValveKeep form'}
+            </button>
+          ) : null}
           {previewMode ? (
             <button type="button" className="button-secondary" onClick={() => window.close()}>
               Close window

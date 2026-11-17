@@ -55,9 +55,11 @@ import { weldProcedureMatchesQuery } from '../lib/wpsNumberGuide'
 
 
 const RESOURCE_DOC_SELECT =
+  'id,scope,valve_type,category,title,notes,storage_path,file_name,mime_type,created_at,updated_at,wps_type,base_metal_category,base_metal_other,weld_processes,weld_modes,filler_metal,base_metal_thickness_qualified,filler_metal_thickness_qualified,post_weld_heat_treat_required,pwht_temperature,pwht_time,hf_approved,manufacturer,product_valve_type,sop_number,revision_number,date_updated,proc_category'
+const RESOURCE_DOC_SELECT_LEGACY =
   'id,scope,valve_type,category,title,notes,storage_path,file_name,mime_type,created_at,updated_at,wps_type,base_metal_category,weld_processes,weld_modes,filler_metal,base_metal_thickness_qualified,filler_metal_thickness_qualified,post_weld_heat_treat_required,pwht_temperature,pwht_time,hf_approved,manufacturer,product_valve_type,sop_number,revision_number,date_updated,proc_category'
 const RESOURCE_DOC_SELECT_MTR =
-  'id,scope,valve_type,category,title,notes,storage_path,file_name,mime_type,created_at,updated_at,wps_type,base_metal_category,weld_processes,weld_modes,filler_metal,base_metal_thickness_qualified,filler_metal_thickness_qualified,post_weld_heat_treat_required,pwht_temperature,pwht_time,hf_approved,manufacturer,product_valve_type,sop_number,revision_number,date_updated,proc_category,mtr_kind,heat_lot,mtr_number,mtr_size,mtr_pressure,mtr_body_heat,mtr_bonnet_heat,mtr_material,mtr_length,mtr_od,mtr_inside_dia'
+  'id,scope,valve_type,category,title,notes,storage_path,file_name,mime_type,created_at,updated_at,wps_type,base_metal_category,base_metal_other,weld_processes,weld_modes,filler_metal,base_metal_thickness_qualified,filler_metal_thickness_qualified,post_weld_heat_treat_required,pwht_temperature,pwht_time,hf_approved,manufacturer,product_valve_type,sop_number,revision_number,date_updated,proc_category,mtr_kind,heat_lot,mtr_number,mtr_size,mtr_pressure,mtr_body_heat,mtr_bonnet_heat,mtr_material,mtr_length,mtr_od,mtr_inside_dia'
 const RESOURCE_DOC_SELECT_MTR_LEGACY =
   'id,scope,valve_type,category,title,notes,storage_path,file_name,mime_type,created_at,updated_at,wps_type,base_metal_category,weld_processes,weld_modes,filler_metal,base_metal_thickness_qualified,filler_metal_thickness_qualified,post_weld_heat_treat_required,pwht_temperature,pwht_time,hf_approved,manufacturer,product_valve_type,sop_number,revision_number,date_updated,proc_category,mtr_kind,heat_lot,mtr_number'
 const RESOURCE_DOC_SELECT_MTR_BARE =
@@ -159,18 +161,31 @@ export function ResourcesPage() {
 
   const loadWeldProcedures = async () => {
     setWeldLoading(true)
-    const { data, error } = await supabase
+    let result = await supabase
       .from('resource_documents')
       .select(RESOURCE_DOC_SELECT)
       .eq('category', 'weld_procedure')
       .order('title', { ascending: true })
       .limit(400)
+    if (
+      result.error &&
+      /base_metal_other/i.test(result.error.message) &&
+      /schema cache|column|does not exist/i.test(result.error.message)
+    ) {
+      showToast('Run supabase/migration-resource-documents-base-metal-other.sql in Supabase SQL Editor first.')
+      result = (await supabase
+        .from('resource_documents')
+        .select(RESOURCE_DOC_SELECT_LEGACY)
+        .eq('category', 'weld_procedure')
+        .order('title', { ascending: true })
+        .limit(400)) as typeof result
+    }
     setWeldLoading(false)
-    if (error) {
-      showToast(`Could not load weld procedures: ${error.message}`)
+    if (result.error) {
+      showToast(`Could not load weld procedures: ${result.error.message}`)
       return
     }
-    setWeldRows((data ?? []) as ResourceDocumentRow[])
+    setWeldRows((result.data ?? []) as ResourceDocumentRow[])
   }
 
   const visibleWeldRows = useMemo(() => {
@@ -306,12 +321,12 @@ export function ResourcesPage() {
       /schema cache|column|does not exist/i.test(result.error.message)
     ) {
       showToast('Run supabase/migration-resource-documents-mtr-details.sql in Supabase SQL Editor first.')
-      result = await supabase
+      result = (await supabase
         .from('resource_documents')
         .select(RESOURCE_DOC_SELECT_MTR_LEGACY)
         .in('category', [...categories])
         .order('title', { ascending: true })
-        .limit(2000)
+        .limit(2000)) as typeof result
     }
     if (
       key === 'mtrs' &&
@@ -320,12 +335,12 @@ export function ResourcesPage() {
       /schema cache|column|does not exist/i.test(result.error.message)
     ) {
       showToast('Run supabase/migration-resource-documents-mtr-numbers.sql in Supabase SQL Editor first.')
-      result = await supabase
+      result = (await supabase
         .from('resource_documents')
         .select(RESOURCE_DOC_SELECT_MTR_BARE)
         .in('category', [...categories])
         .order('title', { ascending: true })
-        .limit(2000)
+        .limit(2000)) as typeof result
     }
     const { data, error } = result
     setSectionLoading((prev) => ({ ...prev, [key]: false }))
@@ -392,6 +407,7 @@ export function ResourcesPage() {
   const [productValveType, setProductValveType] = useState('')
   const [wpsType, setWpsType] = useState<WpsType | ''>('')
   const [baseMetalCategory, setBaseMetalCategory] = useState<BaseMetalCategory | ''>('')
+  const [baseMetalOther, setBaseMetalOther] = useState('')
   const [weldProcesses, setWeldProcesses] = useState<WeldProcess[]>([])
   const [weldModes, setWeldModes] = useState<WeldMode[]>([])
   const [fillerMetal, setFillerMetal] = useState('')
@@ -474,6 +490,7 @@ export function ResourcesPage() {
       if (norm(productValveType) !== norm(editingDoc.product_valve_type)) return true
       if ((wpsType || '') !== (editingDoc.wps_type ?? '')) return true
       if ((baseMetalCategory || '') !== (editingDoc.base_metal_category ?? '')) return true
+      if (norm(baseMetalOther) !== norm(editingDoc.base_metal_other)) return true
       if (sortedKey(weldProcesses) !== sortedKey((editingDoc.weld_processes ?? []) as WeldProcess[])) return true
       if (sortedKey(weldModes) !== sortedKey((editingDoc.weld_modes ?? []) as WeldMode[])) return true
       if (norm(fillerMetal) !== norm(editingDoc.filler_metal)) return true
@@ -515,7 +532,7 @@ export function ResourcesPage() {
     if (trimmed(mtrMaterial) || trimmed(mtrLength) || trimmed(mtrOd) || trimmed(mtrInsideDia)) return true
     if (manufacturer || manufacturerId || productValveType) return true
     if (specDocType || editionLabel.trim() || revisionLabel.trim() || effectiveDate || pageCount.trim()) return true
-    if (wpsType || baseMetalCategory) return true
+    if (wpsType || baseMetalCategory || trimmed(baseMetalOther)) return true
     if (weldProcesses.length > 0 || weldModes.length > 0) return true
     if (trimmed(fillerMetal) || trimmed(baseMetalThicknessQualified) || trimmed(fillerMetalThicknessQualified)) {
       return true
@@ -533,6 +550,7 @@ export function ResourcesPage() {
     productValveType,
     wpsType,
     baseMetalCategory,
+    baseMetalOther,
     weldProcesses,
     weldModes,
     fillerMetal,
@@ -576,6 +594,7 @@ export function ResourcesPage() {
     setProductValveType('')
     setWpsType('')
     setBaseMetalCategory('')
+    setBaseMetalOther('')
     setWeldProcesses([])
     setWeldModes([])
     setFillerMetal('')
@@ -624,6 +643,7 @@ export function ResourcesPage() {
     setProductValveType(row.product_valve_type ?? '')
     setWpsType(row.wps_type ?? '')
     setBaseMetalCategory(row.base_metal_category ?? '')
+    setBaseMetalOther(row.base_metal_other ?? '')
     setWeldProcesses((row.weld_processes ?? []) as WeldProcess[])
     setWeldModes((row.weld_modes ?? []) as WeldMode[])
     setFillerMetal(row.mtr_kind === 'filler_metal' || row.category === 'weld_procedure' ? (row.filler_metal ?? '') : '')
@@ -730,6 +750,14 @@ export function ResourcesPage() {
       return
     }
     if (!uploadTitle.trim()) { showToast('Enter a document title'); return }
+    if (
+      (modalMode === 'weld' || uploadCategory === 'weld_procedure' || editingDoc?.category === 'weld_procedure') &&
+      baseMetalCategory === 'Other' &&
+      !baseMetalOther.trim()
+    ) {
+      showToast('Describe the Other base metal category')
+      return
+    }
     const isMtrUpload = uploadCategory === 'mtr' || editingDoc?.category === 'mtr'
     const mtrFields = {
       size: mtrSize,
@@ -804,6 +832,8 @@ export function ResourcesPage() {
         product_valve_type: productValveType || null,
         wps_type: wpsType || null,
         base_metal_category: baseMetalCategory || null,
+        base_metal_other:
+          baseMetalCategory === 'Other' ? baseMetalOther.trim() || null : null,
         weld_processes: weldProcesses,
         weld_modes: weldModes,
         filler_metal: fillerMetal.trim() || null,
@@ -962,6 +992,7 @@ export function ResourcesPage() {
       productValveType: productValveType || null,
       wpsType: wpsType || null,
       baseMetalCategory: baseMetalCategory || null,
+      baseMetalOther: baseMetalCategory === 'Other' ? baseMetalOther.trim() || null : null,
       weldProcesses,
       weldModes,
       fillerMetal,
@@ -1409,7 +1440,11 @@ export function ResourcesPage() {
                     )}
                   </td>
                   <td>{row.wps_type ?? '-'}</td>
-                  <td>{row.base_metal_category ?? '-'}</td>
+                  <td>
+                    {row.base_metal_category === 'Other' && row.base_metal_other?.trim()
+                      ? `Other — ${row.base_metal_other.trim()}`
+                      : (row.base_metal_category ?? '-')}
+                  </td>
                   <td>{row.weld_processes?.length ? row.weld_processes.join(', ') : '-'}</td>
                   <td>{row.weld_modes?.length ? row.weld_modes.join(', ') : '-'}</td>
                   <td>{row.filler_metal ?? '-'}</td>
@@ -2544,12 +2579,34 @@ export function ResourcesPage() {
                     id="upload-bm-category"
                     className="modal-status-select"
                     value={baseMetalCategory}
-                    onChange={(e) => setBaseMetalCategory(e.target.value as BaseMetalCategory | '')}
+                    onChange={(e) => {
+                      const next = e.target.value as BaseMetalCategory | ''
+                      setBaseMetalCategory(next)
+                      if (next !== 'Other') setBaseMetalOther('')
+                    }}
                     disabled={uploading}
                   >
                     <option value="">— Select category —</option>
                     {BASE_METAL_CATEGORIES.map((c) => <option key={c} value={c}>{c}</option>)}
                   </select>
+
+                  {baseMetalCategory === 'Other' ? (
+                    <>
+                      <label className="modal-label" htmlFor="upload-bm-other">
+                        Other base metal <span className="required-star">*</span>
+                      </label>
+                      <input
+                        id="upload-bm-other"
+                        type="text"
+                        className="modal-status-select"
+                        value={baseMetalOther}
+                        onChange={(e) => setBaseMetalOther(e.target.value)}
+                        placeholder="Describe the base metal category"
+                        disabled={uploading}
+                        required
+                      />
+                    </>
+                  ) : null}
 
                   <label className="modal-label">Weld Process Utilized</label>
                   <div className="weld-process-checkboxes">

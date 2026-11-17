@@ -55,13 +55,25 @@ import type { ItpMeasFieldDef } from '../types/itpMeasFields'
 import type { ItpTravelerReportItem } from '../lib/itpTravelerReport'
 import { loadManufacturerDropdownNames } from '../lib/specDocuments'
 import { loadLookupOptionsMap } from '../lib/lookupValues'
-import type { LookupCategory } from '../constants/lookupCategories'
+import {
+  PMI_MATERIALS_LOOKUP_CATEGORY,
+  type LookupCategory,
+} from '../constants/lookupCategories'
 import { ItpOptionalNotes } from './ItpOptionalNotes'
 import { ItpOemProcedureDocs } from './ItpOemProcedureDocs'
 import { stepUsesOemOrProcedure } from '../lib/itpOemProcedure'
 import { JobNeededPartsList } from './JobNeededPartsList'
 import { OrderReplacementPartsForm } from './OrderReplacementPartsForm'
-import { isOrderReplacementPartsItem } from '../lib/itpOrderParts'
+import {
+  ensureMaterialIdentificationItemSel,
+  growPmiMaterialsFromExec,
+  isOrderReplacementPartsItem,
+  isPmiReportFieldLabel,
+} from '../lib/itpOrderParts'
+import {
+  groupValveKeepTechFields,
+  valveKeepKeyFromFieldId,
+} from '../lib/valveKeepFields'
 import type { JobNeededPart, JobNeededPartDraft } from '../lib/jobNeededParts'
 
 type TechFieldSection = { id: string; title: string; fields: ItpMeasFieldDef[] }
@@ -217,45 +229,53 @@ export function ItpTravelerStepModal({
     }
     const nextSel = nameplate
       ? { ...base, requireNameplate: true, measFields: mergeNameplateMeasFields(base.measFields) }
-      : base
+      : ensureMaterialIdentificationItemSel(item.id, base, {
+          valveType: jobCard.valve_type,
+        })
     setSel(nextSel)
     const fields = nameplate
       ? mergeNameplateMeasFields(resolvedMeasFields(nextSel))
       : resolvedMeasFields(nextSel)
     setExec(prefillExecFromJobCard({ ...emptyItemExec(), ...initialExec }, fields, jobCard))
-  }, [initialSel, initialExec, item])
+  }, [initialSel, initialExec, item, jobCard])
 
   const measFields = useMemo(() => {
     const resolved = resolvedMeasFields(sel)
     return isNameplate ? mergeNameplateMeasFields(resolved) : resolved
   }, [sel, isNameplate])
 
+  const isInlineDocumentField = (field: ItpMeasFieldDef) => {
+    const key = valveKeepKeyFromFieldId(field.id)
+    if (key && /^js_pd_.+_(found|left)$/i.test(key)) return true
+    return (
+      isPmiReportFieldLabel(field.label) ||
+      (Boolean(String(field.requiredWhenLabel ?? '').trim()) &&
+        Boolean(String(field.requiredWhenValue ?? '').trim()))
+    )
+  }
+
   /** Ungated picture fields sit in the Photos block (with step-level photos). */
   const pictureFields = useMemo(
-    () =>
-      measFields.filter(
-        (field) =>
-          field.type === 'picture' &&
-          !(
-            String(field.requiredWhenLabel ?? '').trim() &&
-            String(field.requiredWhenValue ?? '').trim()
-          ),
-      ),
+    () => measFields.filter((field) => field.type === 'picture' && !isInlineDocumentField(field)),
     [measFields],
   )
-  /** Text / yes-no / gated uploads (e.g. PMI report when required) stay in field order. */
+  /** Text / yes-no / PMI report (PDF) stay in field order with technician inputs. */
   const nonPictureFields = useMemo(
     () =>
       measFields.filter(
-        (field) =>
-          field.type !== 'picture' ||
-          (Boolean(String(field.requiredWhenLabel ?? '').trim()) &&
-            Boolean(String(field.requiredWhenValue ?? '').trim())),
+        (field) => field.type !== 'picture' || isInlineDocumentField(field),
       ),
     [measFields],
   )
 
-  const measSections = useMemo(() => groupTechFields(nonPictureFields), [nonPictureFields])
+  const valveKeepGroups = useMemo(
+    () => groupValveKeepTechFields(nonPictureFields),
+    [nonPictureFields],
+  )
+  const measSections = useMemo(
+    () => groupTechFields(valveKeepGroups.rest),
+    [valveKeepGroups.rest],
+  )
 
   const jobCardSig = [
     jobCard.customer,
@@ -536,7 +556,8 @@ export function ItpTravelerStepModal({
     </div>
   )
 
-  const renderTechField = (field: ItpMeasFieldDef) => {
+  const renderTechField = (field: ItpMeasFieldDef, opts?: { compact?: boolean }) => {
+    const compact = Boolean(opts?.compact)
     const required = measFieldCurrentlyRequired(field, measFields, (fieldId) =>
       getMeasValue(exec, fieldId),
     )
@@ -556,6 +577,80 @@ export function ItpTravelerStepModal({
       const max = pictureFieldMax(field)
       const met = photos.length > 0
       const atMax = photos.length >= max
+      const isPmiReport = isPmiReportFieldLabel(field.label)
+      if (compact) {
+        return (
+          <div
+            key={field.id}
+            className={`itp-traveler-step-field itp-traveler-step-field--picture vk-cell-field${
+              required && !naOn ? ` itp-traveler-req-photo${met ? ' is-met' : ''}` : ''
+            }${naOn ? ' is-na' : ''}`}
+          >
+            {gatedBy && !required ? (
+              <p className="placeholder-copy vk-cell-hint">When Work = 1- Replaced</p>
+            ) : null}
+            {required && !met && !naOn ? (
+              <p className="placeholder-copy vk-cell-hint vk-cell-hint--req">Required</p>
+            ) : null}
+            {photos.length > 0 ? (
+              <div className="itp-traveler-step-photos-grid vk-cell-photos">
+                {photos.map((photo) => (
+                  <div key={photo.id} className="itp-traveler-step-photo">
+                    <a href={photo.url} target="_blank" rel="noreferrer" title={photo.fileName}>
+                      {isItpLibraryAttachmentImage(photo) ? (
+                        <img src={photo.url} alt={photo.fileName} />
+                      ) : (
+                        <span className="itp-traveler-file-chip">
+                          {isItpLibraryAttachmentPdf(photo) ? 'PDF' : 'File'}
+                        </span>
+                      )}
+                    </a>
+                    <button
+                      type="button"
+                      className="button-secondary"
+                      disabled={saving || uploading}
+                      onClick={() => void removeFieldPhoto(field.id, photo)}
+                    >
+                      ×
+                    </button>
+                  </div>
+                ))}
+              </div>
+            ) : null}
+            {!naOn ? (
+              <div className="itp-traveler-req-photo-actions vk-cell-photo-actions">
+                <span className="itp-traveler-photo-count">
+                  {photos.length}/{max}
+                </span>
+                <button
+                  type="button"
+                  className="button-primary"
+                  disabled={saving || uploading || atMax}
+                  aria-label={`${field.label} upload`}
+                  onClick={() => {
+                    setPhotoFieldId(field.id)
+                    window.setTimeout(() => fieldFileRef.current?.click(), 0)
+                  }}
+                >
+                  {uploading && photoFieldId === field.id ? '…' : 'Up'}
+                </button>
+                <button
+                  type="button"
+                  className="button-secondary"
+                  disabled={saving || uploading || atMax}
+                  aria-label={`${field.label} camera`}
+                  onClick={() => {
+                    setPhotoFieldId(field.id)
+                    window.setTimeout(() => fieldCameraRef.current?.click(), 0)
+                  }}
+                >
+                  Cam
+                </button>
+              </div>
+            ) : null}
+          </div>
+        )
+      }
       return (
         <div
           key={field.id}
@@ -570,7 +665,9 @@ export function ItpTravelerStepModal({
           })}
           {gatedBy && !required ? (
             <p className="placeholder-copy">
-              Required when {gatedBy.label} is {field.requiredWhenValue || 'Yes'}.
+              {isPmiReport
+                ? `Upload the PMI report (PDF or image) when ${gatedBy.label} is ${field.requiredWhenValue || 'Yes'}.`
+                : `Required when ${gatedBy.label} is ${field.requiredWhenValue || 'Yes'}.`}
             </p>
           ) : null}
           {naOn ? (
@@ -582,17 +679,29 @@ export function ItpTravelerStepModal({
           ) : (
             <>
               <p className="placeholder-copy">
-                {required
-                  ? max === 1
-                    ? 'Upload 1 file (image or PDF), or take a photo.'
-                    : `Upload at least 1 file (up to ${max}). Images or PDF.`
-                  : gatedBy
-                    ? `Optional unless ${gatedBy.label} is ${field.requiredWhenValue || 'Yes'} (up to ${max}).`
-                    : `Optional — up to ${max} file${max === 1 ? '' : 's'} (image or PDF).`}
+                {isPmiReport
+                  ? required
+                    ? 'Upload the PMI report as a PDF or image (up to ' + max + ').'
+                    : gatedBy
+                      ? `Optional unless ${gatedBy.label} is ${field.requiredWhenValue || 'Yes'}. PDF or image.`
+                      : `Upload the PMI report as a PDF or image (up to ${max}).`
+                  : required
+                    ? max === 1
+                      ? 'Upload 1 file (image or PDF), or take a photo.'
+                      : `Upload at least 1 file (up to ${max}). Images or PDF.`
+                    : gatedBy
+                      ? `Optional unless ${gatedBy.label} is ${field.requiredWhenValue || 'Yes'} (up to ${max}).`
+                      : `Optional — up to ${max} file${max === 1 ? '' : 's'} (image or PDF).`}
               </p>
               {photos.length === 0 ? (
                 <p className="itp-traveler-req-photo-empty">
-                  {required ? 'No file yet — this upload is required.' : `No files yet (0/${max}).`}
+                  {required
+                    ? isPmiReport
+                      ? 'No PMI report yet — upload a PDF or image.'
+                      : 'No file yet — this upload is required.'
+                    : isPmiReport
+                      ? `No PMI report uploaded (0/${max}).`
+                      : `No files yet (0/${max}).`}
                 </p>
               ) : (
                 <div className="itp-traveler-step-photos-grid">
@@ -629,10 +738,14 @@ export function ItpTravelerStepModal({
                   disabled={saving || uploading || atMax}
                   onClick={() => {
                     setPhotoFieldId(field.id)
-                    window.setTimeout(() => fieldCameraRef.current?.click(), 0)
+                    window.setTimeout(() => fieldFileRef.current?.click(), 0)
                   }}
                 >
-                  {uploading && photoFieldId === field.id ? 'Uploading…' : 'Take photo'}
+                  {uploading && photoFieldId === field.id
+                    ? 'Uploading…'
+                    : isPmiReport
+                      ? 'Upload report'
+                      : 'Upload'}
                 </button>
                 <button
                   type="button"
@@ -640,10 +753,10 @@ export function ItpTravelerStepModal({
                   disabled={saving || uploading || atMax}
                   onClick={() => {
                     setPhotoFieldId(field.id)
-                    window.setTimeout(() => fieldFileRef.current?.click(), 0)
+                    window.setTimeout(() => fieldCameraRef.current?.click(), 0)
                   }}
                 >
-                  Upload
+                  Take photo
                 </button>
               </div>
             </>
@@ -654,15 +767,19 @@ export function ItpTravelerStepModal({
 
     if (field.type === 'textarea') {
       return (
-        <div key={field.id} className={`itp-traveler-step-field itp-traveler-step-field--wide${naOn ? ' is-na' : ''}`}>
-          {renderFieldHeader(field, required, naOn, { naInHeader: true })}
+        <div
+          key={field.id}
+          className={`itp-traveler-step-field itp-traveler-step-field--wide${compact ? ' vk-cell-field' : ''}${naOn ? ' is-na' : ''}`}
+        >
+          {compact ? null : renderFieldHeader(field, required, naOn, { naInHeader: true })}
           {naOn ? (
             <input value={NA_MEAS_VALUE} disabled readOnly aria-label={`${field.label} not applicable`} />
           ) : (
             <textarea
-              rows={3}
+              rows={compact ? 2 : 3}
               value={value}
               disabled={saving}
+              aria-label={field.label}
               placeholder={required ? 'Required' : 'Optional'}
               onChange={(e) => setFieldValue(field.id, e.target.value)}
             />
@@ -700,35 +817,42 @@ export function ItpTravelerStepModal({
         plan && fieldHasUnlockRoutes(field) && value && !naOn
           ? describeUnlockItemsForValue(plan, field, value)
           : null
+      const selectEl = (
+        <select
+          value={value}
+          disabled={saving}
+          aria-label={field.label}
+          onChange={(e) => {
+            const next = e.target.value
+            setExec((prev) => {
+              let patch = patchMeasValue(prev, field.id, next)
+              if (!followUpApplies(field, next)) {
+                patch = { ...patch, ...patchMeasValue({ ...prev, ...patch }, followUpId, '') }
+              }
+              return { ...prev, ...patch }
+            })
+          }}
+        >
+          <option value="">{loadingList ? '— Loading manufacturers —' : '— Select —'}</option>
+          {options.map((opt) => (
+            <option key={opt} value={opt}>
+              {compact && /^[A-Za-z0-9\[\]#*\-e]/.test(opt) ? opt.split('-')[0].trim() || opt : opt}
+            </option>
+          ))}
+        </select>
+      )
       return (
-        <div key={field.id} className={`itp-traveler-step-field${naOn ? ' is-na' : ''}`}>
-          {renderFieldHeader(field, required, naOn)}
-          {renderFieldControl(
-            field.id,
-            naOn,
-            <select
-              value={value}
-              disabled={saving}
-              onChange={(e) => {
-                const next = e.target.value
-                setExec((prev) => {
-                  let patch = patchMeasValue(prev, field.id, next)
-                  if (!followUpApplies(field, next)) {
-                    patch = { ...patch, ...patchMeasValue({ ...prev, ...patch }, followUpId, '') }
-                  }
-                  return { ...prev, ...patch }
-                })
-              }}
-            >
-              <option value="">{loadingList ? '— Loading manufacturers —' : '— Select —'}</option>
-              {options.map((opt) => (
-                <option key={opt} value={opt}>
-                  {opt}
-                </option>
-              ))}
-            </select>,
+        <div
+          key={field.id}
+          className={`itp-traveler-step-field${compact ? ' vk-cell-field' : ''}${naOn ? ' is-na' : ''}`}
+        >
+          {compact ? null : renderFieldHeader(field, required, naOn)}
+          {compact ? (
+            <div className="itp-traveler-step-field-control vk-cell-control">{selectEl}</div>
+          ) : (
+            renderFieldControl(field.id, naOn, selectEl)
           )}
-          {unlockAdds ? (
+          {!compact && unlockAdds ? (
             <div className="itp-traveler-unlock-preview">
               {unlockAdds.length === 0 ? (
                 <span>This choice does not add extra steps.</span>
@@ -749,7 +873,7 @@ export function ItpTravelerStepModal({
               )}
             </div>
           ) : null}
-          {showFollowUp ? (
+          {!compact && showFollowUp ? (
             <label className="itp-traveler-followup">
               <span>
                 {followUpLabelOf(field)}
@@ -793,40 +917,76 @@ export function ItpTravelerStepModal({
 
     if (field.type === 'yes_no') {
       return (
-        <div key={field.id} className={`itp-traveler-step-field${naOn ? ' is-na' : ''}`}>
-          {renderFieldHeader(field, required, naOn)}
-          {renderFieldControl(
-            field.id,
-            naOn,
-            <select
-              value={value}
-              disabled={saving}
-              onChange={(e) => setFieldValue(field.id, e.target.value)}
-            >
-              <option value="">— Select —</option>
-              <option value="Yes">Yes</option>
-              <option value="No">No</option>
-              <option value={NA_MEAS_VALUE}>{NA_MEAS_VALUE}</option>
-            </select>,
+        <div
+          key={field.id}
+          className={`itp-traveler-step-field${compact ? ' vk-cell-field' : ''}${naOn ? ' is-na' : ''}`}
+        >
+          {compact ? null : renderFieldHeader(field, required, naOn)}
+          {compact ? (
+            <div className="itp-traveler-step-field-control vk-cell-control">
+              <select
+                value={value}
+                disabled={saving}
+                aria-label={field.label}
+                onChange={(e) => setFieldValue(field.id, e.target.value)}
+              >
+                <option value="">—</option>
+                <option value="Yes">Yes</option>
+                <option value="No">No</option>
+                <option value={NA_MEAS_VALUE}>{NA_MEAS_VALUE}</option>
+              </select>
+            </div>
+          ) : (
+            renderFieldControl(
+              field.id,
+              naOn,
+              <select
+                value={value}
+                disabled={saving}
+                onChange={(e) => setFieldValue(field.id, e.target.value)}
+              >
+                <option value="">— Select —</option>
+                <option value="Yes">Yes</option>
+                <option value="No">No</option>
+                <option value={NA_MEAS_VALUE}>{NA_MEAS_VALUE}</option>
+              </select>,
+            )
           )}
         </div>
       )
     }
 
     return (
-      <div key={field.id} className={`itp-traveler-step-field${naOn ? ' is-na' : ''}`}>
-        {renderFieldHeader(field, required, naOn)}
-        {renderFieldControl(
-          field.id,
-          naOn,
-          <input
-            type={field.type === 'number' ? 'number' : 'text'}
-            value={value}
-            disabled={saving || naOn}
-            readOnly={naOn}
-            placeholder={required ? 'Enter value' : ''}
-            onChange={(e) => setFieldValue(field.id, e.target.value)}
-          />,
+      <div
+        key={field.id}
+        className={`itp-traveler-step-field${compact ? ' vk-cell-field' : ''}${naOn ? ' is-na' : ''}`}
+      >
+        {compact ? null : renderFieldHeader(field, required, naOn)}
+        {compact ? (
+          <div className="itp-traveler-step-field-control vk-cell-control">
+            <input
+              type={field.type === 'number' ? 'number' : 'text'}
+              value={value}
+              disabled={saving || naOn}
+              readOnly={naOn}
+              aria-label={field.label}
+              placeholder={required ? 'Required' : ''}
+              onChange={(e) => setFieldValue(field.id, e.target.value)}
+            />
+          </div>
+        ) : (
+          renderFieldControl(
+            field.id,
+            naOn,
+            <input
+              type={field.type === 'number' ? 'number' : 'text'}
+              value={value}
+              disabled={saving || naOn}
+              readOnly={naOn}
+              placeholder={required ? 'Enter value' : ''}
+              onChange={(e) => setFieldValue(field.id, e.target.value)}
+            />,
+          )
         )}
       </div>
     )
@@ -913,13 +1073,35 @@ export function ItpTravelerStepModal({
       }
     }
     const stamped = exec.done || exec.holdPending ? stampLoggedInTech(exec, signerName) : exec
-    const notes = stamped.notes
+    const { exec: withMaterials, added } = previewMode
+      ? { exec: stamped, added: [] as string[] }
+      : await growPmiMaterialsFromExec(measFields, stamped)
+    if (added.length > 0) {
+      setLookupOptions((prev) => {
+        const current = prev[PMI_MATERIALS_LOOKUP_CATEGORY] ?? []
+        const seen = new Set(current.map((opt) => opt.trim().toLowerCase()))
+        const merged = [...current]
+        for (const grade of added) {
+          const key = grade.trim().toLowerCase()
+          if (!key || seen.has(key) || key === 'other') continue
+          seen.add(key)
+          merged.push(grade)
+        }
+        const withoutOther = merged.filter((opt) => opt.trim().toLowerCase() !== 'other')
+        return {
+          ...prev,
+          [PMI_MATERIALS_LOOKUP_CATEGORY]: [...withoutOther, 'Other'],
+        }
+      })
+    }
+    if (withMaterials !== stamped) setExec(withMaterials)
+    const notes = withMaterials.notes
     const nextSel: ItpLibraryItemSel = isNameplate
       ? { ...sel, notes, measFields }
       : { ...sel, notes }
     await onSave({
       sel: nextSel,
-      exec: { ...stamped, notes },
+      exec: { ...withMaterials, notes },
     })
   }
 
@@ -1096,11 +1278,17 @@ export function ItpTravelerStepModal({
               {measSections.map((section) => (
                 <section key={section.id} className="itp-traveler-step-section">
                   {section.title ? <h4>{section.title}</h4> : null}
-                  <div className="itp-traveler-step-meas-grid">{section.fields.map(renderTechField)}</div>
+                  <div className="itp-traveler-step-meas-grid">
+                    {section.fields.map((field) => renderTechField(field))}
+                  </div>
                 </section>
               ))}
             </div>
-          ) : requireMeasurement && nonPictureFields.length > 0 ? (
+          ) : requireMeasurement &&
+            (nonPictureFields.length > 0 ||
+              valveKeepGroups.partsRows.length > 0 ||
+              valveKeepGroups.dimRows.length > 0 ||
+              valveKeepGroups.pdescRows.length > 0) ? (
             <div className="itp-traveler-step-meas">
               <div className="itp-traveler-step-meas-intro">
                 <h3>
@@ -1109,13 +1297,108 @@ export function ItpTravelerStepModal({
                 <p className="placeholder-copy">
                   {isOrderReplacementPartsItem(item.id)
                     ? 'Record studs, slips, and soft goods details for this job. Mark N/A if a field does not apply.'
-                    : 'Job-card fields fill in automatically. Edit a value or mark N/A if it does not apply.'}
+                    : valveKeepGroups.partsRows.length > 0 || valveKeepGroups.dimRows.length > 0
+                      ? 'ValveKeep form fields. Mark a part “1- Replaced” to require as-found and as-left photos for that part.'
+                      : 'Job-card fields fill in automatically. Edit a value or mark N/A if it does not apply.'}
                 </p>
               </div>
+              {valveKeepGroups.partsRows.length > 0 ? (
+                <section className="itp-traveler-step-section vk-table-section">
+                  <h4>Parts Details</h4>
+                  <div className="vk-table-wrap">
+                    <table className="vk-parts-table">
+                      <thead>
+                        <tr>
+                          <th>Part</th>
+                          <th>Cond</th>
+                          <th>Cond 2</th>
+                          <th>Work</th>
+                          <th>Rec</th>
+                          <th>As-found</th>
+                          <th>As-left</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {valveKeepGroups.partsRows.map((row) => (
+                          <tr key={row.partKey}>
+                            <td className="vk-part-name-cell">
+                              {row.name ? renderTechField(row.name, { compact: true }) : row.partLabel}
+                            </td>
+                            <td>{row.cond ? renderTechField(row.cond, { compact: true }) : null}</td>
+                            <td>{row.cond2 ? renderTechField(row.cond2, { compact: true }) : null}</td>
+                            <td>{row.work ? renderTechField(row.work, { compact: true }) : null}</td>
+                            <td>{row.rec ? renderTechField(row.rec, { compact: true }) : null}</td>
+                            <td>{row.found ? renderTechField(row.found, { compact: true }) : null}</td>
+                            <td>{row.left ? renderTechField(row.left, { compact: true }) : null}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </section>
+              ) : null}
+              {valveKeepGroups.dimRows.length > 0 ? (
+                <section className="itp-traveler-step-section vk-table-section">
+                  <h4>Critical Dimensions</h4>
+                  <div className="vk-table-wrap">
+                    <table className="vk-dims-table">
+                      <thead>
+                        <tr>
+                          <th>Dimension</th>
+                          <th>As Found</th>
+                          <th>Mfg</th>
+                          <th>Mach. By</th>
+                          <th>As Shipped</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {valveKeepGroups.dimRows.map((row) => (
+                          <tr key={row.dimKey}>
+                            <td className="vk-part-name-cell">{row.dimLabel}</td>
+                            <td>{row.found ? renderTechField(row.found, { compact: true }) : null}</td>
+                            <td>{row.mfg ? renderTechField(row.mfg, { compact: true }) : null}</td>
+                            <td>{row.mach ? renderTechField(row.mach, { compact: true }) : null}</td>
+                            <td>{row.shipped ? renderTechField(row.shipped, { compact: true }) : null}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </section>
+              ) : null}
+              {valveKeepGroups.pdescRows.length > 0 ? (
+                <section className="itp-traveler-step-section vk-table-section">
+                  <h4>Parts Description</h4>
+                  <div className="vk-table-wrap">
+                    <table className="vk-pdesc-table">
+                      <thead>
+                        <tr>
+                          <th>#</th>
+                          <th>Part Name</th>
+                          <th>Part Number</th>
+                          <th>Heat #</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {valveKeepGroups.pdescRows.map((row) => (
+                          <tr key={row.index}>
+                            <td>{row.index}</td>
+                            <td>{row.name ? renderTechField(row.name, { compact: true }) : null}</td>
+                            <td>{row.number ? renderTechField(row.number, { compact: true }) : null}</td>
+                            <td>{row.heat ? renderTechField(row.heat, { compact: true }) : null}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </section>
+              ) : null}
               {measSections.map((section) => (
                 <section key={section.id} className="itp-traveler-step-section">
                   {section.title ? <h4>{section.title}</h4> : null}
-                  <div className="itp-traveler-step-meas-grid">{section.fields.map(renderTechField)}</div>
+                  <div className="itp-traveler-step-meas-grid">
+                    {section.fields.map((field) => renderTechField(field))}
+                  </div>
                 </section>
               ))}
             </div>

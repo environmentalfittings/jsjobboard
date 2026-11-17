@@ -306,6 +306,8 @@ export type ResourceDocumentRow = {
   weld_modes: WeldMode[]
   filler_metal: string | null
   base_metal_category: BaseMetalCategory | null
+  /** Required when base_metal_category is Other. */
+  base_metal_other: string | null
   manufacturer: string | null
   product_valve_type: string | null
   base_metal_thickness_qualified: string | null
@@ -457,6 +459,7 @@ export async function uploadResourceDocument(args: {
   weldModes?: WeldMode[]
   fillerMetal?: string
   baseMetalCategory?: BaseMetalCategory | null
+  baseMetalOther?: string | null
   manufacturer?: string | null
   productValveType?: string | null
   baseMetalThicknessQualified?: string
@@ -516,6 +519,10 @@ export async function uploadResourceDocument(args: {
     weld_modes: isWeld ? (args.weldModes ?? []) : [],
     filler_metal: isWeld ? ((args.fillerMetal ?? '').trim() || null) : (mtrColumns?.filler_metal ?? null),
     base_metal_category: isWeld ? (args.baseMetalCategory ?? null) : null,
+    base_metal_other:
+      isWeld && args.baseMetalCategory === 'Other'
+        ? ((args.baseMetalOther ?? '').trim() || null)
+        : null,
     manufacturer: args.manufacturer ?? null,
     product_valve_type: isMtr ? (mtrColumns?.product_valve_type ?? null) : (args.productValveType ?? null),
     base_metal_thickness_qualified: isWeld ? ((args.baseMetalThicknessQualified ?? '').trim() || null) : null,

@@ -1,6 +1,8 @@
 /** Supported technician input controls on an ITP / traveler line. */
 import {
   LOOKUP_CATEGORY_DEFS,
+  PMI_MATERIALS_LIST_FALLBACK,
+  PMI_MATERIALS_LOOKUP_CATEGORY,
   REPAIR_NEEDED_LIST_FALLBACK,
   REPAIR_NEEDED_LOOKUP_CATEGORY,
   humanizeItpTravelerListKey,
@@ -238,9 +240,16 @@ function dropdownPersistPatch(partial?: Partial<ItpMeasFieldDef>): Partial<ItpMe
   })
   let followUpWhen = String(partial?.followUpWhen ?? '').trim()
   let followUpLabel = String(partial?.followUpLabel ?? '').trim()
-  if (lookupCategory === REPAIR_NEEDED_LOOKUP_CATEGORY && !followUpWhen) {
+  if (
+    (lookupCategory === REPAIR_NEEDED_LOOKUP_CATEGORY ||
+      lookupCategory === PMI_MATERIALS_LOOKUP_CATEGORY) &&
+    !followUpWhen
+  ) {
     followUpWhen = 'Other'
-    if (!followUpLabel) followUpLabel = 'Describe other'
+    if (!followUpLabel) {
+      followUpLabel =
+        lookupCategory === PMI_MATERIALS_LOOKUP_CATEGORY ? 'Material grade' : 'Describe other'
+    }
   }
   const followUpLookupCategory = isLookupCategory(partial?.followUpLookupCategory)
     ? partial!.followUpLookupCategory
@@ -290,6 +299,14 @@ export function emptyMeasField(partial?: Partial<ItpMeasFieldDef>): ItpMeasField
   }
 }
 
+function normalizeGateLabel(label: string): string {
+  return String(label ?? '')
+    .trim()
+    .toLowerCase()
+    .replace(/^(is\s+)/, '')
+    .replace(/\?+$/, '')
+}
+
 /** Whether a field is currently required, including requiredWhen gates. */
 export function measFieldCurrentlyRequired(
   field: ItpMeasFieldDef,
@@ -302,7 +319,9 @@ export function measFieldCurrentlyRequired(
   if (whenLabel && whenValue) {
     const gate =
       (whenFieldId ? fields.find((row) => row.id === whenFieldId) : undefined) ??
-      fields.find((row) => row.label.trim().toLowerCase() === whenLabel.toLowerCase())
+      fields.find(
+        (row) => normalizeGateLabel(row.label) === normalizeGateLabel(whenLabel),
+      )
     if (!gate) return field.required !== false
     const gateValue = String(getValue(gate.id) ?? '').trim()
     return gateValue.toLowerCase() === whenValue.toLowerCase()
@@ -406,8 +425,15 @@ export function resolveDropdownChoices(
   const cat = src === 'lookup' ? fieldLookupCategory(field) : undefined
   if (cat) {
     const fromList = lists.lookups?.[cat]
-    if (fromList && fromList.length > 0) return fromList.map((opt) => String(opt).trim()).filter(Boolean)
+    if (fromList && fromList.length > 0) {
+      const opts = fromList.map((opt) => String(opt).trim()).filter(Boolean)
+      if (cat === PMI_MATERIALS_LOOKUP_CATEGORY && !opts.some((opt) => isOtherDropdownAnswer(opt))) {
+        return [...opts, 'Other']
+      }
+      return opts
+    }
     if (cat === REPAIR_NEEDED_LOOKUP_CATEGORY) return [...REPAIR_NEEDED_LIST_FALLBACK]
+    if (cat === PMI_MATERIALS_LOOKUP_CATEGORY) return [...PMI_MATERIALS_LIST_FALLBACK]
     return [...(LOOKUP_CATEGORY_DEFS.find((row) => row.key === cat)?.fallback ?? [])]
   }
   return (field.options ?? []).map((opt) => String(opt).trim()).filter(Boolean)

@@ -11,7 +11,10 @@ import {
 } from '../constants/itpLibrary'
 import { processSectionTitle, resolveLibrarySectionId } from '../constants/itpProcessSections'
 import { migrateFastenerRecordSel } from '../lib/itpFastenerRecord'
-import { ensureOrderReplacementPartsSel } from '../lib/itpOrderParts'
+import {
+  ensureOrderReplacementPartsSel,
+  ensureTwinsealCombinedPartsPlan,
+} from '../lib/itpOrderParts'
 import { normalizeLinePhotoCounts, normalizeMeasFields, type ItpMeasFieldDef } from './itpMeasFields'
 
 export const ITP_LIBRARY_PLAN_SCHEMA_VERSION = 9 as const
@@ -873,9 +876,10 @@ export function normalizeItpLibraryPlan(raw: unknown, valve: Valve): ItpLibraryP
       // Prefer sel.notes; fall back to legacy exec.notes from earlier saves.
       sel[id] = migrateFastenerRecordSel(id, normalizeSel(value, exec[id]?.notes ?? ''))
     }
-    const withParts = ensureOrderReplacementPartsSel(sel, {
-      valveType: String(source.valveType ?? ''),
-    })
+    const valveType =
+      String(source.valveType ?? '').trim() ||
+      resolveLibraryValveType(valve.valve_type, valve.bowl_type)
+    const withParts = ensureOrderReplacementPartsSel(sel, { valveType })
     const custom = Array.isArray(source.custom)
       ? source.custom
           .filter((c) => c && typeof c === 'object')
@@ -894,16 +898,22 @@ export function normalizeItpLibraryPlan(raw: unknown, valve: Valve): ItpLibraryP
           })
           .filter((c) => c.id && c.name)
       : []
+    const combined = ensureTwinsealCombinedPartsPlan({
+      sel: withParts,
+      custom,
+      exec,
+      valveType,
+    })
 
     return {
       v: ITP_LIBRARY_PLAN_SCHEMA_VERSION,
       kind: 'library_plan',
       valveSnapshot: valveToLibrarySnapshot(valve),
       jobType: source.jobType || mapShopJobTypeToLibrary(valve.job_type),
-      valveType: source.valveType || resolveLibraryValveType(valve.valve_type, valve.bowl_type),
-      sel: withParts,
-      custom,
-      exec,
+      valveType,
+      sel: combined.sel,
+      custom: combined.custom,
+      exec: combined.exec,
       attachments: normalizeAttachments(source.attachments),
       qcReview: normalizeQcReview(source.qcReview),
       inspector: String(source.inspector ?? ''),

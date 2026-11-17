@@ -1,0 +1,10 @@
+---
+description: Always paste Supabase migration SQL in chat for copy-paste
+alwaysApply: true
+---
+
+# Paste Supabase SQL in chat
+
+Whenever you create or update a Supabase migration / seed SQL file the user needs to run, **paste the full SQL into the chat** in a fenced `sql` code block so they can copy-paste it into the Supabase SQL editor.
+
+Do this every time — do not only point at the file path.

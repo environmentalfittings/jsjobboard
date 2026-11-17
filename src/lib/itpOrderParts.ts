@@ -1,5 +1,80 @@
-import type { ItpLibraryItemSel } from '../types/itpLibraryPlan'
-import { clampLinePhotoMax, clampLinePhotoMin, emptyMeasField } from '../types/itpMeasFields'
+import { PMI_MATERIALS_LOOKUP_CATEGORY } from '../constants/lookupCategories'
+import type {
+  ItpLibraryCustomItem,
+  ItpLibraryItemExec,
+  ItpLibraryItemSel,
+} from '../types/itpLibraryPlan'
+import { addLookupValue } from './lookupValues'
+import {
+  clampLinePhotoMax,
+  clampLinePhotoMin,
+  emptyMeasField,
+  followUpApplies,
+  followUpFieldId,
+  isOtherDropdownAnswer,
+  type ItpMeasFieldDef,
+} from '../types/itpMeasFields'
+
+function readMeasValue(exec: ItpLibraryItemExec, fieldId: string): string {
+  return String(exec.measValues?.[fieldId] ?? '').trim()
+}
+
+function isNaMeas(value: string): boolean {
+  const normalized = value
+    .trim()
+    .toLowerCase()
+    .replace(/[./]/g, '')
+  return normalized === 'na' || normalized === 'n a' || normalized === 'not applicable'
+}
+
+/**
+ * For Material identification PMI material dropdowns: if Other + grade was entered,
+ * store the typed grade on the field and append new grades to the shared PMI materials list.
+ */
+export async function growPmiMaterialsFromExec(
+  fields: ItpMeasFieldDef[],
+  exec: ItpLibraryItemExec,
+): Promise<{ exec: ItpLibraryItemExec; added: string[] }> {
+  let next = exec
+  const toAdd = new Set<string>()
+
+  for (const field of fields) {
+    if (field.type !== 'dropdown') continue
+    if (field.lookupCategory !== PMI_MATERIALS_LOOKUP_CATEGORY) continue
+
+    const raw = readMeasValue(next, field.id)
+    if (!raw || isNaMeas(raw)) continue
+
+    let grade = raw
+    if (followUpApplies(field, raw) || isOtherDropdownAnswer(raw)) {
+      const followUp = readMeasValue(next, followUpFieldId(field.id))
+      if (!followUp || isNaMeas(followUp)) continue
+      grade = followUp
+      next = {
+        ...next,
+        measValues: {
+          ...next.measValues,
+          [field.id]: grade,
+          [followUpFieldId(field.id)]: '',
+        },
+      }
+    }
+
+    if (grade && !isOtherDropdownAnswer(grade)) toAdd.add(grade)
+  }
+
+  const added: string[] = []
+  for (const grade of toAdd) {
+    try {
+      const saved = await addLookupValue(PMI_MATERIALS_LOOKUP_CATEGORY, grade)
+      if (saved) added.push(saved)
+    } catch {
+      // Traveler save should not fail if the list upsert is blocked.
+    }
+  }
+
+  return { exec: next, added }
+}
 
 export const ORDER_REPLACEMENT_PARTS_ITEM_ID = 'parts_order'
 
@@ -18,8 +93,29 @@ export const TWINSEAL_MAT_ID_PART_LABELS = [
   'Packing Gland',
   'Packing Area',
 ] as const
-export const PMI_REQUIRED_FIELD_LABEL = 'Is PMI required'
+export const PMI_REQUIRED_FIELD_LABEL = 'PMI required'
 export const PMI_REPORT_FIELD_LABEL = 'PMI report'
+
+export function isPmiRequiredFieldLabel(label: string | null | undefined): boolean {
+  return /^(is\s+)?pmi\s*required\??$/i.test(String(label ?? '').trim())
+}
+
+export function isPmiReportFieldLabel(label: string | null | undefined): boolean {
+  return /^pmi\s*report$/i.test(String(label ?? '').trim())
+}
+
+export function pmiMaterialDropdownPatch(partial?: Partial<ItpMeasFieldDef>): Partial<ItpMeasFieldDef> {
+  return {
+    ...partial,
+    type: 'dropdown',
+    required: true,
+    options: [],
+    optionSource: 'lookup',
+    lookupCategory: PMI_MATERIALS_LOOKUP_CATEGORY,
+    followUpWhen: 'Other',
+    followUpLabel: 'Material grade',
+  }
+}
 
 export const ORDER_PART_KIND_IDS = {
   studs: 'parts_order:studs',
@@ -38,6 +134,24 @@ export const ORDER_PART_KIND_NAMES: Record<string, string> = {
  * and seeds the Needs Parts list with these three lines.
  */
 export const TWINSEAL_ORDER_PART_SUB_REQS = ['Studs', 'Slips', 'Soft Goods'] as const
+
+/** Combined Twinseal parts step label (replaces separate Order parts + bolting record). */
+export const TWINSEAL_PARTS_STEP_NAME = 'Parts and bolting record'
+export const TWINSEAL_PARTS_STEP_REF = 'Parts Record'
+export const TWINSEAL_PARTS_DEFAULT_FIELD_LABELS = [
+  'Studs type',
+  'Studs size',
+  'Studs quantity',
+  'Slips part #',
+  'Slips material',
+  'Soft goods part #',
+  'Soft goods material',
+] as const
+
+export function isPartsBoltingRecordName(name: string | null | undefined): boolean {
+  const text = String(name ?? '').trim()
+  return /parts\s+and\s+bolting/i.test(text) || /^parts\s*record$/i.test(text)
+}
 
 export const TWINSEAL_NEEDED_PART_SEEDS: ReadonlyArray<{
   kindId: string
@@ -135,14 +249,19 @@ function withTwinsealOrderPartSubReqs(prev: ItpLibraryItemSel): ItpLibraryItemSe
 
 function looksLikeMaterialIdStep(itemId: string, prev: ItpLibraryItemSel): boolean {
   if (itemId === TWINSEAL_MAT_ID_ITEM_ID) return true
-  return prev.measFields.some((field) => {
-    const label = field.label.trim().toLowerCase()
-    return (
-      label === PMI_REPORT_FIELD_LABEL.toLowerCase() ||
-      label === PMI_REQUIRED_FIELD_LABEL.toLowerCase() ||
-      /^is pmi required\??$/i.test(field.label.trim())
-    )
-  })
+  return prev.measFields.some(
+    (field) => isPmiReportFieldLabel(field.label) || isPmiRequiredFieldLabel(field.label),
+  )
+}
+
+/** Upgrade one Material identification step selection (safe to call from the step modal). */
+export function ensureMaterialIdentificationItemSel(
+  itemId: string,
+  prev: ItpLibraryItemSel,
+  options?: { valveType?: string | null },
+): ItpLibraryItemSel {
+  const next = ensureMaterialIdentificationPmiReqs({ [itemId]: prev }, options)
+  return next[itemId] ?? prev
 }
 
 /**
@@ -169,31 +288,28 @@ export function ensureMaterialIdentificationPmiReqs(
         const idx = byLabel(label)
         if (idx < 0) {
           fields.push(
-            emptyMeasField({
-              id: `${itemId}_${label.toLowerCase().replace(/\s+/g, '_')}`,
-              label,
-              type: 'text',
-              required: true,
-            }),
+            emptyMeasField(
+              pmiMaterialDropdownPatch({
+                id: `${itemId}_${label.toLowerCase().replace(/\s+/g, '_')}`,
+                label,
+              }),
+            ),
           )
         } else {
-          fields[idx] = emptyMeasField({ ...fields[idx], type: 'text', required: true })
+          fields[idx] = emptyMeasField(pmiMaterialDropdownPatch({ ...fields[idx], label }))
         }
       }
     } else {
       for (let i = 0; i < fields.length; i += 1) {
         const field = fields[i]
         if (field.type === 'picture') continue
-        if (/^is pmi required/i.test(field.label.trim())) continue
-        if (/^pmi report$/i.test(field.label.trim())) continue
-        fields[i] = emptyMeasField({ ...field, required: true })
+        if (isPmiRequiredFieldLabel(field.label)) continue
+        if (isPmiReportFieldLabel(field.label)) continue
+        fields[i] = emptyMeasField(pmiMaterialDropdownPatch({ ...field }))
       }
     }
 
-    let pmiRequiredIdx = byLabel(PMI_REQUIRED_FIELD_LABEL)
-    if (pmiRequiredIdx < 0) {
-      pmiRequiredIdx = fields.findIndex((field) => /^is pmi required/i.test(field.label.trim()))
-    }
+    let pmiRequiredIdx = fields.findIndex((field) => isPmiRequiredFieldLabel(field.label))
     if (pmiRequiredIdx < 0) {
       fields.push(
         emptyMeasField({
@@ -213,10 +329,7 @@ export function ensureMaterialIdentificationPmiReqs(
       })
     }
 
-    let pmiReportIdx = byLabel(PMI_REPORT_FIELD_LABEL)
-    if (pmiReportIdx < 0) {
-      pmiReportIdx = fields.findIndex((field) => /^pmi report$/i.test(field.label.trim()))
-    }
+    let pmiReportIdx = fields.findIndex((field) => isPmiReportFieldLabel(field.label))
     const pmiReportPatch = {
       label: PMI_REPORT_FIELD_LABEL,
       type: 'picture' as const,
@@ -250,8 +363,8 @@ export function ensureMaterialIdentificationPmiReqs(
     let pmiReport: (typeof fields)[number] | null = null
     for (const field of fields) {
       const label = field.label.trim().toLowerCase()
-      if (label === PMI_REQUIRED_FIELD_LABEL.toLowerCase()) pmiRequired = field
-      else if (label === PMI_REPORT_FIELD_LABEL.toLowerCase()) pmiReport = field
+      if (isPmiRequiredFieldLabel(field.label)) pmiRequired = field
+      else if (isPmiReportFieldLabel(field.label)) pmiReport = field
       else if (partSet.has(label)) parts.push(field)
       else middle.push(field)
     }
@@ -273,6 +386,9 @@ export function ensureMaterialIdentificationPmiReqs(
           prevField.label === field.label &&
           prevField.type === field.type &&
           prevField.required === field.required &&
+          String(prevField.optionSource ?? '') === String(field.optionSource ?? '') &&
+          String(prevField.lookupCategory ?? '') === String(field.lookupCategory ?? '') &&
+          String(prevField.followUpWhen ?? '') === String(field.followUpWhen ?? '') &&
           String(prevField.requiredWhenLabel ?? '') === String(field.requiredWhenLabel ?? '') &&
           String(prevField.requiredWhenValue ?? '') === String(field.requiredWhenValue ?? '') &&
           String(prevField.requiredWhenFieldId ?? '') === String(field.requiredWhenFieldId ?? '')
@@ -376,6 +492,149 @@ export function ensureTwinsealReceivePhotoReqs(
       measFields: fields,
     },
   }
+}
+
+function twinsealPartsOrderCustom(existing?: ItpLibraryCustomItem | null): ItpLibraryCustomItem {
+  const prevDetail =
+    existing?.detail && typeof existing.detail === 'object' && !Array.isArray(existing.detail)
+      ? existing.detail
+      : null
+  return {
+    id: ORDER_REPLACEMENT_PARTS_ITEM_ID,
+    secId: String(existing?.secId ?? '').trim() || 'inspection',
+    name: TWINSEAL_PARTS_STEP_NAME,
+    detail: {
+      ...(prevDetail && typeof prevDetail === 'object' ? prevDetail : {}),
+      id: ORDER_REPLACEMENT_PARTS_ITEM_ID,
+      name: TWINSEAL_PARTS_STEP_NAME,
+      ref: TWINSEAL_PARTS_STEP_REF,
+      secId: String(existing?.secId ?? '').trim() || 'inspection',
+      area: 'Teardown',
+      requireMeasurement: true,
+    },
+  }
+}
+
+/**
+ * Twinseal: one combined “Parts and bolting record” step (parts_order).
+ * Hides legacy separate bolting-record lines and renames Order replacement parts.
+ */
+export function ensureTwinsealCombinedPartsPlan(plan: {
+  sel: Record<string, ItpLibraryItemSel>
+  custom: ItpLibraryCustomItem[]
+  exec?: Record<string, ItpLibraryItemExec>
+  valveType?: string | null
+}): {
+  sel: Record<string, ItpLibraryItemSel>
+  custom: ItpLibraryCustomItem[]
+  exec: Record<string, ItpLibraryItemExec>
+} {
+  const exec = { ...(plan.exec ?? {}) }
+  if (!isTwinsealValveType(plan.valveType) && !(ORDER_REPLACEMENT_PARTS_ITEM_ID in plan.sel)) {
+    return { sel: plan.sel, custom: plan.custom, exec }
+  }
+  if (plan.valveType != null && plan.valveType !== '' && !isTwinsealValveType(plan.valveType)) {
+    return { sel: plan.sel, custom: plan.custom, exec }
+  }
+
+  let sel = { ...plan.sel }
+  let custom = [...plan.custom]
+  const duplicates = custom.filter(
+    (row) =>
+      row.id !== ORDER_REPLACEMENT_PARTS_ITEM_ID && isPartsBoltingRecordName(row.name),
+  )
+
+  let parts = sel[ORDER_REPLACEMENT_PARTS_ITEM_ID] ?? newOrderReplacementPartsSel()
+  const fieldByLabel = new Map(
+    parts.measFields.map((field) => [field.label.trim().toLowerCase(), field] as const),
+  )
+
+  for (const dup of duplicates) {
+    const dupSel = sel[dup.id]
+    if (dupSel?.measFields?.length) {
+      for (const field of dupSel.measFields) {
+        const key = field.label.trim().toLowerCase()
+        if (!key || fieldByLabel.has(key)) continue
+        const nextField = emptyMeasField({
+          ...field,
+          id: field.id?.startsWith(`${ORDER_REPLACEMENT_PARTS_ITEM_ID}_`)
+            ? field.id
+            : `${ORDER_REPLACEMENT_PARTS_ITEM_ID}_${field.id || key.replace(/\s+/g, '_')}`,
+        })
+        fieldByLabel.set(key, nextField)
+      }
+    }
+    const dupExec = exec[dup.id]
+    if (dupExec) {
+      const partsExec = exec[ORDER_REPLACEMENT_PARTS_ITEM_ID] ?? {
+        ...dupExec,
+        measValues: {},
+        fieldPhotos: {},
+        photos: [],
+        notes: '',
+        done: false,
+      }
+      const measValues = { ...(partsExec.measValues ?? {}) }
+      for (const [fieldId, value] of Object.entries(dupExec.measValues ?? {})) {
+        if (!String(value ?? '').trim()) continue
+        const mappedId = fieldId.startsWith(`${dup.id}_`)
+          ? `${ORDER_REPLACEMENT_PARTS_ITEM_ID}_${fieldId.slice(dup.id.length + 1)}`
+          : fieldId
+        if (!String(measValues[mappedId] ?? '').trim()) measValues[mappedId] = value
+      }
+      const fieldPhotos = { ...(partsExec.fieldPhotos ?? {}) }
+      for (const [fieldId, photos] of Object.entries(dupExec.fieldPhotos ?? {})) {
+        if (!photos?.length) continue
+        const mappedId = fieldId.startsWith(`${dup.id}_`)
+          ? `${ORDER_REPLACEMENT_PARTS_ITEM_ID}_${fieldId.slice(dup.id.length + 1)}`
+          : fieldId
+        if (!fieldPhotos[mappedId]?.length) fieldPhotos[mappedId] = photos
+      }
+      exec[ORDER_REPLACEMENT_PARTS_ITEM_ID] = {
+        ...partsExec,
+        measValues,
+        fieldPhotos,
+        notes: partsExec.notes?.trim() ? partsExec.notes : dupExec.notes,
+        done: partsExec.done || dupExec.done,
+      }
+    }
+    if (dupSel) {
+      sel[dup.id] = { ...dupSel, included: false, addToTraveler: false }
+    }
+  }
+
+  let measFields = [...fieldByLabel.values()]
+  if (measFields.length === 0) {
+    measFields = TWINSEAL_PARTS_DEFAULT_FIELD_LABELS.map((label, index) =>
+      emptyMeasField({
+        id: `${ORDER_REPLACEMENT_PARTS_ITEM_ID}_f${String(index + 1).padStart(2, '0')}`,
+        label,
+        type: 'text',
+        required: false,
+      }),
+    )
+  }
+
+  parts = withTwinsealOrderPartSubReqs({
+    ...parts,
+    included: true,
+    addToTraveler: true,
+    sectionId: parts.sectionId || 'inspection',
+    shopArea: parts.shopArea || 'Teardown',
+    beforeMeas: parts.beforeMeas || measFields.length > 0,
+    afterMeas: parts.afterMeas || measFields.length > 0,
+    measVerify: parts.measVerify || measFields.length > 0,
+    measFields,
+  })
+  sel[ORDER_REPLACEMENT_PARTS_ITEM_ID] = parts
+
+  const existingCustom = custom.find((row) => row.id === ORDER_REPLACEMENT_PARTS_ITEM_ID) ?? null
+  const nextCustom = twinsealPartsOrderCustom(existingCustom)
+  const customIdx = custom.findIndex((row) => row.id === ORDER_REPLACEMENT_PARTS_ITEM_ID)
+  if (customIdx < 0) custom = [...custom, nextCustom]
+  else custom[customIdx] = nextCustom
+
+  return { sel, custom, exec }
 }
 
 /** Include the Order replacement parts traveler step on plans/templates that do not have it yet. */

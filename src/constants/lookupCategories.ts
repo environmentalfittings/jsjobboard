@@ -48,6 +48,19 @@ export const REPAIR_NEEDED_LIST_FALLBACK = [
 ] as const
 export const REPAIR_NEEDED_LIST_LEGACY = ['Acceptable', 'Restrip and redo with stainless'] as const
 
+/** Shared Material identification / PMI grade list (Body, Lining, Stem, …). */
+export const PMI_MATERIALS_LIST_KEY = 'pmi_materials'
+export const PMI_MATERIALS_LIST_LABEL = 'PMI materials'
+export const PMI_MATERIALS_LOOKUP_CATEGORY = `${ITP_TRAVELER_LIST_PREFIX}${PMI_MATERIALS_LIST_KEY}` as const
+export const PMI_MATERIALS_LIST_FALLBACK = [
+  ...BODY_MATERIALS,
+  'CR',
+  'ENP',
+  'CI/ENP',
+  'CS/ENP',
+  'Other',
+] as const
+
 export type ItpTravelerListCategory = `${typeof ITP_TRAVELER_LIST_PREFIX}${string}`
 export type LookupCategory = JobLookupCategory | ItpTravelerListCategory
 
@@ -134,6 +147,11 @@ export const DEFAULT_ITP_TRAVELER_LISTS: readonly ItpTravelerListDef[] = [
     key: REPAIR_NEEDED_LIST_KEY,
     label: REPAIR_NEEDED_LIST_LABEL,
     category: REPAIR_NEEDED_LOOKUP_CATEGORY,
+  },
+  {
+    key: PMI_MATERIALS_LIST_KEY,
+    label: PMI_MATERIALS_LIST_LABEL,
+    category: PMI_MATERIALS_LOOKUP_CATEGORY,
   },
 ]
 

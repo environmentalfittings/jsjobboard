@@ -3,6 +3,8 @@ import {
   DEFAULT_ITP_TRAVELER_LISTS,
   ITP_TRAVELER_LIST_REGISTRY,
   LOOKUP_CATEGORY_DEFS,
+  PMI_MATERIALS_LIST_FALLBACK,
+  PMI_MATERIALS_LOOKUP_CATEGORY,
   REPAIR_NEEDED_LIST_FALLBACK,
   REPAIR_NEEDED_LIST_LEGACY,
   REPAIR_NEEDED_LOOKUP_CATEGORY,
@@ -80,6 +82,7 @@ export async function loadLookupOptionsMap(): Promise<Record<LookupCategory, str
     LOOKUP_CATEGORY_DEFS.map((d) => [d.key, [...d.fallback]]),
   ) as Record<LookupCategory, string[]>
   base[REPAIR_NEEDED_LOOKUP_CATEGORY] = [...REPAIR_NEEDED_LIST_FALLBACK]
+  base[PMI_MATERIALS_LOOKUP_CATEGORY] = [...PMI_MATERIALS_LIST_FALLBACK]
 
   const { data, error } = await supabase
     .from('lookup_values')
@@ -93,7 +96,9 @@ export async function loadLookupOptionsMap(): Promise<Record<LookupCategory, str
   }
 
   let rows = data as LookupValueRow[]
-  if (await syncRepairNeededListOptions(rows)) {
+  const synced =
+    (await syncRepairNeededListOptions(rows)) || (await syncPmiMaterialsListOptions(rows))
+  if (synced) {
     const { data: again } = await supabase
       .from('lookup_values')
       .select('id,category,value,sort_order')
@@ -141,10 +146,24 @@ export async function loadLookupOptionsMap(): Promise<Record<LookupCategory, str
       out[def.category] = fromDb
       continue
     }
-    out[def.category] =
-      def.category === REPAIR_NEEDED_LOOKUP_CATEGORY ? [...REPAIR_NEEDED_LIST_FALLBACK] : []
+    if (def.category === REPAIR_NEEDED_LOOKUP_CATEGORY) {
+      out[def.category] = [...REPAIR_NEEDED_LIST_FALLBACK]
+    } else if (def.category === PMI_MATERIALS_LOOKUP_CATEGORY) {
+      out[def.category] = [...PMI_MATERIALS_LIST_FALLBACK]
+    } else {
+      out[def.category] = []
+    }
+  }
+  // Keep "Other" available even when the DB list has grown.
+  if (out[PMI_MATERIALS_LOOKUP_CATEGORY]?.length) {
+    out[PMI_MATERIALS_LOOKUP_CATEGORY] = withOtherOption(out[PMI_MATERIALS_LOOKUP_CATEGORY])
   }
   return out
+}
+
+function withOtherOption(values: string[]): string[] {
+  const withoutOther = values.filter((value) => optionKey(value) !== 'other')
+  return [...withoutOther, 'Other']
 }
 
 export async function loadItpTravelerListDefs(): Promise<ItpTravelerListDef[]> {
@@ -162,28 +181,37 @@ export async function seedItpTravelerListsIfEmpty(): Promise<boolean> {
   const { data, error } = await supabase
     .from('lookup_values')
     .select('id,category,value,sort_order')
-    .in('category', [ITP_TRAVELER_LIST_REGISTRY, REPAIR_NEEDED_LOOKUP_CATEGORY])
+    .in('category', [
+      ITP_TRAVELER_LIST_REGISTRY,
+      REPAIR_NEEDED_LOOKUP_CATEGORY,
+      PMI_MATERIALS_LOOKUP_CATEGORY,
+    ])
   if (error) return false
   const rows = (data ?? []) as LookupValueRow[]
   const defs = travelerListDefsFromRows(rows)
+  const knownKeys = new Set(
+    rows
+      .filter((row) => row.category === ITP_TRAVELER_LIST_REGISTRY)
+      .map((row) => parseItpTravelerRegistryValue(row.value)?.key)
+      .filter(Boolean),
+  )
   const inserts: { category: string; value: string; sort_order: number }[] = []
-  if (!rows.some((row) => row.category === ITP_TRAVELER_LIST_REGISTRY)) {
+  DEFAULT_ITP_TRAVELER_LISTS.forEach((def, sort_order) => {
+    if (knownKeys.has(def.key)) return
     inserts.push({
       category: ITP_TRAVELER_LIST_REGISTRY,
-      value: formatItpTravelerRegistryValue(
-        DEFAULT_ITP_TRAVELER_LISTS[0].key,
-        DEFAULT_ITP_TRAVELER_LISTS[0].label,
-      ),
-      sort_order: 0,
+      value: formatItpTravelerRegistryValue(def.key, def.label),
+      sort_order,
     })
-  }
+  })
   const repairSynced = await syncRepairNeededListOptions(rows)
+  const pmiSynced = await syncPmiMaterialsListOptions(rows)
   if (inserts.length === 0) {
     for (const def of defs) rememberTravelerListLabel(def)
-    return repairSynced
+    return repairSynced || pmiSynced
   }
   const { error: insertError } = await supabase.from('lookup_values').insert(inserts)
-  return !insertError || repairSynced
+  return !insertError || repairSynced || pmiSynced
 }
 
 const REPAIR_NEEDED_LEGACY_KEYS = new Set(
@@ -192,6 +220,40 @@ const REPAIR_NEEDED_LEGACY_KEYS = new Set(
 
 function optionKey(value: string): string {
   return value.trim().toLowerCase()
+}
+
+/** Seed missing PMI materials fallback grades (does not delete shop-added values). */
+export async function syncPmiMaterialsListOptions(existingRows?: LookupValueRow[]): Promise<boolean> {
+  let current = (existingRows ?? []).filter((row) => row.category === PMI_MATERIALS_LOOKUP_CATEGORY)
+  if (!existingRows) {
+    const { data, error } = await supabase
+      .from('lookup_values')
+      .select('id,category,value,sort_order')
+      .eq('category', PMI_MATERIALS_LOOKUP_CATEGORY)
+      .order('sort_order', { ascending: true })
+    if (error) return false
+    current = (data ?? []) as LookupValueRow[]
+  }
+
+  const byKey = new Map<string, LookupValueRow>()
+  for (const row of current) {
+    const key = optionKey(row.value)
+    if (!key || byKey.has(key)) continue
+    byKey.set(key, row)
+  }
+
+  const missing = PMI_MATERIALS_LIST_FALLBACK.filter((value) => !byKey.has(optionKey(value)))
+  if (missing.length === 0) return false
+
+  const maxOrder = current.reduce((max, row) => Math.max(max, Number(row.sort_order) || 0), -1)
+  const { error } = await supabase.from('lookup_values').insert(
+    missing.map((value, index) => ({
+      category: PMI_MATERIALS_LOOKUP_CATEGORY,
+      value,
+      sort_order: maxOrder + 1 + index,
+    })),
+  )
+  return !error
 }
 
 /** Replace the old Acceptable / Restrip defaults with Repair Needed, Accepted, Polish and Remeasure, Other. */
@@ -281,7 +343,10 @@ export async function addLookupValue(category: LookupCategory, rawValue: string)
 
 /** Insert fallback options when a Job field list has never been saved (e.g. Outlet / end connection). */
 export async function seedLookupCategoryIfEmpty(category: LookupCategory): Promise<boolean> {
-  if (category === REPAIR_NEEDED_LOOKUP_CATEGORY) {
+  if (
+    category === REPAIR_NEEDED_LOOKUP_CATEGORY ||
+    category === PMI_MATERIALS_LOOKUP_CATEGORY
+  ) {
     return seedItpTravelerListsIfEmpty()
   }
   const def = LOOKUP_CATEGORY_DEFS.find((row) => row.key === category)

@@ -68,24 +68,39 @@ def comps(names):
     for n in names:
         out += [f"{n} | Reused | Repaired | Replaced", f"{n} repair description"]
     return out
+PMI_MAT_CAT = "itp_traveler:pmi_materials"
+
+def mat_part(label):
+    """Shared PMI materials lookup dropdown (grows as techs enter new grades)."""
+    return {
+        "label": label,
+        "type": "dropdown",
+        "options": [],
+        "required": True,
+        "optionSource": "lookup",
+        "lookupCategory": PMI_MAT_CAT,
+        "followUpWhen": "Other",
+        "followUpLabel": "Material grade",
+    }
+
 def mat_id(parts):
-    # Material IDs always required. PMI report upload only when "Is PMI required?" = Yes.
-    # Either way, answers (and the report when required) print on the traveler.
+    # Material IDs always required (shared PMI materials dropdown).
+    # PMI report upload only when "PMI required?" = Yes.
     return step(
         "receipt",
         "Teardown",
         "Material identification",
         "Material ID",
-        [p + " !" for p in parts]
+        [mat_part(p) for p in parts]
         + [
-            "Is PMI required ? !",
+            "PMI required ? !",
             {
                 "label": "PMI report",
                 "type": "picture",
                 "options": [],
                 "required": False,
                 "maxPhotos": 3,
-                "requiredWhenLabel": "Is PMI required",
+                "requiredWhenLabel": "PMI required",
                 "requiredWhenValue": "Yes",
             },
         ],
@@ -485,6 +500,165 @@ T["s"] = ("Relief Valve - TO", "testonly", "Relief Valve", [
          photo=("Test photos", 0, 6)),
     step("final", "Testing", "External adjustment sealed", "Seal"),
     step("final", "Testing", "NBIC T/O applied", "T/O", ["T/O applied ?"], hold=True),
+])
+
+# ---- Relief valve, ValveKeep (VSI) service traveler form ----
+# Field ids carry a stable "vk_<cell>" key: one per cell on the ValveKeep form. Only vk_ fields are
+# ValveKeep data (print + future migration). J-S additions that are not on the form use "js_<name>" ids.
+def vk(key, spec, jc="none"):
+    f = fld(spec)
+    f["id"] = "vk_" + key
+    f["jobCardField"] = jc
+    return f
+def jspic(key, label, n=6, when_label=None, when_value=None):
+    f = {"id": "js_" + key, "label": label, "type": "picture", "options": [], "required": False, "maxPhotos": n}
+    if when_label and when_value:
+        f["requiredWhenLabel"] = when_label
+        f["requiredWhenValue"] = when_value
+    return f
+def slug(s): return re.sub(r"[^a-z0-9]+", "_", s.lower()).strip("_")
+VK_COND = ["A- Good", "B- Bent", "C- Broken", "D- Stm Cut", "E- Cracked", "F- Collapsed", "G- Corroded Mild",
+           "H- Corroded Severe", "I- Deposits Light", "J- Deposits Heavy", "K- Eroded", "L- Galled", "M- Incorrect",
+           "N- NonOEM", "O- Missing", "P- Out Of Tolerance", "Q- Pitted", "R- Plugged", "S- Poor", "T- Worn",
+           "U- Scored", "V- Leaks", "W- Req's Replacing", "Y- Seized", "e- Threads Stripped"]
+VK_WORK = ["0- Cleaned", "1- Replaced", "2- Machined/Lapped", "3- Machined", "4- Lapped", "5- Polish", "6- Left",
+           "7- Repaired"]
+VK_REC = ["[- Replace Next Repair", "]- NDT/NDE Next Repair", "#- Replace ASAP", "*- Machine NOH"]
+VK_PARTS = ["Body", "Bonnet/Yoke", "Nozzle", "Spring", "Disc", "Disc Holder", "Guide", "Spindle", "Spindle Retainer",
+            "Cap", "Lever", "Comp Screw", "Upper ADJ Ring", "Upper Ring Pin", "Lower ADJ Ring", "Lower Ring Pin",
+            "Bolts/Studs/Nuts", "Up Spring Washer", "Low Spring Washer", "Gasket Set", "ORing", "MFG Name Plate",
+            "Inlet Condition", "Inlet Flange Face", "Outlet Condition", "Out Flange Face", "Bellows", "Bug Vent",
+            "Disc Collar", "Lift Stop", "Overlap Collar", "Lift Washer", "Thrust Bearing", "Soft Goods Kit",
+            "Limit Washer"]
+VK_DIMS = ["Nozzle Min", "Noz Seat Step Min", "Bore Dia. Min", "Disc Min Thickness Min", "Disc Inside Step Min",
+           "Disc Outside Step Min", "Disc Holder OD Min", "Guide ID Max", "Guide Clearances Max", "Spindle Run Out",
+           "Base Top to Nozz Max"]
+def dd(opts): return " | " + " | ".join(opts)
+def vk_part_rows():
+    out = []
+    rows = [(slug(p), p) for p in VK_PARTS] + [("other1", "Other part 1"), ("other2", "Other part 2")]
+    for k, p in rows:
+        if k.startswith("other"): out.append(vk(f"pd_{k}_name", f"{p} - name"))
+        work_label = f"{p} - work"
+        out += [vk(f"pd_{k}_cond", f"{p} - condition" + dd(VK_COND)),
+                vk(f"pd_{k}_cond2", f"{p} - condition 2" + dd(VK_COND)),
+                vk(f"pd_{k}_work", work_label + dd(VK_WORK)),
+                vk(f"pd_{k}_rec", f"{p} - recommendation" + dd(VK_REC)),
+                jspic(f"pd_{k}_found", f"{p} - as-found photo", 6, work_label, "1- Replaced"),
+                jspic(f"pd_{k}_left", f"{p} - as-left photo", 6, work_label, "1- Replaced")]
+    return out
+def vk_dim_rows():
+    out = []
+    for d in VK_DIMS:
+        for ck, cl in (("found", "As Found"), ("mfg", "Mfg"), ("mach", "Mach. By"), ("shipped", "As Shipped")):
+            out.append(vk(f"cd_{slug(d)}_{ck}", f"{d} - {cl}"))
+    return out
+def vk_pdesc_rows(n=6):
+    out = []
+    for i in range(1, n + 1):
+        out += [vk(f"pdesc_{i}_name", f"Part {i} - name"), vk(f"pdesc_{i}_number", f"Part {i} - part number"),
+                vk(f"pdesc_{i}_heat", f"Part {i} - heat #")]
+    return out
+YNA = " | Yes | No | NA"
+T["u"] = ("Relief Valve (ValveKeep form)", "repair", "Relief Valve", [
+    step("receipt", "PRV Teardown", "Receive valve and record basic information", "Basic Info", [
+        vk("owner", "Owner", "customer"), vk("plant", "Plant"), vk("traveler_type", "Traveler Type"),
+        vk("hazardous_service", "Hazardous Service ?"), vk("field_service", "Field Service ?"),
+        vk("shop_id", "JS Shop ID", "valve_id"), vk("customer_po", "Customer PO", "po_number"),
+        vk("tag_number", "Tag Number"), vk("equip_location", "Equip. Location"),
+        vk("work_performed", "Work Performed"), vk("unit_vessel", "Unit / Vessel"), vk("sap_asset", "SAP / Asset"),
+        vk("due_date", "Due Date", "due_date"), vk("date_received", "Date Received"), vk("received_by", "Received By"),
+        vk("as_found_condition", "As Found Condition | Good | Fair | Dirty | New"),
+        vk("set_press_changed", "Set Press Changed ?"), vk("special_cleaning", "Special Cleaning ?"),
+        vk("conversion", "Conversion ?"), vk("nameplate_status", "Nameplate | Original | Dup | Miss | Illegible"),
+        vk("seal_status", "Seal | Intact | Broke | Missing")],
+        photo=("As-found condition photos", 4, 8)),
+    step("receipt", "PRV Teardown", "Record valve data plates", "Data Plates", [
+        vk("manufacturer", "Manufacturer", "manufacturer"), vk("service", "Service"),
+        vk("model_number", "Model Number"), vk("serial_number", "S/N"), vk("valve_size", "Valve Size"),
+        vk("set_pressure", "Set Pressure"), vk("capacity", "Capacity"), vk("dual_np_capacity", "Dual NP Capacity"),
+        vk("reqd_code", "Req'd Code"), vk("temperature", "Temperature"), vk("restricted_lift", "Restricted lift (RL) ?"),
+        vk("lift", "Lift"), vk("lift_rl", "RL"), vk("cold_diff_set", "Cold Diff Set"), vk("inlet", "Inlet"),
+        vk("orifice_desg", "Orifice Desg."), vk("body_material", "Body Material"),
+        vk("bonnet_material", "Bonnet Material"), vk("bellows_material", "Bellows Material"),
+        vk("spring_number", "Spring Number"), vk("spring_material", "Spring Material"),
+        vk("back_pressure", "Back Pressure"), vk("outlet", "Outlet"), vk("orifice_area", "Orifice Area"),
+        vk("trim_material", "Trim Material"), vk("soft_seat_material", "Soft Seat Material"),
+        vk("cap_type", "Cap Type"), vk("spring_range", "Spring range (From / To)"),
+        vk("onp_xxxed_out", "Original nameplate - XXX'ed out ?"), vk("onp_model_number", "Original nameplate - Model Number"),
+        vk("onp_set_pressure", "Original nameplate - Set Pressure"), vk("onp_temperature", "Original nameplate - Temperature"),
+        vk("onp_capacity", "Original nameplate - Capacity"), vk("onp_cdtp", "Original nameplate - CDTP"),
+        vk("onp_code_stamp", "Original nameplate - Code Stamp"),
+        vk("onp_assembled_by", "Original nameplate - Assembled By & Date/Code"), vk("onp_bp", "Original nameplate - BP"),
+        vk("prn_model_number", "Previous repair nameplate - Model Number"),
+        vk("prn_set_pressure", "Previous repair nameplate - Set Pressure"),
+        vk("prn_temperature", "Previous repair nameplate - Temperature"),
+        vk("prn_capacity", "Previous repair nameplate - Capacity"), vk("prn_cdtp", "Previous repair nameplate - CDTP"),
+        vk("prn_repaired_by", "Previous repair nameplate - Repaired By"),
+        vk("prn_prev_vr_no", "Previous repair nameplate - Prev VR #"), vk("prn_id_no", "Previous repair nameplate - I.D.#"),
+        vk("prn_bp", "Previous repair nameplate - BP"), vk("prn_repair_date", "Previous repair nameplate - Prev Repair Date"),
+        vk("prn_vr_stamp", "Previous repair nameplate - Prev VR Stamp ?"),
+        vk("pto_company", "Previous test only plate - PTO Company"), vk("pto_date", "Previous test only plate - PTO Date"),
+        vk("pto_id", "Previous test only plate - PTO ID#"), vk("pto_stamp", "Previous test only plate - Prev T/O Stamp ?"),
+        vk("pto_set", "Previous test only plate - Prev T/O Set")],
+        photo=("Nameplate photos", 1, 4)),
+    step("receipt", "PRV Teardown", "Pre-test", "Pre-Test", [
+        vk("pretest", "Pretest ?"), vk("popped_at", "Popped @ (PSIG)"), vk("back_pressure_test", "Back Pressure Test"),
+        vk("bellows_test", "Bellows Test"), vk("pretest_by", "Pretest By"), vk("leak_test", "Leak Test"),
+        vk("leak_test_at", "Leak Test at"), vk("leak_rate", "Leak rate | Tight | BPM | Moderate | Excessive"),
+        vk("pretest_comments", "Pretest Comments ~")], hold=True),
+    step("disassembly", "PRV Teardown", "Disassemble and clean", "Teardown", [
+        vk("dis_compression_screw", "Compression Screw"), vk("dis_upper_ring", "Upper Ring"),
+        vk("dis_lower_ring", "Lower Ring"), vk("dis_inspected_by", "Inspected By"),
+        vk("dis_instrument_no", "Instrument #"), vk("dis_as_rec_spring_no", "As Rec - Spring #"),
+        vk("dis_as_rec_spring_range", "As Rec - Spring Range")],
+        photo=("Before-disassembly photos", 0, 8)),
+    step(I, "PRV Teardown", "Parts inspection", "Parts", [
+        vk("disposition", "Disposition | OK To Proceed | NETR - Replaced | NETR - Scrapped"),
+        vk("disposition_by", "Disposition by"), vk("disposition_date", "Disposition date")]
+        + vk_part_rows()),
+    "PARTS",
+    step(I, "PRV Teardown", "Critical dimensions", "Dimensions", vk_dim_rows()),
+    step("repair", "Machine 1", "Machine and lap", "Machining", [
+        vk("cleaned", "Cleaned"), vk("machined", "Machined"), vk("lapped", "Lapped"),
+        vk("instrument_used", "Instrument Used")]),
+    step(A, "PRV Assembly", "Assemble", "Assembly", [
+        vk("asm_nozzle_tight", "Nozzle Tight ?"), vk("asm_bellows_tight", "Bellows Tight" + YNA),
+        vk("asm_disc_collar", "Disc Collar -2" + YNA), vk("asm_bonnet_tight", "Bonnet Tight ?"),
+        vk("asm_gaskets_installed", "Required Gaskets Installed ?"), vk("asm_up_adj_ring_set", "Up Adj. Ring - Set"),
+        vk("asm_up_adj_ring_unit", "Up Adj. Ring unit | Turns | Notches | Inches | NA"),
+        vk("asm_low_adj_ring_set", "Low Adj. Ring Set"),
+        vk("asm_low_adj_ring_unit", "Low Adj. Ring unit | Turns | Notches | NA"),
+        vk("asm_overlap_collar", "Overlap Collar Set & Sealed")]
+        + vk_pdesc_rows()
+        + [vk("torque_wrench_no", "Torque Wrench #"), vk("assembled_by", "Assembled By")]),
+    step("testing", "Testing", "Set and test", "Set / Test", [
+        vk("test_set_pressure", "Set Pressure"), vk("test_cdtp", "CDTP"), vk("test_bp", "BP"),
+        vk("suggested_bd", "Suggested BD"), vk("test_method", "Test Method | Bench | ALD | H/L | N2 | Live | Inline"),
+        vk("test_stand_id", "Test Stand ID"), vk("test_media", "Test Media | Air | Water | Steam | N2"),
+        vk("ald_equip_id", "ALD Equip ID"), vk("load_cell_no", "Load Cell #"),
+        vk("test1_press", "1st Test Press"), vk("test1_reseat", "1st Reseat Pressure"),
+        vk("test2_press", "2nd Test Press"), vk("test2_reseat", "2nd Reseat Pressure"),
+        vk("test3_press", "3rd Test Press"), vk("test3_reseat", "3rd Reseat Pressure"),
+        vk("final_test_press", "Final Test Pressure"), vk("final_reseat", "Final Reseat Pressure"),
+        vk("leakage_rate", "Leakage Rate"), vk("leakage_rate_at", "Leakage Rate at"),
+        vk("measured_lift", "Measured Lift"), vk("bp_test", "BP Test" + YNA), vk("bp_test_at", "BP Test at"),
+        vk("cust_gauge_cal", "Cust Gauge Cal"), vk("gauge1_sn", "Gauge 1 S/N"), vk("date_tested", "Date Tested"),
+        vk("tested_by", "Tested By"), vk("witnessed_by", "Witnessed By")],
+        photo=("Test photos", 0, 6), hold=True),
+    step("final", "Testing", "Seal, tag and stamp", "Seal / Stamp", [
+        vk("chk_vk_entry", "VK Entry" + YNA), vk("chk_disassembled", "Disassembled" + YNA),
+        vk("chk_plate_made", "Plate Made" + YNA), vk("chk_plate_checked", "Plate Checked" + YNA),
+        vk("chk_vr_stamped", "VR Stamped" + YNA), vk("chk_to_stamped", "T/O Stamped" + YNA),
+        vk("chk_valve_tagged", "Valve Tagged" + YNA), vk("chk_valve_sealed", "Valve Sealed" + YNA),
+        vk("reset_only_xd_plate", "Reset Only: X'd MFG Plate ?")],
+        photo=("Repair nameplate photo", 0, 4)),
+    step("final", "Painting", "Paint and prepare for shipping", "Shipping", [
+        vk("painted", "Painted"), vk("packed_by", "Packed By")],
+        photo=("As-left photos", 1, 8)),
+    step("final", "Testing", "Final inspection", "Final QC", [
+        vk("final_insp_qc", "Final Insp / QC"), vk("cust_notes", "Cust Notes ~"), vk("comments", "Comments ~"),
+        vk("js_comment", "JS Comment ~")], hold=True),
 ])
 
 T["t"] = ("Manufacturing", "manufacturing", "Manufacture/Machine/Weld", [

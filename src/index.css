@@ -24737,6 +24737,120 @@ body.shop-tv-fullscreen-active .page-content {
   gap: 14px 16px;
 }
 
+.vk-table-section {
+  padding-left: 10px;
+  padding-right: 10px;
+}
+
+.vk-table-wrap {
+  overflow-x: auto;
+  margin: 0 -4px;
+}
+
+.vk-parts-table,
+.vk-dims-table,
+.vk-pdesc-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.78rem;
+}
+
+.vk-parts-table th,
+.vk-dims-table th,
+.vk-pdesc-table th,
+.vk-parts-table td,
+.vk-dims-table td,
+.vk-pdesc-table td {
+  border: 1px solid #e2e8f0;
+  padding: 4px 6px;
+  vertical-align: middle;
+}
+
+.vk-parts-table th,
+.vk-dims-table th,
+.vk-pdesc-table th {
+  background: #f8fafc;
+  font-size: 0.65rem;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: #64748b;
+  white-space: nowrap;
+}
+
+.vk-part-name-cell {
+  font-weight: 600;
+  color: #0f172a;
+  white-space: nowrap;
+  min-width: 7.5rem;
+}
+
+.vk-cell-field {
+  margin: 0;
+  min-width: 0;
+}
+
+.vk-cell-field .itp-traveler-step-field-hdr {
+  display: none;
+}
+
+.vk-cell-control,
+.vk-cell-field .itp-traveler-step-field-control {
+  display: block;
+  margin: 0;
+}
+
+.vk-cell-control select,
+.vk-cell-control input,
+.vk-cell-field select,
+.vk-cell-field input,
+.vk-cell-field textarea {
+  width: 100%;
+  min-width: 3.5rem;
+  max-width: 9rem;
+  font-size: 0.78rem;
+  padding: 4px 6px;
+}
+
+.vk-cell-hint {
+  margin: 0 0 4px;
+  font-size: 0.65rem;
+  line-height: 1.2;
+}
+
+.vk-cell-hint--req {
+  color: #b45309;
+  font-weight: 700;
+}
+
+.vk-cell-photos {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-bottom: 4px;
+}
+
+.vk-cell-photos .itp-traveler-step-photo {
+  width: 44px;
+}
+
+.vk-cell-photos .itp-traveler-step-photo img {
+  width: 44px;
+  height: 44px;
+  object-fit: cover;
+}
+
+.vk-cell-photo-actions {
+  flex-wrap: nowrap;
+  gap: 4px;
+}
+
+.vk-cell-photo-actions .button-primary,
+.vk-cell-photo-actions .button-secondary {
+  padding: 2px 6px;
+  font-size: 0.7rem;
+}
+
 .itp-traveler-step-photos-hdr {
   display: flex;
   flex-wrap: wrap;

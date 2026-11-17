@@ -13,7 +13,11 @@ import {
   type ItpLibraryPlanPayload,
 } from '../types/itpLibraryPlan'
 import { migrateFastenerRecordScopeSel, migrateFastenerRecordSel } from './itpFastenerRecord'
-import { ensureOrderReplacementPartsSel, ORDER_REPLACEMENT_PARTS_ITEM_ID } from './itpOrderParts'
+import {
+  ensureOrderReplacementPartsSel,
+  ensureTwinsealCombinedPartsPlan,
+  ORDER_REPLACEMENT_PARTS_ITEM_ID,
+} from './itpOrderParts'
 import { normalizeLinePhotoCounts, normalizeMeasFields } from '../types/itpMeasFields'
 import { collectUnlockItemIdsFromSels } from './itpMeasUnlocks'
 
@@ -708,10 +712,18 @@ export function applyScopeToPlan(
   if (!(ORDER_REPLACEMENT_PARTS_ITEM_ID in scope.sel)) {
     delete migrated[ORDER_REPLACEMENT_PARTS_ITEM_ID]
   }
+  const withParts = ensureOrderReplacementPartsSel(migrated, { valveType: plan.valveType })
+  const combined = ensureTwinsealCombinedPartsPlan({
+    sel: withParts,
+    custom,
+    exec: plan.exec,
+    valveType: plan.valveType,
+  })
   return {
     ...plan,
-    sel: ensureOrderReplacementPartsSel(migrated, { valveType: plan.valveType }),
-    custom,
+    sel: combined.sel,
+    custom: combined.custom,
+    exec: combined.exec,
   }
 }
 
