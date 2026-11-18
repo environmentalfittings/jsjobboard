@@ -1,6 +1,10 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
+import { useAuth } from '../contexts/AuthContext'
+import { notifyQualityTeamItpItemFlagged } from '../lib/messages'
+import { can, permissionDeniedReason } from '../lib/roles'
 import { useToast } from './ToastNotification'
+import { ItpFlagIssueModal } from './ItpFlagIssueModal'
 import {
   deleteItpLibraryAttachment,
   isItpLibraryAttachmentImage,
@@ -42,6 +46,7 @@ import {
 import {
   emptyItemExec,
   emptyItemSel,
+  isOpenItpFlag,
   type ItpLibraryAttachment,
   type ItpLibraryItemExec,
   type ItpLibraryItemSel,
@@ -180,6 +185,10 @@ export function ItpTravelerStepModal({
   onRemoveNeededPart,
 }: ItpTravelerStepModalProps) {
   const { showToast } = useToast()
+  const { user, username, role } = useAuth()
+  const canFlagIssues = can(role, 'flagItpItem')
+  const [flagModalOpen, setFlagModalOpen] = useState(false)
+  const [flagBusy, setFlagBusy] = useState(false)
   const fileRef = useRef<HTMLInputElement | null>(null)
   const cameraRef = useRef<HTMLInputElement | null>(null)
   const fieldFileRef = useRef<HTMLInputElement | null>(null)
@@ -1125,6 +1134,80 @@ export function ItpTravelerStepModal({
     })
   }
 
+  const confirmFlagIssue = async (input: { reason: string; photos: ItpLibraryAttachment[] }) => {
+    if (previewMode) {
+      showToast('Flagging is not available in template preview')
+      return
+    }
+    if (!canFlagIssues) {
+      showToast(permissionDeniedReason('flagItpItem'))
+      return
+    }
+    if (!user?.id) {
+      showToast('Sign in required to flag an item and notify Quality Team')
+      return
+    }
+    const now = new Date().toISOString()
+    const notes = exec.notes
+    const nextSel: ItpLibraryItemSel = isNameplate
+      ? { ...sel, notes, measFields }
+      : { ...sel, notes }
+    const nextExec: ItpLibraryItemExec = {
+      ...exec,
+      notes,
+      flagged: true,
+      flagReason: input.reason,
+      flagPhotos: input.photos.slice(0, 3),
+      flaggedAt: now,
+      flaggedByUserId: user.id,
+      flaggedByName: username || signerName || 'Technician',
+      flagOwnerEmployeeId: null,
+      flagOwnerUserId: null,
+      flagOwnerName: null,
+      flagResolution: '',
+      flagResolvedAt: null,
+      flagResolvedByUserId: null,
+      flagResolvedByName: null,
+      flagClearReason: '',
+      flagClearedAt: null,
+      flagClearedByUserId: null,
+      flagClearedByName: null,
+    }
+    const valveId = String(jobCard.valve_id ?? '').trim() || String(valveRowId)
+    const customer = jobCard.customer?.trim() || null
+    const senderName = username || signerName || 'Technician'
+    setFlagBusy(true)
+    try {
+      setExec(nextExec)
+      await onSave({ sel: nextSel, exec: nextExec })
+    } catch (err) {
+      showToast(err instanceof Error ? err.message : 'Failed to flag item')
+      setFlagBusy(false)
+      return
+    }
+    // Parent traveler view closes this modal on save; still notify Quality Team.
+    const { notified, error } = await notifyQualityTeamItpItemFlagged({
+      valveRowId,
+      valveId,
+      customer,
+      itemName: item.name,
+      flagReason: input.reason,
+      photoCount: input.photos.length,
+      senderUserId: user.id,
+      senderName,
+    })
+    if (error) {
+      showToast(`Item flagged, but notify failed: ${error}`)
+    } else {
+      showToast(
+        notified > 0
+          ? `Item flagged — Quality Team notified (${notified})`
+          : 'Item flagged — no Quality Team logins to notify',
+      )
+    }
+    window.dispatchEvent(new Event('jsjb-inbox-refresh'))
+  }
+
   const completeLabel = exec.holdPending && !exec.done
     ? canSignOffHold
       ? 'Sign off hold'
@@ -1524,20 +1607,48 @@ export function ItpTravelerStepModal({
             {completeLabel}
           </button>
           <div className="itp-traveler-step-footer-right">
-            <button type="button" className="button-secondary" disabled={saving || uploading} onClick={onClose}>
+            {!previewMode && canFlagIssues ? (
+              <button
+                type="button"
+                className={`button-secondary${isOpenItpFlag(exec) ? ' itp-library-flag-btn on' : ''}`}
+                disabled={saving || uploading || flagBusy || isOpenItpFlag(exec)}
+                title={
+                  isOpenItpFlag(exec)
+                    ? 'Already flagged — Quality Team will see it on QA/QC'
+                    : 'Flag this step for Quality Team'
+                }
+                onClick={() => setFlagModalOpen(true)}
+              >
+                {isOpenItpFlag(exec) ? '⚑ Flagged' : '⚑ Flag for QC'}
+              </button>
+            ) : null}
+            <button type="button" className="button-secondary" disabled={saving || uploading || flagBusy} onClick={onClose}>
               Cancel
             </button>
             <button
               type="button"
               className="button-primary"
-              disabled={saving || uploading}
+              disabled={saving || uploading || flagBusy}
               onClick={() => void handleSave()}
             >
-              {saving ? 'Saving…' : 'Save step'}
+              {saving || flagBusy ? 'Saving…' : 'Save step'}
             </button>
           </div>
         </footer>
       </div>
+      {flagModalOpen ? (
+        <ItpFlagIssueModal
+          valveRowId={valveRowId}
+          itemId={item.id}
+          itemName={item.name}
+          busy={flagBusy || saving}
+          onCancel={() => {
+            if (!flagBusy) setFlagModalOpen(false)
+          }}
+          onConfirm={(input) => void confirmFlagIssue(input)}
+          showToast={showToast}
+        />
+      ) : null}
     </div>,
     document.body,
   )

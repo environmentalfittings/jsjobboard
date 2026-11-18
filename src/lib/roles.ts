@@ -9,11 +9,14 @@ export type AppPermission =
   | 'editJobDetails'
   | 'junkOrCloseJob'
   | 'manageLists'
+  | 'accessMteCalibrations'
   | 'manageTechnicians'
   | 'manageEmployeeAccounts'
   | 'viewReports'
   | 'feedbackInbox'
   | 'openAdminTools'
+  /** Raise ITP checklist flags for Quality Team (technicians included even when shop is view-only). */
+  | 'flagItpItem'
   /** Any shop data mutation (status, assignments, logs, traveler, etc.). Technicians: view only. */
   | 'shopWrite'
 
@@ -24,11 +27,13 @@ const ROLE_PERMISSIONS: Record<UserRole, ReadonlySet<AppPermission>> = {
     'editJobDetails',
     'junkOrCloseJob',
     'manageLists',
+    'accessMteCalibrations',
     'manageTechnicians',
     'manageEmployeeAccounts',
     'viewReports',
     'feedbackInbox',
     'openAdminTools',
+    'flagItpItem',
     'shopWrite',
   ]),
   manager: new Set([
@@ -36,15 +41,18 @@ const ROLE_PERMISSIONS: Record<UserRole, ReadonlySet<AppPermission>> = {
     'copyJob',
     'editJobDetails',
     'junkOrCloseJob',
+    'accessMteCalibrations',
     'viewReports',
     'openAdminTools',
+    'flagItpItem',
     'shopWrite',
   ]),
-  technician: new Set([]),
+  technician: new Set(['flagItpItem']),
   viewer: new Set([
     'viewReports',
     'openAdminTools',
     'manageLists',
+    'accessMteCalibrations',
     'feedbackInbox',
   ]),
 }
@@ -139,6 +147,8 @@ export function permissionDeniedReason(permission: AppPermission): string {
       return 'Only Admin and Manager can junk or close jobs'
     case 'manageLists':
       return 'Only Admin can manage lists'
+    case 'accessMteCalibrations':
+      return 'Only Admin and Manager can open MTE Calibrations'
     case 'manageTechnicians':
       return 'Only Admin can manage shop assignment (Employees → Shop assignment)'
     case 'manageEmployeeAccounts':
@@ -149,6 +159,8 @@ export function permissionDeniedReason(permission: AppPermission): string {
       return 'Only Admin can open the feedback inbox'
     case 'openAdminTools':
       return 'Only Admin and Manager can open admin tools'
+    case 'flagItpItem':
+      return 'Only signed-in shop staff can flag ITP items'
     case 'shopWrite':
       return 'View only — ask an Admin or Manager to make changes'
     default:

@@ -381,7 +381,7 @@ function AppRoutes() {
             <Route
               path="/quality-team/mte-calibrations"
               element={
-                can(appRole, 'manageLists') ? (
+                can(appRole, 'accessMteCalibrations') ? (
                   <MteCalibrationsPage />
                 ) : role ? (
                   <Navigate to={defaultHomePath(appRole)} replace />

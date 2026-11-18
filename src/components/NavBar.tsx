@@ -365,8 +365,8 @@ export function NavBar({ role, username, userId, onLogout }: NavBarProps) {
               {
                 to: '/quality-team/mte-calibrations',
                 label: 'MTE Calibrations',
-                disabled: !can(role, 'manageLists'),
-                disabledReason: permissionDeniedReason('manageLists'),
+                disabled: !can(role, 'accessMteCalibrations'),
+                disabledReason: permissionDeniedReason('accessMteCalibrations'),
               },
             ]}
           />

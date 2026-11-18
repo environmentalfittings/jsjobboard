@@ -64,7 +64,7 @@ import {
   resolveQualityTeamLevelFromEmployees,
   snapshotItpScope,
 } from '../lib/qualityTeam'
-import { hasAdminAccess } from '../lib/roles'
+import { can, hasAdminAccess, permissionDeniedReason } from '../lib/roles'
 import {
   normalizeQualityTeamLevel,
   qualityTeamLevelLabel,
@@ -156,6 +156,8 @@ export function ItpLibraryEditor({ valve, onClose, readOnly = false }: ItpLibrar
   const { employees } = useEmployees()
   const parts = useJobNeededParts(valve.id)
   const isShopAdmin = hasAdminAccess(role)
+  /** Technicians are shop view-only but must still be able to raise QA flags. */
+  const canFlagIssues = can(role, 'flagItpItem')
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [plan, setPlan] = useState<ItpLibraryPlanPayload | null>(null)
@@ -1320,7 +1322,10 @@ export function ItpLibraryEditor({ valve, onClose, readOnly = false }: ItpLibrar
   }
 
   const toggleFlag = (itemId: string, itemName: string) => {
-    if (readOnly) return
+    if (!canFlagIssues) {
+      showToast(permissionDeniedReason('flagItpItem'))
+      return
+    }
     const current = plan?.exec[itemId] ?? emptyItemExec()
     if (current.flagged) {
       setClearingItem({ id: itemId, name: itemName })
@@ -1331,6 +1336,10 @@ export function ItpLibraryEditor({ valve, onClose, readOnly = false }: ItpLibrar
 
   const confirmClearFlag = async (reason: string) => {
     if (!plan || !clearingItem) return
+    if (!canFlagIssues) {
+      showToast(permissionDeniedReason('flagItpItem'))
+      return
+    }
     if (!user?.id) {
       showToast('Sign in required to remove a flag')
       return
@@ -1384,6 +1393,10 @@ export function ItpLibraryEditor({ valve, onClose, readOnly = false }: ItpLibrar
 
   const confirmFlagIssue = async (input: { reason: string; photos: ItpLibraryAttachment[] }) => {
     if (!plan || !flaggingItem) return
+    if (!canFlagIssues) {
+      showToast(permissionDeniedReason('flagItpItem'))
+      return
+    }
     if (!user?.id) {
       showToast('Sign in required to flag an item and notify Quality Team')
       return
@@ -1404,6 +1417,14 @@ export function ItpLibraryEditor({ valve, onClose, readOnly = false }: ItpLibrar
           flaggedAt: now,
           flaggedByUserId: user.id,
           flaggedByName: username || 'Technician',
+          // Always start a fresh open ticket (do not keep a prior resolution).
+          flagOwnerEmployeeId: null,
+          flagOwnerUserId: null,
+          flagOwnerName: null,
+          flagResolution: '',
+          flagResolvedAt: null,
+          flagResolvedByUserId: null,
+          flagResolvedByName: null,
           flagClearReason: '',
           flagClearedAt: null,
           flagClearedByUserId: null,
@@ -1728,7 +1749,10 @@ export function ItpLibraryEditor({ valve, onClose, readOnly = false }: ItpLibrar
       ) : null}
 
       {readOnly ? (
-        <p className="placeholder-copy">View only — ask an Admin or Manager to edit this ITP.</p>
+        <p className="placeholder-copy">
+          View only — ask an Admin or Manager to edit this ITP.
+          {canFlagIssues ? ' You can still use ⚑ to flag an item for Quality Team.' : ''}
+        </p>
       ) : null}
       {!readOnly && isPersisted && !canEditScope && plan.qcReview.status !== 'accepted' ? (
         <p className="placeholder-copy resources-hint">
@@ -2566,13 +2590,15 @@ export function ItpLibraryEditor({ valve, onClose, readOnly = false }: ItpLibrar
                                   <button
                                     type="button"
                                     className={`itp-library-flag-btn${isOpenItpFlag(ex) ? ' on' : ''}${isResolvedItpFlag(ex) ? ' resolved' : ''}`}
-                                    disabled={controlsDisabled}
+                                    disabled={!canFlagIssues || flagBusy || itemLocked}
                                     title={
-                                      isOpenItpFlag(ex)
-                                        ? 'Open flag — still needs QC resolution'
-                                        : isResolvedItpFlag(ex)
-                                          ? 'Flag resolved by Quality Team'
-                                          : 'Flag issue'
+                                      !canFlagIssues
+                                        ? permissionDeniedReason('flagItpItem')
+                                        : isOpenItpFlag(ex)
+                                          ? 'Open flag — still needs QC resolution'
+                                          : isResolvedItpFlag(ex)
+                                            ? 'Flag resolved by Quality Team'
+                                            : 'Flag issue for Quality Team'
                                     }
                                     onClick={() => toggleFlag(it.id, it.name)}
                                   >
