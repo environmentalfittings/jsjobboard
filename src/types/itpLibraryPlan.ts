@@ -86,6 +86,13 @@ export type ItpLinkedResourceDoc = {
   storagePath: string
 }
 
+/** Where an auto-filled traveler meas value came from. */
+export type ItpMeasValueSource = {
+  kind: 'test_log'
+  testedOn: string
+  tester: string
+}
+
 export type ItpLibraryItemExec = {
   done: boolean
   flagged: boolean
@@ -99,6 +106,11 @@ export type ItpLibraryItemExec = {
   verifyVal: string
   /** Values keyed by meas field id (also mirrored into before/after/verify for legacy ids). */
   measValues: Record<string, string>
+  /**
+   * Provenance for meas values auto-filled from the testing module.
+   * Used to show “From test log …” notes on traveler fields.
+   */
+  measSources: Record<string, ItpMeasValueSource>
   /** Photos attached to satisfy a picture requirement on this line. */
   photos: ItpLibraryAttachment[]
   /** Photos keyed by meas/technician field id (for per-field Picture inputs). */
@@ -306,6 +318,7 @@ export function emptyItemExec(): ItpLibraryItemExec {
     afterVal: '',
     verifyVal: '',
     measValues: {},
+    measSources: {},
     photos: [],
     fieldPhotos: {},
     holdPending: false,
@@ -648,6 +661,19 @@ function normalizeExec(raw: unknown): ItpLibraryItemExec {
   if (beforeVal && measValues.before == null) measValues.before = beforeVal
   if (afterVal && measValues.after == null) measValues.after = afterVal
   if (verifyVal && measValues.verify == null) measValues.verify = verifyVal
+  const measSources: Record<string, ItpMeasValueSource> = {}
+  const rawSources = (o as { measSources?: unknown }).measSources
+  if (rawSources && typeof rawSources === 'object') {
+    for (const [fieldId, raw] of Object.entries(rawSources as Record<string, unknown>)) {
+      if (!raw || typeof raw !== 'object') continue
+      const src = raw as { kind?: unknown; testedOn?: unknown; tester?: unknown }
+      if (src.kind !== 'test_log') continue
+      const testedOn = String(src.testedOn ?? '').trim()
+      const tester = String(src.tester ?? '').trim()
+      if (!testedOn && !tester) continue
+      measSources[fieldId] = { kind: 'test_log', testedOn, tester }
+    }
+  }
   return {
     done: Boolean(o.done),
     flagged: Boolean(o.flagged),
@@ -658,6 +684,7 @@ function normalizeExec(raw: unknown): ItpLibraryItemExec {
     afterVal,
     verifyVal,
     measValues,
+    measSources,
     photos: normalizeAttachments((o as { photos?: unknown }).photos),
     fieldPhotos: normalizeFieldPhotos((o as { fieldPhotos?: unknown }).fieldPhotos),
     holdPending: Boolean((o as { holdPending?: unknown }).holdPending),

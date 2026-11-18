@@ -6,6 +6,13 @@ export type ReliefValveMedia = (typeof RELIEF_VALVE_MEDIA)[number]
 export const RELIEF_VALVE_TEST_TYPES = ['Pretest', 'Pretest with Repair', 'Test and Dispose'] as const
 export type ReliefValveTestType = (typeof RELIEF_VALVE_TEST_TYPES)[number]
 
+/** Which ValveKeep traveler step this entry fills (separate from job “test type”). */
+export const RELIEF_VALVE_TEST_STAGES = ['Pre-test', 'Final test'] as const
+export type ReliefValveTestStage = (typeof RELIEF_VALVE_TEST_STAGES)[number]
+
+export const RELIEF_VALVE_LEAK_RATES = ['Tight', 'BPM', 'Moderate', 'Excessive'] as const
+export type ReliefValveLeakRate = (typeof RELIEF_VALVE_LEAK_RATES)[number]
+
 /** Map job / worked text onto a relief-valve test-type radio. */
 export function inferReliefValveTestType(hint: string | null | undefined): ReliefValveTestType | '' {
   const text = String(hint ?? '').toLowerCase()
@@ -23,6 +30,8 @@ export type ReliefValveTestFields = {
   media: string
   mediaOther: string
   testType: string
+  /** Traveler target: Pre-test step vs Set and test step. */
+  stage: ReliefValveTestStage | ''
   /** Test gauge used for pop / reseat readings. */
   gaugeId: string
   gauge: string
@@ -34,6 +43,12 @@ export type ReliefValveTestFields = {
   reseat1: string
   reseat2: string
   reseat3: string
+  /** Pre-test traveler fields (N/A allowed as the literal "N/A"). */
+  backPressureTest: string
+  bellowsTest: string
+  leakTest: string
+  leakTestAt: string
+  leakRate: string
   /** Overall result (pop + reseat rules). */
   result: 'pass' | 'fail' | ''
   /** Reseat-only result (Liquid is advisory / na). */
@@ -49,6 +64,7 @@ export function emptyReliefValveTestFields(): ReliefValveTestFields {
     media: '',
     mediaOther: '',
     testType: '',
+    stage: '',
     gaugeId: '',
     gauge: '',
     test1: '',
@@ -57,6 +73,11 @@ export function emptyReliefValveTestFields(): ReliefValveTestFields {
     reseat1: '',
     reseat2: '',
     reseat3: '',
+    backPressureTest: '',
+    bellowsTest: '',
+    leakTest: '',
+    leakTestAt: '',
+    leakRate: '',
     result: '',
     reseatResult: '',
     reason: '',
@@ -92,6 +113,9 @@ export function parseReliefValveTestFields(raw: unknown): ReliefValveTestFields 
     o.reseatResult === 'pass' || o.reseatResult === 'fail' || o.reseatResult === 'na'
       ? o.reseatResult
       : ''
+  const stageRaw = String(o.stage ?? '').trim()
+  const stage: ReliefValveTestStage | '' =
+    stageRaw === 'Pre-test' || stageRaw === 'Final test' ? stageRaw : ''
   return {
     inletSize: String(o.inletSize ?? '').trim(),
     outletSize: String(o.outletSize ?? '').trim(),
@@ -99,6 +123,7 @@ export function parseReliefValveTestFields(raw: unknown): ReliefValveTestFields 
     media: normalizeStoredMedia(String(o.media ?? '')),
     mediaOther: String(o.mediaOther ?? '').trim(),
     testType: String(o.testType ?? '').trim(),
+    stage,
     gaugeId: String(o.gaugeId ?? '').trim(),
     gauge: String(o.gauge ?? '').trim(),
     test1: String(o.test1 ?? '').trim(),
@@ -107,6 +132,11 @@ export function parseReliefValveTestFields(raw: unknown): ReliefValveTestFields 
     reseat1: String(o.reseat1 ?? '').trim(),
     reseat2: String(o.reseat2 ?? '').trim(),
     reseat3: String(o.reseat3 ?? '').trim(),
+    backPressureTest: String(o.backPressureTest ?? '').trim(),
+    bellowsTest: String(o.bellowsTest ?? '').trim(),
+    leakTest: String(o.leakTest ?? '').trim(),
+    leakTestAt: String(o.leakTestAt ?? '').trim(),
+    leakRate: String(o.leakRate ?? '').trim(),
     result: o.result === 'pass' || o.result === 'fail' ? o.result : '',
     reseatResult,
     reason: String(o.reason ?? '').trim(),
@@ -458,6 +488,9 @@ export function validateReliefValveFields(fields: ReliefValveTestFields): string
     return 'Enter the Other media for Relief Valve'
   }
   if (!fields.testType.trim()) return 'Test type is required for Relief Valve'
+  if (fields.stage !== 'Pre-test' && fields.stage !== 'Final test') {
+    return 'Select Pre-test or Final test for this Relief Valve entry'
+  }
   if (!fields.gaugeId.trim() && !fields.gauge.trim()) {
     return 'Select a test gauge for Relief Valve'
   }

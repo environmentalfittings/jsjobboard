@@ -1,13 +1,17 @@
 import { useMemo } from 'react'
 import {
+  RELIEF_VALVE_LEAK_RATES,
   RELIEF_VALVE_MEDIA,
   RELIEF_VALVE_PASS_TOLERANCE_PERCENT,
+  RELIEF_VALVE_TEST_STAGES,
   RELIEF_VALVE_TEST_TYPES,
   applyReliefValveEvaluations,
   evaluateReliefValveOverall,
   formatReliefValveAverage,
   type ReliefValveTestFields,
+  type ReliefValveTestStage,
 } from '../../lib/reliefValveTest'
+import { isNaAnswer, NA_MEAS_VALUE } from '../../lib/itpItemRequirements'
 import type { TestGauge } from '../../types/testGauge'
 import { TestGaugeSelect } from './TestGaugeSelect'
 
@@ -16,10 +20,53 @@ type ReliefValveFieldsProps = {
   sizeOptions: string[]
   gaugeOptions: TestGauge[]
   onChange: (next: ReliefValveTestFields) => void
+  onStageChange?: (stage: ReliefValveTestStage) => void
 }
 
-export function ReliefValveFields({ value, sizeOptions, gaugeOptions, onChange }: ReliefValveFieldsProps) {
+function NaTextField({
+  label,
+  value,
+  placeholder,
+  onChange,
+}: {
+  label: string
+  value: string
+  placeholder?: string
+  onChange: (next: string) => void
+}) {
+  const naOn = isNaAnswer(value)
+  return (
+    <label className={`test-log-relief-na-field${naOn ? ' is-na' : ''}`}>
+      <span className="test-log-relief-na-field-hdr">
+        <span>{label}</span>
+        <button
+          type="button"
+          className={`test-log-relief-na-btn${naOn ? ' on' : ''}`}
+          aria-pressed={naOn}
+          title={naOn ? 'Clear N/A and enter a value' : 'Mark this field not applicable'}
+          onClick={() => onChange(naOn ? '' : NA_MEAS_VALUE)}
+        >
+          N/A
+        </button>
+      </span>
+      {naOn ? (
+        <input value={NA_MEAS_VALUE} disabled readOnly aria-label={`${label} not applicable`} />
+      ) : (
+        <input type="text" value={value} onChange={(e) => onChange(e.target.value)} placeholder={placeholder} />
+      )}
+    </label>
+  )
+}
+
+export function ReliefValveFields({
+  value,
+  sizeOptions,
+  gaugeOptions,
+  onChange,
+  onStageChange,
+}: ReliefValveFieldsProps) {
   const showMediaOther = value.media.trim().toLowerCase() === 'other'
+  const showPreTestFields = value.stage === 'Pre-test'
   const evaluation = useMemo(() => evaluateReliefValveOverall(value), [value])
   const popAverageLabel = formatReliefValveAverage(evaluation.pop.average)
   const setLabel = formatReliefValveAverage(evaluation.pop.setPressure)
@@ -31,6 +78,11 @@ export function ReliefValveFields({ value, sizeOptions, gaugeOptions, onChange }
   const patch = (partial: Partial<ReliefValveTestFields>) => {
     const next = applyReliefValveEvaluations({ ...value, ...partial })
     onChange(next)
+  }
+
+  const setStage = (stage: ReliefValveTestStage) => {
+    patch({ stage })
+    onStageChange?.(stage)
   }
 
   const sizeSelect = (current: string) => {
@@ -129,6 +181,90 @@ export function ReliefValveFields({ value, sizeOptions, gaugeOptions, onChange }
           ))}
         </div>
       </fieldset>
+
+      <fieldset className="test-log-relief-test-type">
+        <legend>
+          Test stage <span className="test-log-required-mark">*</span>
+        </legend>
+        <p className="test-log-relief-stage-hint">
+          Fills the ValveKeep traveler Pre-test or Set and test step when you save.
+        </p>
+        <div className="test-log-relief-test-type-options">
+          {RELIEF_VALVE_TEST_STAGES.map((stage) => (
+            <label key={stage} className="test-log-inline-radio">
+              <input
+                type="radio"
+                name="relief-valve-test-stage"
+                checked={value.stage === stage}
+                onChange={() => setStage(stage)}
+              />
+              {stage}
+            </label>
+          ))}
+        </div>
+      </fieldset>
+
+      {showPreTestFields ? (
+        <div className="test-log-relief-set-pressure-tests test-log-relief-pretest-extra">
+          <div className="test-log-relief-set-pressure-heading">
+            <h5>Pre-test traveler fields</h5>
+            <p>Optional — mark N/A when not applicable. Saved into the Pre-test step.</p>
+          </div>
+          <NaTextField
+            label="Back Pressure Test"
+            value={value.backPressureTest}
+            onChange={(backPressureTest) => patch({ backPressureTest })}
+          />
+          <NaTextField
+            label="Bellows Test"
+            value={value.bellowsTest}
+            onChange={(bellowsTest) => patch({ bellowsTest })}
+          />
+          <NaTextField
+            label="Leak Test"
+            value={value.leakTest}
+            onChange={(leakTest) => patch({ leakTest })}
+          />
+          <NaTextField
+            label="Leak Test @"
+            value={value.leakTestAt}
+            placeholder="PSI"
+            onChange={(leakTestAt) => patch({ leakTestAt })}
+          />
+          <label className={`test-log-relief-na-field${isNaAnswer(value.leakRate) ? ' is-na' : ''}`}>
+            <span className="test-log-relief-na-field-hdr">
+              <span>Leak rate</span>
+              <button
+                type="button"
+                className={`test-log-relief-na-btn${isNaAnswer(value.leakRate) ? ' on' : ''}`}
+                aria-pressed={isNaAnswer(value.leakRate)}
+                title={
+                  isNaAnswer(value.leakRate)
+                    ? 'Clear N/A and choose a rate'
+                    : 'Mark this field not applicable'
+                }
+                onClick={() =>
+                  patch({ leakRate: isNaAnswer(value.leakRate) ? '' : NA_MEAS_VALUE })
+                }
+              >
+                N/A
+              </button>
+            </span>
+            {isNaAnswer(value.leakRate) ? (
+              <input value={NA_MEAS_VALUE} disabled readOnly aria-label="Leak rate not applicable" />
+            ) : (
+              <select value={value.leakRate} onChange={(e) => patch({ leakRate: e.target.value })}>
+                <option value="">— Select leak rate —</option>
+                {RELIEF_VALVE_LEAK_RATES.map((rate) => (
+                  <option key={rate} value={rate}>
+                    {rate}
+                  </option>
+                ))}
+              </select>
+            )}
+          </label>
+        </div>
+      ) : null}
 
       <div className="test-log-relief-set-pressure-tests">
         <div className="test-log-relief-set-pressure-heading">

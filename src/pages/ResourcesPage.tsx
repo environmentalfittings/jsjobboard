@@ -69,6 +69,10 @@ const PROCEDURE_COMPANION_SELECT =
 const PROC_STAT_CATEGORIES = ['Valve-Specific', 'NDE', 'Other', 'Test', 'Answer Key'] as const
 type ProcStatFilter = 'all' | (typeof PROC_STAT_CATEGORIES)[number] | 'uncategorized'
 
+function isMissingColumnError(message: string, columnPattern: RegExp): boolean {
+  return columnPattern.test(message) && /schema cache|column|does not exist/i.test(message)
+}
+
 function mtrSchemaOrDuplicateError(message: string, assignedNumber?: string): string | null {
   if (
     /uq_resource_documents_mtr_number/i.test(message) ||
@@ -76,7 +80,7 @@ function mtrSchemaOrDuplicateError(message: string, assignedNumber?: string): st
   ) {
     return assignedNumber ? `${assignedNumber} is already used.` : 'That MTR number is already used.'
   }
-  if (/mtr_number/i.test(message) && /schema cache|column|does not exist/i.test(message)) {
+  if (isMissingColumnError(message, /mtr_number/i)) {
     return 'Run supabase/migration-resource-documents-mtr-numbers.sql in Supabase SQL Editor first.'
   }
   if (/mtr_size|mtr_pressure|mtr_body_heat|mtr_bonnet_heat|mtr_material|mtr_length|mtr_od|mtr_inside_dia/i.test(message)) {
@@ -167,11 +171,7 @@ export function ResourcesPage() {
       .eq('category', 'weld_procedure')
       .order('title', { ascending: true })
       .limit(400)
-    if (
-      result.error &&
-      /base_metal_other/i.test(result.error.message) &&
-      /schema cache|column|does not exist/i.test(result.error.message)
-    ) {
+    if (result.error && isMissingColumnError(result.error.message, /base_metal_other/i)) {
       showToast('Run supabase/migration-resource-documents-base-metal-other.sql in Supabase SQL Editor first.')
       result = (await supabase
         .from('resource_documents')
@@ -185,7 +185,7 @@ export function ResourcesPage() {
       showToast(`Could not load weld procedures: ${result.error.message}`)
       return
     }
-    setWeldRows((result.data ?? []) as ResourceDocumentRow[])
+    setWeldRows((result.data ?? []) as unknown as ResourceDocumentRow[])
   }
 
   const visibleWeldRows = useMemo(() => {
@@ -300,6 +300,7 @@ export function ResourcesPage() {
 
   const loadSection = async (key: string, categories: readonly ResourceDocumentCategory[]) => {
     setSectionLoading((prev) => ({ ...prev, [key]: true }))
+    const limit = key === 'mtrs' ? 2000 : 400
     let result =
       key === 'mtrs'
         ? await supabase
@@ -307,18 +308,30 @@ export function ResourcesPage() {
             .select(RESOURCE_DOC_SELECT_MTR)
             .in('category', [...categories])
             .order('title', { ascending: true })
-            .limit(2000)
+            .limit(limit)
         : await supabase
             .from('resource_documents')
             .select(RESOURCE_DOC_SELECT)
             .in('category', [...categories])
             .order('title', { ascending: true })
-            .limit(400)
+            .limit(limit)
+    // Weld got a legacy fallback for base_metal_other; IOM/Procedures/etc. need the same or they stay empty.
+    if (result.error && isMissingColumnError(result.error.message, /base_metal_other/i)) {
+      showToast('Run supabase/migration-resource-documents-base-metal-other.sql in Supabase SQL Editor first.')
+      result = (await supabase
+        .from('resource_documents')
+        .select(key === 'mtrs' ? RESOURCE_DOC_SELECT_MTR_LEGACY : RESOURCE_DOC_SELECT_LEGACY)
+        .in('category', [...categories])
+        .order('title', { ascending: true })
+        .limit(limit)) as typeof result
+    }
     if (
       key === 'mtrs' &&
       result.error &&
-      /mtr_size|mtr_pressure|mtr_body_heat|mtr_bonnet_heat|mtr_material|mtr_length|mtr_od|mtr_inside_dia/i.test(result.error.message) &&
-      /schema cache|column|does not exist/i.test(result.error.message)
+      isMissingColumnError(
+        result.error.message,
+        /mtr_size|mtr_pressure|mtr_body_heat|mtr_bonnet_heat|mtr_material|mtr_length|mtr_od|mtr_inside_dia/i,
+      )
     ) {
       showToast('Run supabase/migration-resource-documents-mtr-details.sql in Supabase SQL Editor first.')
       result = (await supabase
@@ -326,21 +339,16 @@ export function ResourcesPage() {
         .select(RESOURCE_DOC_SELECT_MTR_LEGACY)
         .in('category', [...categories])
         .order('title', { ascending: true })
-        .limit(2000)) as typeof result
+        .limit(limit)) as typeof result
     }
-    if (
-      key === 'mtrs' &&
-      result.error &&
-      /mtr_number/i.test(result.error.message) &&
-      /schema cache|column|does not exist/i.test(result.error.message)
-    ) {
+    if (key === 'mtrs' && result.error && isMissingColumnError(result.error.message, /mtr_number/i)) {
       showToast('Run supabase/migration-resource-documents-mtr-numbers.sql in Supabase SQL Editor first.')
       result = (await supabase
         .from('resource_documents')
         .select(RESOURCE_DOC_SELECT_MTR_BARE)
         .in('category', [...categories])
         .order('title', { ascending: true })
-        .limit(2000)) as typeof result
+        .limit(limit)) as typeof result
     }
     const { data, error } = result
     setSectionLoading((prev) => ({ ...prev, [key]: false }))
@@ -1228,7 +1236,6 @@ export function ResourcesPage() {
       .in('category', ['general', 'quality_control'])
       .eq('sop_number', sop)
       .in('proc_category', ['Test', 'Answer Key'])
-      .order('date_updated', { ascending: false, nullsFirst: false })
       .order('updated_at', { ascending: false })
       .order('id', { ascending: false })
       .limit(100)

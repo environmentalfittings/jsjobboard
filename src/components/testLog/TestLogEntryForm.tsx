@@ -44,7 +44,14 @@ import {
   prefillReliefSizesFromJobSize,
   validateReliefValveFields,
   valveSizeSelectOptions,
+  type ReliefValveTestStage,
 } from '../../lib/reliefValveTest'
+import {
+  defaultReliefTestStage,
+  syncReliefTestToTraveler,
+  valveHasPriorReliefTestEntry,
+} from '../../lib/reliefTestTravelerSync'
+import { hasAdminAccess } from '../../lib/roles'
 import { isPretestLogText, type ShopTestKind } from '../../lib/testKind'
 import { supabase } from '../../lib/supabase'
 import { normalizeValveId } from '../../lib/valveId'
@@ -191,7 +198,7 @@ export function TestLogEntryForm({
   const skipStandardsSyncRef = useRef(false)
   const formTopRef = useRef<HTMLElement | null>(null)
   const { showToast } = useToast()
-  const { user, username } = useAuth()
+  const { user, username, role } = useAuth()
   const { employees, loading: employeesLoading } = useEmployees()
   const isEditing = editingId != null
 
@@ -263,6 +270,23 @@ export function TestLogEntryForm({
     setTesting((prev) => ({
       ...prev,
       reliefValve: next,
+    }))
+  }
+
+  const applyReliefStage = (stage: ReliefValveTestStage) => {
+    setShopTestKind(stage === 'Pre-test' ? 'pre' : 'final')
+  }
+
+  const setShopTestKindSynced = (kind: ShopTestKind) => {
+    setShopTestKind(kind)
+    if (!isReliefValve) return
+    const stage: ReliefValveTestStage = kind === 'pre' ? 'Pre-test' : 'Final test'
+    setTesting((prev) => ({
+      ...prev,
+      reliefValve: {
+        ...(prev.reliefValve ?? emptyReliefValveTestFields()),
+        stage,
+      },
     }))
   }
 
@@ -470,17 +494,29 @@ export function TestLogEntryForm({
       lastPrefilledValveId.current = prefill.valveId
       const urlTestType = searchParams.get(TEST_LOG_PREFILL_KEYS.testType)
       const urlPreTestRequired = searchParams.get('preTestRequired') === '1'
-      setShopTestKind(
+      let kind: ShopTestKind =
         urlPreTestRequired ||
-          prefill.preTestRequired ||
-          isPreTestRequiredForced({
-            needsFailureAnalysis: prefill.needsFailureAnalysis,
-            status: prefill.jobStatus,
-          }) ||
-          isPretestLogText(urlTestType, prefill.testType)
+        prefill.preTestRequired ||
+        isPreTestRequiredForced({
+          needsFailureAnalysis: prefill.needsFailureAnalysis,
+          status: prefill.jobStatus,
+        }) ||
+        isPretestLogText(urlTestType, prefill.testType)
           ? 'pre'
-          : 'final',
-      )
+          : 'final'
+      if (isReliefValveType(prefill.valveType)) {
+        const hasPrior = await valveHasPriorReliefTestEntry(resolvedId)
+        const stage = defaultReliefTestStage(hasPrior)
+        kind = stage === 'Pre-test' ? 'pre' : 'final'
+        setTesting((prev) => ({
+          ...prev,
+          reliefValve: {
+            ...(prev.reliefValve ?? emptyReliefValveTestFields()),
+            stage,
+          },
+        }))
+      }
+      setShopTestKind(kind)
     } else {
       setValveLookupStatus('missing')
       const urlTestType = searchParams.get(TEST_LOG_PREFILL_KEYS.testType)
@@ -605,15 +641,23 @@ export function TestLogEntryForm({
     setValveType(canonicalizeValveType(entry.valve_type) || entry.valve_type || '')
     setTester(entry.tester ?? '')
     setPendingReportFiles([])
-    setShopTestKind(
-      isPretestLogText(entry.test_type, entry.worked, entry.action_taken) ? 'pre' : 'final',
-    )
 
     const details = parseTestLogTestingDetails(entry.testing_details) ?? emptyTestLogTestingDetails()
     const canonicalType = canonicalizeValveType(entry.valve_type) || entry.valve_type || ''
+    let kind: ShopTestKind = isPretestLogText(entry.test_type, entry.worked, entry.action_taken)
+      ? 'pre'
+      : 'final'
     if (isReliefValveType(canonicalType)) {
       const existing = details.reliefValve ?? emptyReliefValveTestFields()
       const sizes = prefillReliefSizesFromJobSize(entry.size)
+      const stage: ReliefValveTestStage | '' =
+        existing.stage === 'Pre-test' || existing.stage === 'Final test'
+          ? existing.stage
+          : kind === 'pre'
+            ? 'Pre-test'
+            : 'Final test'
+      if (stage === 'Pre-test') kind = 'pre'
+      else if (stage === 'Final test') kind = 'final'
       details.reliefValve = {
         ...existing,
         inletSize: existing.inletSize || sizes.inletSize,
@@ -621,8 +665,10 @@ export function TestLogEntryForm({
         setPressure: existing.setPressure || entry.pressure || '',
         testType: existing.testType || inferReliefValveTestType(entry.worked),
         media: existing.media || '',
+        stage,
       }
     }
+    setShopTestKind(kind)
     setTesting(details)
 
     const tsp = details.testStandardParams
@@ -854,6 +900,35 @@ export function TestLogEntryForm({
       }
     }
 
+    let travelerSyncMessage: string | null = null
+    if (isReliefValveType(valveType) && testingWithStamp.reliefValve) {
+      try {
+        const sync = await syncReliefTestToTraveler({
+          valveId: normalizedValveId,
+          valveType,
+          testedOn,
+          tester: testerValue,
+          relief: testingWithStamp.reliefValve,
+          signerUserId: user?.id ?? null,
+          canSignOffHold: hasAdminAccess(role),
+        })
+        if (sync.status === 'error') {
+          travelerSyncMessage = `Traveler not updated: ${sync.message}`
+        } else if (sync.status === 'saved') {
+          if (sync.completeBlockedReason) {
+            travelerSyncMessage = `${sync.stepName} filled from test log, but not checked off: ${sync.completeBlockedReason}`
+          } else if (sync.completed) {
+            travelerSyncMessage = `${sync.stepName} updated from test log`
+          } else {
+            travelerSyncMessage = `${sync.stepName} values updated from test log`
+          }
+        }
+      } catch (err) {
+        travelerSyncMessage =
+          err instanceof Error ? `Traveler not updated: ${err.message}` : 'Traveler not updated'
+      }
+    }
+
     setSaving(false)
     const wasEdit = isEditing
     await resetForm()
@@ -866,6 +941,9 @@ export function TestLogEntryForm({
     )
     if (warehouseNotifyError) {
       showToast(`Warehouse alert failed: ${warehouseNotifyError}`)
+    }
+    if (travelerSyncMessage) {
+      showToast(travelerSyncMessage)
     }
     onSaved(normalizedValveId)
   }
@@ -1085,7 +1163,7 @@ export function TestLogEntryForm({
                     name="shop-test-kind"
                     value={kind}
                     checked={shopTestKind === kind}
-                    onChange={() => setShopTestKind(kind)}
+                    onChange={() => setShopTestKindSynced(kind)}
                   />
                   <span>{kind === 'pre' ? 'Pre-test' : 'Final test'}</span>
                 </label>
@@ -1172,12 +1250,15 @@ export function TestLogEntryForm({
                   setSeatType(defaultSeatTypeForValve(type))
                 }
                 if (isReliefValveType(type)) {
+                  const stage: ReliefValveTestStage =
+                    shopTestKind === 'pre' ? 'Pre-test' : 'Final test'
                   setTesting((prev) => ({
                     ...prev,
                     reliefValve: {
                       ...(prev.reliefValve ?? emptyReliefValveTestFields()),
                       ...prefillReliefSizesFromJobSize(size),
                       setPressure: prev.reliefValve?.setPressure || pressure || '',
+                      stage: prev.reliefValve?.stage || stage,
                     },
                   }))
                 }
@@ -1192,6 +1273,7 @@ export function TestLogEntryForm({
               sizeOptions={sizeOptions}
               gaugeOptions={gaugeOptions}
               onChange={patchReliefValve}
+              onStageChange={applyReliefStage}
             />
           ) : null}
 

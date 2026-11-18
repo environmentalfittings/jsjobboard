@@ -2866,6 +2866,55 @@ body {
   gap: 0.75rem 1.25rem;
 }
 
+.test-log-relief-stage-hint {
+  margin: 0 0 0.45rem;
+  font-size: 0.8125rem;
+  color: #64748b;
+}
+
+.test-log-relief-na-field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+
+.test-log-relief-na-field-hdr {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  font-size: 0.875rem;
+}
+
+.test-log-relief-na-btn {
+  flex-shrink: 0;
+  padding: 0.15rem 0.45rem;
+  border: 1px solid #cbd5e1;
+  border-radius: 6px;
+  background: #fff;
+  color: #64748b;
+  font-size: 0.7rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  cursor: pointer;
+}
+
+.test-log-relief-na-btn:hover {
+  border-color: #94a3b8;
+  color: #334155;
+}
+
+.test-log-relief-na-btn.on {
+  border-color: #64748b;
+  background: #e2e8f0;
+  color: #0f172a;
+}
+
+.test-log-relief-na-field.is-na input,
+.test-log-relief-na-field.is-na select {
+  opacity: 0.85;
+}
+
 .test-log-relief-set-pressure-tests {
   grid-column: 1 / -1;
   display: grid;
@@ -23185,6 +23234,21 @@ body.shop-tv-fullscreen-active .page-content {
   border-radius: 0;
   background: transparent;
   color: #0369a1;
+  font-size: 0.7rem;
+  font-style: normal;
+  font-weight: 650;
+  letter-spacing: 0;
+  text-transform: none;
+  width: fit-content;
+}
+
+.itp-traveler-testlog-hint {
+  display: inline-flex;
+  align-items: center;
+  padding: 0;
+  border-radius: 0;
+  background: transparent;
+  color: #0f766e;
   font-size: 0.7rem;
   font-style: normal;
   font-weight: 650;

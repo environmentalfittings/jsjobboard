@@ -494,18 +494,26 @@ export function ItpTravelerStepModal({
   }
 
   const setFieldValue = (fieldId: string, value: string) => {
-    setExec((prev) => ({
-      ...prev,
-      ...patchMeasValue(prev, fieldId, value),
-    }))
+    setExec((prev) => {
+      const measSources = { ...(prev.measSources ?? {}) }
+      delete measSources[fieldId]
+      return {
+        ...prev,
+        ...patchMeasValue(prev, fieldId, value),
+        measSources,
+      }
+    })
   }
 
   const toggleFieldNa = (fieldId: string) => {
     setExec((prev) => {
       const current = getMeasValue(prev, fieldId)
+      const measSources = { ...(prev.measSources ?? {}) }
+      delete measSources[fieldId]
       return {
         ...prev,
         ...patchMeasValue(prev, fieldId, isNaAnswer(current) ? '' : NA_MEAS_VALUE),
+        measSources,
       }
     })
   }
@@ -531,6 +539,17 @@ export function ItpTravelerStepModal({
   ) => {
     const jobKey = resolveJobCardField(field)
     const fromJobCard = Boolean(jobKey)
+    const testLogSource = exec.measSources?.[field.id]
+    const testLogDate = testLogSource?.kind === 'test_log' ? testLogSource.testedOn.trim() : ''
+    const testLogTester = testLogSource?.kind === 'test_log' ? testLogSource.tester.trim() : ''
+    const testLogNote =
+      testLogSource?.kind === 'test_log' && (testLogDate || testLogTester)
+        ? testLogDate && testLogTester
+          ? `From test log ${testLogDate}, ${testLogTester}`
+          : testLogDate
+            ? `From test log ${testLogDate}`
+            : `From test log, ${testLogTester}`
+        : null
     return (
       <div className="itp-traveler-step-field-hdr">
         <div className="itp-traveler-step-field-title">
@@ -543,6 +562,7 @@ export function ItpTravelerStepModal({
             ) : null}
           </span>
           {fromJobCard ? <span className="itp-traveler-jobcard-hint">Job card</span> : null}
+          {testLogNote ? <span className="itp-traveler-testlog-hint">{testLogNote}</span> : null}
         </div>
         {options?.naInHeader ? renderNaToggle(field.id, naOn) : null}
       </div>

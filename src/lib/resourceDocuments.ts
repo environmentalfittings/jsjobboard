@@ -391,7 +391,9 @@ export function resourceDocumentMatchesQuery(
   ]
     .map((value) => String(value ?? '').toLowerCase())
     .join(' ')
-  const compactTitle = row.title.replace(/\s+/g, '').toLowerCase()
+  const compactTitle = String(row.title ?? '')
+    .replace(/\s+/g, '')
+    .toLowerCase()
   return hay.includes(q) || (compactQ.length >= 2 && compactTitle.includes(compactQ))
 }
 
