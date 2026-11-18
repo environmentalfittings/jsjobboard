@@ -13,9 +13,34 @@ const MAX_CERT_BYTES = 20 * 1024 * 1024
 
 const GAUGE_SELECT =
   'id,gauge_number,manufacturer,gauge_type,department,notes,calibration_frequency,last_calibration_date,next_calibration_date,certificate_storage_path,certificate_file_name,certificate_mime_type,certificate_number,active,created_at,updated_at'
+/** Older DBs before department / notes / frequency / certificate_number migrations. */
+const GAUGE_SELECT_LEGACY =
+  'id,gauge_number,manufacturer,gauge_type,last_calibration_date,next_calibration_date,certificate_storage_path,certificate_file_name,certificate_mime_type,active,created_at,updated_at'
 
 const EVENT_SELECT =
   'id,gauge_id,calibrated_at,next_due_at,tech_initials,technician_id,technician_name,signed_off_at,procedure_ref,result,notes,certificate_number,certificate_storage_path,certificate_file_name,created_at'
+
+function isMissingGaugeColumnError(message: string): boolean {
+  return (
+    /department|notes|calibration_frequency|certificate_number/i.test(message) &&
+    /schema cache|column|does not exist/i.test(message)
+  )
+}
+
+/** Parse a calibration due/last date whether stored as `YYYY-MM-DD` or a full ISO timestamp. */
+export function parseCalibrationDateOnly(raw: string | null | undefined): Date | null {
+  const value = String(raw ?? '').trim()
+  if (!value) return null
+  const day = /^(\d{4}-\d{2}-\d{2})/.exec(value)?.[1]
+  if (day) {
+    const due = new Date(`${day}T12:00:00`)
+    return Number.isNaN(due.getTime()) ? null : due
+  }
+  const due = new Date(value)
+  if (Number.isNaN(due.getTime())) return null
+  due.setHours(12, 0, 0, 0)
+  return due
+}
 
 function extFromName(name: string) {
   const i = name.lastIndexOf('.')
@@ -108,9 +133,8 @@ export type GaugeCalibrationStatus = 'ok' | 'expiring' | 'due' | 'critical'
 
 /** Days until `next_calibration_date` (negative if past due). Null when no due date. */
 export function daysUntilGaugeCalibrationDue(gauge: TestGauge, today = new Date()): number | null {
-  if (!gauge.next_calibration_date) return null
-  const due = new Date(`${gauge.next_calibration_date}T12:00:00`)
-  if (Number.isNaN(due.getTime())) return null
+  const due = parseCalibrationDateOnly(gauge.next_calibration_date)
+  if (!due) return null
   const t = new Date(today)
   t.setHours(12, 0, 0, 0)
   return Math.floor((due.getTime() - t.getTime()) / (24 * 60 * 60 * 1000))
@@ -124,9 +148,8 @@ export function daysPastGaugeCalibrationDue(gauge: TestGauge, today = new Date()
 }
 
 export function formatGaugeCalibrationDueDate(gauge: TestGauge): string | null {
-  if (!gauge.next_calibration_date) return null
-  const due = new Date(`${gauge.next_calibration_date}T12:00:00`)
-  if (Number.isNaN(due.getTime())) return gauge.next_calibration_date
+  const due = parseCalibrationDateOnly(gauge.next_calibration_date)
+  if (!due) return gauge.next_calibration_date ? String(gauge.next_calibration_date) : null
   return due.toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' })
 }
 
@@ -186,9 +209,23 @@ export function formatGaugeCalibrationAlert(gauge: TestGauge, today = new Date()
 export async function loadTestGauges(includeInactive = true): Promise<TestGauge[]> {
   let query = supabase.from('test_gauges').select(GAUGE_SELECT).order('gauge_number', { ascending: true })
   if (!includeInactive) query = query.eq('active', true)
-  const { data, error } = await query
-  if (error) throw new Error(error.message)
-  return (data as TestGauge[]) ?? []
+  let result = await query
+  if (result.error && isMissingGaugeColumnError(result.error.message)) {
+    let legacy = supabase
+      .from('test_gauges')
+      .select(GAUGE_SELECT_LEGACY)
+      .order('gauge_number', { ascending: true })
+    if (!includeInactive) legacy = legacy.eq('active', true)
+    result = (await legacy) as typeof result
+  }
+  if (result.error) throw new Error(result.error.message)
+  return ((result.data ?? []) as unknown as TestGauge[]).map((row) => ({
+    ...row,
+    department: row.department ?? null,
+    notes: row.notes ?? null,
+    calibration_frequency: row.calibration_frequency ?? null,
+    certificate_number: row.certificate_number ?? null,
+  }))
 }
 
 export async function loadActiveTestGauges(): Promise<TestGauge[]> {

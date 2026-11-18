@@ -15,6 +15,7 @@ import {
   filterGaugesForCompany,
   filterRowsByCompanyValveIdAsync,
   filterTestLogsForCompany,
+  filterToolsForCompany,
   filterValvesForCompany,
   loadVsiValveIdStrings,
   resolveActiveCompanyKey,
@@ -32,13 +33,20 @@ import { localTodayDateString } from '../lib/managerDashboardMetrics'
 import { fetchStatusReworkLog } from '../lib/statusReworkLog'
 import {
   daysUntilGaugeCalibrationDue,
-  filterAllowedTestGauges,
   formatGaugeCalibrationDueDate,
   isGaugeCalibrationDashboardAlert,
   isGaugeCalibrationOverdue,
   loadActiveTestGauges,
 } from '../lib/testGaugeRegistry'
+import {
+  daysUntilToolExpiration,
+  formatToolExpirationDate,
+  isToolCalibrationDashboardAlert,
+  isToolCalibrationOverdue,
+  loadToolCalibrations,
+} from '../lib/toolCalibrationRegistry'
 import type { TestGauge } from '../types/testGauge'
+import type { ToolCalibration } from '../types/toolCalibration'
 import {
   filterPriorityIdsForValves,
   isEligiblePriorityValve,
@@ -86,6 +94,7 @@ export function DashboardPage() {
   const [recentTested, setRecentTested] = useState<RecentTestedRow[]>([])
   const [priorityQueueIds, setPriorityQueueIds] = useState<string[]>([])
   const [gaugeAlertItems, setGaugeAlertItems] = useState<TestGauge[]>([])
+  const [toolAlertItems, setToolAlertItems] = useState<ToolCalibration[]>([])
   const [showInventoryMonthlyAlert, setShowInventoryMonthlyAlert] = useState(false)
   const [reworkTodayCount, setReworkTodayCount] = useState(0)
   const [loading, setLoading] = useState(true)
@@ -244,8 +253,8 @@ export function DashboardPage() {
     }
 
     try {
-      // Active MTE gauge-tab items only; alert from 14 days before expiry until dates are updated.
-      const gauges = filterGaugesForCompany(filterAllowedTestGauges(await loadActiveTestGauges()), {
+      // All active gauges for this company (not only Pressure/Load Cell presets), from 14 days out.
+      const gauges = filterGaugesForCompany(await loadActiveTestGauges(), {
         workflowKey: workflow.key,
         activeOrganization,
       })
@@ -257,8 +266,36 @@ export function DashboardPage() {
           return aDays - bDays
         })
       setGaugeAlertItems(alertItems)
-    } catch {
+    } catch (error) {
       setGaugeAlertItems([])
+      showToast(
+        error instanceof Error
+          ? `Could not load gauge calibration alerts: ${error.message}`
+          : 'Could not load gauge calibration alerts',
+      )
+    }
+
+    try {
+      // Active tool-log items; same 14-day / overdue window as gauges.
+      const tools = filterToolsForCompany(await loadToolCalibrations(false), {
+        workflowKey: workflow.key,
+        activeOrganization,
+      })
+      const toolAlerts = tools
+        .filter((tool) => tool.active && isToolCalibrationDashboardAlert(tool))
+        .sort((a, b) => {
+          const aDays = daysUntilToolExpiration(a) ?? Number.POSITIVE_INFINITY
+          const bDays = daysUntilToolExpiration(b) ?? Number.POSITIVE_INFINITY
+          return aDays - bDays
+        })
+      setToolAlertItems(toolAlerts)
+    } catch (error) {
+      setToolAlertItems([])
+      showToast(
+        error instanceof Error
+          ? `Could not load tool calibration alerts: ${error.message}`
+          : 'Could not load tool calibration alerts',
+      )
     }
 
     const today = localTodayDateString()
@@ -309,6 +346,16 @@ export function DashboardPage() {
     () => gaugeAlertItems.filter((gauge) => !isGaugeCalibrationOverdue(gauge)),
     [gaugeAlertItems],
   )
+  const overdueTools = useMemo(
+    () => toolAlertItems.filter((tool) => isToolCalibrationOverdue(tool)),
+    [toolAlertItems],
+  )
+  const dueSoonTools = useMemo(
+    () => toolAlertItems.filter((tool) => !isToolCalibrationOverdue(tool)),
+    [toolAlertItems],
+  )
+  const hasCalibrationAlerts = gaugeAlertItems.length > 0 || toolAlertItems.length > 0
+  const hasOverdueCalibrations = overdueGauges.length > 0 || overdueTools.length > 0
 
   const formatGaugeAlertEntry = (gauge: TestGauge) => {
     const due = formatGaugeCalibrationDueDate(gauge) ?? gauge.next_calibration_date ?? '—'
@@ -317,6 +364,16 @@ export function DashboardPage() {
     if (days < 0) return `${gauge.gauge_number} (expired ${due})`
     if (days === 0) return `${gauge.gauge_number} (due today)`
     return `${gauge.gauge_number} (due in ${days} day${days === 1 ? '' : 's'} · ${due})`
+  }
+
+  const formatToolAlertEntry = (tool: ToolCalibration) => {
+    const label = (tool.js_id || tool.serial_number || tool.tool_type || `Tool #${tool.id}`).trim()
+    const due = formatToolExpirationDate(tool) ?? tool.expiration_date ?? '—'
+    const days = daysUntilToolExpiration(tool)
+    if (days === null) return `${label} (${due})`
+    if (days < 0) return `${label} (expired ${due})`
+    if (days === 0) return `${label} (due today)`
+    return `${label} (due in ${days} day${days === 1 ? '' : 's'} · ${due})`
   }
 
   const metrics = useMemo(() => calcDashboardKpis(valves), [valves])
@@ -429,12 +486,12 @@ export function DashboardPage() {
         </p>
       ) : null}
 
-      {!loading && gaugeAlertItems.length > 0 ? (
+      {!loading && hasCalibrationAlerts ? (
         <div
-          className={`dashboard-gauge-cal-alert${overdueGauges.length > 0 ? '' : ' dashboard-gauge-cal-alert--warning'}`}
+          className={`dashboard-gauge-cal-alert${hasOverdueCalibrations ? '' : ' dashboard-gauge-cal-alert--warning'}`}
           role="alert"
         >
-          <div className="dashboard-gauge-cal-alert-title">Test gauge calibration alert</div>
+          <div className="dashboard-gauge-cal-alert-title">Calibration alert</div>
           {overdueGauges.length > 0 ? (
             <p>
               {overdueGauges.length === 1 ? (
@@ -448,6 +505,21 @@ export function DashboardPage() {
                 <>
                   <strong>{overdueGauges.length} gauges</strong> are out of calibration:{' '}
                   {overdueGauges.map(formatGaugeAlertEntry).join(', ')}. Do not use until recalibrated.
+                </>
+              )}
+            </p>
+          ) : null}
+          {overdueTools.length > 0 ? (
+            <p>
+              {overdueTools.length === 1 ? (
+                <>
+                  <strong>1 tool</strong> is out of calibration: {formatToolAlertEntry(overdueTools[0])}. Do not use
+                  until recalibrated.
+                </>
+              ) : (
+                <>
+                  <strong>{overdueTools.length} tools</strong> are out of calibration:{' '}
+                  {overdueTools.map(formatToolAlertEntry).join(', ')}. Do not use until recalibrated.
                 </>
               )}
             </p>
@@ -466,8 +538,22 @@ export function DashboardPage() {
               )}
             </p>
           ) : null}
+          {dueSoonTools.length > 0 ? (
+            <p>
+              {dueSoonTools.length === 1 ? (
+                <>
+                  <strong>1 tool</strong> is due within 14 days: {formatToolAlertEntry(dueSoonTools[0])}.
+                </>
+              ) : (
+                <>
+                  <strong>{dueSoonTools.length} tools</strong> are due within 14 days:{' '}
+                  {dueSoonTools.map(formatToolAlertEntry).join(', ')}.
+                </>
+              )}
+            </p>
+          ) : null}
           <p className="dashboard-gauge-cal-alert-note">
-            This alert stays on the dashboard until each listed gauge is updated in Quality Team → MTE Calibrations.
+            This alert stays on the dashboard until each listed item is updated in Quality Team → MTE Calibrations.
           </p>
           <Link className="dashboard-gauge-cal-alert-link" to="/quality-team/mte-calibrations">
             Open MTE Calibrations

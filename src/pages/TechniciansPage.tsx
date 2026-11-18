@@ -5,6 +5,8 @@ import { useAuth } from '../contexts/AuthContext'
 import { TERMINAL_STATUSES } from '../constants/statuses'
 import { can } from '../lib/roles'
 import { supabase } from '../lib/supabase'
+import { validateEmployeePassword } from '../lib/auth'
+import { createEmployeeAccount, resetEmployeePassword } from '../lib/employeeAccounts'
 import { ensureShopLogin } from '../lib/shopAuth'
 import type { Technician } from '../types'
 
@@ -414,6 +416,24 @@ export function TechniciansPage({ embedded = false }: TechniciansPageProps = {})
     void load()
   }
 
+  const resolveEmployeeUuid = async (t: Technician): Promise<string | null> => {
+    const empNo = String(t.employee_id ?? '').trim()
+    const username = normalizeUsername(t.login_username ?? '')
+    if (empNo) {
+      const { data } = await supabase.from('employees').select('id').eq('employee_no', empNo).maybeSingle()
+      if (data?.id) return String(data.id)
+    }
+    if (username) {
+      const { data } = await supabase
+        .from('employees')
+        .select('id')
+        .ilike('username', username)
+        .maybeSingle()
+      if (data?.id) return String(data.id)
+    }
+    return null
+  }
+
   const resetPassword = async (t: Technician) => {
     if (!canManage) {
       showToast('Only Admin can reset passwords')
@@ -429,6 +449,11 @@ export function TechniciansPage({ embedded = false }: TechniciansPageProps = {})
     const nextPassword = window.prompt(`Set temporary password for ${t.name}`)
     if (!nextPassword?.trim()) return
     const password = nextPassword.trim()
+    const passwordError = validateEmployeePassword(password)
+    if (passwordError) {
+      showToast(passwordError)
+      return
+    }
 
     const shopAuth = await ensureShopLogin({
       email,
@@ -452,16 +477,46 @@ export function TechniciansPage({ embedded = false }: TechniciansPageProps = {})
       showToast(shopAuth.created ? 'Login created — they can sign in now' : 'Temporary password updated')
       return
     }
-    if (!shopAuth.ok && shopAuth.needsDeploy) {
-      if (t.user_id) {
-        const { error } = await supabase.auth.admin.updateUserById(t.user_id, { password })
-        if (!error) {
-          showToast('Temporary password updated')
+
+    // Fallback: Roster employee-account function (when shop-auth is not deployed yet).
+    const employeeUuid = await resolveEmployeeUuid(t)
+    if (employeeUuid) {
+      const reset = await resetEmployeePassword({
+        employee_id: employeeUuid,
+        new_password: password,
+      })
+      if (reset.ok) {
+        showToast('Temporary password updated')
+        return
+      }
+      if (!reset.needsDeploy && /no account/i.test(reset.error)) {
+        const created = await createEmployeeAccount({
+          employee_id: employeeUuid,
+          username,
+          password,
+          full_name: t.name,
+        })
+        if (created.ok) {
+          if (created.user_id && created.user_id !== t.user_id) {
+            await supabase.from('technicians').update({ user_id: created.user_id }).eq('id', t.id)
+            void load()
+          }
+          showToast('Login created — they can sign in now')
           return
         }
+        if (!created.needsDeploy) {
+          showToast(`Could not reset password: ${created.error}`)
+          return
+        }
+      } else if (!reset.needsDeploy) {
+        showToast(`Could not reset password: ${reset.error}`)
+        return
       }
+    }
+
+    if (!shopAuth.ok && shopAuth.needsDeploy) {
       showToast(
-        'Could not set password from the browser. Deploy shop-auth (see supabase/setup-shop-auth-function.md) or create the user in Supabase Dashboard > Authentication > Users.',
+        'Password reset needs a Supabase Edge Function. Deploy shop-auth (supabase/setup-shop-auth-function.md) or manage-employee-account, then try again.',
       )
       return
     }

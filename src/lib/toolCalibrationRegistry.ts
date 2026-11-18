@@ -11,7 +11,9 @@ import type {
 import type { ToolCalibrationMeasurement } from './toolCalibrationSopPoints'
 import { technicianInitials } from './technicianInitials'
 import {
+  GAUGE_CALIBRATION_DASHBOARD_ALERT_DAYS,
   GAUGE_CALIBRATION_WARNING_DAYS,
+  parseCalibrationDateOnly,
   type GaugeCalibrationStatus,
 } from './testGaugeRegistry'
 
@@ -200,9 +202,8 @@ function formPayload(form: ToolCalibrationFormState) {
 }
 
 export function daysUntilToolExpiration(row: ToolCalibration, today = new Date()): number | null {
-  if (!row.expiration_date) return null
-  const due = new Date(`${row.expiration_date}T12:00:00`)
-  if (Number.isNaN(due.getTime())) return null
+  const due = parseCalibrationDateOnly(row.expiration_date)
+  if (!due) return null
   const t = new Date(today)
   t.setHours(12, 0, 0, 0)
   return Math.floor((due.getTime() - t.getTime()) / (24 * 60 * 60 * 1000))
@@ -217,6 +218,24 @@ export function getToolCalibrationDueStatus(
   if (daysUntil < 0) return 'critical'
   if (daysUntil <= GAUGE_CALIBRATION_WARNING_DAYS) return 'expiring'
   return 'ok'
+}
+
+export function isToolCalibrationOverdue(row: ToolCalibration, today = new Date()): boolean {
+  const daysUntil = daysUntilToolExpiration(row, today)
+  return daysUntil !== null && daysUntil < 0
+}
+
+/** Dashboard alert: active tool is within 14 days of expiring, or already past due. */
+export function isToolCalibrationDashboardAlert(row: ToolCalibration, today = new Date()): boolean {
+  const daysUntil = daysUntilToolExpiration(row, today)
+  if (daysUntil === null) return false
+  return daysUntil <= GAUGE_CALIBRATION_DASHBOARD_ALERT_DAYS
+}
+
+export function formatToolExpirationDate(row: ToolCalibration): string | null {
+  const due = parseCalibrationDateOnly(row.expiration_date)
+  if (!due) return row.expiration_date ? String(row.expiration_date) : null
+  return due.toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' })
 }
 
 export function formatToolDueAlert(row: ToolCalibration, today = new Date()): string {
