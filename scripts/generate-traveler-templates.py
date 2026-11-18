@@ -288,7 +288,57 @@ def part_route(part, key, dims):
         step("repair", "Machine 2", f"{part} - final machine", f"{part} Machine", dims, key=f"{key}_mach", locked=True),
     ]
 TS_MAT = ["Body", "Body Lining", "Stem", "Lids", "Lid Groove", "Stem Overlay", "Packing Gland", "Packing Area"]
-T["i"] = ("Twinseal", "repair", "Twinseal",
+
+def _slug(s): return re.sub(r"[^a-z0-9]+", "_", s.lower()).strip("_")
+def keyed(prefix, steps):
+    """Give every field a stable id "<prefix>_<step ref>_<label>". The J-S traveler report print
+    (src/lib/jsTravelerReportPrint.ts) binds to these keys, so a step can move without breaking the report."""
+    out = []
+    for s in steps:
+        if not isinstance(s, dict):
+            out.append(s); continue
+        s = dict(s); seen = {}; fields = []
+        for f in s["fields"]:
+            f = dict(f)
+            if not f.get("id"):
+                k = f"{prefix}_{_slug(s['ref'])}_{_slug(f['label'])}"
+                seen[k] = seen.get(k, 0) + 1
+                f["id"] = k if seen[k] == 1 else f"{k}_{seen[k]}"
+            fields.append(f)
+        s["fields"] = fields; out.append(s)
+    return out
+
+# Twinseal QA / shipping / final questions, worded as on the current J-S QA/QC traveler report.
+TS_TEST_QA = step("testing", "Testing", "Test area QA check", "Test QA", [
+    "Is valve properly stamped with work order and serial number ?",
+    "Is the repair month and year stamped on the flange ?",
+    "Is the information on the QA/QC card correct and filled out completely ?",
+    "If exotic material valve, was PMI done and is it attached to the traveler ?",
+    "If dye penetrant, heat treat, or other NDE was performed, are the results attached to the traveler ?",
+    "Does bolting have no more than 2-4 threads sticking out of each side ?",
+    "Is the proper bolting used for the valve ?",
+    "Does the valve operate smoothly ?",
+    "Does valve operate in accordance with JS specs ?",
+    "Did valve pass testing and was it documented on the test log ?",
+    "Is valve in accordance with the customer requirements on the work order ?",
+    "Were bolts torqued after testing ?"])
+TS_BACK = [
+    step("final", "Painting", "Paint, tag and prepare for shipping", "Shipping", [
+        "Did all information come over with valve including QA/QC traveler, PMI, etc. ?",
+        "Is the valve tagged with all of the correct information for the valve ?",
+        "Are flange protectors securely attached to the valve ?",
+        "Does valve have adequate paint coverage and all necessary parts taped off ?",
+        "Was acid detecting paint used ?",
+        "Is valve secured and banded for shipping ?",
+        "Paint color", "Paint coverage (mils)"],
+        photo=("After photos", 1, 8)),
+    step("final", "Testing", "Final inspection", "Final QC", [
+        "Are all paperwork requirements, documentation requirements, and customer requirements completed ?",
+        "Does valve contain any visual defects prior to shipping ?",
+        "Is the valve complete and ready for delivery to the customer ?", "QA/QC documents @"], hold=True),
+]
+
+T["i"] = ("Twinseal", "repair", "Twinseal", keyed("jt",
     front(TS_MAT, receive_fields=TS_RECEIVE, photo=("Before photos", 4, 8), parts=TS_PARTS) + [
     step(I, "Incoming Inspection", "Body inspection (after blast)", "Body Insp.",
          ["Is valve body free of defects ?", "What defects are found ~",
@@ -334,7 +384,7 @@ T["i"] = ("Twinseal", "repair", "Twinseal",
          [fld("DTR system | Existing OK | Drill new", unlock={}), "Are DTR holes drilled ?",
           "Are DTR holes in both ports ?", "Body DTR hole size", "Port DTR hole size"]),
     step(A, "Assembly", "Assemble and torque", "Torque", TORQUE),
-    ] + test_block(cavity=True) + back())
+    ] + test_block(cavity=True) + [TS_TEST_QA] + TS_BACK))
 
 LETTER = "| Std | A | B | C | D | E"
 T["j"] = ("Pipeline Gate", "repair", "Pipeline Gate", std([

@@ -9,11 +9,12 @@ import {
   collectTravelerPhotos,
   formatItpTravelerCaptureSummary,
 } from '../lib/itpTravelerReport'
-import { buildItpTravelerUrl, buildShopLoginUrl } from '../lib/itpQrCode'
+import { buildItpTravelerUrl, buildShopLoginUrl, createItpQrDataUrl } from '../lib/itpQrCode'
 import { ItpLoginQr } from './ItpLoginQr'
 import { ItpOptionalNotes } from './ItpOptionalNotes'
 import { iomProcedureKindLabel, resourceDocumentPublicUrl } from '../lib/resourceDocuments'
 import { isOrderReplacementPartsItem } from '../lib/itpOrderParts'
+import { openJsTravelerReportPrint, reportHasJsTravelerFields } from '../lib/jsTravelerReportPrint'
 import { openReliefValveServiceTravelerPrint } from '../lib/reliefValveServiceTravelerPrint'
 import { exportValveKeepCsv } from '../lib/valveKeepCsvExport'
 import { reportHasValveKeepFields } from '../lib/valveKeepFields'
@@ -418,8 +419,10 @@ export function ItpTravelerReportPanel({
 }: ItpTravelerReportPanelProps) {
   const { showToast } = useToast()
   const [printingValveKeep, setPrintingValveKeep] = useState(false)
+  const [printingJsReport, setPrintingJsReport] = useState(false)
   const allPhotos = collectTravelerPhotos(sections)
   const showValveKeepPrint = useMemo(() => reportHasValveKeepFields(sections), [sections])
+  const showJsReportPrint = useMemo(() => reportHasJsTravelerFields(sections), [sections])
   const subhead = [meta.valveType, meta.valveId, meta.customer].filter(Boolean).join(' - ')
   const qrUrl =
     valveRowId != null && Number.isFinite(valveRowId) ? buildItpTravelerUrl(valveRowId) : buildShopLoginUrl()
@@ -434,6 +437,31 @@ export function ItpTravelerReportPanel({
       if (error) showToast(error)
     } finally {
       setPrintingValveKeep(false)
+    }
+  }
+
+  // J-S QA/QC traveler report: same sections and layout as the old traveler site's report.
+  const handlePrintJsTravelerReport = async () => {
+    if (printingJsReport) return
+    setPrintingJsReport(true)
+    try {
+      const { error } = await openJsTravelerReportPrint(sections, {
+        meta: {
+          valveId: meta.valveId,
+          customer: meta.customer,
+          valveType: meta.valveType,
+          size: meta.size,
+          pressureClass: meta.pressureClass,
+          poNumber: meta.poNumber,
+          dueDate: meta.dueDate,
+          description: meta.description,
+        },
+        parts: neededParts,
+        loadQr: () => createItpQrDataUrl(qrUrl, 240),
+      })
+      if (error) showToast(error)
+    } finally {
+      setPrintingJsReport(false)
     }
   }
 
@@ -483,6 +511,16 @@ export function ItpTravelerReportPanel({
           <button type="button" className="button-primary" onClick={() => window.print()}>
             Print traveler
           </button>
+          {showJsReportPrint ? (
+            <button
+              type="button"
+              className="button-secondary"
+              disabled={printingJsReport}
+              onClick={() => void handlePrintJsTravelerReport()}
+            >
+              {printingJsReport ? 'Preparing…' : 'Print J-S traveler report'}
+            </button>
+          ) : null}
           {showValveKeepPrint ? (
             <>
               <button
