@@ -81,6 +81,15 @@ function renderMessageBody(body: string) {
         </span>
       )
     }
+    const qualityTeamMatch = line.match(/^Open Quality Team:\s*(\/quality-team\S*)?\s*$/i)
+    if (qualityTeamMatch) {
+      return (
+        <span key={`line-${index}`}>
+          {index > 0 ? '\n' : ''}
+          <Link to={qualityTeamMatch[1] || '/quality-team'}>Open Quality Team</Link>
+        </span>
+      )
+    }
     const itpMatch = line.match(/^Open ITP:\s*(\/itp\/\d+\S*)\s*$/i)
     if (itpMatch) {
       return (

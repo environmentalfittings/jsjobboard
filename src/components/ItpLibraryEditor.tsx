@@ -72,7 +72,9 @@ import {
 } from '../types/employees'
 import {
   applyLibraryTemplateAsync,
-  listItpLibraryTemplates,
+  listItpLibraryTemplatesForPicker,
+  parseTemplatePickerValue,
+  templatePickerValue,
   type ItpLibraryTemplateRow,
 } from '../lib/itpLibraryTemplates'
 import {
@@ -189,7 +191,8 @@ export function ItpLibraryEditor({ valve, onClose, readOnly = false }: ItpLibrar
   const cameraInputRef = useRef<HTMLInputElement>(null)
   const [customDrafts, setCustomDrafts] = useState<Record<string, string>>({})
   const [availableTemplates, setAvailableTemplates] = useState<ItpLibraryTemplateRow[]>([])
-  const [selectedTemplateName, setSelectedTemplateName] = useState('')
+  const [templatesExactMatch, setTemplatesExactMatch] = useState(true)
+  const [selectedTemplateValue, setSelectedTemplateValue] = useState('')
   const [templatesLoading, setTemplatesLoading] = useState(false)
   const [applyingTemplate, setApplyingTemplate] = useState(false)
   const [subReqDrafts, setSubReqDrafts] = useState<Record<string, string>>({})
@@ -249,7 +252,17 @@ export function ItpLibraryEditor({ valve, onClose, readOnly = false }: ItpLibrar
         setIsPersisted(!result.isNew)
         setDirty(false)
         setSaveHint(result.isNew ? 'idle' : 'saved')
-        setSelectedTemplateName(result.plan.scopeTemplateName ?? result.appliedTemplateName ?? '')
+        {
+          const name = result.plan.scopeTemplateName ?? result.appliedTemplateName ?? ''
+          setSelectedTemplateValue(
+            name
+              ? templatePickerValue({
+                  valve_type: result.plan.valveType,
+                  name,
+                })
+              : '',
+          )
+        }
         scopeBaselineRef.current = itpScopeFingerprint(result.plan)
         lastSavedPlanRef.current = result.plan
         setScopeMinimized(
@@ -307,35 +320,53 @@ export function ItpLibraryEditor({ valve, onClose, readOnly = false }: ItpLibrar
   useEffect(() => {
     if (!plan?.jobType || !plan.valveType?.trim()) {
       setAvailableTemplates([])
-      setSelectedTemplateName('')
+      setTemplatesExactMatch(true)
+      setSelectedTemplateValue('')
       return
     }
     let cancelled = false
     setTemplatesLoading(true)
     void (async () => {
       try {
-        const templates = await listItpLibraryTemplates({
+        const { rows: templates, exactMatch } = await listItpLibraryTemplatesForPicker({
           jobType: plan.jobType,
           valveType: plan.valveType,
         })
         if (cancelled) return
         setAvailableTemplates(templates)
-        setSelectedTemplateName((prev) => {
-          if (plan.scopeTemplateName && templates.some((row) => row.name === plan.scopeTemplateName)) {
-            return plan.scopeTemplateName
+        setTemplatesExactMatch(exactMatch)
+        setSelectedTemplateValue((prev) => {
+          const prevParsed = parseTemplatePickerValue(prev)
+          if (prevParsed) {
+            const match = templates.find(
+              (row) =>
+                row.name === prevParsed.name &&
+                (!prevParsed.valveType || row.valve_type === prevParsed.valveType),
+            )
+            if (match) return templatePickerValue(match)
           }
-          if (prev && templates.some((row) => row.name === prev)) return prev
+          if (plan.scopeTemplateName) {
+            const byName = templates.find(
+              (row) =>
+                row.name === plan.scopeTemplateName &&
+                (exactMatch || row.valve_type === plan.valveType),
+            )
+            if (byName) return templatePickerValue(byName)
+          }
           const preferred =
-            templates.find((row) => row.is_default)?.name ??
-            templates.find((row) => row.name === 'Default')?.name ??
-            templates[0]?.name ??
-            ''
-          return preferred
+            templates.find((row) => row.is_default && row.valve_type === plan.valveType) ??
+            templates.find((row) => row.name === 'Default' && row.valve_type === plan.valveType) ??
+            templates.find((row) => row.is_default) ??
+            templates.find((row) => row.name === 'Default') ??
+            templates[0] ??
+            null
+          return preferred ? templatePickerValue(preferred) : ''
         })
       } catch {
         if (!cancelled) {
           setAvailableTemplates([])
-          setSelectedTemplateName('')
+          setTemplatesExactMatch(true)
+          setSelectedTemplateValue('')
         }
       } finally {
         if (!cancelled) setTemplatesLoading(false)
@@ -348,8 +379,10 @@ export function ItpLibraryEditor({ valve, onClose, readOnly = false }: ItpLibrar
 
   const renderTemplatePicker = (compact = false) => {
     if (!canEditScope || !plan) return null
+    const selectedParsed = parseTemplatePickerValue(selectedTemplateValue)
     const templateForBuilder =
-      selectedTemplateName.trim() || String(plan.scopeTemplateName ?? '').trim()
+      (selectedParsed?.valveType === plan.valveType ? selectedParsed.name : '') ||
+      String(plan.scopeTemplateName ?? '').trim()
     const builderParams = new URLSearchParams({
       tab: 'itpTemplateBuilder',
       jobType: plan.jobType,
@@ -363,9 +396,9 @@ export function ItpLibraryEditor({ valve, onClose, readOnly = false }: ItpLibrar
         </label>
         <select
           id="itp-scope-template"
-          value={selectedTemplateName}
+          value={selectedTemplateValue}
           disabled={templatesLoading || applyingTemplate}
-          onChange={(e) => setSelectedTemplateName(e.target.value)}
+          onChange={(e) => setSelectedTemplateValue(e.target.value)}
           aria-label="Choose saved valve template for Build Scope"
         >
           {availableTemplates.length === 0 ? (
@@ -376,9 +409,10 @@ export function ItpLibraryEditor({ valve, onClose, readOnly = false }: ItpLibrar
             </option>
           ) : (
             availableTemplates.map((row) => (
-              <option key={row.id} value={row.name}>
-                {row.name}
-                {row.is_default ? ' (default)' : ''}
+              <option key={row.id} value={templatePickerValue(row)}>
+                {templatesExactMatch || row.valve_type === plan.valveType
+                  ? `${row.name}${row.is_default ? ' (default)' : ''}`
+                  : `${row.valve_type} — ${row.name}${row.is_default ? ' (default)' : ''}`}
               </option>
             ))
           )}
@@ -406,7 +440,9 @@ export function ItpLibraryEditor({ valve, onClose, readOnly = false }: ItpLibrar
         </Link>
         {!compact ? (
           <p className="itp-library-template-pick-hint">
-            Missing steps? Edit the saved template, then click Load template again on this ITP.
+            {!templatesExactMatch && availableTemplates.length > 0
+              ? `No saved “${plan.valveType}” templates yet — showing other ${plan.jobType} templates you can start from. Save a ${plan.valveType} template in the builder when ready.`
+              : 'Missing steps? Edit the saved template, then click Load template again on this ITP.'}
           </p>
         ) : null}
       </div>
@@ -571,6 +607,14 @@ export function ItpLibraryEditor({ valve, onClose, readOnly = false }: ItpLibrar
     }
     if (options?.successToast) {
       showToast(options.successToast)
+    } else if (options?.notifyQc) {
+      showToast(
+        result.notified > 0
+          ? `ITP saved — Quality Team notified (${result.notified})`
+          : result.plan.qcReview.notifiedAt
+            ? 'ITP saved — Quality Team already notified'
+            : 'ITP saved — Quality Team was not notified (check Messages setup / QT owner logins)',
+      )
     } else if (result.generatedForReview) {
       showToast(
         result.notified > 0
@@ -861,6 +905,8 @@ export function ItpLibraryEditor({ valve, onClose, readOnly = false }: ItpLibrar
       qcReview: {
         ...qc,
         status: 'pending_review',
+        // Clear so Quality Team gets a fresh “needs review” alert.
+        notifiedAt: null,
         acceptedAt: null,
         acceptedByUserId: null,
         acceptedByName: null,
@@ -870,7 +916,7 @@ export function ItpLibraryEditor({ valve, onClose, readOnly = false }: ItpLibrar
     }
     setSaving(true)
     try {
-      await persistPlan(reopenedPlan, { successToast: 'ITP reopened — pending review' })
+      await persistPlan(reopenedPlan, { notifyQc: true })
       setScopeMinimized(false)
     } catch (error) {
       showToast(error instanceof Error ? error.message : 'Failed to reopen ITP')
@@ -1524,9 +1570,14 @@ export function ItpLibraryEditor({ valve, onClose, readOnly = false }: ItpLibrar
   const applySelectedTemplate = () => {
     if (!canEditScope || !plan) return
     void (async () => {
-      const templateName = selectedTemplateName.trim() || null
+      const parsed = parseTemplatePickerValue(selectedTemplateValue)
+      const templateName = parsed?.name?.trim() || null
+      const sourceValveType = parsed?.valveType?.trim() || plan.valveType
+      const crossType = Boolean(templateName && sourceValveType && sourceValveType !== plan.valveType)
       const label = templateName
-        ? `Load “${templateName}” into Build Scope for ${plan.valveType || 'this valve type'}?`
+        ? crossType
+          ? `Load “${sourceValveType} — ${templateName}” into Build Scope for this ${plan.valveType || 'valve'}?`
+          : `Load “${templateName}” into Build Scope for ${plan.valveType || 'this valve type'}?`
         : `Load the built-in checklist into Build Scope for ${plan.valveType || 'this valve type'}?`
       if (
         !window.confirm(
@@ -1540,6 +1591,7 @@ export function ItpLibraryEditor({ valve, onClose, readOnly = false }: ItpLibrar
         const applied = await applyLibraryTemplateAsync(plan, {
           replaceIncludes: true,
           templateName: templateName || undefined,
+          sourceValveType: sourceValveType || undefined,
         })
         const catalog = await loadItpMasterCatalog().catch(() => null)
         const filled = catalog

@@ -155,11 +155,14 @@ export async function saveItpLibraryPlan(
   if (error) throw error
 
   let notified = 0
-  if (
-    generatedForReview &&
-    options?.notifyQc?.senderUserId &&
+  // Notify whenever QC review is pending and we haven't successfully alerted yet
+  // (includes first generate and reopen). Retry until at least one message is inserted.
+  const shouldNotifyReview =
+    Boolean(options?.notifyQc?.senderUserId) &&
+    payload.qcReview.status === 'pending_review' &&
     !payload.qcReview.notifiedAt
-  ) {
+
+  if (shouldNotifyReview && options?.notifyQc) {
     const result = await notifyQualityTeamItpReviewRequested({
       valveRowId: valve.id,
       valveId: valve.valve_id,
@@ -168,7 +171,7 @@ export async function saveItpLibraryPlan(
       senderName: options.notifyQc.senderName,
     })
     notified = result.notified
-    if (!result.error) {
+    if (!result.error && result.notified > 0) {
       const withNotify = {
         ...payload,
         qcReview: {
@@ -197,7 +200,7 @@ export async function saveItpLibraryPlan(
       )
       payload = withNotify
     } else if (result.error) {
-      // Persist review state even if messaging fails; surface error via throw only for hard failures.
+      // Persist review state even if messaging fails; surface via toast from caller.
       console.warn(result.error)
     }
   }

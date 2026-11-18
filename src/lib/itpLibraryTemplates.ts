@@ -386,6 +386,50 @@ export async function listItpLibraryTemplates(filters?: {
     .filter((row) => isTemplateListRow(row))
 }
 
+export type ItpLibraryTemplatePickerResult = {
+  rows: ItpLibraryTemplateRow[]
+  /** True when rows are exact matches for this valve type (not a job-type fallback). */
+  exactMatch: boolean
+}
+
+/**
+ * Templates for the ITP Valve template dropdown.
+ * Prefer exact job+valve matches; if none exist (e.g. Check has no saved templates yet),
+ * fall back to other saved templates for the same job type so users can still load one.
+ */
+export async function listItpLibraryTemplatesForPicker(options: {
+  jobType: string
+  valveType: string
+}): Promise<ItpLibraryTemplatePickerResult> {
+  const jobType = String(options.jobType ?? '').trim()
+  const valveType = String(options.valveType ?? '').trim()
+  if (!jobType || !valveType) return { rows: [], exactMatch: true }
+
+  const exact = await listItpLibraryTemplates({ jobType, valveType })
+  if (exact.length > 0) return { rows: exact, exactMatch: true }
+
+  const forJob = await listItpLibraryTemplates({ jobType })
+  return { rows: forJob, exactMatch: false }
+}
+
+/** Select option value that can identify a template across valve types with the same name. */
+export function templatePickerValue(row: Pick<ItpLibraryTemplateRow, 'valve_type' | 'name'>): string {
+  return `${row.valve_type}\u001f${row.name}`
+}
+
+export function parseTemplatePickerValue(raw: string): { valveType: string; name: string } | null {
+  const value = String(raw ?? '')
+  const sep = value.indexOf('\u001f')
+  if (sep <= 0) {
+    const name = value.trim()
+    return name ? { valveType: '', name } : null
+  }
+  const valveType = value.slice(0, sep).trim()
+  const name = value.slice(sep + 1).trim()
+  if (!name) return null
+  return { valveType, name }
+}
+
 export async function loadJobTypeMaster(jobType: ItpLibraryJobType | string): Promise<ItpLibraryTemplateRow | null> {
   return loadItpLibraryTemplate(jobType, ITP_LIBRARY_JOB_MASTER_VALVE, ITP_LIBRARY_DEFAULT_TEMPLATE_NAME)
 }
@@ -735,10 +779,16 @@ export type ApplyLibraryTemplateResult = {
 
 export async function applyLibraryTemplateAsync(
   plan: ItpLibraryPlanPayload,
-  options?: { replaceIncludes?: boolean; templateName?: string | null },
+  options?: {
+    replaceIncludes?: boolean
+    templateName?: string | null
+    /** Load a saved template stored under a different valve type (job-type fallback picker). */
+    sourceValveType?: string | null
+  },
 ): Promise<ApplyLibraryTemplateResult> {
+  const sourceValveType = String(options?.sourceValveType ?? '').trim() || plan.valveType
   try {
-    const stored = await loadItpLibraryTemplate(plan.jobType, plan.valveType, options?.templateName)
+    const stored = await loadItpLibraryTemplate(plan.jobType, sourceValveType, options?.templateName)
     if (stored && countIncludedInScope(stored.scope) > 0) {
       return {
         plan: applyScopeToPlan(plan, stored.scope, options),

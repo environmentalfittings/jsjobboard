@@ -8,7 +8,7 @@ import {
   type MessageAttachment,
 } from './messageAttachments'
 import { loadTechniciansForMessages } from './messageRecipients'
-import { isQualityTeamMember } from './qualityTeam'
+import { isQualityTeamFlagOwner, isQualityTeamMember } from './qualityTeam'
 import { normalizeQualityTeamLevel } from '../types/employees'
 import { supabase } from './supabase'
 
@@ -418,6 +418,11 @@ export async function createFeedbackResolvedNotification(options: {
 async function loadQualityTeamRecipientAuthIds(options?: {
   /** When set, omit this auth user from recipients (e.g. ITP review requests). */
   excludeUserId?: string | null
+  /**
+   * ITP Accept / review alerts: only Admin, Manager, Supervisor (people who can check ITPs).
+   * Flag alerts still notify the full Quality Team unless this is set.
+   */
+  ownersOnly?: boolean
 }): Promise<{ recipientIds: string[]; memberCount: number; error: string | null }> {
   const excludeUserId = options?.excludeUserId?.trim() || null
   const { data: employees, error: loadError } = await supabase
@@ -440,7 +445,10 @@ async function loadQualityTeamRecipientAuthIds(options?: {
 
   const qualityMembers = ((employees as Record<string, unknown>[] | null) ?? []).filter((row) => {
     if (!Boolean(row.is_active)) return false
-    return isQualityTeamMember(normalizeQualityTeamLevel(row.quality_team_level))
+    const level = normalizeQualityTeamLevel(row.quality_team_level)
+    if (!isQualityTeamMember(level)) return false
+    if (options?.ownersOnly && !isQualityTeamFlagOwner(level)) return false
+    return true
   })
 
   if (qualityMembers.length === 0) {
@@ -593,6 +601,13 @@ async function insertAppNotifications(options: {
 
   if (!rpcError) {
     const notified = typeof rpcCount === 'number' ? rpcCount : Number(rpcCount) || 0
+    // Do not treat "0 rows inserted" as success — callers use this to set notifiedAt.
+    if (notified <= 0) {
+      return {
+        notified: 0,
+        error: 'Notification RPC ran but inserted 0 messages — check send_app_notifications / QT logins',
+      }
+    }
     return { notified, error: null }
   }
 
@@ -631,7 +646,7 @@ async function insertAppNotifications(options: {
   return { notified: options.recipientIds.length, error: null }
 }
 
-/** Notify every Quality Team member with a login that an ITP needs review. */
+/** Notify Quality Team owners (Admin / Manager / Supervisor) that an ITP needs review. */
 export async function notifyQualityTeamItpReviewRequested(options: {
   valveRowId: number
   valveId: string
@@ -641,6 +656,7 @@ export async function notifyQualityTeamItpReviewRequested(options: {
 }): Promise<{ notified: number; error: string | null }> {
   const { recipientIds, memberCount, error: loadError } = await loadQualityTeamRecipientAuthIds({
     excludeUserId: options.senderUserId,
+    ownersOnly: true,
   })
   if (loadError) return { notified: 0, error: loadError }
 
@@ -648,13 +664,14 @@ export async function notifyQualityTeamItpReviewRequested(options: {
     if (memberCount === 0) {
       return {
         notified: 0,
-        error: 'No Quality Team members are assigned on Employees yet',
+        error:
+          'No Quality Team Admin/Manager/Supervisor is assigned on Employees yet (needed for ITP review alerts)',
       }
     }
     return {
       notified: 0,
       error:
-        'Quality Team members need linked logins (Employees auth link or technician user_id) to receive Messages',
+        'Quality Team owners need linked logins (Employees auth link or technician user_id) to receive Messages',
     }
   }
 
