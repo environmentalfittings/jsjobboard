@@ -6,8 +6,8 @@ import { ItpFlagIssueModal } from './ItpFlagIssueModal'
 import { ItpOemProcedureDocs } from './ItpOemProcedureDocs'
 import { ItpQcChangeNoteModal } from './ItpQcChangeNoteModal'
 import { ItpStationSelect } from './ItpStationSelect'
+import { ItpTravelerStepModal } from './ItpTravelerStepModal'
 import { JobNeededPartModal } from './JobNeededPartModal'
-import { OrderReplacementPartsForm } from './OrderReplacementPartsForm'
 import { useToast } from './ToastNotification'
 import { useAuth } from '../contexts/AuthContext'
 import { useEmployees } from '../hooks/useEmployees'
@@ -26,7 +26,6 @@ import {
   deleteItpLibraryAttachment,
   isItpLibraryAttachmentImage,
   isItpLibraryAttachmentPdf,
-  uploadItpFlagPhoto,
   uploadItpLibraryAttachment,
 } from '../lib/itpLibraryAttachments'
 import {
@@ -34,13 +33,15 @@ import {
   clampLinePhotoMin,
   DEFAULT_ITP_MEAS_FIELDS,
   getMeasValue,
+  itemHasTravelerRequirement,
+  itemRequirementsMet,
   itemRequiresMeasurements,
   linePhotoRequirementLabel,
   markDoneBlockedReason,
-  patchMeasValue,
   resolvedMeasFields,
   selFromRequirementDefaults,
 } from '../lib/itpItemRequirements'
+import { applyTravelerStepUnlocks } from '../lib/itpMeasUnlocks'
 import { builtinRequirementDefaults } from '../lib/itpMasterCatalog'
 import { migrateFastenerRecordSel } from '../lib/itpFastenerRecord'
 import { isOrderReplacementPartsItem } from '../lib/itpOrderParts'
@@ -48,7 +49,7 @@ import { formatNeededPartsSummary } from '../lib/jobNeededParts'
 import { stepUsesOemOrProcedure } from '../lib/itpOemProcedure'
 import { loadItpLibraryPlan, saveItpLibraryPlan } from '../lib/itpLibraryStorage'
 import { buildItpTravelerUrl, createItpQrDataUrl } from '../lib/itpQrCode'
-import { notifyQualityTeamItpItemFlagged } from '../lib/messages'
+import { raiseItpItemFlag } from '../lib/itpFlagIssue'
 import {
   canAcceptItp,
   canEditItpBuildScope,
@@ -93,6 +94,7 @@ import {
   isOpenItpFlag,
   isResolvedItpFlag,
   type ItpLibraryAttachment,
+  type ItpLibraryItemExec,
   type ItpLibraryItemSel,
   type ItpLibraryPlanPayload,
   type ItpQcChangeLogEntry,
@@ -176,6 +178,7 @@ export function ItpLibraryEditor({ valve, onClose, readOnly = false }: ItpLibrar
     shopArea: string
   } | null>(null)
   const [clearingItem, setClearingItem] = useState<{ id: string; name: string } | null>(null)
+  const [openStepItemId, setOpenStepItemId] = useState<string | null>(null)
   const [flagBusy, setFlagBusy] = useState(false)
   const [pendingScopeChange, setPendingScopeChange] = useState<{
     summary: string
@@ -529,13 +532,27 @@ export function ItpLibraryEditor({ valve, onClose, readOnly = false }: ItpLibrar
     ]
     return normalizeProcessSections(undefined, extraIds)
   }, [plan?.custom, scopeItems, buildScopeRowsBySection])
+  const travelerReport = useMemo(() => (plan ? buildItpTravelerReport(plan) : null), [plan])
   const travelerReportStats = useMemo(
     () =>
-      plan
-        ? buildItpTravelerReport(plan).stats
-        : { total: 0, complete: 0, pending: 0, flagged: 0, hold: 0, captured: 0 },
-    [plan],
+      travelerReport?.stats ?? {
+        total: 0,
+        complete: 0,
+        pending: 0,
+        flagged: 0,
+        hold: 0,
+        captured: 0,
+      },
+    [travelerReport],
   )
+  const openStepReportItem = useMemo(() => {
+    if (!travelerReport || !openStepItemId) return null
+    for (const section of travelerReport.sections) {
+      const found = section.items.find((item) => item.id === openStepItemId)
+      if (found) return found
+    }
+    return null
+  }, [travelerReport, openStepItemId])
   const stats = useMemo(() => (plan ? execStats(plan) : null), [plan])
 
   const canEditScope = Boolean(
@@ -1225,6 +1242,7 @@ export function ItpLibraryEditor({ valve, onClose, readOnly = false }: ItpLibrar
       const blocked = markDoneBlockedReason(sel, current)
       if (blocked) {
         showToast(blocked)
+        if (itemHasTravelerRequirement(sel)) setOpenStepItemId(itemId)
         return
       }
     }
@@ -1291,79 +1309,24 @@ export function ItpLibraryEditor({ valve, onClose, readOnly = false }: ItpLibrar
     })
   }
 
-  const setMeasFieldValue = (itemId: string, fieldId: string, value: string) => {
-    if (readOnly) return
-    updatePlan((prev) => {
-      const current = prev.exec[itemId] ?? emptyItemExec()
-      return {
-        ...prev,
-        exec: {
-          ...prev.exec,
-          [itemId]: { ...current, ...patchMeasValue(current, fieldId, value) },
-        },
-      }
-    })
-  }
-
-  const addItemPhotos = async (itemId: string, fileList: FileList | null) => {
-    if (readOnly || !fileList?.length || attachmentBusy) return
-    setAttachmentBusy(true)
+  const saveOpenStep = async (next: { sel: ItpLibraryItemSel; exec: ItpLibraryItemExec }) => {
+    if (!plan || !openStepItemId || readOnly) return
+    setSaving(true)
     try {
-      const uploaded: ItpLibraryAttachment[] = []
-      for (const file of Array.from(fileList)) {
-        const { attachment, error } = await uploadItpFlagPhoto(valve.id, itemId, file)
-        if (error || !attachment) {
-          showToast(error || 'Upload failed')
-          continue
-        }
-        uploaded.push(attachment)
-      }
-      if (uploaded.length === 0) return
-      updatePlan((prev) => {
-        const current = prev.exec[itemId] ?? emptyItemExec()
-        return {
-          ...prev,
-          exec: {
-            ...prev.exec,
-            [itemId]: { ...current, photos: [...(current.photos ?? []), ...uploaded] },
-          },
-        }
-      })
-      showToast(
-        uploaded.length === 1
-          ? 'Photo added — save ITP to keep it'
-          : `${uploaded.length} photos added — save ITP to keep them`,
-      )
+      const nextPlan = applyTravelerStepUnlocks(plan, openStepItemId, next)
+      const saved = await saveItpLibraryPlan(valve, nextPlan)
+      setPlan(saved.plan)
+      setIsPersisted(true)
+      setDirty(false)
+      setSaveHint('saved')
+      lastSavedPlanRef.current = saved.plan
+      scopeBaselineRef.current = itpScopeFingerprint(saved.plan)
+      setOpenStepItemId(null)
+      showToast('Step saved')
+    } catch (error) {
+      showToast(error instanceof Error ? error.message : 'Could not save step')
     } finally {
-      setAttachmentBusy(false)
-    }
-  }
-
-  const removeItemPhoto = async (itemId: string, attachment: ItpLibraryAttachment) => {
-    if (readOnly || attachmentBusy) return
-    if (!window.confirm(`Remove “${attachment.fileName}”?`)) return
-    setAttachmentBusy(true)
-    try {
-      const { error } = await deleteItpLibraryAttachment(attachment)
-      if (error) {
-        showToast(error)
-        return
-      }
-      updatePlan((prev) => {
-        const current = prev.exec[itemId] ?? emptyItemExec()
-        return {
-          ...prev,
-          exec: {
-            ...prev.exec,
-            [itemId]: {
-              ...current,
-              photos: (current.photos ?? []).filter((p) => p.id !== attachment.id),
-            },
-          },
-        }
-      })
-    } finally {
-      setAttachmentBusy(false)
+      setSaving(false)
     }
   }
 
@@ -1449,65 +1412,35 @@ export function ItpLibraryEditor({ valve, onClose, readOnly = false }: ItpLibrar
     }
     const itemId = flaggingItem.id
     const itemName = flaggingItem.name
-    const now = new Date().toISOString()
     const current = plan.exec[itemId] ?? emptyItemExec()
-    const nextPlan: ItpLibraryPlanPayload = {
-      ...plan,
-      exec: {
-        ...plan.exec,
-        [itemId]: {
-          ...current,
-          flagged: true,
-          flagReason: input.reason,
-          flagPhotos: input.photos.slice(0, 3),
-          flaggedAt: now,
-          flaggedByUserId: user.id,
-          flaggedByName: username || 'Technician',
-          // Always start a fresh open ticket (do not keep a prior resolution).
-          flagOwnerEmployeeId: null,
-          flagOwnerUserId: null,
-          flagOwnerName: null,
-          flagResolution: '',
-          flagResolvedAt: null,
-          flagResolvedByUserId: null,
-          flagResolvedByName: null,
-          flagClearReason: '',
-          flagClearedAt: null,
-          flagClearedByUserId: null,
-          flagClearedByName: null,
-        },
-      },
-    }
+    const actor = { userId: user.id, name: username || 'Technician' }
     setFlagBusy(true)
     try {
-      const saved = await saveItpLibraryPlan(valve, nextPlan)
-      setPlan(saved.plan)
-      setIsPersisted(true)
-      setDirty(false)
-      setSaveHint('saved')
-      lastSavedPlanRef.current = saved.plan
-      scopeBaselineRef.current = itpScopeFingerprint(saved.plan)
-      setFlaggingItem(null)
-      const { notified, error } = await notifyQualityTeamItpItemFlagged({
+      const { toast } = await raiseItpItemFlag({
+        currentExec: current,
+        reason: input.reason,
+        photos: input.photos,
+        actor,
+        itemName,
         valveRowId: valve.id,
         valveId: valve.valve_id,
         customer: valve.customer,
-        itemName,
-        flagReason: input.reason,
-        photoCount: input.photos.length,
-        senderUserId: user.id,
-        senderName: username || 'Technician',
+        save: async (nextExec) => {
+          const nextPlan: ItpLibraryPlanPayload = {
+            ...plan,
+            exec: { ...plan.exec, [itemId]: nextExec },
+          }
+          const saved = await saveItpLibraryPlan(valve, nextPlan)
+          setPlan(saved.plan)
+          setIsPersisted(true)
+          setDirty(false)
+          setSaveHint('saved')
+          lastSavedPlanRef.current = saved.plan
+          scopeBaselineRef.current = itpScopeFingerprint(saved.plan)
+        },
       })
-      if (error) {
-        showToast(`Item flagged, but notify failed: ${error}`)
-      } else {
-        showToast(
-          notified > 0
-            ? `Item flagged — Quality Team notified (${notified})`
-            : 'Item flagged — no Quality Team logins to notify',
-        )
-      }
-      window.dispatchEvent(new Event('jsjb-inbox-refresh'))
+      setFlaggingItem(null)
+      showToast(toast)
     } catch (error) {
       showToast(error instanceof Error ? error.message : 'Failed to flag item')
     } finally {
@@ -2308,6 +2241,10 @@ export function ItpLibraryEditor({ valve, onClose, readOnly = false }: ItpLibrar
                         const doneBlockedReason =
                           !ex.done && !ex.holdPending ? markDoneBlockedReason(sel, ex) : null
                         const measFields = resolvedMeasFields(sel)
+                        const hasTravelerReq = itemHasTravelerRequirement(sel)
+                        const requirementsMet = itemRequirementsMet(sel, ex)
+                        const photoCount = (ex.photos ?? []).length
+                        const photoMax = clampLinePhotoMax(sel.maxPhotos, sel.minPhotos)
                         const cbSelected = ex.done || ex.holdPending
                         const cbTitle = itemLocked
                           ? 'Complete the previous item first'
@@ -2380,13 +2317,22 @@ export function ItpLibraryEditor({ valve, onClose, readOnly = false }: ItpLibrar
                                       <span className="itp-library-attr-badge photo">Photo</span>
                                     ) : null}
                                     {itemRequiresMeasurements(sel) ? (
-                                      <span className="itp-library-attr-badge meas">Measurements</span>
+                                      <span className="itp-library-attr-badge meas">
+                                        {sel.requireNameplate ? 'Nameplate' : 'Fields / Measurements'}
+                                      </span>
                                     ) : null}
                                     {sel.blockNext ? (
                                       <span className="itp-library-attr-badge block">Blocks next</span>
                                     ) : null}
                                     {sel.addToTraveler ? (
                                       <span className="itp-library-attr-badge traveler">On Traveler</span>
+                                    ) : null}
+                                    {hasTravelerReq ? (
+                                      requirementsMet ? (
+                                        <span className="itp-traveler-req-met">Ready to check</span>
+                                      ) : (
+                                        <span className="itp-traveler-req-locked">Locked until filled</span>
+                                      )
                                     ) : null}
                                   </div>
                                   <div className="itp-library-er">
@@ -2440,74 +2386,22 @@ export function ItpLibraryEditor({ valve, onClose, readOnly = false }: ItpLibrar
                                     </button>
                                   ) : null}
                                   {sel.requirePicture ? (
-                                    <div className="itp-library-item-photos screen-only">
-                                      <div className="itp-library-item-photos-hdr">
-                                        {sel.pictureLabel.trim() ||
-                                          (clampLinePhotoMin(sel.minPhotos) === 0
-                                            ? 'Photos'
-                                            : 'Required photos')}{' '}
-                                        <span>
-                                          ({(ex.photos ?? []).length}/
-                                          {clampLinePhotoMax(sel.maxPhotos, sel.minPhotos)})
-                                          {clampLinePhotoMin(sel.minPhotos) === 0
-                                            ? ` · ${linePhotoRequirementLabel(sel.minPhotos, sel.maxPhotos)}`
-                                            : ''}
-                                        </span>
-                                      </div>
-                                      <div className="itp-library-item-photos-grid">
-                                        {(ex.photos ?? []).map((photo) => (
-                                          <div key={photo.id} className="itp-library-item-photo-card">
-                                            <a href={photo.url} target="_blank" rel="noreferrer">
-                                              <img src={photo.url} alt={photo.fileName} />
-                                            </a>
-                                            {!controlsDisabled ? (
-                                              <button
-                                                type="button"
-                                                className="itp-library-item-photo-rm"
-                                                onClick={() => void removeItemPhoto(it.id, photo)}
-                                              >
-                                                ✕
-                                              </button>
-                                            ) : null}
-                                          </div>
-                                        ))}
-                                        {!controlsDisabled ? (
-                                          <label className="itp-library-item-photo-add">
-                                            <input
-                                              type="file"
-                                              accept="image/*"
-                                              multiple
-                                              disabled={attachmentBusy}
-                                              onChange={(e) => {
-                                                void addItemPhotos(it.id, e.target.files)
-                                                e.target.value = ''
-                                              }}
-                                            />
-                                            + Photo
-                                          </label>
-                                        ) : null}
-                                      </div>
-                                    </div>
+                                    <p className="itp-library-photo-count screen-only">
+                                      {sel.pictureLabel.trim() || 'Photos'}: {photoCount}/{photoMax}
+                                      {clampLinePhotoMin(sel.minPhotos) === 0
+                                        ? ` · ${linePhotoRequirementLabel(sel.minPhotos, sel.maxPhotos)}`
+                                        : ''}
+                                      {photoCount > 0 ? ' · open Fill / Edit to manage' : ''}
+                                    </p>
                                   ) : null}
                                   {measFields.length > 0 ? (
-                                    <div className="itp-library-meas-fields">
+                                    <div className="itp-library-meas-fields print-only" aria-hidden="true">
                                       {measFields.map((field) => {
                                         const value = getMeasValue(ex, field.id)
-                                        const isVerify = /verif|accept/i.test(field.label) || field.id === 'verify'
                                         return (
                                           <label key={field.id} className="itp-library-mf-wrap">
                                             {field.label}
-                                            <input
-                                              type="text"
-                                              className={isVerify ? 'verify' : undefined}
-                                              value={value}
-                                              disabled={controlsDisabled}
-                                              placeholder="Value / units"
-                                              onChange={(e) =>
-                                                setMeasFieldValue(it.id, field.id, e.target.value)
-                                              }
-                                            />
-                                            <span className="itp-library-print-field-line" aria-hidden="true">
+                                            <span className="itp-library-print-field-line">
                                               {value || '\u00a0'}
                                             </span>
                                           </label>
@@ -2529,17 +2423,6 @@ export function ItpLibraryEditor({ valve, onClose, readOnly = false }: ItpLibrar
                                       valveType={valve.valve_type ?? plan.valveType ?? ''}
                                       readOnly={controlsDisabled}
                                       onChange={(resourceDocs) => setItemResourceDocs(it.id, resourceDocs)}
-                                    />
-                                  ) : null}
-                                  {isOrderReplacementPartsItem(it.id) ? (
-                                    <OrderReplacementPartsForm
-                                      rows={parts.rows}
-                                      canEdit={!readOnly}
-                                      saving={parts.saving}
-                                      valveType={valve.valve_type ?? plan.valveType ?? ''}
-                                      onSaveKind={parts.upsertPart}
-                                      onAddOther={parts.addPart}
-                                      onRemove={(partId) => void parts.removePart(partId)}
                                     />
                                   ) : null}
                                   <div className="itp-library-print-notes" aria-hidden="true">
@@ -2628,6 +2511,27 @@ export function ItpLibraryEditor({ valve, onClose, readOnly = false }: ItpLibrar
                                   ) : null}
                                 </div>
                                 <div className="itp-library-exec-acts">
+                                  {hasTravelerReq || isOrderReplacementPartsItem(it.id) ? (
+                                    <button
+                                      type="button"
+                                      className="button-secondary itp-traveler-open-step-btn"
+                                      disabled={controlsDisabled || saving}
+                                      title={
+                                        isOrderReplacementPartsItem(it.id)
+                                          ? 'Open parts entry'
+                                          : requirementsMet
+                                            ? 'Edit traveler requirement'
+                                            : 'Fill traveler requirement'
+                                      }
+                                      onClick={() => setOpenStepItemId(it.id)}
+                                    >
+                                      {isOrderReplacementPartsItem(it.id)
+                                        ? 'Parts'
+                                        : requirementsMet
+                                          ? 'Edit'
+                                          : 'Fill requirement'}
+                                    </button>
+                                  ) : null}
                                   {section.id === 'inspection' ? (
                                     <button
                                       type="button"
@@ -2939,6 +2843,30 @@ export function ItpLibraryEditor({ valve, onClose, readOnly = false }: ItpLibrar
             showToast('Traveler link removed from this ITP line')
           }}
           showToast={showToast}
+        />
+      ) : null}
+
+      {openStepReportItem && plan ? (
+        <ItpTravelerStepModal
+          item={openStepReportItem}
+          sel={getSel(plan, openStepReportItem.id) ?? emptyItemSel()}
+          exec={getExec(plan, openStepReportItem.id) ?? emptyItemExec()}
+          plan={plan}
+          valveRowId={valve.id}
+          jobCard={valve}
+          canSignOffHold={canSignOffHold}
+          signerName={username?.trim() || user?.email || 'QC'}
+          signerUserId={user?.id ?? null}
+          saving={saving}
+          neededParts={parts.rows}
+          onNeedPart={() =>
+            parts.setNeedPartItem({ id: openStepReportItem.id, name: openStepReportItem.name })
+          }
+          onSaveNeededPart={parts.addPart}
+          onUpsertNeededPart={parts.upsertPart}
+          onRemoveNeededPart={(partId) => void parts.removePart(partId)}
+          onClose={() => setOpenStepItemId(null)}
+          onSave={saveOpenStep}
         />
       ) : null}
 

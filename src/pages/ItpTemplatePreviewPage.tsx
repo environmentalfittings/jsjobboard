@@ -212,6 +212,11 @@ export function ItpTemplatePreviewPage() {
             },
           })
         }}
+        onToggleFlag={() => {
+          showToast('Preview only — flags are not saved')
+        }}
+        canFlag
+        flagPermissionHint="Preview only — flags are not saved"
       />
 
       {openItem ? (

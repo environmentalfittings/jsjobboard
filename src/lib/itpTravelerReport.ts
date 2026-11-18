@@ -64,6 +64,7 @@ export type ItpTravelerReportItem = {
   requirementsMet: boolean
   blockNext: boolean
   resourceDocs: ItpLinkedResourceDoc[]
+  flagReason: string
 }
 
 export type ItpTravelerReportSection = {
@@ -171,6 +172,7 @@ export function buildItpTravelerReport(plan: ItpLibraryPlanPayload): {
             exec,
           ),
       resourceDocs: [...(item.sel.resourceDocs ?? [])],
+      flagReason: String(exec.flagReason ?? '').trim(),
     })
   }
 

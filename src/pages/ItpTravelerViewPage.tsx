@@ -1,16 +1,19 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
+import { ItpClearFlagModal } from '../components/ItpClearFlagModal'
+import { ItpFlagIssueModal } from '../components/ItpFlagIssueModal'
 import { ItpTravelerReportPanel } from '../components/ItpTravelerReportPanel'
 import { ItpTravelerStepModal } from '../components/ItpTravelerStepModal'
 import { JobNeededPartModal } from '../components/JobNeededPartModal'
 import { useToast } from '../components/ToastNotification'
 import { useAuth } from '../contexts/AuthContext'
 import { useJobNeededParts } from '../hooks/useJobNeededParts'
-import { hasAdminAccess } from '../lib/roles'
+import { can, hasAdminAccess, permissionDeniedReason } from '../lib/roles'
 import { loadItpLibraryPlan, saveItpLibraryPlan } from '../lib/itpLibraryStorage'
 import { applyTravelerStepUnlocks } from '../lib/itpMeasUnlocks'
 import { buildItpTravelerReport, findTravelerReportItem } from '../lib/itpTravelerReport'
 import { toggleItemExecDone } from '../lib/itpItemRequirements'
+import { raiseItpItemFlag } from '../lib/itpFlagIssue'
 import {
   isQualityTeamFlagOwner,
   loadCurrentUserQualityTeamLevel,
@@ -22,6 +25,7 @@ import {
   emptyItemSel,
   getExec,
   getSel,
+  type ItpLibraryAttachment,
   type ItpLibraryItemExec,
   type ItpLibraryItemSel,
   type ItpLibraryPlanPayload,
@@ -41,10 +45,14 @@ export function ItpTravelerViewPage() {
   const [plan, setPlan] = useState<ItpLibraryPlanPayload | null>(null)
   const [openItemId, setOpenItemId] = useState<string | null>(null)
   const [qualityTeamLevel, setQualityTeamLevel] = useState<QualityTeamLevel>('none')
+  const [flaggingItem, setFlaggingItem] = useState<{ id: string; name: string } | null>(null)
+  const [clearingItem, setClearingItem] = useState<{ id: string; name: string } | null>(null)
+  const [flagBusy, setFlagBusy] = useState(false)
   const notesSaveTimer = useRef<number | null>(null)
   const parts = useJobNeededParts(valve?.id ?? Number.parseInt(id ?? '', 10))
 
   const isShopAdmin = hasAdminAccess(role)
+  const canFlagIssues = can(role, 'flagItpItem')
   const canSignOffHold = isQualityTeamFlagOwner(qualityTeamLevel) || isShopAdmin
 
   useEffect(() => {
@@ -187,6 +195,114 @@ export function ItpTravelerViewPage() {
     }, 500)
   }
 
+  const toggleFlag = (itemId: string, itemName: string) => {
+    if (!canFlagIssues) {
+      showToast(permissionDeniedReason('flagItpItem'))
+      return
+    }
+    const current = plan?.exec[itemId] ?? emptyItemExec()
+    if (current.flagged) {
+      setClearingItem({ id: itemId, name: itemName })
+      return
+    }
+    setFlaggingItem({ id: itemId, name: itemName })
+  }
+
+  const confirmClearFlag = async (reason: string) => {
+    if (!valve || !plan || !clearingItem) return
+    if (!canFlagIssues) {
+      showToast(permissionDeniedReason('flagItpItem'))
+      return
+    }
+    if (!user?.id) {
+      showToast('Sign in required to remove a flag')
+      return
+    }
+    const itemId = clearingItem.id
+    const now = new Date().toISOString()
+    const current = plan.exec[itemId] ?? emptyItemExec()
+    const nextPlan: ItpLibraryPlanPayload = {
+      ...plan,
+      exec: {
+        ...plan.exec,
+        [itemId]: {
+          ...current,
+          flagged: false,
+          flagReason: '',
+          flagPhotos: [],
+          flaggedAt: null,
+          flaggedByUserId: null,
+          flaggedByName: null,
+          flagOwnerEmployeeId: null,
+          flagOwnerUserId: null,
+          flagOwnerName: null,
+          flagResolution: '',
+          flagResolvedAt: null,
+          flagResolvedByUserId: null,
+          flagResolvedByName: null,
+          flagClearReason: reason.trim(),
+          flagClearedAt: now,
+          flagClearedByUserId: user.id,
+          flagClearedByName: username || 'Technician',
+        },
+      },
+    }
+    setFlagBusy(true)
+    try {
+      const saved = await saveItpLibraryPlan(valve, nextPlan)
+      setPlan(saved.plan)
+      setClearingItem(null)
+      showToast('Flag removed')
+    } catch (error) {
+      showToast(error instanceof Error ? error.message : 'Failed to remove flag')
+    } finally {
+      setFlagBusy(false)
+    }
+  }
+
+  const confirmFlagIssue = async (input: { reason: string; photos: ItpLibraryAttachment[] }) => {
+    if (!valve || !plan || !flaggingItem) return
+    if (!canFlagIssues) {
+      showToast(permissionDeniedReason('flagItpItem'))
+      return
+    }
+    if (!user?.id) {
+      showToast('Sign in required to flag an item and notify Quality Team')
+      return
+    }
+    const itemId = flaggingItem.id
+    const itemName = flaggingItem.name
+    const current = plan.exec[itemId] ?? emptyItemExec()
+    const actor = { userId: user.id, name: username || 'Technician' }
+    setFlagBusy(true)
+    try {
+      const { toast } = await raiseItpItemFlag({
+        currentExec: current,
+        reason: input.reason,
+        photos: input.photos,
+        actor,
+        itemName,
+        valveRowId: valve.id,
+        valveId: valve.valve_id,
+        customer: valve.customer,
+        save: async (nextExec) => {
+          const nextPlan: ItpLibraryPlanPayload = {
+            ...plan,
+            exec: { ...plan.exec, [itemId]: nextExec },
+          }
+          const saved = await saveItpLibraryPlan(valve, nextPlan)
+          setPlan(saved.plan)
+        },
+      })
+      setFlaggingItem(null)
+      showToast(toast)
+    } catch (error) {
+      showToast(error instanceof Error ? error.message : 'Failed to flag item')
+    } finally {
+      setFlagBusy(false)
+    }
+  }
+
   if (loading) {
     return (
       <section className="dashboard-page">
@@ -249,6 +365,10 @@ export function ItpTravelerViewPage() {
         onOpenStep={(itemId) => setOpenItemId(itemId)}
         onToggleDone={(itemId) => void toggleDone(itemId)}
         onPatchNotes={patchNotes}
+        onToggleFlag={toggleFlag}
+        canFlag={canFlagIssues}
+        flagBusy={flagBusy}
+        flagPermissionHint={permissionDeniedReason('flagItpItem')}
       />
 
       {openItem ? (
@@ -270,6 +390,32 @@ export function ItpTravelerViewPage() {
           onRemoveNeededPart={(partId) => void parts.removePart(partId)}
           onClose={() => setOpenItemId(null)}
           onSave={saveStep}
+        />
+      ) : null}
+
+      {flaggingItem ? (
+        <ItpFlagIssueModal
+          valveRowId={valve.id}
+          itemId={flaggingItem.id}
+          itemName={flaggingItem.name}
+          busy={flagBusy}
+          onCancel={() => {
+            if (!flagBusy) setFlaggingItem(null)
+          }}
+          onConfirm={(input) => void confirmFlagIssue(input)}
+          showToast={showToast}
+        />
+      ) : null}
+
+      {clearingItem ? (
+        <ItpClearFlagModal
+          itemName={clearingItem.name}
+          busy={flagBusy}
+          onCancel={() => {
+            if (!flagBusy) setClearingItem(null)
+          }}
+          onConfirm={(reason) => void confirmClearFlag(reason)}
+          showToast={showToast}
         />
       ) : null}
 

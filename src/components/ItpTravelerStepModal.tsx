@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
 import { useAuth } from '../contexts/AuthContext'
-import { notifyQualityTeamItpItemFlagged } from '../lib/messages'
+import { raiseItpItemFlag } from '../lib/itpFlagIssue'
 import { can, permissionDeniedReason } from '../lib/roles'
 import { useToast } from './ToastNotification'
 import { ItpFlagIssueModal } from './ItpFlagIssueModal'
@@ -1147,65 +1147,37 @@ export function ItpTravelerStepModal({
       showToast('Sign in required to flag an item and notify Quality Team')
       return
     }
-    const now = new Date().toISOString()
     const notes = exec.notes
     const nextSel: ItpLibraryItemSel = isNameplate
       ? { ...sel, notes, measFields }
       : { ...sel, notes }
-    const nextExec: ItpLibraryItemExec = {
-      ...exec,
-      notes,
-      flagged: true,
-      flagReason: input.reason,
-      flagPhotos: input.photos.slice(0, 3),
-      flaggedAt: now,
-      flaggedByUserId: user.id,
-      flaggedByName: username || signerName || 'Technician',
-      flagOwnerEmployeeId: null,
-      flagOwnerUserId: null,
-      flagOwnerName: null,
-      flagResolution: '',
-      flagResolvedAt: null,
-      flagResolvedByUserId: null,
-      flagResolvedByName: null,
-      flagClearReason: '',
-      flagClearedAt: null,
-      flagClearedByUserId: null,
-      flagClearedByName: null,
-    }
     const valveId = String(jobCard.valve_id ?? '').trim() || String(valveRowId)
     const customer = jobCard.customer?.trim() || null
-    const senderName = username || signerName || 'Technician'
+    const actor = {
+      userId: user.id,
+      name: username || signerName || 'Technician',
+    }
     setFlagBusy(true)
     try {
-      setExec(nextExec)
-      await onSave({ sel: nextSel, exec: nextExec })
+      const { toast } = await raiseItpItemFlag({
+        currentExec: { ...exec, notes },
+        reason: input.reason,
+        photos: input.photos,
+        actor,
+        itemName: item.name,
+        valveRowId,
+        valveId,
+        customer,
+        save: async (nextExec) => {
+          setExec(nextExec)
+          await onSave({ sel: nextSel, exec: nextExec })
+        },
+      })
+      showToast(toast)
     } catch (err) {
       showToast(err instanceof Error ? err.message : 'Failed to flag item')
       setFlagBusy(false)
-      return
     }
-    // Parent traveler view closes this modal on save; still notify Quality Team.
-    const { notified, error } = await notifyQualityTeamItpItemFlagged({
-      valveRowId,
-      valveId,
-      customer,
-      itemName: item.name,
-      flagReason: input.reason,
-      photoCount: input.photos.length,
-      senderUserId: user.id,
-      senderName,
-    })
-    if (error) {
-      showToast(`Item flagged, but notify failed: ${error}`)
-    } else {
-      showToast(
-        notified > 0
-          ? `Item flagged — Quality Team notified (${notified})`
-          : 'Item flagged — no Quality Team logins to notify',
-      )
-    }
-    window.dispatchEvent(new Event('jsjb-inbox-refresh'))
   }
 
   const completeLabel = exec.holdPending && !exec.done

@@ -59,6 +59,11 @@ type ItpTravelerReportPanelProps = {
   valveRowId?: number | null
   neededParts?: JobNeededPart[]
   onNeedPart?: (itemId: string) => void
+  /** Raise or clear a Quality Team flag for this line. */
+  onToggleFlag?: (itemId: string, itemName: string) => void
+  canFlag?: boolean
+  flagBusy?: boolean
+  flagPermissionHint?: string
 }
 
 function StatusPill({ status }: { status: ItpTravelerReportItem['status'] }) {
@@ -97,6 +102,10 @@ function WorkStepRow({
   onToggleDone,
   onPatchNotes,
   onNeedPart,
+  onToggleFlag,
+  canFlag,
+  flagBusy,
+  flagPermissionHint,
 }: {
   item: ItpTravelerReportItem
   blockedByPrior: boolean
@@ -106,10 +115,15 @@ function WorkStepRow({
   onToggleDone: () => void
   onPatchNotes: (notes: string) => void
   onNeedPart?: () => void
+  onToggleFlag?: () => void
+  canFlag?: boolean
+  flagBusy?: boolean
+  flagPermissionHint?: string
 }) {
   const needsTraveler = item.hasTravelerRequirement
   const checkboxLocked = blockedByPrior || (needsTraveler && !item.requirementsMet && !item.done)
   const checked = item.done || item.status === 'hold'
+  const isFlagged = item.status === 'flagged'
   const hint = blockedByPrior
     ? 'Complete the previous item first'
     : needsTraveler && !item.requirementsMet && !item.done
@@ -119,12 +133,13 @@ function WorkStepRow({
         : item.done
           ? 'Mark incomplete'
           : 'Mark complete'
+  const photoCount = item.photos?.length ?? 0
 
   return (
     <li
       className={`itp-traveler-work-row itp-traveler-work-row--${item.status}${
         checkboxLocked ? ' is-locked' : ''
-      }${checked ? ' is-checked' : ''}`}
+      }${checked ? ' is-checked' : ''}${isFlagged ? ' is-flagged' : ''}`}
     >
       <div className="itp-traveler-work-row-body">
         <button
@@ -152,27 +167,36 @@ function WorkStepRow({
               {item.holdPoint ? ' · Hold point' : ''}
             </span>
           </div>
-          {needsTraveler ? (
+          {needsTraveler || item.status === 'hold' || isFlagged ? (
             <div className="itp-traveler-work-row-badges">
-              {item.requirePicture ? <span className="itp-library-attr-badge photo">Photo</span> : null}
-              {item.requireMeasurement ? (
+              {needsTraveler && item.requirePicture ? (
+                <span className="itp-library-attr-badge photo">Photo</span>
+              ) : null}
+              {needsTraveler && item.requireMeasurement ? (
                 <span className="itp-library-attr-badge meas">
                   {item.requireNameplate ? 'Nameplate' : 'Fields'}
                 </span>
               ) : null}
-              {isOrderReplacementPartsItem(item.id) ? (
-                <span className="itp-library-attr-badge traveler">Needs parts</span>
-              ) : item.requirementsMet ? (
-                <span className="itp-traveler-req-met">Ready to check</span>
-              ) : (
-                <span className="itp-traveler-req-locked">Locked until filled</span>
-              )}
+              {needsTraveler && item.requirePicture ? (
+                <span className="itp-traveler-photo-count">
+                  {photoCount}/{item.maxPhotos}
+                </span>
+              ) : null}
+              {needsTraveler ? (
+                isOrderReplacementPartsItem(item.id) ? (
+                  <span className="itp-library-attr-badge traveler">Needs parts</span>
+                ) : item.requirementsMet ? (
+                  <span className="itp-traveler-req-met">Ready to check</span>
+                ) : (
+                  <span className="itp-traveler-req-locked">Locked until filled</span>
+                )
+              ) : null}
+              {item.status === 'hold' || isFlagged ? <StatusPill status={item.status} /> : null}
               {item.result ? <span className="itp-traveler-result-chip">{item.result}</span> : null}
             </div>
-          ) : item.status === 'hold' || item.status === 'flagged' ? (
-            <div className="itp-traveler-work-row-badges">
-              <StatusPill status={item.status} />
-            </div>
+          ) : null}
+          {isFlagged && item.flagReason ? (
+            <p className="itp-traveler-work-row-tech">Flag: {item.flagReason}</p>
           ) : null}
           {item.done && item.techInitials ? (
             <p className="itp-traveler-work-row-tech">Checked by {item.techInitials}</p>
@@ -233,6 +257,23 @@ function WorkStepRow({
             onClick={onNeedPart}
           >
             Need part
+          </button>
+        ) : null}
+        {onToggleFlag ? (
+          <button
+            type="button"
+            className={`itp-library-flag-btn${isFlagged ? ' on' : ''}`}
+            disabled={Boolean(flagBusy) || blockedByPrior || !canFlag}
+            title={
+              !canFlag
+                ? flagPermissionHint || 'Flagging not available'
+                : isFlagged
+                  ? 'Clear flag'
+                  : 'Flag issue for Quality Team'
+            }
+            onClick={onToggleFlag}
+          >
+            ⚑
           </button>
         ) : null}
       </div>
@@ -370,6 +411,10 @@ export function ItpTravelerReportPanel({
   valveRowId = null,
   neededParts = [],
   onNeedPart,
+  onToggleFlag,
+  canFlag = false,
+  flagBusy = false,
+  flagPermissionHint,
 }: ItpTravelerReportPanelProps) {
   const { showToast } = useToast()
   const [printingValveKeep, setPrintingValveKeep] = useState(false)
@@ -572,6 +617,16 @@ export function ItpTravelerReportPanel({
                         onNeedPart && section.secId === NEED_PART_SECTION_ID
                           ? () => onNeedPart(item.id)
                           : undefined
+                      }
+                      onToggleFlag={
+                        onToggleFlag ? () => onToggleFlag(item.id, item.name) : undefined
+                      }
+                      canFlag={previewMode ? true : canFlag}
+                      flagBusy={flagBusy}
+                      flagPermissionHint={
+                        previewMode
+                          ? 'Preview only — flags are not saved'
+                          : flagPermissionHint
                       }
                     />
                   )

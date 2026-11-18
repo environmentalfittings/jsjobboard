@@ -19271,6 +19271,13 @@ textarea.modal-status-select {
   border: 1px solid #bfdbfe;
 }
 
+.itp-library-photo-count {
+  margin: 6px 0 0;
+  font-size: 12px;
+  font-weight: 600;
+  color: #0f766e;
+}
+
 .itp-library-meas-fields {
   display: grid;
   grid-template-columns: 1fr 1fr;
