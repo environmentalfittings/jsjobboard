@@ -21331,9 +21331,10 @@ body.shop-tv-fullscreen-active .page-content {
   display: flex;
   align-items: stretch;
   width: 100%;
-  min-height: 38px;
+  min-height: 108px;
+  height: clamp(108px, 14vh, 148px);
   border: 1px solid #bfdbfe;
-  border-radius: 12px;
+  border-radius: 14px;
   background: linear-gradient(180deg, #eff6ff 0%, #dbeafe 100%);
   overflow: hidden;
 }
@@ -21342,14 +21343,17 @@ body.shop-tv-fullscreen-active .page-content {
   flex-shrink: 0;
   display: flex;
   align-items: center;
-  padding: 0 14px;
-  font-size: 0.78rem;
+  justify-content: center;
+  writing-mode: vertical-rl;
+  transform: rotate(180deg);
+  padding: 12px 10px;
+  font-size: 0.82rem;
   font-weight: 800;
-  letter-spacing: 0.04em;
+  letter-spacing: 0.08em;
   text-transform: uppercase;
   color: #1e3a8a;
   background: #bfdbfe;
-  border-right: 1px solid #93c5fd;
+  border-left: 1px solid #93c5fd;
   white-space: nowrap;
 }
 
@@ -21358,14 +21362,15 @@ body.shop-tv-fullscreen-active .page-content {
   min-width: 0;
   display: flex;
   align-items: center;
+  padding: 10px 0;
   overflow: hidden;
-  mask-image: linear-gradient(90deg, transparent 0, #000 18px, #000 calc(100% - 18px), transparent);
+  mask-image: linear-gradient(90deg, transparent 0, #000 24px, #000 calc(100% - 24px), transparent);
 }
 
 .shop-tv-know-empty {
   margin: 0;
-  padding: 0 14px;
-  font-size: 0.9rem;
+  padding: 0 18px;
+  font-size: 1rem;
   font-weight: 600;
   color: #64748b;
 }
@@ -21373,8 +21378,9 @@ body.shop-tv-fullscreen-active .page-content {
 .shop-tv-know-track {
   display: flex;
   width: max-content;
-  align-items: center;
+  align-items: stretch;
   gap: 0;
+  height: 100%;
   animation-name: shop-tv-know-scroll;
   animation-timing-function: linear;
   animation-iteration-count: infinite;
@@ -21388,31 +21394,65 @@ body.shop-tv-fullscreen-active .page-content {
 
 .shop-tv-know-group {
   display: flex;
-  align-items: center;
-  gap: 0;
+  align-items: stretch;
+  gap: 12px;
   flex-shrink: 0;
+  padding: 0 6px;
 }
 
-.shop-tv-know-item {
-  display: inline-flex;
-  align-items: center;
+.shop-tv-know-card {
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
   gap: 8px;
-  padding: 0 4px 0 22px;
-  font-size: 0.95rem;
-  font-weight: 700;
-  color: #0f172a;
-  white-space: nowrap;
+  width: min(320px, 42vw);
+  min-width: 220px;
+  max-width: 340px;
+  padding: 10px 12px;
+  border: 1px solid #93c5fd;
+  border-radius: 12px;
+  background: #fff;
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.06);
 }
 
-.shop-tv-know-item-text {
+.shop-tv-know-card-task {
+  margin: 0;
+  font-size: 0.98rem;
+  font-weight: 700;
+  line-height: 1.3;
+  color: #0f172a;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+  overflow: hidden;
+  min-height: 2.6em;
+}
+
+.shop-tv-know-card-meta {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  min-height: 1.4em;
+}
+
+.shop-tv-know-card-assignee {
+  min-width: 0;
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: #2563eb;
   white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .shop-tv-know-age {
   display: inline-flex;
   align-items: center;
+  flex-shrink: 0;
   border-radius: 999px;
-  padding: 2px 8px;
+  padding: 3px 9px;
   font-size: 0.7rem;
   font-weight: 800;
   letter-spacing: 0.02em;
@@ -21435,13 +21475,6 @@ body.shop-tv-fullscreen-active .page-content {
   color: #b91c1c;
 }
 
-.shop-tv-know-item::after {
-  content: '•';
-  margin-left: 14px;
-  color: #3b82f6;
-  font-weight: 900;
-}
-
 @keyframes shop-tv-know-scroll {
   from {
     transform: translateX(-50%);
@@ -21454,23 +21487,34 @@ body.shop-tv-fullscreen-active .page-content {
 .shop-tv-board--fullscreen .shop-tv-know {
   border-color: #1e3a8a;
   background: linear-gradient(180deg, #172554 0%, #1e3a8a 100%);
-  min-height: 34px;
+  min-height: 118px;
+  height: clamp(118px, 16vh, 160px);
 }
 
 .shop-tv-board--fullscreen .shop-tv-know-label {
   color: #eff6ff;
   background: #1d4ed8;
-  border-right-color: #2563eb;
-  font-size: 0.72rem;
+  border-left-color: #2563eb;
+  font-size: 0.78rem;
 }
 
 .shop-tv-board--fullscreen .shop-tv-know-empty {
   color: #93c5fd;
 }
 
-.shop-tv-board--fullscreen .shop-tv-know-item {
+.shop-tv-board--fullscreen .shop-tv-know-card {
+  background: #0f172a;
+  border-color: #334155;
+  box-shadow: none;
+}
+
+.shop-tv-board--fullscreen .shop-tv-know-card-task {
   color: #f8fafc;
-  font-size: 0.92rem;
+  font-size: 1.02rem;
+}
+
+.shop-tv-board--fullscreen .shop-tv-know-card-assignee {
+  color: #93c5fd;
 }
 
 .shop-tv-board--fullscreen .shop-tv-know-age--fresh {
@@ -21486,10 +21530,6 @@ body.shop-tv-fullscreen-active .page-content {
 .shop-tv-board--fullscreen .shop-tv-know-age--stale {
   background: #991b1b;
   color: #fecaca;
-}
-
-.shop-tv-board--fullscreen .shop-tv-know-item::after {
-  color: #60a5fa;
 }
 
 .shop-tv-chart {

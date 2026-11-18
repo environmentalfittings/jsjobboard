@@ -6,7 +6,6 @@ import { StatusBadge } from '../components/StatusBadge'
 import { useToast } from '../components/ToastNotification'
 import { useAuth } from '../contexts/AuthContext'
 import { useOrganization } from '../contexts/OrganizationContext'
-import { finishCellTone } from '../constants/finishCellColors'
 import { useCompanyWorkflow } from '../hooks/useCompanyWorkflow'
 import {
   daysOnTodoList,
@@ -32,8 +31,6 @@ import {
   countMovedOutToday,
   parseShopTvStatusMoves,
   valveMatchesTvColumn,
-  VSI_TV_CHART_BASE,
-  type ShopTvDeptMoveRow,
   type ShopTvStatusMove,
 } from '../lib/shopTvBoard'
 import { supabase } from '../lib/supabase'
@@ -59,11 +56,17 @@ const SCROLL_SPEED_STORAGE_KEY = 'js-shop-tv-scroll-speed'
 const SCROLL_RATE_STORAGE_KEY = 'js-shop-tv-scroll-rate-v2'
 const SCROLL_PAUSED_STORAGE_KEY = 'js-shop-tv-scroll-paused-v2'
 const COLUMN_REST_ORDER_STORAGE_KEY = 'js-shop-tv-column-rest-order'
+const KNOW_RATE_STORAGE_KEY = 'js-shop-tv-know-rate-v1'
 
 /** Pixels per second — slider allows slower than the old “Slow” preset. */
 const SCROLL_RATE_MIN = 4
 const SCROLL_RATE_MAX = 120
 const SCROLL_RATE_DEFAULT = 18
+
+/** In the Know marquee rate: 1 = crawl (slowest), 10 = fast. */
+const KNOW_RATE_MIN = 1
+const KNOW_RATE_MAX = 10
+const KNOW_RATE_DEFAULT = 3
 
 type ColumnRestOrder = Record<string, string[]>
 
@@ -112,6 +115,32 @@ function scrollRateLabel(rate: number): string {
   return 'Fast'
 }
 
+function clampKnowRate(value: number): number {
+  if (!Number.isFinite(value)) return KNOW_RATE_DEFAULT
+  return Math.min(KNOW_RATE_MAX, Math.max(KNOW_RATE_MIN, Math.round(value)))
+}
+
+function readStoredKnowRate(): number {
+  if (typeof window === 'undefined') return KNOW_RATE_DEFAULT
+  try {
+    const raw = window.localStorage.getItem(KNOW_RATE_STORAGE_KEY)
+    if (raw != null && raw !== '') {
+      const parsed = Number(raw)
+      if (Number.isFinite(parsed)) return clampKnowRate(parsed)
+    }
+  } catch {
+    // ignore
+  }
+  return KNOW_RATE_DEFAULT
+}
+
+function knowRateLabel(rate: number): string {
+  if (rate <= 2) return 'Crawl'
+  if (rate <= 4) return 'Slow'
+  if (rate <= 7) return 'Medium'
+  return 'Fast'
+}
+
 type ShopTvKnowItem = {
   id: number
   body: string
@@ -126,65 +155,6 @@ function formatKnowItem(item: ShopTvKnowItem): string {
   const age = formatDaysOnTodoList(daysOnTodoList(item.created_at, item.note_date))
   const base = assignee ? `${body} · ${assignee}` : body
   return `${base} (${age})`
-}
-
-const DEPT_CHART_COLORS: Record<string, string> = {
-  'dept-teardown': '#f59e0b',
-  'dept-welding': '#38bdf8',
-  'dept-machine-shop': '#a78bfa',
-  'dept-testing': '#34d399',
-  'dept-painting': '#fb7185',
-  'dept-prv': '#f87171',
-  'dept-RV': '#f59e0b',
-  'dept-CV': '#38bdf8',
-  'dept-UL': '#a78bfa',
-}
-
-const DEPT_CHART_BASE: readonly Omit<ShopTvDeptMoveRow, 'moveCount'>[] = [
-  { id: 'dept-teardown', label: 'Teardown', kind: 'department' },
-  { id: 'dept-welding', label: 'Welding', kind: 'department' },
-  { id: 'dept-machine-shop', label: 'Machine shop', kind: 'department' },
-  { id: 'dept-testing', label: 'Testing', kind: 'department' },
-  { id: 'dept-painting', label: 'Painting', kind: 'department' },
-  { id: 'dept-prv', label: 'PRV', kind: 'department' },
-]
-
-function niceChartMax(value: number): number {
-  if (value <= 0) return 5
-  const exp = 10 ** Math.floor(Math.log10(value))
-  const scaled = value / exp
-  const nice = scaled <= 1 ? 1 : scaled <= 2 ? 2 : scaled <= 5 ? 5 : 10
-  return nice * exp
-}
-
-function barColorForDeptRow(row: ShopTvDeptMoveRow): string {
-  if (row.kind === 'department') {
-    const chart = DEPT_CHART_COLORS[row.id]
-    if (chart) return chart
-    const tone = finishCellTone(row.cell ?? row.label)
-    return tone?.background ?? '#14b8a6'
-  }
-  const tone = finishCellTone(row.cell ?? row.label)
-  return tone?.background ?? '#94a3b8'
-}
-
-function buildDeptMoveChartRows(
-  leaderboard: readonly ShopTvDeptMoveRow[],
-  workflowKey: 'js-valve' | 'vsi',
-): ShopTvDeptMoveRow[] {
-  const byId = new Map(leaderboard.map((row) => [row.id, row]))
-  const base = workflowKey === 'vsi' ? VSI_TV_CHART_BASE : DEPT_CHART_BASE
-  const departments = base.map((item) => ({
-    ...item,
-    moveCount: byId.get(item.id)?.moveCount ?? 0,
-  }))
-  const extras = workflowKey === 'vsi'
-    ? []
-    : leaderboard.filter((row) => row.kind === 'finish-cell' && row.moveCount > 0).slice(0, 8)
-  // Winner (most moves) on the left → least on the right. Skip zeros so bars stay wide.
-  return [...departments, ...extras]
-    .filter((row) => row.moveCount > 0)
-    .sort((a, b) => b.moveCount - a.moveCount || a.label.localeCompare(b.label))
 }
 
 function readStoredColumnRestOrder(): ColumnRestOrder {
@@ -348,13 +318,13 @@ export function ShopTvBoardPage() {
   const [itpSummaries, setItpSummaries] = useState<Record<number, ItpCardSummary>>({})
   const [priorityQueueIds, setPriorityQueueIds] = useState<string[]>([])
   const [movesToday, setMovesToday] = useState<ShopTvStatusMove[]>([])
-  const [deptLeaderboard, setDeptLeaderboard] = useState<ShopTvDeptMoveRow[]>([])
   const [knowItems, setKnowItems] = useState<ShopTvKnowItem[]>([])
   const [loading, setLoading] = useState(true)
   const [savingPriority, setSavingPriority] = useState(false)
   const [fullscreen, setFullscreen] = useState(false)
   const [scrollRate, setScrollRate] = useState(() => readStoredScrollRate())
   const [scrollPaused, setScrollPaused] = useState(() => readStoredScrollPaused())
+  const [knowRate, setKnowRate] = useState(() => readStoredKnowRate())
   const [columnRestOrder, setColumnRestOrder] = useState<ColumnRestOrder>(() => readStoredColumnRestOrder())
   const [priorityOnly, setPriorityOnly] = useState(false)
 
@@ -362,10 +332,11 @@ export function ShopTvBoardPage() {
     try {
       window.localStorage.setItem(SCROLL_RATE_STORAGE_KEY, String(scrollRate))
       window.localStorage.setItem(SCROLL_PAUSED_STORAGE_KEY, scrollPaused ? '1' : '0')
+      window.localStorage.setItem(KNOW_RATE_STORAGE_KEY, String(knowRate))
     } catch {
       // ignore
     }
-  }, [scrollRate, scrollPaused])
+  }, [scrollRate, scrollPaused, knowRate])
 
   useEffect(() => {
     try {
@@ -383,7 +354,6 @@ export function ShopTvBoardPage() {
       setItpSummaries({})
       setPriorityQueueIds([])
       setMovesToday([])
-      setDeptLeaderboard([])
       setKnowItems([])
       setLoading(false)
       return
@@ -420,7 +390,6 @@ export function ShopTvBoardPage() {
 
     if (todayRes.error) {
       setMovesToday([])
-      setDeptLeaderboard([])
     } else {
       const scopedIds = new Set(scoped.map((row) => row.id))
       const scopedLog = (todayRes.data ?? []).filter((row) => {
@@ -432,7 +401,6 @@ export function ShopTvBoardPage() {
         { workflowKey: workflow.key },
       )
       setMovesToday(parsed.moves)
-      setDeptLeaderboard(parsed.deptLeaderboard)
     }
 
     if (notesRes.error) {
@@ -532,19 +500,6 @@ export function ShopTvBoardPage() {
       return { ...column, rows, movedOutToday }
     })
   }, [valves, workflow, priorityQueueIds, priorityOnly, priorityRank, columnRestOrder, movesToday])
-
-  const chartRows = useMemo(
-    () => buildDeptMoveChartRows(deptLeaderboard, workflow.key),
-    [deptLeaderboard, workflow.key],
-  )
-  const chartMax = useMemo(
-    () => niceChartMax(chartRows.reduce((max, row) => Math.max(max, row.moveCount), 0)),
-    [chartRows],
-  )
-  const chartTopCount = useMemo(
-    () => chartRows.reduce((max, row) => Math.max(max, row.moveCount), 0),
-    [chartRows],
-  )
 
   const movePriorityInColumn = useCallback(
     async (valveId: string, columnRows: Valve[], direction: 'top' | 'up' | 'down') => {
@@ -675,10 +630,14 @@ export function ShopTvBoardPage() {
   )
 
   const knowScrollSeconds = useMemo(() => {
-    if (knowItems.length === 0) return 30
+    if (knowItems.length === 0) return 40
+    // Cards are wide — pace by card count more than character length.
     const chars = knowItems.reduce((sum, item) => sum + formatKnowItem(item).length, 0)
-    return Math.min(90, Math.max(24, Math.round(chars / 4)))
-  }, [knowItems])
+    const base = Math.min(160, Math.max(36, Math.round(knowItems.length * 9 + chars / 8)))
+    // Lower knowRate = slower. Rate 1 ≈ 4.4× baseline; rate 10 ≈ 0.7×.
+    const factor = (KNOW_RATE_MAX + 2 - knowRate) / 5
+    return Math.round(base * factor)
+  }, [knowItems, knowRate])
 
   return (
     <section
@@ -703,7 +662,7 @@ export function ShopTvBoardPage() {
             Priority list only
           </label>
           <label className="shop-tv-speed">
-            <span>Scroll</span>
+            <span>Columns</span>
             <input
               type="range"
               className="shop-tv-speed-slider"
@@ -716,10 +675,30 @@ export function ShopTvBoardPage() {
                 setScrollRate(clampScrollRate(Number(e.target.value)))
                 setScrollPaused(false)
               }}
-              aria-label="Auto-scroll speed"
+              aria-label="Column auto-scroll speed"
             />
             <span className="shop-tv-speed-value">
               {scrollPaused ? 'Paused' : scrollRateLabel(scrollRate)}
+            </span>
+          </label>
+          <label className="shop-tv-speed">
+            <span>In the Know</span>
+            <input
+              type="range"
+              className="shop-tv-speed-slider"
+              min={KNOW_RATE_MIN}
+              max={KNOW_RATE_MAX}
+              step={1}
+              value={knowRate}
+              disabled={scrollPaused}
+              onChange={(e) => {
+                setKnowRate(clampKnowRate(Number(e.target.value)))
+                setScrollPaused(false)
+              }}
+              aria-label="In the Know scroll speed"
+            />
+            <span className="shop-tv-speed-value">
+              {scrollPaused ? 'Paused' : knowRateLabel(knowRate)}
             </span>
           </label>
           <button
@@ -770,19 +749,21 @@ export function ShopTvBoardPage() {
                 >
                   {knowItems.map((item) => {
                     const days = daysOnTodoList(item.created_at, item.note_date)
+                    const assignee = item.assigned_to?.trim()
                     return (
-                      <span key={`${copy}-${item.id}`} className="shop-tv-know-item">
-                        <span className="shop-tv-know-item-text">
-                          {item.assigned_to?.trim()
-                            ? `${item.body.trim()} · ${item.assigned_to.trim()}`
-                            : item.body.trim()}
-                        </span>
-                        <span
-                          className={`shop-tv-know-age shop-tv-know-age--${todoAgeTone(days)}`}
-                        >
-                          {formatDaysOnTodoList(days)}
-                        </span>
-                      </span>
+                      <article key={`${copy}-${item.id}`} className="shop-tv-know-card">
+                        <p className="shop-tv-know-card-task">{item.body.trim()}</p>
+                        <div className="shop-tv-know-card-meta">
+                          <span className="shop-tv-know-card-assignee">
+                            {assignee || 'Unassigned'}
+                          </span>
+                          <span
+                            className={`shop-tv-know-age shop-tv-know-age--${todoAgeTone(days)}`}
+                          >
+                            {formatDaysOnTodoList(days)}
+                          </span>
+                        </div>
+                      </article>
                     )
                   })}
                 </div>
@@ -790,55 +771,6 @@ export function ShopTvBoardPage() {
             </div>
           )}
         </div>
-      </section>
-
-      <section className="shop-tv-chart" aria-label="Department moves chart for today">
-        <div className="shop-tv-chart-head">
-          <h3 className="shop-tv-chart-title">Today&apos;s moves</h3>
-        </div>
-        {loading && deptLeaderboard.length === 0 ? (
-          <p className="shop-tv-chart-empty">Loading…</p>
-        ) : chartRows.length === 0 ? (
-          <p className="shop-tv-chart-empty">No status moves logged yet today.</p>
-        ) : (
-          <div className="shop-tv-chart-body">
-            <div className="shop-tv-chart-plot" role="img" aria-label="Bar chart of moves by department">
-              <div className="shop-tv-chart-bars">
-                {chartRows.map((row) => {
-                  const heightPct = chartMax > 0 ? (row.moveCount / chartMax) * 100 : 0
-                  const color = barColorForDeptRow(row)
-                  const leader = row.moveCount > 0 && row.moveCount === chartTopCount
-                  return (
-                    <div
-                      key={row.id}
-                      className={`shop-tv-chart-col${leader ? ' is-leader' : ''}`}
-                      title={`${row.label}: ${row.moveCount} move${row.moveCount === 1 ? '' : 's'}`}
-                    >
-                      <div className="shop-tv-chart-bar-wrap">
-                        <div
-                          className="shop-tv-chart-bar"
-                          style={{
-                            height: `${Math.max(heightPct, 8)}%`,
-                            background: color,
-                          }}
-                        >
-                          <span className="shop-tv-chart-value">{row.moveCount}</span>
-                        </div>
-                      </div>
-                      <div className="shop-tv-chart-xlabel">
-                        {row.cell && row.cell !== 'Unassigned' ? (
-                          <FinishCellBadge cell={row.cell} />
-                        ) : (
-                          <span>{row.label}</span>
-                        )}
-                      </div>
-                    </div>
-                  )
-                })}
-              </div>
-            </div>
-          </div>
-        )}
       </section>
 
       {loading ? <div className="loading">Loading shop board…</div> : null}
