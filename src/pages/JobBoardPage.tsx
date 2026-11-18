@@ -56,6 +56,7 @@ import {
 import type { DueDateChangeDetails, DueDateChangeSavePayload } from '../lib/dueDateChangeReasons'
 import { recordDueDateChange, resolveChangedByName } from '../lib/dueDateChanges'
 import { recordStatusRework } from '../lib/statusReworkLog'
+import { assertItpCompleteForStatusLeave } from '../lib/itpWorkflowGate'
 import { isBackwardStatusMove } from '../lib/statusWorkflow'
 import { blockSharedShopDeletes, SHARED_SHOP_DELETE_BLOCKED_MESSAGE } from '../lib/companyDataGuard'
 import {
@@ -1334,6 +1335,15 @@ export function JobBoardPage({ role, username }: { role?: UserRole; username?: s
     }
     const statusChanged = nextStatus !== valve.status
     if (statusChanged) {
+      const gate = await assertItpCompleteForStatusLeave({
+        valve,
+        nextStatus,
+        companyKey: workflow.key,
+      })
+      if (!gate.ok) {
+        showToast(gate.message)
+        return false
+      }
       Object.assign(patch, valveStatusPatch(nextStatus, valve))
     }
 
@@ -1453,6 +1463,17 @@ export function JobBoardPage({ role, username }: { role?: UserRole; username?: s
     },
   ) => {
     if (!nextStatus || valve.status === nextStatus) return false
+    if (!options?.reworkReason) {
+      const gate = await assertItpCompleteForStatusLeave({
+        valve,
+        nextStatus,
+        companyKey: workflow.key,
+      })
+      if (!gate.ok) {
+        showToast(gate.message)
+        return false
+      }
+    }
     const previous = { ...valve }
     const patch: Partial<Valve> = valveStatusPatch(nextStatus, valve)
     const dueDateProvided = options != null && 'nextDueDate' in options

@@ -4,6 +4,12 @@ import { ITP_LIBRARY } from './itpLibrary'
 export type ItpProcessSectionDef = {
   id: string
   title: string
+  /**
+   * Shop Workflow stage key (e.g. teardown, machine_1) from status_workflow_config.
+   * When set, technicians cannot leave that workflow stage until this section’s
+   * included ITP items are marked done.
+   */
+  workflowStageKey?: string | null
 }
 
 /** Numbered process flow — these stay as heading sections on the ITP. */
@@ -51,10 +57,29 @@ export function resolveLibrarySectionId(secId: string | null | undefined): strin
   return ITP_SPECIALTY_SECTION_HOME[value] ?? value
 }
 
+/**
+ * Suggested Shop Workflow stage for each built-in ITP heading.
+ * Empty / omitted keys mean “no gate” until an admin maps the section.
+ */
+export const DEFAULT_SECTION_WORKFLOW_STAGE: Partial<Record<ItpCoreProcessSectionId, string>> = {
+  receipt: 'pull',
+  disassembly: 'teardown',
+  repair: 'machine_1',
+  assembly: 'assembly',
+  testing: 'testing',
+  final: 'warehouse_rts',
+}
+
+export function defaultWorkflowStageKeyForSection(id: string): string | null {
+  const key = DEFAULT_SECTION_WORKFLOW_STAGE[id as ItpCoreProcessSectionId]
+  return key ?? null
+}
+
 export function defaultProcessSections(): ItpProcessSectionDef[] {
   return ITP_LIBRARY.filter((section) => isCoreProcessSectionId(section.id)).map((section) => ({
     id: section.id,
     title: section.title,
+    workflowStageKey: defaultWorkflowStageKeyForSection(section.id),
   }))
 }
 
@@ -105,7 +130,11 @@ export function normalizeProcessSections(
       if (typeof row === 'string') {
         const id = resolveLibrarySectionId(row)
         if (!id || isSpecialtyProcessSectionId(row)) continue
-        parsed.push({ id, title: processSectionTitle(id) })
+        parsed.push({
+          id,
+          title: processSectionTitle(id),
+          workflowStageKey: defaultWorkflowStageKeyForSection(id),
+        })
         continue
       }
       if (!row || typeof row !== 'object') continue
@@ -114,7 +143,12 @@ export function normalizeProcessSections(
       const id = resolveLibrarySectionId(rawId)
       if (!id) continue
       const title = String((row as { title?: unknown }).title ?? '').trim()
-      parsed.push({ id, title: title || processSectionTitle(id) })
+      const hasStage = Object.prototype.hasOwnProperty.call(row, 'workflowStageKey')
+      const rawStage = (row as { workflowStageKey?: unknown }).workflowStageKey
+      const workflowStageKey = hasStage
+        ? String(rawStage ?? '').trim() || null
+        : defaultWorkflowStageKeyForSection(id)
+      parsed.push({ id, title: title || processSectionTitle(id), workflowStageKey })
     }
   }
 
@@ -124,7 +158,15 @@ export function normalizeProcessSections(
     const id = resolveLibrarySectionId(def.id)
     if (!id || isSpecialtyProcessSectionId(def.id) || seen.has(id)) return
     seen.add(id)
-    out.push({ id, title: def.title.trim() || processSectionTitle(id) })
+    const workflowStageKey =
+      def.workflowStageKey !== undefined
+        ? def.workflowStageKey?.trim() || null
+        : defaultWorkflowStageKeyForSection(id)
+    out.push({
+      id,
+      title: def.title.trim() || processSectionTitle(id),
+      workflowStageKey,
+    })
   }
 
   if (parsed.length > 0) {

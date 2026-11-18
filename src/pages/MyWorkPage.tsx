@@ -15,6 +15,7 @@ import {
 import { resolveTechnicianForUser } from '../lib/resolveTechnicianForUser'
 import { useCompanyWorkflow } from '../hooks/useCompanyWorkflow'
 import { canWriteShop, permissionDeniedReason } from '../lib/roles'
+import { assertItpCompleteForStatusLeave } from '../lib/itpWorkflowGate'
 import { recordStatusRework } from '../lib/statusReworkLog'
 import { isBackwardStatusMove } from '../lib/statusWorkflow'
 import { supabase } from '../lib/supabase'
@@ -132,6 +133,17 @@ export function MyWorkPage({ user, onLogout }: MyWorkPageProps) {
       dueDateDetails?: DueDateChangeDetails
     },
   ) => {
+    if (!options?.reworkReason) {
+      const gate = await assertItpCompleteForStatusLeave({
+        valve: job,
+        nextStatus,
+        companyKey: workflow.key,
+      })
+      if (!gate.ok) {
+        showToast(gate.message)
+        return false
+      }
+    }
     const previousDueDate = job.due_date?.trim() || null
     const patch: Partial<Valve> = valveStatusPatch(nextStatus, job)
     const dueDateProvided = options != null && 'nextDueDate' in options

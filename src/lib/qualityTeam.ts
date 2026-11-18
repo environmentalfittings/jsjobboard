@@ -1,3 +1,4 @@
+import { TERMINAL_STATUSES, WAITING_STATUSES } from '../constants/statuses'
 import { isClosedWorkOrder } from './jobDisplayStatus'
 import { loadItpCardSummaries } from './itpCardSummaries'
 import { normalizeEmployeeUsername } from './employeeAuth'
@@ -805,5 +806,94 @@ export async function loadWarehouseRtsUnsignedItps(options?: {
     return String(b.dateClosed ?? '').localeCompare(String(a.dateClosed ?? '')) || a.valveId.localeCompare(b.valveId)
   })
 
+  return { rows, error: null }
+}
+
+/** VSI waiting/hold statuses (JS waiting set is imported from statuses.ts). */
+const VSI_WAITING_OR_HOLD = new Set(['Staging Area', 'Hold', 'Quarantine'])
+const READY_TO_SHIP_STATUSES = new Set(['Warehouse RTS', 'Shipping'])
+
+function isCompletedOrClosedValve(valve: Valve): boolean {
+  if (valve.order_type === 'Completed') return true
+  const status = String(valve.status ?? '').trim()
+  if (!status) return false
+  // Keep Warehouse RTS / Shipping on the missing-ITP list; only drop truly finished work.
+  if (READY_TO_SHIP_STATUSES.has(status)) return false
+  if (TERMINAL_STATUSES.has(status)) return true
+  if (status === 'Junked' || status === 'Replaced') return true
+  if (/^completed$/i.test(status)) return true
+  return false
+}
+
+/**
+ * In-process shop work that is actively moving (not waiting, not on hold, not completed).
+ * Warehouse RTS / Shipping stay eligible so missing ITPs remain visible at ready-to-ship.
+ */
+export function isInProcessActiveNotWaitingValve(valve: Valve): boolean {
+  if (valve.order_type !== 'In-Process Order') return false
+  if (isCompletedOrClosedValve(valve)) return false
+  if (WAITING_STATUSES.has(valve.status)) return false
+  if (VSI_WAITING_OR_HOLD.has(valve.status)) return false
+  return true
+}
+
+export type InProcessMissingItpRow = {
+  valveRowId: number
+  valveId: string
+  customer: string | null
+  cell: string | null
+  jobType: string | null
+  status: string
+}
+
+async function fetchInProcessOrderValves(): Promise<{ valves: Valve[]; error: string | null }> {
+  const pageSize = 1000
+  const valves: Valve[] = []
+  for (let from = 0; ; from += pageSize) {
+    const to = from + pageSize - 1
+    const { data, error } = await supabase
+      .from('valves')
+      .select(VALVE_LIST_SELECT)
+      .eq('order_type', 'In-Process Order')
+      .not('status', 'in', '(Completed,Junked,Replaced)')
+      .order('valve_id', { ascending: true })
+      .range(from, to)
+    if (error) return { valves: [], error: error.message }
+    const batch = (data as Valve[] | null) ?? []
+    valves.push(...batch)
+    if (batch.length < pageSize) break
+  }
+  return { valves, error: null }
+}
+
+/**
+ * Active in-process valves (not waiting / not on hold / not RTS) that have no ITP plan yet.
+ */
+export async function loadInProcessMissingItps(): Promise<{
+  rows: InProcessMissingItpRow[]
+  error: string | null
+}> {
+  const { valves, error } = await fetchInProcessOrderValves()
+  if (error) return { rows: [], error }
+
+  const candidates = valves.filter(isInProcessActiveNotWaitingValve)
+  if (candidates.length === 0) return { rows: [], error: null }
+
+  const summaries = await loadItpCardSummaries(candidates.map((valve) => valve.id))
+  const rows: InProcessMissingItpRow[] = []
+
+  for (const valve of candidates) {
+    if (summaries[valve.id]) continue
+    rows.push({
+      valveRowId: valve.id,
+      valveId: valve.valve_id,
+      customer: valve.customer ?? null,
+      cell: valve.cell ?? null,
+      jobType: valve.job_type ?? null,
+      status: valve.status ?? '',
+    })
+  }
+
+  rows.sort((a, b) => a.valveId.localeCompare(b.valveId, undefined, { numeric: true }))
   return { rows, error: null }
 }

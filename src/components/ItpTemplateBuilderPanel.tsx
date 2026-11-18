@@ -31,6 +31,7 @@ import {
 } from '../constants/finishCellColors'
 import { VALVE_TYPES } from '../constants/jobLookups'
 import { loadLookupOptionsMap } from '../lib/lookupValues'
+import { useCompanyWorkflow } from '../hooks/useCompanyWorkflow'
 import {
   defaultAreaForSection,
   emptyMasterCatalogState,
@@ -42,6 +43,8 @@ import {
   saveItpMasterCatalog,
   type ItpMasterCatalogItem,
 } from '../lib/itpMasterCatalog'
+import { invalidateItpWorkflowGateCache } from '../lib/itpWorkflowGate'
+import { getWorkflowStages } from '../lib/statusWorkflow'
 import {
   countHoldPointsInScope,
   countIncludedInScope,
@@ -414,7 +417,9 @@ function catalogFingerprint(
   processSections: ItpProcessSectionDef[],
 ) {
   return [
-    processSections.map((section) => `${section.id}|${section.title}`).join(','),
+    processSections
+      .map((section) => `${section.id}|${section.title}|${section.workflowStageKey ?? ''}`)
+      .join(','),
     areas.map((area) => `${area.value}|${area.label}`).join(','),
     items
       .map(
@@ -668,6 +673,8 @@ export function ItpTemplateBuilderPanel({
   focus?: ItpTemplateBuilderFocus | null
 }) {
   const { showToast } = useToast()
+  const workflow = useCompanyWorkflow()
+  const workflowStages = useMemo(() => getWorkflowStages(workflow.key), [workflow.key])
   const [jobType, setJobType] = useState<ItpLibraryJobType>('repair')
   const [valveType, setValveType] = useState('')
   const [templateName, setTemplateName] = useState(ITP_LIBRARY_DEFAULT_TEMPLATE_NAME)
@@ -2176,10 +2183,21 @@ export function ItpTemplateBuilderPanel({
     setMasterDirty(true)
   }
 
+  const setSectionWorkflowStage = (secId: string, workflowStageKey: string) => {
+    const nextKey = workflowStageKey.trim() || null
+    setProcessSections((prev) =>
+      prev.map((section) =>
+        section.id === secId ? { ...section, workflowStageKey: nextKey } : section,
+      ),
+    )
+    setMasterDirty(true)
+  }
+
   const handleSaveMaster = async () => {
     setSaving(true)
     try {
       await saveItpMasterCatalog(catalog, areas, processSections)
+      invalidateItpWorkflowGateCache()
       setMasterDirty(false)
       clearMasterCatalogDraft()
       showToast('Global master saved')
@@ -2195,6 +2213,7 @@ export function ItpTemplateBuilderPanel({
     try {
       if (masterDirty) {
         await saveItpMasterCatalog(catalog, areas, processSections)
+        invalidateItpWorkflowGateCache()
         setMasterDirty(false)
         clearMasterCatalogDraft()
       }
@@ -2230,6 +2249,7 @@ export function ItpTemplateBuilderPanel({
     try {
       if (masterDirty) {
         await saveItpMasterCatalog(catalog, areas, processSections)
+        invalidateItpWorkflowGateCache()
         setMasterDirty(false)
         clearMasterCatalogDraft()
       }
@@ -2288,6 +2308,7 @@ export function ItpTemplateBuilderPanel({
     try {
       if (masterDirty) {
         await saveItpMasterCatalog(catalog, areas, processSections)
+        invalidateItpWorkflowGateCache()
         setMasterDirty(false)
         clearMasterCatalogDraft()
       }
@@ -3396,6 +3417,8 @@ export function ItpTemplateBuilderPanel({
                 const selCount = items.filter((item) => getSel(editingScope, item.id).included).length
                 const allSel = items.length > 0 && selCount === items.length
                 const sectionExpanded = expandedMasterSecs.has(id)
+                const sectionDef = processSections.find((row) => row.id === id)
+                const workflowStageKey = sectionDef?.workflowStageKey ?? ''
                 return (
                   <div
                     key={id}
@@ -3442,6 +3465,26 @@ export function ItpTemplateBuilderPanel({
                         >
                           <h4>{title}</h4>
                         </button>
+                        <label
+                          className="itp-section-workflow-map"
+                          title="Technicians cannot leave this Shop Workflow stage until included ITP items in this section are done"
+                          onClick={(e) => e.stopPropagation()}
+                        >
+                          <span>Shop workflow</span>
+                          <select
+                            value={workflowStageKey}
+                            disabled={!canEditCatalog}
+                            onChange={(e) => setSectionWorkflowStage(id, e.target.value)}
+                            aria-label={`Shop workflow stage for ${title}`}
+                          >
+                            <option value="">No gate</option>
+                            {workflowStages.map((stage) => (
+                              <option key={stage.key} value={stage.key}>
+                                {stage.label}
+                              </option>
+                            ))}
+                          </select>
+                        </label>
                       </div>
                       <div className="itp-library-lshr">
                         <span>

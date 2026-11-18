@@ -20,11 +20,13 @@ import {
   isQualityTeamMember,
   loadActiveQualityTeamItps,
   loadCurrentUserQualityTeamLevel,
+  loadInProcessMissingItps,
   loadWarehouseRtsUnsignedItps,
   qualityTeamMembersFromEmployees,
   qualityTeamFlagOwnersFromEmployees,
   DEFAULT_WAREHOUSE_RTS_UNSIGNED_LOOKBACK,
   WAREHOUSE_RTS_UNSIGNED_LOOKBACK_OPTIONS,
+  type InProcessMissingItpRow,
   type QualityTeamFlaggedItem,
   type QualityTeamItpRow,
   type WarehouseRtsUnsignedItpRow,
@@ -94,6 +96,8 @@ export function QualityTeamPage() {
     DEFAULT_WAREHOUSE_RTS_UNSIGNED_LOOKBACK,
   )
   const [rtsIncludeAccepted, setRtsIncludeAccepted] = useState(false)
+  const [missingItpRows, setMissingItpRows] = useState<InProcessMissingItpRow[]>([])
+  const [missingItpLoading, setMissingItpLoading] = useState(true)
 
   const companyScope = useMemo(
     () => ({
@@ -160,21 +164,25 @@ export function QualityTeamPage() {
     setLoading(true)
     setIncrLoading(true)
     setRtsUnsignedLoading(true)
-    const [itpResult, incrResult, rtsResult] = await Promise.all([
+    setMissingItpLoading(true)
+    const [itpResult, incrResult, rtsResult, missingItpResult] = await Promise.all([
       loadActiveQualityTeamItps(),
       listQualityIncrs(),
       loadWarehouseRtsUnsignedItps({
         lookback: rtsUnsignedLookback,
         includeAccepted: rtsIncludeAccepted,
       }),
+      loadInProcessMissingItps(),
     ])
     await reloadEmployees()
     if (itpResult.error) showToast(itpResult.error)
     if (rtsResult.error) showToast(rtsResult.error)
+    if (missingItpResult.error) showToast(missingItpResult.error)
     const organizationIdByValveRowId = await loadValveOrganizationIdMap([
       ...itpResult.rows.map((row) => row.valveRowId),
       ...incrResult.data.map((row) => row.valve_row_id),
       ...rtsResult.rows.map((row) => row.valveRowId),
+      ...missingItpResult.rows.map((row) => row.valveRowId),
     ])
     setRows(filterByCompanyValve(itpResult.rows, organizationIdByValveRowId))
     setIncrRows(
@@ -189,9 +197,11 @@ export function QualityTeamPage() {
     )
     setIncrError(incrResult.error)
     setRtsUnsignedRows(filterByCompanyValve(rtsResult.rows, organizationIdByValveRowId))
+    setMissingItpRows(filterByCompanyValve(missingItpResult.rows, organizationIdByValveRowId))
     setLoading(false)
     setIncrLoading(false)
     setRtsUnsignedLoading(false)
+    setMissingItpLoading(false)
   }, [
     companyScope,
     filterByCompanyValve,
@@ -975,6 +985,55 @@ export function QualityTeamPage() {
                     <td>
                       <Link className="link-button" to={`/itp/${row.valveRowId}`}>
                         {row.hasItp ? 'Open ITP' : 'Start ITP'}
+                      </Link>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </section>
+
+      <section className="dashboard-panel">
+        <h3>In-process — missing ITP</h3>
+        <p className="status-breakdown-note">
+          Active in-process valve cards that are not waiting and not on hold, and do not have an ITP
+          created yet — including{' '}
+          {companyScope.workflowKey === 'vsi' ? 'Shipping' : 'Warehouse RTS'} jobs still missing an
+          ITP.
+        </p>
+        {missingItpLoading ? (
+          <p className="placeholder-copy">Loading…</p>
+        ) : missingItpRows.length === 0 ? (
+          <p className="placeholder-copy">
+            No in-process cards are missing an ITP. Completed, waiting, and on-hold jobs are
+            excluded. Warehouse RTS jobs without an ITP still appear here.
+          </p>
+        ) : (
+          <div className="dashboard-table-wrap">
+            <table className="dashboard-table">
+              <thead>
+                <tr>
+                  <th>Valve</th>
+                  <th>Customer</th>
+                  <th>Cell</th>
+                  <th>Status</th>
+                  <th>Job type</th>
+                  <th />
+                </tr>
+              </thead>
+              <tbody>
+                {missingItpRows.map((row) => (
+                  <tr key={`missing-itp-${row.valveRowId}`}>
+                    <td>{row.valveId}</td>
+                    <td>{row.customer ?? '—'}</td>
+                    <td>{row.cell ?? '—'}</td>
+                    <td>{row.status || '—'}</td>
+                    <td>{row.jobType ?? '—'}</td>
+                    <td>
+                      <Link className="link-button" to={`/itp/${row.valveRowId}`}>
+                        Start ITP
                       </Link>
                     </td>
                   </tr>
