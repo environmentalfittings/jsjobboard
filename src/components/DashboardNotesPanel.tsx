@@ -62,7 +62,16 @@ function normalizeNote(row: DailyNote): DailyNote {
   }
 }
 
-export function DashboardNotesPanel({ readOnly = false }: { readOnly?: boolean }) {
+export function DashboardNotesPanel({
+  readOnly = false,
+  inlineHidden = false,
+  onOpenCountChange,
+}: {
+  readOnly?: boolean
+  /** Hide the embedded sidebar panel without unmounting (keeps popout usable). */
+  inlineHidden?: boolean
+  onOpenCountChange?: (count: number) => void
+}) {
   const { showToast } = useToast()
   const { username } = useAuth()
   const { activeOrganization } = useOrganization()
@@ -143,6 +152,10 @@ export function DashboardNotesPanel({ readOnly = false }: { readOnly?: boolean }
 
   const openNotes = useMemo(() => notes.filter((n) => !n.is_done), [notes])
   const completedNotes = useMemo(() => notes.filter((n) => n.is_done), [notes])
+
+  useEffect(() => {
+    onOpenCountChange?.(openNotes.length)
+  }, [onOpenCountChange, openNotes.length])
 
   const addNote = async () => {
     if (readOnly) return
@@ -530,7 +543,7 @@ export function DashboardNotesPanel({ readOnly = false }: { readOnly?: boolean }
 
   return (
     <>
-      {!poppedOut ? (
+      {!poppedOut && !inlineHidden ? (
         <section className="dashboard-panel daily-notes-panel">
           {panelHeader(false)}
           {renderPanelBody(false)}

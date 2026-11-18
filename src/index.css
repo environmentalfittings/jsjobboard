@@ -8381,6 +8381,65 @@ a.test-log-reports-item-name:hover {
   top: 14px;
 }
 
+.dashboard-sidebar-tabs {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px;
+  padding: 4px;
+  border: 1px solid #dbe4ef;
+  border-radius: 12px;
+  background: #f1f5f9;
+}
+
+.dashboard-sidebar-tab {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  border: 1px solid transparent;
+  border-radius: 9px;
+  background: transparent;
+  color: #475569;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 700;
+  line-height: 1.2;
+  padding: 9px 10px;
+  cursor: pointer;
+}
+
+.dashboard-sidebar-tab:hover {
+  color: #0f172a;
+  background: rgba(255, 255, 255, 0.65);
+}
+
+.dashboard-sidebar-tab.is-active {
+  background: #fff;
+  border-color: #cbd5e1;
+  color: #0f172a;
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.06);
+}
+
+.dashboard-sidebar-tab-count {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 1.35rem;
+  height: 1.35rem;
+  padding: 0 0.35rem;
+  border-radius: 999px;
+  background: #e2e8f0;
+  color: #334155;
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 1;
+}
+
+.dashboard-sidebar-tab.is-active .dashboard-sidebar-tab-count {
+  background: #dbeafe;
+  color: #1d4ed8;
+}
+
 .priority-panel {
   display: flex;
   flex-direction: column;

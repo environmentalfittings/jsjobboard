@@ -102,8 +102,13 @@ export function DashboardPage() {
   const [refreshTick, setRefreshTick] = useState(0)
   const [dragPriorityId, setDragPriorityId] = useState<string | null>(null)
   const [savingPriority, setSavingPriority] = useState(false)
+  const [sidebarTab, setSidebarTab] = useState<'priority' | 'todo'>('priority')
+  const [todoOpenCount, setTodoOpenCount] = useState(0)
   const { showToast } = useToast()
   const todayIso = useMemo(() => localTodayDateString(), [refreshTick])
+  const handleTodoOpenCountChange = useCallback((count: number) => {
+    setTodoOpenCount(count)
+  }, [])
 
   useEffect(() => {
     if (!canManageInventory) {
@@ -874,92 +879,138 @@ export function DashboardPage() {
         </div>
 
         <aside className="dashboard-sidebar">
-          <section className="dashboard-panel priority-panel">
-          <h3>Today's priority list</h3>
-          <div className="priority-list">
-            {priorityRows.length ? (
-              priorityRows.map((row, index) => (
-                <article
-                  key={row.id}
-                  className={`priority-row ${dragPriorityId === row.valve_id ? 'dragging' : ''}`}
-                  draggable={canWrite}
-                  onDragStart={() => {
-                    if (!canWrite) return
-                    setDragPriorityId(row.valve_id)
-                  }}
-                  onDragEnd={() => setDragPriorityId(null)}
-                  onDragOver={(event) => {
-                    if (!canWrite) return
-                    event.preventDefault()
-                  }}
-                  onDrop={async (event) => {
-                    if (!canWrite) return
-                    event.preventDefault()
-                    const draggedId = dragPriorityId
-                    setDragPriorityId(null)
-                    if (!draggedId || savingPriority) return
-                    await movePriorityBefore(draggedId, row.valve_id)
-                  }}
-                  onClick={(e) => {
-                    if ((e.target as HTMLElement).closest('.priority-move-buttons')) return
-                    navigate(`/job-board?open=${row.id}`)
-                  }}
-                  onKeyDown={(e) => {
-                    if (e.key !== 'Enter' && e.key !== ' ') return
-                    if ((e.target as HTMLElement).closest('.priority-move-buttons')) return
-                    e.preventDefault()
-                    navigate(`/job-board?open=${row.id}`)
-                  }}
-                  tabIndex={0}
-                  aria-label={`Open work card for ${row.valve_id}`}
-                >
-                  <div className="priority-rank">{index + 1}</div>
-                  <div className="priority-main">
-                    <div className="priority-id">{row.valve_id}</div>
-                    <div className="priority-meta">
-                      {row.customer ?? 'Unknown customer'} · {row.cell ?? 'No cell'}
-                    </div>
-                  </div>
-                  <span className="priority-status">{displayJobStatus(row)}</span>
-                  <div className="priority-move-buttons">
-                    <button
-                      type="button"
-                      className="priority-arrow"
-                      onClick={(e) => {
-                        e.stopPropagation()
-                        void movePriority(row.valve_id, -1)
-                      }}
-                      disabled={!canWrite || index === 0 || savingPriority}
-                    >
-                      ▲
-                    </button>
-                    <button
-                      type="button"
-                      className="priority-arrow"
-                      onClick={(e) => {
-                        e.stopPropagation()
-                        void movePriority(row.valve_id, 1)
-                      }}
-                      disabled={!canWrite || index === priorityRows.length - 1 || savingPriority}
-                    >
-                      ▼
-                    </button>
-                  </div>
-                </article>
-              ))
-            ) : (
-              <div className="priority-empty">
-                {workflow.key === 'vsi'
-                  ? 'No VSI priority valves yet. Add jobs from the Status board while VSI is selected.'
-                  : 'No priority valves yet. Open the Status board and star jobs to build today’s list.'}
-              </div>
-            )}
+          <div className="dashboard-sidebar-tabs" role="tablist" aria-label="Dashboard lists">
+            <button
+              type="button"
+              role="tab"
+              id="dashboard-tab-priority"
+              className={`dashboard-sidebar-tab${sidebarTab === 'priority' ? ' is-active' : ''}`}
+              aria-selected={sidebarTab === 'priority'}
+              aria-controls="dashboard-panel-priority"
+              onClick={() => setSidebarTab('priority')}
+            >
+              Priority list
+              <span className="dashboard-sidebar-tab-count">{priorityRows.length}</span>
+            </button>
+            <button
+              type="button"
+              role="tab"
+              id="dashboard-tab-todo"
+              className={`dashboard-sidebar-tab${sidebarTab === 'todo' ? ' is-active' : ''}`}
+              aria-selected={sidebarTab === 'todo'}
+              aria-controls="dashboard-panel-todo"
+              onClick={() => setSidebarTab('todo')}
+            >
+              To-do list
+              <span className="dashboard-sidebar-tab-count">{todoOpenCount}</span>
+            </button>
           </div>
-          <Link className="dashboard-link-button" to="/job-board">
-            Manage priorities on Job Board
-          </Link>
-          </section>
-          <DashboardNotesPanel readOnly={!canWrite} />
+
+          <div
+            id="dashboard-panel-priority"
+            role="tabpanel"
+            aria-labelledby="dashboard-tab-priority"
+            hidden={sidebarTab !== 'priority'}
+          >
+            <section className="dashboard-panel priority-panel">
+              <h3>Today's priority list</h3>
+              <div className="priority-list">
+                {priorityRows.length ? (
+                  priorityRows.map((row, index) => (
+                    <article
+                      key={row.id}
+                      className={`priority-row ${dragPriorityId === row.valve_id ? 'dragging' : ''}`}
+                      draggable={canWrite}
+                      onDragStart={() => {
+                        if (!canWrite) return
+                        setDragPriorityId(row.valve_id)
+                      }}
+                      onDragEnd={() => setDragPriorityId(null)}
+                      onDragOver={(event) => {
+                        if (!canWrite) return
+                        event.preventDefault()
+                      }}
+                      onDrop={async (event) => {
+                        if (!canWrite) return
+                        event.preventDefault()
+                        const draggedId = dragPriorityId
+                        setDragPriorityId(null)
+                        if (!draggedId || savingPriority) return
+                        await movePriorityBefore(draggedId, row.valve_id)
+                      }}
+                      onClick={(e) => {
+                        if ((e.target as HTMLElement).closest('.priority-move-buttons')) return
+                        navigate(`/job-board?open=${row.id}`)
+                      }}
+                      onKeyDown={(e) => {
+                        if (e.key !== 'Enter' && e.key !== ' ') return
+                        if ((e.target as HTMLElement).closest('.priority-move-buttons')) return
+                        e.preventDefault()
+                        navigate(`/job-board?open=${row.id}`)
+                      }}
+                      tabIndex={0}
+                      aria-label={`Open work card for ${row.valve_id}`}
+                    >
+                      <div className="priority-rank">{index + 1}</div>
+                      <div className="priority-main">
+                        <div className="priority-id">{row.valve_id}</div>
+                        <div className="priority-meta">
+                          {row.customer ?? 'Unknown customer'} · {row.cell ?? 'No cell'}
+                        </div>
+                      </div>
+                      <span className="priority-status">{displayJobStatus(row)}</span>
+                      <div className="priority-move-buttons">
+                        <button
+                          type="button"
+                          className="priority-arrow"
+                          onClick={(e) => {
+                            e.stopPropagation()
+                            void movePriority(row.valve_id, -1)
+                          }}
+                          disabled={!canWrite || index === 0 || savingPriority}
+                        >
+                          ▲
+                        </button>
+                        <button
+                          type="button"
+                          className="priority-arrow"
+                          onClick={(e) => {
+                            e.stopPropagation()
+                            void movePriority(row.valve_id, 1)
+                          }}
+                          disabled={!canWrite || index === priorityRows.length - 1 || savingPriority}
+                        >
+                          ▼
+                        </button>
+                      </div>
+                    </article>
+                  ))
+                ) : (
+                  <div className="priority-empty">
+                    {workflow.key === 'vsi'
+                      ? 'No VSI priority valves yet. Add jobs from the Status board while VSI is selected.'
+                      : 'No priority valves yet. Open the Status board and star jobs to build today’s list.'}
+                  </div>
+                )}
+              </div>
+              <Link className="dashboard-link-button" to="/job-board">
+                Manage priorities on Job Board
+              </Link>
+            </section>
+          </div>
+
+          <div
+            id="dashboard-panel-todo"
+            role="tabpanel"
+            aria-labelledby="dashboard-tab-todo"
+            aria-hidden={sidebarTab !== 'todo'}
+          >
+            <DashboardNotesPanel
+              readOnly={!canWrite}
+              inlineHidden={sidebarTab !== 'todo'}
+              onOpenCountChange={handleTodoOpenCountChange}
+            />
+          </div>
         </aside>
       </div>
       <div className="dashboard-actions">
