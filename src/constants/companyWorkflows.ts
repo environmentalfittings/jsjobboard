@@ -111,7 +111,7 @@ export const VSI_WORKFLOW: CompanyWorkflowProfile = {
     { key: 'in-shop', title: 'In-shop Work', className: 'in-shop', statuses: VSI_IN_SHOP },
     { key: 'testing', title: 'Testing', className: 'testing', statuses: VSI_TESTING },
     { key: 'waiting', title: 'Waiting/Hold', className: 'waiting', statuses: VSI_WAITING },
-    { key: 'done', title: 'Done', className: 'done', statuses: VSI_DONE },
+    { key: 'done', title: 'Shipping', className: 'done', statuses: VSI_DONE },
   ],
   incomingStatuses: VSI_INCOMING,
   inShopStatuses: VSI_IN_SHOP,
@@ -170,7 +170,7 @@ export function statusToneForAnyCompany(status: string): 'incoming' | 'in-shop' 
     if (profile.inShopStatuses.has(status)) return 'in-shop'
     if (profile.testingStatuses.has(status)) return 'testing'
     if (profile.waitingStatuses.has(status)) return 'waiting'
-    if (profile.doneStatuses.has(status)) return 'done'
+    if (profile.doneStatuses.has(status) || profile.terminalStatuses.has(status)) return 'done'
   }
   return 'default'
 }

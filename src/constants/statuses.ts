@@ -65,7 +65,9 @@ export const WAITING_STATUSES = new Set<string>([
   'Outsourced',
   'On Hold',
 ])
-export const DONE_STATUSES = new Set<string>(['Warehouse RTS', 'Replaced', 'Junked', 'Completed'])
+/** Ready-to-ship board column (not junked / completed / replaced). */
+export const DONE_STATUSES = new Set<string>(['Warehouse RTS'])
+/** Finished work orders — off the open board; findable via Closed list / search. */
 export const TERMINAL_STATUSES = new Set<string>(['Completed', 'Junked', 'Replaced'])
 
 export const PHASES = [
@@ -73,5 +75,5 @@ export const PHASES = [
   { key: 'in-shop', title: 'In-shop Work', className: 'in-shop', statuses: IN_SHOP_STATUSES },
   { key: 'testing', title: 'Testing', className: 'testing', statuses: TESTING_STATUSES },
   { key: 'waiting', title: 'Waiting/Hold', className: 'waiting', statuses: WAITING_STATUSES },
-  { key: 'done', title: 'Done', className: 'done', statuses: DONE_STATUSES },
+  { key: 'done', title: 'Warehouse RTS', className: 'done', statuses: DONE_STATUSES },
 ] as const

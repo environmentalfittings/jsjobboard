@@ -993,23 +993,15 @@ export function JobBoardPage({ role, username }: { role?: UserRole; username?: s
     }
   }, [])
 
-  const doneLimited = useMemo(() => {
+  const warehouseRtsColumnItems = useMemo(() => {
     const byClosedDesc = (a: Valve, b: Valve) => {
       const ad = a.date_closed ? new Date(a.date_closed).getTime() : 0
       const bd = b.date_closed ? new Date(b.date_closed).getTime() : 0
       if (bd !== ad) return bd - ad
       return b.valve_id.localeCompare(a.valve_id)
     }
-    // Only true done statuses — do not pull in mis-tagged Completed + still-in-shop rows.
-    const done = valves.filter((v) => DONE_STATUSES.has(v.status))
-    // Always keep Junked (and Replaced) visible so accidental moves can be fixed.
-    const recoverable = done.filter((v) => v.status === 'Junked' || v.status === 'Replaced').sort(byClosedDesc)
-    const recoverableIds = new Set(recoverable.map((v) => v.id))
-    const recentOther = done
-      .filter((v) => !recoverableIds.has(v.id))
-      .sort(byClosedDesc)
-      .slice(0, 20)
-    return [...recoverable, ...recentOther]
+    // Warehouse RTS / Shipping only — Junked, Completed, and Replaced stay in Closed list.
+    return valves.filter((v) => DONE_STATUSES.has(displayJobStatus(v))).sort(byClosedDesc)
   }, [valves, DONE_STATUSES])
 
   const activeNonTerminal = useMemo(() => valves.filter((v) => isActiveShopWork(v)), [valves])
@@ -1908,10 +1900,10 @@ export function JobBoardPage({ role, username }: { role?: UserRole; username?: s
     }
     const closedCount = workOrderSearchMatches.filter((v) => isClosedWorkOrder(v)).length
     if (closedCount === total) {
-      return `Found ${total} closed job${total === 1 ? '' : 's'} — shown in the Done column (or open the card from search).`
+      return `Found ${total} closed job${total === 1 ? '' : 's'} — open from search or switch list view to Closed.`
     }
     if (closedCount > 0) {
-      return `Found ${total} job${total === 1 ? '' : 's'} (${closedCount} closed). Closed matches appear in Done.`
+      return `Found ${total} job${total === 1 ? '' : 's'} (${closedCount} closed). Closed matches are in list view → Closed.`
     }
     return `Found ${total} active job${total === 1 ? '' : 's'}.`
   }, [hasWorkOrderSearch, workOrderSearchMatches, selectedWorkOrder, workOrderQuery])
@@ -1921,13 +1913,12 @@ export function JobBoardPage({ role, username }: { role?: UserRole; username?: s
       if (phaseKey !== 'done') {
         return activeNonTerminal.filter((valve) => isValveInPhase(valve, phaseKey))
       }
-      // Top-bar search: include older closed jobs, not only the recent Done slice.
       if (hasListTopSearch) {
-        return valves.filter((v) => isClosedWorkOrder(v) || DONE_STATUSES.has(v.status))
+        return valves.filter((v) => DONE_STATUSES.has(displayJobStatus(v)))
       }
-      return doneLimited
+      return warehouseRtsColumnItems
     },
-    [activeNonTerminal, doneLimited, hasListTopSearch, valves, DONE_STATUSES, PHASES],
+    [activeNonTerminal, warehouseRtsColumnItems, hasListTopSearch, valves, DONE_STATUSES, PHASES],
   )
 
   const itemsForPhase = useCallback(

@@ -1,9 +1,13 @@
-import { DONE_STATUSES } from '../constants/statuses'
+import { DONE_STATUSES, TERMINAL_STATUSES } from '../constants/statuses'
 import { statusRequiresPreTest } from './jobTestCriteria'
 import { isOtdPauseStatus } from './onTimeDelivery'
 import type { Valve } from '../types'
 
 type ValveStatusContext = Pick<Valve, 'status' | 'order_type' | 'date_closed'>
+
+function isFinishedShopStatus(status: string): boolean {
+  return DONE_STATUSES.has(status) || TERMINAL_STATUSES.has(status)
+}
 
 /** Fields to update when changing a valve's shop status. */
 export function valveStatusPatch(
@@ -22,7 +26,7 @@ export function valveStatusPatch(
     return patch
   }
 
-  // Keep Junked / Replaced sortable and visible in Done / closed lists.
+  // Keep Junked / Replaced sortable in Closed list.
   if (nextStatus === 'Junked' || nextStatus === 'Replaced') {
     patch.date_closed = today
     return patch
@@ -30,10 +34,10 @@ export function valveStatusPatch(
 
   const previousStatus = previousValve?.status
   const movingFromDoneStatus =
-    previousStatus != null && DONE_STATUSES.has(previousStatus) && !DONE_STATUSES.has(nextStatus)
+    previousStatus != null && isFinishedShopStatus(previousStatus) && !isFinishedShopStatus(nextStatus)
   const reopeningCompletedOrder =
     previousValve?.order_type === 'Completed' &&
-    !DONE_STATUSES.has(nextStatus) &&
+    !isFinishedShopStatus(nextStatus) &&
     previousStatus != null &&
     previousStatus !== nextStatus
 

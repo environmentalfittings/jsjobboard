@@ -412,8 +412,12 @@ export function overlayWorkflowProfile(profile: CompanyWorkflowProfile): Company
     else if (bucket === 'testing') testing.add(status)
     else if (bucket === 'waiting') waiting.add(status)
     else if (bucket === 'done') {
-      done.add(status)
-      terminal.add(status)
+      // Board column is ready-to-ship only; junked/completed/replaced stay terminal (Closed list).
+      if (/junked|replaced|^completed$/i.test(status) || terminal.has(status)) {
+        terminal.add(status)
+      } else {
+        done.add(status)
+      }
     } else inShop.add(status)
   }
 

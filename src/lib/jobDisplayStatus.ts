@@ -35,7 +35,7 @@ export function isClosedWorkOrder(valve: Valve): boolean {
 export function isActiveShopWork(valve: Valve): boolean {
   if (isClosedWorkOrder(valve)) return false
   if (isActiveOrderType(valve.order_type)) return true
-  // Blank/legacy order type but still in an active shop phase (not RTS/Completed/etc.)
+  // Blank/legacy order type but still in an active shop phase (not Warehouse RTS).
   if (valve.status && !DONE_STATUSES.has(valve.status)) return true
   return false
 }
