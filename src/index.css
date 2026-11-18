@@ -25142,6 +25142,15 @@ body.shop-tv-fullscreen-active .page-content {
 .vk-table-wrap {
   overflow-x: auto;
   margin: 0 -4px;
+  -webkit-overflow-scrolling: touch;
+}
+
+.vk-table-wrap--parts {
+  overflow: auto;
+  max-height: min(58vh, 520px);
+  border: 1px solid #e2e8f0;
+  border-radius: 10px;
+  background: #fff;
 }
 
 .vk-parts-table,
@@ -25150,6 +25159,10 @@ body.shop-tv-fullscreen-active .page-content {
   width: 100%;
   border-collapse: collapse;
   font-size: 0.78rem;
+}
+
+.vk-parts-table {
+  min-width: 640px;
 }
 
 .vk-parts-table th,
@@ -25173,6 +25186,14 @@ body.shop-tv-fullscreen-active .page-content {
   text-transform: uppercase;
   color: #64748b;
   white-space: nowrap;
+}
+
+.vk-table-wrap--parts .vk-parts-table thead th {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  background: #f1f5f9;
+  box-shadow: 0 1px 0 #e2e8f0;
 }
 
 .vk-part-name-cell {
@@ -25209,6 +25230,79 @@ body.shop-tv-fullscreen-active .page-content {
   padding: 4px 6px;
 }
 
+.vk-code-select {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 2.75rem;
+  min-width: 2.75rem;
+  max-width: 2.75rem;
+  height: 1.85rem;
+}
+
+.vk-code-select-face {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  pointer-events: none;
+  font-size: 0.82rem;
+  font-weight: 800;
+  color: #0f172a;
+  background: #fff;
+  border: 1px solid #cbd5e1;
+  border-radius: 6px;
+  z-index: 0;
+}
+
+.vk-code-select-input {
+  position: relative;
+  z-index: 1;
+  width: 100% !important;
+  min-width: 0 !important;
+  max-width: none !important;
+  height: 100%;
+  margin: 0;
+  padding: 0 !important;
+  opacity: 0;
+  cursor: pointer;
+  font-size: 0.82rem;
+}
+
+.vk-code-select:focus-within .vk-code-select-face {
+  border-color: #2563eb;
+  box-shadow: 0 0 0 2px rgba(37, 99, 235, 0.18);
+}
+
+.vk-cell-add-photos {
+  border: none;
+  background: transparent;
+  color: #2563eb;
+  font: inherit;
+  font-size: 0.72rem;
+  font-weight: 700;
+  padding: 0;
+  cursor: pointer;
+  white-space: nowrap;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.vk-cell-add-photos:disabled {
+  color: #94a3b8;
+  cursor: not-allowed;
+}
+
+.vk-cell-field--photo-collapsed {
+  min-height: 0;
+}
+
+.vk-parts-table td {
+  white-space: nowrap;
+}
+
 .vk-cell-hint {
   margin: 0 0 4px;
   font-size: 0.65rem;
@@ -25218,6 +25312,16 @@ body.shop-tv-fullscreen-active .page-content {
 .vk-cell-hint--req {
   color: #b45309;
   font-weight: 700;
+}
+
+@media (max-width: 640px) {
+  .vk-parts-table {
+    min-width: 560px;
+  }
+
+  .vk-table-wrap--parts {
+    max-height: min(50vh, 420px);
+  }
 }
 
 .vk-cell-photos {
