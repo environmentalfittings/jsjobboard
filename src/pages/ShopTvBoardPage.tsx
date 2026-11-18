@@ -8,7 +8,12 @@ import { useAuth } from '../contexts/AuthContext'
 import { useOrganization } from '../contexts/OrganizationContext'
 import { finishCellTone } from '../constants/finishCellColors'
 import { useCompanyWorkflow } from '../hooks/useCompanyWorkflow'
-import { filterValvesForCompany } from '../lib/companyDataScope'
+import {
+  daysOnTodoList,
+  formatDaysOnTodoList,
+  todoAgeTone,
+} from '../components/DashboardNotesPanel'
+import { filterNotesForCompany, filterValvesForCompany } from '../lib/companyDataScope'
 import { fetchAllValves } from '../lib/fetchAllValves'
 import { loadItpCardSummaries, type ItpCardSummary } from '../lib/itpCardSummaries'
 import { displayJobStatus, isActiveShopWork } from '../lib/jobDisplayStatus'
@@ -105,6 +110,22 @@ function scrollRateLabel(rate: number): string {
   if (rate <= 28) return 'Slow'
   if (rate <= 60) return 'Medium'
   return 'Fast'
+}
+
+type ShopTvKnowItem = {
+  id: number
+  body: string
+  assigned_to: string | null
+  created_at: string | null
+  note_date: string | null
+}
+
+function formatKnowItem(item: ShopTvKnowItem): string {
+  const body = item.body.trim()
+  const assignee = item.assigned_to?.trim()
+  const age = formatDaysOnTodoList(daysOnTodoList(item.created_at, item.note_date))
+  const base = assignee ? `${body} · ${assignee}` : body
+  return `${base} (${age})`
 }
 
 const DEPT_CHART_COLORS: Record<string, string> = {
@@ -328,6 +349,7 @@ export function ShopTvBoardPage() {
   const [priorityQueueIds, setPriorityQueueIds] = useState<string[]>([])
   const [movesToday, setMovesToday] = useState<ShopTvStatusMove[]>([])
   const [deptLeaderboard, setDeptLeaderboard] = useState<ShopTvDeptMoveRow[]>([])
+  const [knowItems, setKnowItems] = useState<ShopTvKnowItem[]>([])
   const [loading, setLoading] = useState(true)
   const [savingPriority, setSavingPriority] = useState(false)
   const [fullscreen, setFullscreen] = useState(false)
@@ -362,6 +384,7 @@ export function ShopTvBoardPage() {
       setPriorityQueueIds([])
       setMovesToday([])
       setDeptLeaderboard([])
+      setKnowItems([])
       setLoading(false)
       return
     }
@@ -376,7 +399,7 @@ export function ShopTvBoardPage() {
     setPriorityQueueIds(filterPriorityIdsForValves(eligible, scoped))
 
     const { startIso, endIso } = localTodayBounds()
-    const [summaries, todayRes] = await Promise.all([
+    const [summaries, todayRes, notesRes] = await Promise.all([
       loadItpCardSummaries(scoped.map((row) => row.id)).catch(() => ({}) as Record<number, ItpCardSummary>),
       supabase
         .from('valve_change_log')
@@ -385,6 +408,13 @@ export function ShopTvBoardPage() {
         .gte('changed_at', startIso)
         .lt('changed_at', endIso)
         .order('changed_at', { ascending: true }),
+      supabase
+        .from('daily_notes')
+        .select('id,body,assigned_to,is_done,sort_order,note_date,created_at')
+        .eq('is_done', false)
+        .order('sort_order', { ascending: true })
+        .order('note_date', { ascending: false })
+        .order('id', { ascending: false }),
     ])
     setItpSummaries(summaries)
 
@@ -403,6 +433,33 @@ export function ShopTvBoardPage() {
       )
       setMovesToday(parsed.moves)
       setDeptLeaderboard(parsed.deptLeaderboard)
+    }
+
+    if (notesRes.error) {
+      setKnowItems([])
+    } else {
+      type NoteRow = {
+        id: number
+        body: string | null
+        assigned_to: string | null
+        created_at: string | null
+        note_date: string | null
+      }
+      const scopedNotes = filterNotesForCompany((notesRes.data as NoteRow[]) ?? [], {
+        workflowKey: workflow.key,
+        activeOrganization,
+      })
+      setKnowItems(
+        scopedNotes
+          .map((note) => ({
+            id: note.id,
+            body: (note.body ?? '').trim(),
+            assigned_to: note.assigned_to?.trim() || null,
+            created_at: note.created_at,
+            note_date: note.note_date,
+          }))
+          .filter((note) => note.body.length > 0),
+      )
     }
     setLoading(false)
   }, [showToast, workflow.key, activeOrganization])
@@ -425,6 +482,9 @@ export function ShopTvBoardPage() {
         void load()
       })
       .on('postgres_changes', { event: '*', schema: 'public', table: 'valve_itp' }, () => {
+        void load()
+      })
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'daily_notes' }, () => {
         void load()
       })
       .subscribe()
@@ -614,6 +674,12 @@ export function ShopTvBoardPage() {
     [canWrite, savingPriority, priorityQueueIds, showToast],
   )
 
+  const knowScrollSeconds = useMemo(() => {
+    if (knowItems.length === 0) return 30
+    const chars = knowItems.reduce((sum, item) => sum + formatKnowItem(item).length, 0)
+    return Math.min(90, Math.max(24, Math.round(chars / 4)))
+  }, [knowItems])
+
   return (
     <section
       className={`shop-tv-board${fullscreen ? ' shop-tv-board--fullscreen' : ''}${workflow.key === 'vsi' ? ' shop-tv-board--vsi' : ''}`}
@@ -680,6 +746,51 @@ export function ShopTvBoardPage() {
           ) : null}
         </div>
       </header>
+
+      <section
+        className={`shop-tv-know${scrollPaused ? ' is-paused' : ''}`}
+        aria-label="In the Know — open shop to-do items"
+      >
+        <div className="shop-tv-know-label">In the Know</div>
+        <div className="shop-tv-know-viewport">
+          {knowItems.length === 0 ? (
+            <p className="shop-tv-know-empty">
+              {loading ? 'Loading to-do items…' : 'No open to-do items right now.'}
+            </p>
+          ) : (
+            <div
+              className="shop-tv-know-track"
+              style={{ animationDuration: `${knowScrollSeconds}s` }}
+            >
+              {(['a', 'b'] as const).map((copy) => (
+                <div
+                  key={copy}
+                  className="shop-tv-know-group"
+                  aria-hidden={copy === 'b' ? true : undefined}
+                >
+                  {knowItems.map((item) => {
+                    const days = daysOnTodoList(item.created_at, item.note_date)
+                    return (
+                      <span key={`${copy}-${item.id}`} className="shop-tv-know-item">
+                        <span className="shop-tv-know-item-text">
+                          {item.assigned_to?.trim()
+                            ? `${item.body.trim()} · ${item.assigned_to.trim()}`
+                            : item.body.trim()}
+                        </span>
+                        <span
+                          className={`shop-tv-know-age shop-tv-know-age--${todoAgeTone(days)}`}
+                        >
+                          {formatDaysOnTodoList(days)}
+                        </span>
+                      </span>
+                    )
+                  })}
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      </section>
 
       <section className="shop-tv-chart" aria-label="Department moves chart for today">
         <div className="shop-tv-chart-head">

@@ -47,6 +47,30 @@ function formatTimestamp(value: string | null): string {
   })
 }
 
+/** Whole calendar days since the task was added (local date). */
+export function daysOnTodoList(createdAt: string | null | undefined, noteDate?: string | null): number {
+  const raw = createdAt?.trim() || (noteDate ? `${noteDate}T12:00:00` : '')
+  if (!raw) return 0
+  const parsed = new Date(raw)
+  if (Number.isNaN(parsed.getTime())) return 0
+  const start = new Date(parsed.getFullYear(), parsed.getMonth(), parsed.getDate())
+  const now = new Date()
+  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate())
+  return Math.max(0, Math.round((today.getTime() - start.getTime()) / 86_400_000))
+}
+
+export function formatDaysOnTodoList(days: number): string {
+  if (days <= 0) return 'Today'
+  if (days === 1) return '1 day'
+  return `${days} days`
+}
+
+export function todoAgeTone(days: number): 'fresh' | 'aging' | 'stale' {
+  if (days >= 7) return 'stale'
+  if (days >= 3) return 'aging'
+  return 'fresh'
+}
+
 function isMissingRailColumnError(message: string | undefined): boolean {
   if (!message) return false
   return /estimated_completion_date|add_to_rail|created_by|rail_added_by/i.test(message)
@@ -283,7 +307,9 @@ export function DashboardNotesPanel({
     return () => window.removeEventListener('keydown', onKey)
   }, [poppedOut])
 
-  const renderNote = (note: DailyNote, done: boolean, expanded: boolean) => (
+  const renderNote = (note: DailyNote, done: boolean, expanded: boolean) => {
+    const ageDays = daysOnTodoList(note.created_at, note.note_date)
+    return (
     <li key={note.id} className={`daily-note-row ${done ? 'done' : ''}`}>
       <input
         type="checkbox"
@@ -300,6 +326,14 @@ export function DashboardNotesPanel({
           {note.assigned_to ? <span className="daily-note-assignee">@{note.assigned_to}</span> : null}
           {note.estimated_completion_date ? (
             <span>Est. {formatNoteDate(note.estimated_completion_date)}</span>
+          ) : null}
+          {!done ? (
+            <span
+              className={`daily-note-age-badge daily-note-age-badge--${todoAgeTone(ageDays)}`}
+              title="Days this task has been on the to-do list"
+            >
+              {formatDaysOnTodoList(ageDays)}
+            </span>
           ) : null}
           {note.add_to_rail ? <span className="daily-note-rail-badge">Rail</span> : null}
           {done && note.completed_at ? (
@@ -388,7 +422,8 @@ export function DashboardNotesPanel({
         ) : null}
       </div>
     </li>
-  )
+    )
+  }
 
   const openLargerViewButton = (
     <button

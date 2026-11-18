@@ -8,6 +8,7 @@ import { DailyPriorityWorksheet } from '../components/DailyPriorityWorksheet'
 import { FinishCellBadge } from '../components/FinishCellBadge'
 import { MonthlyUnitsDeliveredReportPanel } from '../components/MonthlyUnitsDeliveredReportPanel'
 import { RailReportPanel } from '../components/RailReportPanel'
+import { ShopTodoListReportPanel } from '../components/ShopTodoListReportPanel'
 import { ReceivedValvesReportPanel } from '../components/ReceivedValvesReportPanel'
 import { TrainingCertificationReportPanel } from '../components/TrainingCertificationReportPanel'
 import { useToast } from '../components/ToastNotification'
@@ -2547,6 +2548,8 @@ export function ReportsPage() {
       </CollapsibleReportPanel>
 
       <RailReportPanel />
+
+      <ShopTodoListReportPanel />
 
       <CollapsibleReportPanel
       title={(
