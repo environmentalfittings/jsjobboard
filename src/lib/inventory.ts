@@ -707,12 +707,79 @@ export async function loadRemovedInventoryRecords(): Promise<{
 
 export const INVENTORY_LOAD_LIMIT_ALL = 2000
 
+/** Names that may appear on inventory.customer for one selected customer (canonical + aliases). */
+async function inventoryCustomerNameVariants(customer: string): Promise<string[]> {
+  const name = customer.trim()
+  if (!name) return []
+  const names = new Set<string>([name])
+
+  try {
+    const { data: byName } = await supabase.from('customers').select('id,name').ilike('name', name).limit(5)
+    for (const row of byName ?? []) {
+      if (row?.name) names.add(String(row.name).trim())
+      const id = Number(row?.id)
+      if (!id) continue
+      const { data: aliases } = await supabase
+        .from('customer_aliases')
+        .select('alias_text')
+        .eq('customer_id', id)
+        .limit(50)
+      for (const alias of aliases ?? []) {
+        const text = String(alias?.alias_text ?? '').trim()
+        if (text) names.add(text)
+      }
+    }
+
+    const { data: aliasHit } = await supabase
+      .from('customer_aliases')
+      .select('customer_id,alias_text')
+      .ilike('alias_text', name)
+      .limit(5)
+    for (const hit of aliasHit ?? []) {
+      const text = String(hit?.alias_text ?? '').trim()
+      if (text) names.add(text)
+      const customerId = Number(hit?.customer_id)
+      if (!customerId) continue
+      const { data: canonical } = await supabase
+        .from('customers')
+        .select('id,name')
+        .eq('id', customerId)
+        .maybeSingle()
+      if (canonical?.name) names.add(String(canonical.name).trim())
+      const { data: siblings } = await supabase
+        .from('customer_aliases')
+        .select('alias_text')
+        .eq('customer_id', customerId)
+        .limit(50)
+      for (const alias of siblings ?? []) {
+        const sibling = String(alias?.alias_text ?? '').trim()
+        if (sibling) names.add(sibling)
+      }
+    }
+  } catch {
+    // customers / customer_aliases may be missing — still filter by the selected name.
+  }
+
+  return [...names].filter(Boolean)
+}
+
+function escapePostgrestOrValue(value: string): string {
+  // Double-quote so commas / spaces in customer names stay one filter value.
+  return `"${value.replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"`
+}
+
 /** Active inventory for the admin table — lean payload (no QR base64 / packed image_url). */
 export async function loadInventoryRecords(options?: {
   /** Most recently updated first. Use INVENTORY_LOAD_LIMIT_ALL for full list. */
   limit?: number
+  /** When set, load that customer's active items (ignores Last N — returns up to ALL). */
+  customer?: string
 }): Promise<{ data: InventoryRecord[]; error: string | null }> {
-  const limit = Math.max(1, Math.min(options?.limit ?? INVENTORY_LOAD_LIMIT_ALL, INVENTORY_LOAD_LIMIT_ALL))
+  const customer = options?.customer?.trim() ?? ''
+  const limit = customer
+    ? INVENTORY_LOAD_LIMIT_ALL
+    : Math.max(1, Math.min(options?.limit ?? INVENTORY_LOAD_LIMIT_ALL, INVENTORY_LOAD_LIMIT_ALL))
+  const nameVariants = customer ? await inventoryCustomerNameVariants(customer) : []
   const attempts = [INVENTORY_LIST_SELECT, ...INVENTORY_LIST_SELECT_FALLBACKS, INVENTORY_SELECT]
   let lastError: string | null = null
 
@@ -720,6 +787,11 @@ export async function loadInventoryRecords(options?: {
     let query = supabase.from('inventory').select(columns).order('updated_at', { ascending: false }).limit(limit)
     if (columns.includes('removed_at')) {
       query = query.is('removed_at', null)
+    }
+    if (nameVariants.length === 1) {
+      query = query.ilike('customer', nameVariants[0])
+    } else if (nameVariants.length > 1) {
+      query = query.or(nameVariants.map((name) => `customer.ilike.${escapePostgrestOrValue(name)}`).join(','))
     }
     const { data, error } = await query
     if (!error) {

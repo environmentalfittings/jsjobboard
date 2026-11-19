@@ -733,8 +733,12 @@ export function AdminInventoryPage() {
     setLoading(true)
     setRemovedLoaded(false)
     setEventsLoaded(false)
+    const selectedCustomer = customerFilter.trim()
     const [{ data, error }, options, customerResult] = await Promise.all([
-      loadInventoryRecords({ limit: inventoryFetchLimit(loadLimit) }),
+      loadInventoryRecords({
+        limit: inventoryFetchLimit(loadLimit),
+        customer: selectedCustomer || undefined,
+      }),
       loadInventoryFormOptions(),
       loadCustomersWithSalesRep(),
     ])
@@ -766,7 +770,7 @@ export function AdminInventoryPage() {
       setCustomerRows(customerResult.data)
       setSalesRepColumnMissing(customerResult.salesRepColumnMissing)
     }
-  }, [companyScope, loadLimit, showToast])
+  }, [companyScope, customerFilter, loadLimit, showToast])
 
   const loadRemovedTab = useCallback(async () => {
     if (removedLoaded) return
@@ -926,13 +930,14 @@ export function AdminInventoryPage() {
 
   const searchFiltered = useMemo(() => {
     return sourceRows.filter((row) => {
-      if (customerFilter.trim()) {
+      // Active rows are already loaded for the selected customer (+ aliases) on the server.
+      if (customerFilter.trim() && listScope !== 'active') {
         const needle = customerFilter.trim().toLowerCase()
         if ((row.customer ?? '').trim().toLowerCase() !== needle) return false
       }
       return inventoryMatchesSearch(row, search)
     })
-  }, [sourceRows, search, customerFilter])
+  }, [sourceRows, search, customerFilter, listScope])
 
   const filterOptions = useMemo(
     () => ({
@@ -1088,13 +1093,26 @@ export function AdminInventoryPage() {
   )
 
   const selectedCustomerGroup = useMemo(() => {
-    if (!customerFilter.trim()) return null
-    return (
-      customerGroups.find(
-        (group) => group.customer.trim().toLowerCase() === customerFilter.trim().toLowerCase(),
-      ) ?? null
+    const selected = customerFilter.trim()
+    if (!selected) return null
+    const exact = customerGroups.find(
+      (group) => group.customer.trim().toLowerCase() === selected.toLowerCase(),
     )
-  }, [customerGroups, customerFilter])
+    if (exact) return exact
+    // Active load may include alias spellings (e.g. Holly Frontier vs HF Sinclair).
+    if (!rows.length) return null
+    const match = findCustomerByName(customerRows, selected)
+    return {
+      customer: selected,
+      items: [...rows].sort((a, b) =>
+        String(a.js_inventory_id ?? '').localeCompare(String(b.js_inventory_id ?? ''), undefined, {
+          numeric: true,
+          sensitivity: 'base',
+        }),
+      ),
+      salesRepEmployeeId: match?.sales_rep_employee_id ?? null,
+    }
+  }, [customerGroups, customerFilter, rows, customerRows])
 
   const reportLookupRecords = useMemo(() => [...rows, ...removedRows], [rows, removedRows])
 
@@ -2251,13 +2269,14 @@ export function AdminInventoryPage() {
                 {listScope === 'activity'
                   ? `${filteredEvents.length} event${filteredEvents.length === 1 ? '' : 's'}`
                   : `${sortedRows.length} item${sortedRows.length === 1 ? '' : 's'}`}
-                {listScope === 'active' && loadLimit !== 'all'
+                {listScope === 'active' && loadLimit !== 'all' && !customerFilter.trim()
                   ? ` · ${loadLimitLabel}`
                   : ''}
                 {customerFilter.trim() || search.trim() || activeColumnFilterCount > 0 ? ' matching' : ''}
                 {listScope === 'active' &&
                 loadLimit !== 'all' &&
-                (customerFilter.trim() || search.trim() || activeColumnFilterCount > 0)
+                !customerFilter.trim() &&
+                (search.trim() || activeColumnFilterCount > 0)
                   ? ' (within loaded set — choose All records to search everything)'
                   : ''}
                 {listScope === 'active' && selectedPrintable.length > 0
