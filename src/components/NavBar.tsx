@@ -273,6 +273,8 @@ export function NavBar({ role, username, userId, onLogout }: NavBarProps) {
     {
       to: '/admin/employees',
       label: 'Employees',
+      disabled: role === 'viewer',
+      disabledReason: 'Read-only accounts cannot open Employees or Shop assignment',
     },
     {
       to: '/admin/lists',
