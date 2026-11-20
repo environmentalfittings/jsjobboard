@@ -25,8 +25,6 @@ import {
   resolveLibrarySectionId,
   type ItpProcessSectionDef,
 } from '../constants/itpProcessSections'
-import { useCompanyWorkflow } from '../hooks/useCompanyWorkflow'
-import { getWorkflowStages } from '../lib/statusWorkflow'
 import { defaultShopAreas, normalizeShopAreaValue, type ItpShopAreaDef } from '../constants/itpShopAreas'
 import { defaultAreaForSection, fillEmptyShopAreasFromCatalog, loadItpMasterCatalog, resolveItpItemShopArea } from '../lib/itpMasterCatalog'
 import {
@@ -163,8 +161,6 @@ function JobTypeBadge({ jobType }: { jobType: ItpLibraryJobType }) {
 
 export function ItpLibraryEditor({ valve, onClose, readOnly = false }: ItpLibraryEditorProps) {
   const { showToast } = useToast()
-  const workflow = useCompanyWorkflow()
-  const workflowStages = useMemo(() => getWorkflowStages(workflow.key), [workflow.key])
   const { user, username, role } = useAuth()
   const { employees } = useEmployees()
   const parts = useJobNeededParts(valve.id)
@@ -546,14 +542,6 @@ export function ItpLibraryEditor({ valve, onClose, readOnly = false }: ItpLibrar
     return normalizeProcessSections(masterProcessSections, extraIds)
   }, [plan?.custom, scopeItems, buildScopeRowsBySection, masterProcessSections])
 
-  const workflowLabelForSection = useCallback(
-    (section: ItpProcessSectionDef) => {
-      const key = section.workflowStageKey?.trim()
-      if (!key) return null
-      return workflowStages.find((stage) => stage.key === key)?.label ?? key
-    },
-    [workflowStages],
-  )
   const travelerReport = useMemo(() => (plan ? buildItpTravelerReport(plan) : null), [plan])
   const travelerReportStats = useMemo(
     () =>
@@ -1825,11 +1813,6 @@ export function ItpLibraryEditor({ valve, onClose, readOnly = false }: ItpLibrar
                   <div className="itp-library-lib-sec-hdr">
                     <div className="itp-library-lib-sec-hdr-main">
                       <h4>{section.title}</h4>
-                      {workflowLabelForSection(section) ? (
-                        <span className="itp-section-workflow-ref">
-                          Shop workflow · {workflowLabelForSection(section)}
-                        </span>
-                      ) : null}
                     </div>
                     <div className="itp-library-lshr">
                       <span>
@@ -2251,11 +2234,9 @@ export function ItpLibraryEditor({ valve, onClose, readOnly = false }: ItpLibrar
                       <div className="itp-library-itp-sec-hdr">
                         <div className="itp-library-lib-sec-hdr-main">
                           <h4>{section.title}</h4>
-                          {workflowLabelForSection(section) ? (
-                            <span className="itp-section-workflow-ref">
-                              Shop workflow · {workflowLabelForSection(section)}
-                            </span>
-                          ) : null}
+                          <span className="itp-section-workflow-ref">
+                            Moves use each item’s Station
+                          </span>
                         </div>
                         <div className="itp-library-isp-wrap screen-only">
                           {secFlag > 0 ? <span className="itp-library-sec-flag">⚑{secFlag}</span> : null}
