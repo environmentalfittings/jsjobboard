@@ -14,6 +14,7 @@ import {
   isBackwardStatusMove,
   workflowStageIndex,
 } from './statusWorkflow'
+import { isItpGateBypassed } from './itpGateBypass'
 
 export type ItpWorkflowGateResult =
   | { ok: true }
@@ -162,6 +163,7 @@ export async function assertItpCompleteForStatusLeave(options: {
   const fromStatus = options.valve.status
   const toStatus = options.nextStatus
   if (!fromStatus || !toStatus || fromStatus === toStatus) return { ok: true }
+  if (isItpGateBypassed(options.valve.id)) return { ok: true }
   if (isBackwardStatusMove(fromStatus, toStatus, options.companyKey)) return { ok: true }
   if (stageKeysBeingLeft(fromStatus, toStatus, options.companyKey).length === 0) {
     return { ok: true }

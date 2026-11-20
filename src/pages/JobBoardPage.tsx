@@ -57,6 +57,7 @@ import type { DueDateChangeDetails, DueDateChangeSavePayload } from '../lib/dueD
 import { recordDueDateChange, resolveChangedByName } from '../lib/dueDateChanges'
 import { recordStatusRework } from '../lib/statusReworkLog'
 import { assertItpCompleteForStatusLeave } from '../lib/itpWorkflowGate'
+import { loadItpGateBypassIds, requestItpGateBypass } from '../lib/itpGateBypass'
 import { isBackwardStatusMove } from '../lib/statusWorkflow'
 import { blockSharedShopDeletes, SHARED_SHOP_DELETE_BLOCKED_MESSAGE } from '../lib/companyDataGuard'
 import {
@@ -267,6 +268,8 @@ interface KanbanJobCardProps {
   onCopy?: (v: Valve) => void
   onOpenPcms?: (v: Valve) => void
   canWrite?: boolean
+  itpBypassActive?: boolean
+  onBypassItp?: (v: Valve) => void
 }
 
 function KanbanJobCard({
@@ -293,6 +296,8 @@ function KanbanJobCard({
   onCopy,
   onOpenPcms,
   canWrite = true,
+  itpBypassActive = false,
+  onBypassItp,
 }: KanbanJobCardProps) {
   const assignedName = valve.assigned_technician_id ? techniciansById.get(valve.assigned_technician_id)?.name : null
   const urgencyClass =
@@ -317,6 +322,11 @@ function KanbanJobCard({
         summary={itpSummaries[valve.id]}
         onOpen={() => onOpen(valve, 'itp')}
       />
+      {itpBypassActive ? (
+        <div className="job-card-itp-bypass-badge" title="ITP move requirements bypassed for this session">
+          ITP bypass on
+        </div>
+      ) : null}
       <div className="job-card-reorder-bar" onMouseDown={(e) => e.stopPropagation()}>
         <div className="job-card-reorder-buttons">
           <button
@@ -375,6 +385,20 @@ function KanbanJobCard({
               }}
             >
               PCMS
+            </button>
+          ) : null}
+          {canWrite && onBypassItp && !itpBypassActive ? (
+            <button
+              type="button"
+              className="job-card-reorder-btn job-card-itp-bypass-btn"
+              title="Bypass ITP requirements to move this card (password required)"
+              aria-label={`Bypass ITP gate for ${valve.valve_id}`}
+              onClick={(e) => {
+                e.stopPropagation()
+                onBypassItp(valve)
+              }}
+            >
+              Bypass ITP
             </button>
           ) : null}
         </div>
@@ -567,6 +591,7 @@ export function JobBoardPage({ role, username }: { role?: UserRole; username?: s
   const [attachmentCounts, setAttachmentCounts] = useState<Record<number, number>>({})
   const [outsourcedSummaries, setOutsourcedSummaries] = useState<Record<number, OutsourcedCardSummary>>({})
   const [itpSummaries, setItpSummaries] = useState<Record<number, ItpCardSummary>>({})
+  const [itpBypassIds, setItpBypassIds] = useState<Set<number>>(() => loadItpGateBypassIds())
   const [modalInitialTab, setModalInitialTab] = useState<JobCardTab>('summary')
   const [workOrderQuery, setWorkOrderQuery] = useState('')
   const [customerQuery, setCustomerQuery] = useState('')
@@ -639,6 +664,21 @@ export function JobBoardPage({ role, username }: { role?: UserRole; username?: s
     }
   })
   const { showToast } = useToast()
+
+  const handleBypassItpGate = useCallback(
+    (valve: Valve) => {
+      const result = requestItpGateBypass(valve.id)
+      if (result.ok) {
+        setItpBypassIds(loadItpGateBypassIds())
+        if (result.reason !== 'already') {
+          showToast(`ITP move gate bypassed for ${valve.valve_id}`)
+        }
+        return
+      }
+      if (result.reason === 'wrong') showToast('Incorrect password')
+    },
+    [showToast],
+  )
 
   useEffect(() => {
     loadLookupOptionsMap().then((map) => {
@@ -2169,6 +2209,8 @@ export function JobBoardPage({ role, username }: { role?: UserRole; username?: s
                       onCopy={setCopySourceValve}
                       onOpenPcms={setPcmsValve}
                       canWrite={canWrite}
+                      itpBypassActive={itpBypassIds.has(valve.id)}
+                      onBypassItp={handleBypassItpGate}
                     />
                   ))}
                 </div>
